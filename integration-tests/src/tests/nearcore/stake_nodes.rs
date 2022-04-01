@@ -77,7 +77,7 @@ fn init_test_staking(
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let nearcore::NearNode { client, view_client, .. } =
-                start_with_config(paths[i], config.clone());
+                start_with_config(paths[i], config.clone()).expect("start_with_config");
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed(
                 account_id.clone(),
@@ -92,6 +92,7 @@ fn init_test_staking(
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_stake_nodes() {
     heavy_test(|| {
         run_actix(async move {
@@ -133,29 +134,32 @@ fn test_stake_nodes() {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     actix::spawn(
-                        test_nodes[0].client.send(Status { is_health_check: false }).then(|res| {
-                            let res = res.unwrap();
-                            if res.is_err() {
-                                return future::ready(());
-                            }
-                            let mut validators = res.unwrap().validators;
-                            validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
-                            if validators
-                                == vec![
-                                    ValidatorInfo {
-                                        account_id: "near.0".parse().unwrap(),
-                                        is_slashed: false,
-                                    },
-                                    ValidatorInfo {
-                                        account_id: "near.1".parse().unwrap(),
-                                        is_slashed: false,
-                                    },
-                                ]
-                            {
-                                System::current().stop();
-                            }
-                            future::ready(())
-                        }),
+                        test_nodes[0]
+                            .client
+                            .send(Status { is_health_check: false, detailed: false })
+                            .then(|res| {
+                                let res = res.unwrap();
+                                if res.is_err() {
+                                    return future::ready(());
+                                }
+                                let mut validators = res.unwrap().validators;
+                                validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
+                                if validators
+                                    == vec![
+                                        ValidatorInfo {
+                                            account_id: "near.0".parse().unwrap(),
+                                            is_slashed: false,
+                                        },
+                                        ValidatorInfo {
+                                            account_id: "near.1".parse().unwrap(),
+                                            is_slashed: false,
+                                        },
+                                    ]
+                                {
+                                    System::current().stop();
+                                }
+                                future::ready(())
+                            }),
                     );
                 }),
                 100,
@@ -167,6 +171,7 @@ fn test_stake_nodes() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_kickout() {
     heavy_test(|| {
         run_actix(async move {
@@ -229,81 +234,97 @@ fn test_validator_kickout() {
                     let test_node1 = test_nodes[(num_nodes / 2) as usize].clone();
                     let finalized_mark1 = finalized_mark.clone();
 
-                    actix::spawn(test_node1.client.send(Status { is_health_check: false }).then(
-                        move |res| {
-                            let expected: Vec<_> = (num_nodes / 2..num_nodes)
-                                .map(|i| ValidatorInfo {
-                                    account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
-                                    is_slashed: false,
-                                })
-                                .collect();
-                            let res = res.unwrap();
-                            if res.is_err() {
-                                return future::ready(());
-                            }
-                            if res.unwrap().validators == expected {
-                                for i in 0..num_nodes / 2 {
-                                    let mark = finalized_mark1[i as usize].clone();
-                                    actix::spawn(
-                                        test_node1
-                                            .view_client
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: test_nodes[i as usize]
-                                                        .account_id
-                                                        .clone(),
-                                                },
-                                            ))
-                                            .then(move |res| match res.unwrap().unwrap().kind {
-                                                QueryResponseKind::ViewAccount(result) => {
-                                                    if result.locked == 0
-                                                        || result.amount == TESTING_INIT_BALANCE
-                                                    {
-                                                        mark.store(true, Ordering::SeqCst);
+                    actix::spawn(
+                        test_node1
+                            .client
+                            .send(Status { is_health_check: false, detailed: false })
+                            .then(move |res| {
+                                let expected: Vec<_> = (num_nodes / 2..num_nodes)
+                                    .map(|i| ValidatorInfo {
+                                        account_id: AccountId::try_from(format!("near.{}", i))
+                                            .unwrap(),
+                                        is_slashed: false,
+                                    })
+                                    .collect();
+                                let res = res.unwrap();
+                                if res.is_err() {
+                                    return future::ready(());
+                                }
+                                if res.unwrap().validators == expected {
+                                    for i in 0..num_nodes / 2 {
+                                        let mark = finalized_mark1[i as usize].clone();
+                                        actix::spawn(
+                                            test_node1
+                                                .view_client
+                                                .send(Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: test_nodes[i as usize]
+                                                            .account_id
+                                                            .clone(),
+                                                    },
+                                                ))
+                                                .then(move |res| {
+                                                    match res.unwrap().unwrap().kind {
+                                                        QueryResponseKind::ViewAccount(result) => {
+                                                            if result.locked == 0
+                                                                || result.amount
+                                                                    == TESTING_INIT_BALANCE
+                                                            {
+                                                                mark.store(true, Ordering::SeqCst);
+                                                            }
+                                                            future::ready(())
+                                                        }
+                                                        _ => panic!("wrong return result"),
                                                     }
-                                                    future::ready(())
-                                                }
-                                                _ => panic!("wrong return result"),
-                                            }),
-                                    );
-                                }
-                                for i in num_nodes / 2..num_nodes {
-                                    let mark = finalized_mark1[i as usize].clone();
+                                                }),
+                                        );
+                                    }
+                                    for i in num_nodes / 2..num_nodes {
+                                        let mark = finalized_mark1[i as usize].clone();
 
-                                    actix::spawn(
-                                        test_node1
-                                            .view_client
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: test_nodes[i as usize]
-                                                        .account_id
-                                                        .clone(),
-                                                },
-                                            ))
-                                            .then(move |res| match res.unwrap().unwrap().kind {
-                                                QueryResponseKind::ViewAccount(result) => {
-                                                    assert_eq!(result.locked, TESTING_INIT_STAKE);
-                                                    assert_eq!(
-                                                        result.amount,
-                                                        TESTING_INIT_BALANCE - TESTING_INIT_STAKE
-                                                    );
-                                                    mark.store(true, Ordering::SeqCst);
-                                                    future::ready(())
-                                                }
-                                                _ => panic!("wrong return result"),
-                                            }),
-                                    );
-                                }
+                                        actix::spawn(
+                                            test_node1
+                                                .view_client
+                                                .send(Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: test_nodes[i as usize]
+                                                            .account_id
+                                                            .clone(),
+                                                    },
+                                                ))
+                                                .then(move |res| {
+                                                    match res.unwrap().unwrap().kind {
+                                                        QueryResponseKind::ViewAccount(result) => {
+                                                            assert_eq!(
+                                                                result.locked,
+                                                                TESTING_INIT_STAKE
+                                                            );
+                                                            assert_eq!(
+                                                                result.amount,
+                                                                TESTING_INIT_BALANCE
+                                                                    - TESTING_INIT_STAKE
+                                                            );
+                                                            mark.store(true, Ordering::SeqCst);
+                                                            future::ready(())
+                                                        }
+                                                        _ => panic!("wrong return result"),
+                                                    }
+                                                }),
+                                        );
+                                    }
 
-                                if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
-                                    System::current().stop();
+                                    if finalized_mark1
+                                        .iter()
+                                        .all(|mark| mark.load(Ordering::SeqCst))
+                                    {
+                                        System::current().stop();
+                                    }
                                 }
-                            }
-                            future::ready(())
-                        },
-                    ));
+                                future::ready(())
+                            }),
+                    );
                 }),
                 100,
                 70000,
@@ -314,6 +335,7 @@ fn test_validator_kickout() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_join() {
     heavy_test(|| {
         run_actix(async move {
@@ -391,67 +413,70 @@ fn test_validator_join() {
                     let test_nodes = test_nodes.clone();
                     let test_node1 = test_nodes[0].clone();
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    actix::spawn(test_node1.client.send(Status { is_health_check: false }).then(
-                        move |res| {
-                            let expected = vec![
-                                ValidatorInfo {
-                                    account_id: "near.0".parse().unwrap(),
-                                    is_slashed: false,
-                                },
-                                ValidatorInfo {
-                                    account_id: "near.2".parse().unwrap(),
-                                    is_slashed: false,
-                                },
-                            ];
-                            let res = res.unwrap();
-                            if res.is_err() {
-                                return future::ready(());
-                            }
-                            if res.unwrap().validators == expected {
-                                actix::spawn(
-                                    test_node1
-                                        .view_client
-                                        .send(Query::new(
-                                            BlockReference::latest(),
-                                            QueryRequest::ViewAccount {
-                                                account_id: test_nodes[1].account_id.clone(),
-                                            },
-                                        ))
-                                        .then(move |res| match res.unwrap().unwrap().kind {
-                                            QueryResponseKind::ViewAccount(result) => {
-                                                if result.locked == 0 {
-                                                    done1_copy2.store(true, Ordering::SeqCst);
+                    actix::spawn(
+                        test_node1
+                            .client
+                            .send(Status { is_health_check: false, detailed: false })
+                            .then(move |res| {
+                                let expected = vec![
+                                    ValidatorInfo {
+                                        account_id: "near.0".parse().unwrap(),
+                                        is_slashed: false,
+                                    },
+                                    ValidatorInfo {
+                                        account_id: "near.2".parse().unwrap(),
+                                        is_slashed: false,
+                                    },
+                                ];
+                                let res = res.unwrap();
+                                if res.is_err() {
+                                    return future::ready(());
+                                }
+                                if res.unwrap().validators == expected {
+                                    actix::spawn(
+                                        test_node1
+                                            .view_client
+                                            .send(Query::new(
+                                                BlockReference::latest(),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: test_nodes[1].account_id.clone(),
+                                                },
+                                            ))
+                                            .then(move |res| match res.unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    if result.locked == 0 {
+                                                        done1_copy2.store(true, Ordering::SeqCst);
+                                                    }
+                                                    future::ready(())
                                                 }
-                                                future::ready(())
-                                            }
-                                            _ => panic!("wrong return result"),
-                                        }),
-                                );
-                                actix::spawn(
-                                    test_node1
-                                        .view_client
-                                        .send(Query::new(
-                                            BlockReference::latest(),
-                                            QueryRequest::ViewAccount {
-                                                account_id: test_nodes[2].account_id.clone(),
-                                            },
-                                        ))
-                                        .then(move |res| match res.unwrap().unwrap().kind {
-                                            QueryResponseKind::ViewAccount(result) => {
-                                                if result.locked == TESTING_INIT_STAKE {
-                                                    done2_copy2.store(true, Ordering::SeqCst);
+                                                _ => panic!("wrong return result"),
+                                            }),
+                                    );
+                                    actix::spawn(
+                                        test_node1
+                                            .view_client
+                                            .send(Query::new(
+                                                BlockReference::latest(),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: test_nodes[2].account_id.clone(),
+                                                },
+                                            ))
+                                            .then(move |res| match res.unwrap().unwrap().kind {
+                                                QueryResponseKind::ViewAccount(result) => {
+                                                    if result.locked == TESTING_INIT_STAKE {
+                                                        done2_copy2.store(true, Ordering::SeqCst);
+                                                    }
+
+                                                    future::ready(())
                                                 }
+                                                _ => panic!("wrong return result"),
+                                            }),
+                                    );
+                                }
 
-                                                future::ready(())
-                                            }
-                                            _ => panic!("wrong return result"),
-                                        }),
-                                );
-                            }
-
-                            future::ready(())
-                        },
-                    ));
+                                future::ready(())
+                            }),
+                    );
                     if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                         System::current().stop();
                     }
@@ -465,6 +490,7 @@ fn test_validator_join() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_inflation() {
     heavy_test(|| {
         run_actix(async move {
@@ -550,7 +576,7 @@ fn test_inflation() {
                     }
                 }),
                 100,
-                10000,
+                20000,
             )
             .start();
         });

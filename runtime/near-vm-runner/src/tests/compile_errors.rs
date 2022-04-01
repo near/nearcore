@@ -1,11 +1,11 @@
 use near_primitives::version::ProtocolFeature;
-use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError, WasmTrap};
 
 use assert_matches::assert_matches;
 
 use crate::tests::{
-    make_simple_contract_call_vm, make_simple_contract_call_with_protocol_version_vm,
-    with_vm_variants,
+    gas_and_error_match, make_simple_contract_call_vm,
+    make_simple_contract_call_with_protocol_version_vm, with_vm_variants,
 };
 use crate::vm_kind::VMKind;
 
@@ -191,4 +191,94 @@ fn test_limit_contract_functions_number() {
             )))
         );
     });
+}
+
+fn many_locals(n_locals: usize) -> Vec<u8> {
+    wat::parse_str(&format!(
+        r#"
+            (module
+              (func $main (export "main")
+                (local {})
+                (call $main))
+            )"#,
+        "i32 ".repeat(n_locals)
+    ))
+    .unwrap()
+}
+
+#[test]
+fn test_limit_locals() {
+    with_vm_variants(|vm_kind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+
+        let wasm_err = many_locals(50_001);
+        let res = make_simple_contract_call_vm(&wasm_err, "main", vm_kind);
+        gas_and_error_match(
+            res,
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization),
+            ))),
+        );
+
+        let wasm_ok = many_locals(50_000);
+        let res = make_simple_contract_call_vm(&wasm_ok, "main", vm_kind);
+        gas_and_error_match(
+            res,
+            Some(47583963),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
+        );
+    })
+}
+
+fn call_sandbox_debug_log() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+            (module
+                (import "env" "sandbox_debug_log" (func (;0;) (param i64 i64)))
+                (func $main (export "main")
+                    (call 0 (i64.const 0) (i64.const 1)))
+            )"#,
+    )
+    .unwrap()
+}
+
+#[cfg(not(feature = "sandbox"))]
+#[test]
+fn test_sandbox_only_function() {
+    with_vm_variants(|vm_kind| {
+        let wasm = call_sandbox_debug_log();
+        let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
+        let error_msg = match vm_kind {
+            VMKind::Wasmer0 => {
+                "link error: Import not found, namespace: env, name: sandbox_debug_log"
+            }
+            VMKind::Wasmer2 => {
+                "Error while importing \"env\".\"sandbox_debug_log\": unknown import. Expected Function(FunctionType { params: [I64, I64], results: [] })"
+            }
+            VMKind::Wasmtime => "\"unknown import: `env::sandbox_debug_log` has not been defined\"",
+        };
+        gas_and_error_match(
+            res,
+            Some(54519963),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError {
+                msg: error_msg.to_string(),
+            })),
+        );
+    })
+}
+
+#[cfg(feature = "sandbox")]
+#[test]
+fn test_sandbox_only_function_when_sandbox_feature() {
+    with_vm_variants(|vm_kind| {
+        let wasm = call_sandbox_debug_log();
+        let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
+        gas_and_error_match(res, Some(66089076), None);
+    })
 }

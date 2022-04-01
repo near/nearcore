@@ -231,7 +231,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (5 << 6) | 0,
+    seed: (1 << 10) | (6 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -373,7 +373,7 @@ impl Wasmer2VM {
                         // expected layout. `gas` remains dereferenceable throughout this function
                         // by the virtue of it being contained within `import` which lives for the
                         // entirety of this function.
-                        InstanceConfig::new_with_counter(gas),
+                        InstanceConfig::default().with_counter(gas),
                     )
                     .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
                 // SAFETY: being called immediately after instantiation.
@@ -449,7 +449,7 @@ impl Wasmer2VM {
             return (None, Some(e));
         }
         let err = self.run_method(artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic.compute_outcome_and_distribute_gas()), err)
     }
 }
 
@@ -571,7 +571,7 @@ impl crate::runner::VM for Wasmer2VM {
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
-                Some(logic.outcome()),
+                Some(logic.compute_outcome_and_distribute_gas()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     near_vm_errors::HostError::GasExceeded,
                 ))),
@@ -582,7 +582,7 @@ impl crate::runner::VM for Wasmer2VM {
             return (None, Some(e));
         }
         let err = self.run_method(&artifact, import, method_name).err();
-        (Some(logic.outcome()), err)
+        (Some(logic.compute_outcome_and_distribute_gas()), err)
     }
 
     fn precompile(

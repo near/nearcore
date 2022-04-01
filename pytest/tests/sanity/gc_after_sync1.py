@@ -17,7 +17,6 @@ import utils
 TARGET_HEIGHT1 = 15
 TARGET_HEIGHT2 = 35
 TARGET_HEIGHT3 = 105
-TIMEOUT = 80
 
 node0_config = {"gc_blocks_limit": 10}
 
@@ -41,17 +40,17 @@ nodes = start_cluster(
 
 height = nodes[1].get_latest_block().height
 
-utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
 logger.info('Kill node 1')
 nodes[1].kill()
 
-utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[0])
 
-utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT3, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT3)
 
 nodes[0].kill()
 

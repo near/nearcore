@@ -8,13 +8,15 @@ rust-version = "1.56.0"
 edition = "2021"
 
 [dependencies]
-clap = "2.33.0"
-log = "0.4"
-env_logger = "0.8"
+clap = { version = "3.1.6", features = ["derive"] }
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 nearcore = { path = "../../nearcore" }
+near-o11y = { path = "../../core/o11y" }
 
 integration-tests = { path = "../../integration-tests" }
+
+[features]
+test_features = ["integration-tests/test_features"]

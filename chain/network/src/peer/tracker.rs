@@ -1,28 +1,29 @@
-use crate::peer::rate_counter::RateCounter;
+use crate::peer::transfer_stats::TransferStats;
 use near_primitives::hash::CryptoHash;
+use std::time::Instant;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
-pub(crate) struct CircularUniqueQueue {
+struct CircularUniqueQueue {
     v: Vec<CryptoHash>,
     index: usize,
     limit: usize,
 }
 
 impl CircularUniqueQueue {
-    pub fn new(limit: usize) -> Self {
+    fn new(limit: usize) -> Self {
         assert!(limit > 0);
         Self { v: Vec::with_capacity(limit), index: 0, limit }
     }
 
-    pub fn contains(&self, hash: &CryptoHash) -> bool {
+    fn contains(&self, hash: &CryptoHash) -> bool {
         self.v.contains(hash)
     }
 
     /// Pushes an element if it's not in the queue already. The queue will pop the oldest element.
-    pub fn push(&mut self, hash: CryptoHash) {
+    fn push(&mut self, hash: CryptoHash) {
         if !self.contains(&hash) {
             if self.v.len() < self.limit {
                 self.v.push(hash);
@@ -39,13 +40,11 @@ impl CircularUniqueQueue {
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
-pub struct Tracker {
+pub(crate) struct Tracker {
     /// Bytes we've sent.
-    /// TODO: After #5225 refactor code to make this private
-    pub(crate) sent_bytes: RateCounter,
+    pub(crate) sent_bytes: TransferStats,
     /// Bytes we've received.
-    /// TODO: After #5225 refactor code to make this private
-    pub(crate) received_bytes: RateCounter,
+    pub(crate) received_bytes: TransferStats,
     /// Sent requests.
     requested: CircularUniqueQueue,
     /// Received elements.
@@ -55,8 +54,8 @@ pub struct Tracker {
 impl Default for Tracker {
     fn default() -> Self {
         Tracker {
-            sent_bytes: RateCounter::new(),
-            received_bytes: RateCounter::new(),
+            sent_bytes: TransferStats::default(),
+            received_bytes: TransferStats::default(),
             requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
             received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
         }
@@ -65,11 +64,11 @@ impl Default for Tracker {
 
 impl Tracker {
     pub(crate) fn increment_received(&mut self, size: u64) {
-        self.received_bytes.increment(size);
+        self.received_bytes.record(size, Instant::now());
     }
 
     pub(crate) fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.increment(size);
+        self.sent_bytes.record(size, Instant::now());
     }
 
     pub(crate) fn has_received(&self, hash: &CryptoHash) -> bool {

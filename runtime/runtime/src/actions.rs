@@ -99,7 +99,9 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    near_vm_runner::run(
+    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
+    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
@@ -109,7 +111,9 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
-    )
+    );
+    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    result
 }
 
 pub(crate) fn action_function_call(
@@ -436,6 +440,7 @@ pub(crate) fn action_deploy_contract(
     apply_state: &ApplyState,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();

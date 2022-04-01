@@ -29,7 +29,11 @@ async fn convert_genesis_records_to_transaction(
             None
         }
     });
-    let genesis_accounts = crate::utils::query_accounts(
+    // Collect genesis accounts into a BTreeMap rather than a HashMap so that
+    // the order of accounts is deterministic.  This is needed because we need
+    // operations to be created in deterministic order (so that their indexes
+    // stay the same).
+    let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
         genesis_account_ids,
         &view_client_addr,
@@ -99,6 +103,7 @@ async fn convert_genesis_records_to_transaction(
             &block.header.hash,
         ),
         operations,
+        related_transactions: Vec::new(),
         metadata: crate::models::TransactionMetadata {
             type_: crate::models::TransactionType::Block,
         },
@@ -114,6 +119,10 @@ pub(crate) async fn convert_block_to_transactions(
         .await?
         .unwrap();
 
+    // TODO(mina86): Do we actually need ‘seen’?  I’m kinda confused at this
+    // point how changes are stored in the database and whether view_client can
+    // return duplicate AccountTouched entries.
+    let mut seen = std::collections::HashSet::new();
     let touched_account_ids = state_changes
         .into_iter()
         .filter_map(|x| {
@@ -123,7 +132,12 @@ pub(crate) async fn convert_block_to_transactions(
                 None
             }
         })
-        .collect::<std::collections::HashSet<_>>();
+        .filter(move |account_id| {
+            // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
+            // Clone::clone) once hash_set_entry stabilises.
+            seen.insert(account_id.clone())
+        })
+        .collect::<Vec<_>>();
 
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
@@ -137,7 +151,7 @@ pub(crate) async fn convert_block_to_transactions(
             block_hash: block.header.hash,
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
-                    account_ids: touched_account_ids.into_iter().collect(),
+                    account_ids: touched_account_ids,
                 },
         })
         .await??;
@@ -145,13 +159,16 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
         .await?
         .runtime_config;
-    let transactions = transactions::convert_block_changes_to_transactions(
+    let exec_to_rx =
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    transactions::convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,
-    )?;
-    Ok(transactions.into_iter().map(|(_transaction_hash, transaction)| transaction).collect())
+        exec_to_rx,
+    )
+    .map(|dict| dict.into_values().collect())
 }
 
 pub(crate) async fn collect_transactions(
@@ -769,6 +786,7 @@ mod tests {
             &block_hash,
             accounts_changes,
             accounts_previous_state,
+            super::transactions::ExecutionToReceipts::empty(),
         )
         .unwrap();
         assert_eq!(transactions.len(), 3);

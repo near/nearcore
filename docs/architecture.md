@@ -17,7 +17,7 @@ More specifically, the neard binary can do the following:
 There are three major components of nearcore:
 
 - Network. We implement a peer-to-peer network that powers communications between blockchain nodes.
-This includes initiating connections with other nodes, maintain a view of the entire network, routing messages to the right nodes, etc.
+This includes initiating connections with other nodes, maintaining a view of the entire network, routing messages to the right nodes, etc.
 Network is a somewhat standalone module, though it uses information about validators to propagate and validate certain messages.
 - Chain. Chain is responsible for building and maintaining the blockchain data structure.
 This includes block and chunk production and processing, consensus, and validator selection.
@@ -143,57 +143,51 @@ This file contains schema (DBCol) of our internal RocksDB storage - a good start
 
 ## Cross Cutting Concerns
 
-### Logging & Observability
+### Observability
 
-The [tracing](https://tracing.rs) crate is used for logging:
+The [tracing](https://tracing.rs) crate is used for structured, hierarchical event output
+and logging. We also integrate [Prometheus](https://prometheus.io) for light-weight metric output.
+See the [style](./style.md) documentation for more information on the usage.
 
-```rust
-tracing::warn!(
-    target: "jsonrpc",
-    "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}", tx_hash, signer_account_id,
-);
-```
+### Testing
 
-tracing supports structured logging. That is, you are not restricted to logging
-strings, and can log key-value pairs. Keys go *before* free-form message, and
-support various shortcut syntaxes:
+Rust has built-in support for writing unit tests by marking functions
+with `#[test]` directive.  Take full advantage of that!  Testing not
+only confirms that what was written works the way it was intended but
+also help during refactoring since the caught unintended behaviour
+changes.
 
-```rust
-tracing::warn!(
-    // Explicit `key = value` syntax.
-    msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
-    // Shorthand for `bandwidth_used = bandwidth_used`.
-    bandwidth_used,
-    // Use `fmt::Debug` to format the value.
-    ?peer_id,
-    // Free form string
-    "Peer bandwidth exceeded threshold",
-);
-```
-
-Qualified `tracing::warn!` syntax is preferred to reduce the amount of imports.
-Tracing supports `format!`-like arguments, but prefer `key=value` paris instead.
-
-The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to
-measure durations of long-running operations:
+Not all tests are created equal though and while some can need only
+milliseconds to run, others may run for several seconds or even
+minutes.  Tests that take a long time should be marked as such with an
+`expensive_tests` feature, for example:
 
 ```rust
-fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
-    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
-    //
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+fn test_catchup_random_single_part_sync() {
+    test_catchup_random_single_part_sync_common(false, false, 13)
 }
 ```
 
-This will record when the `_span` object is created and dropped, logging the
-time diff between the two events:
+Such tests will be ignored by default and can be executed by using
+`--ignored` or `--include-ignored` flag as in `cargo test --
+--ignored` or by compiling the tests with `expensive_tests` feature
+enabled.
 
+Because expensive tests are not run by default, they are also not run
+in CI.  Instead, they are run nightly and need to be explicitly
+included in `nightly/expensive.txt` file; for example:
+
+```text
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly_protocol,nightly_protocol_features
 ```
-May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=5ms time.idle=6ns
-```
 
-Always specify the `target` explicitly.
+For more details regarding nightly tests see `nightly/README.md`.
 
-The `INFO` level is enabled by default, use it for information useful for node
-operators. The `DEBUG` level is enabled on the canary nodes, use it for
-information useful in debugging testnet failures. The `TRACE` level is not
-generally enabled, use it for arbitrary debug output.
+Note that what counts as a slow test isn’t exactly defined as of now.
+If it takes just a couple seconds than it’s probably fine.  Anything
+slower should probably be classified as expensive test.  In
+particular, if libtest complains the test takes more than 60 seconds
+than it definitely is.

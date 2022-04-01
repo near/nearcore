@@ -1,12 +1,11 @@
 #[macro_use]
-extern crate bencher;
-extern crate actix;
+extern crate criterion;
 
-use bencher::{black_box, Bencher};
+use criterion::{black_box, Criterion};
 use near_crypto::{KeyType, SecretKey, Signature};
-use near_network::routing::Edge;
 use near_network::test_utils::random_peer_id;
 use near_network::RoutingTableActor;
+use near_network_primitives::types::Edge;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use std::collections::HashMap;
@@ -43,17 +42,19 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench_old(bench: &mut Bencher) {
+fn get_all_edges_bench_old(c: &mut Criterion) {
     // 1000 nodes, 10m edges
     let routing_table_actor = build_graph(10, 100);
-    bench.iter(|| {
-        let result = routing_table_actor.get_all_edges();
-        black_box(result);
+    c.bench_function("get_all_edges_bench_old", |bench| {
+        bench.iter(|| {
+            let result = routing_table_actor.get_all_edges();
+            black_box(result);
+        })
     });
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench_new2(bench: &mut Bencher) {
+fn get_all_edges_bench_new2(c: &mut Criterion) {
     // this is how we efficient we could make get_all_edges by using Arc
 
     // 1000 nodes, 10m edges
@@ -72,14 +73,16 @@ fn get_all_edges_bench_new2(bench: &mut Bencher) {
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
     }
 
-    bench.iter(|| {
-        let result: Vec<Arc<EdgeNew>> = new_edges_info.iter().map(|x| x.1.clone()).collect();
-        black_box(result);
+    c.bench_function("get_all_edges_bench_new2", |bench| {
+        bench.iter(|| {
+            let result: Vec<Arc<EdgeNew>> = new_edges_info.iter().map(|x| x.1.clone()).collect();
+            black_box(result);
+        })
     });
 }
 
 #[allow(dead_code)]
-fn get_all_edges_bench_new3(bench: &mut Bencher) {
+fn get_all_edges_bench_new3(c: &mut Criterion) {
     // this is how we efficient we could make get_all_edges by using Arc
 
     // 1000 nodes, 10m edges
@@ -98,26 +101,30 @@ fn get_all_edges_bench_new3(bench: &mut Bencher) {
         new_edges_info.insert(edge.key.clone(), Arc::new(edge));
     }
 
-    bench.iter(|| {
-        let result: Vec<Arc<EdgeNew2>> = new_edges_info.iter().map(|x| x.1.clone()).collect();
-        black_box(result);
+    c.bench_function("get_all_edges_bench3", |bench| {
+        bench.iter(|| {
+            let result: Vec<Arc<EdgeNew2>> = new_edges_info.iter().map(|x| x.1.clone()).collect();
+            black_box(result);
+        })
     });
 }
 
 #[allow(dead_code)]
-fn benchmark_sign_edge(bench: &mut Bencher) {
+fn benchmark_sign_edge(c: &mut Criterion) {
     let sk = SecretKey::from_seed(KeyType::ED25519, "1234");
 
     let p0 = PeerId::new(sk.public_key());
     let p1 = PeerId::random();
 
-    bench.iter(|| {
-        let ei = Edge::build_hash(&p0, &p1, 123);
-        black_box(ei);
+    c.bench_function("benchmark_sign_edge", |bench| {
+        bench.iter(|| {
+            let ei = Edge::build_hash(&p0, &p1, 123);
+            black_box(ei);
+        })
     });
 }
 
-benchmark_group!(
+criterion_group!(
     benches,
     get_all_edges_bench_old,
     get_all_edges_bench_new2,
@@ -125,7 +132,7 @@ benchmark_group!(
     benchmark_sign_edge
 );
 
-benchmark_main!(benches);
+criterion_main!(benches);
 
 // running 3 tests
 // test get_all_edges_bench_old  ... bench:   1,296,045 ns/iter (+/- 601,626)

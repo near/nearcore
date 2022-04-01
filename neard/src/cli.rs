@@ -1,21 +1,21 @@
-use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
-use clap::{AppSettings, Clap};
+use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
+use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
+use near_store::db::RocksDB;
 use nearcore::get_store_path;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
-use tracing::metadata::LevelFilter;
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::EnvFilter;
 
 /// NEAR Protocol Node
-#[derive(Clap)]
-#[clap(version = NEARD_VERSION_STRING.as_str())]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[derive(Parser)]
+#[clap(version = crate::NEARD_VERSION_STRING.as_str())]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
     #[clap(flatten)]
     opts: NeardOpts,
@@ -26,15 +26,32 @@ pub(super) struct NeardCmd {
 impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
-        neard_cmd.opts.init();
-        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        let verbose = neard_cmd.opts.verbose.as_deref();
+        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+        // This is hidden by default so we enable it for sandbox node.
+        let env_filter = if cfg!(feature = "sandbox") {
+            env_filter.add_directive("sandbox=debug".parse().unwrap())
+        } else {
+            env_filter
+        };
+        let _subscriber = default_subscriber(env_filter).global();
+
+        info!(
+            target: "neard",
+            version = crate::NEARD_VERSION,
+            build = crate::NEARD_BUILD,
+            latest_protocol = near_primitives::version::PROTOCOL_VERSION
+        );
 
         #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
-
-            if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!("To run a node with adversarial behavior enabled give your consent by setting variable:");
+            if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+                error!(
+                    "To run a node with adversarial behavior enabled give your consent \
+                            by setting an environment variable:"
+                );
                 error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
@@ -51,35 +68,52 @@ impl NeardCmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Testnet(cmd) => {
-                warn!("The 'testnet' command has been renamed to 'localnet' and will be removed in the future");
+                warn!(
+                    "The 'testnet' command has been renamed to 'localnet' \
+                           and will be removed in the future"
+                );
                 cmd.run(&home_dir);
             }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
 
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path.display());
-                fs::remove_dir_all(store_path).expect("Removing data failed");
+                unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
+            // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetAll => {
-                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
-                fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
+                unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
             }
+
             NeardSubCommand::StateViewer(cmd) => {
                 cmd.run(&home_dir, genesis_validation);
+            }
+
+            NeardSubCommand::RecompressStorage(cmd) => {
+                cmd.run(&home_dir);
             }
         }
     }
 }
 
-#[derive(Clap, Debug)]
+fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
+    let dir =
+        path.to_str().map(|path| shell_escape::unix::escape(path.into())).unwrap_or(default.into());
+    warn!(target: "neard", "The ‘{}’ command is deprecated and will be removed in Q3 2022", command);
+    warn!(target: "neard", "Use ‘rm -r -- {}’ instead (which is effectively what this command does)", dir);
+    info!(target: "neard", "Removing all {} from {}", what, path.display());
+    fs::remove_dir_all(path).expect("Removing data failed");
+}
+
+#[derive(Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets
     /// if "debug" is given.
     #[clap(long, name = "target")]
     verbose: Option<String>,
     /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
+    #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
@@ -87,13 +121,7 @@ struct NeardOpts {
     pub unsafe_fast_startup: bool,
 }
 
-impl NeardOpts {
-    fn init(&self) {
-        init_logging(self.verbose.as_deref());
-    }
-}
-
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
@@ -108,23 +136,51 @@ pub(super) enum NeardSubCommand {
     /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
     /// release.
     // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(name = "testnet")]
+    #[clap(name = "testnet", hide = true)]
     Testnet(LocalnetCmd),
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
     /// removes all information about the network.
-    #[clap(name = "unsafe_reset_all")]
+    #[clap(name = "unsafe_reset_all", hide = true)]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config).
-    #[clap(name = "unsafe_reset_data")]
+    #[clap(name = "unsafe_reset_data", hide = true)]
     UnsafeResetData,
     /// View DB state.
-    #[clap(name = "view_state")]
+    #[clap(subcommand, name = "view_state")]
     StateViewer(StateViewerSubCommand),
+    /// Recompresses the entire storage.  This is a slow operation which reads
+    /// all the data from the database and writes them down to a new copy of the
+    /// database.
+    ///
+    /// In 1.26 release the compression algorithm for the database has changed
+    /// to reduce storage size.  Nodes don’t need to do anything for new data to
+    /// take advantage of better compression but existing data may take months
+    /// to be recompressed.  This may be an issue for archival nodes which keep
+    /// hold of all the old data.
+    ///
+    /// This command makes it possible to force the recompression as a one-time
+    /// operation.  Using it reduces the database even by up to 40% though that
+    /// is partially due to database ‘defragmentation’ (whose effects will wear
+    /// off in time).  Still, reduction by about 20% even if that’s taken into
+    /// account can be expected.
+    ///
+    /// It’s important to remember however, that this command may take up to
+    /// a day to finish in which time the database cannot be used by the node.
+    ///
+    /// Furthermore, file system where output directory is located needs enough
+    /// free space to store the new copy of the database.  It will be smaller
+    /// than the original but to be safe one should provision around the same
+    /// space as the size of the current `data` directory.
+    ///
+    /// Finally, because this command is meant only as a temporary migration
+    /// tool, it is planned to be removed by the end of 2022.
+    #[clap(name = "recompress_storage")]
+    RecompressStorage(RecompressStorageSubCommand),
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -139,7 +195,7 @@ pub(super) struct InitCmd {
     #[clap(long)]
     account_id: Option<String>,
     /// Chain ID, by default creates new random.
-    #[clap(long)]
+    #[clap(long, forbid_empty_values = true)]
     chain_id: Option<String>,
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]
@@ -232,7 +288,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -284,7 +340,7 @@ impl RunCmd {
         check_release_build(&near_config.client_config.chain_id);
 
         // Set current version in client config.
-        near_config.client_config.version = super::NEARD_VERSION.clone();
+        near_config.client_config.version = crate::neard_version();
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
@@ -340,10 +396,12 @@ impl RunCmd {
             }
         }
 
+        let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config(home_dir, near_config);
+                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
+                    .expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -351,13 +409,15 @@ impl RunCmd {
                 let mut sigterm = signal(SignalKind::terminate()).unwrap();
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM"
+                    _ = sigterm.recv().fuse() => "SIGTERM",
+                    _ = rx.fuse() => "ClientActor died",
                 }
             } else {
+                // TODO(#6372): Support graceful shutdown on windows.
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping...", sig);
+            info!(target: "neard", "Got '{}', stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -366,10 +426,12 @@ impl RunCmd {
             actix::System::current().stop();
         });
         sys.run().unwrap();
+        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
@@ -398,41 +460,20 @@ impl LocalnetCmd {
     }
 }
 
-fn init_logging(verbose: Option<&str>) {
-    const DEFAULT_RUST_LOG: &'static str =
-        "tokio_reactor=info,near=info,stats=info,telemetry=info,\
-         delay_detector=info,near-performance-metrics=info,\
-         near-rust-allocator-proxy=info";
+#[derive(Args)]
+#[clap(arg_required_else_help = true)]
+pub(super) struct RecompressStorageSubCommand {
+    /// Directory where to save new storage.
+    #[clap(long)]
+    output_dir: PathBuf,
+}
 
-    let rust_log = env::var("RUST_LOG");
-    let rust_log = rust_log.as_ref().map(String::as_str).unwrap_or(DEFAULT_RUST_LOG);
-    let mut env_filter = EnvFilter::new(rust_log);
-
-    if let Some(module) = verbose {
-        env_filter = env_filter
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("cranelift_codegen=warn".parse().unwrap())
-            .add_directive("h2=warn".parse().unwrap())
-            .add_directive("trust_dns_resolver=warn".parse().unwrap())
-            .add_directive("trust_dns_proto=warn".parse().unwrap());
-
-        if module.is_empty() {
-            env_filter = env_filter.add_directive(LevelFilter::DEBUG.into());
-        } else {
-            env_filter = env_filter.add_directive(format!("{}=debug", module).parse().unwrap());
+impl RecompressStorageSubCommand {
+    pub(super) fn run(self, home_dir: &Path) {
+        if let Err(err) = nearcore::recompress_storage(&home_dir, &self.output_dir) {
+            error!("{}", err);
         }
-    } else {
-        env_filter = env_filter.add_directive(LevelFilter::WARN.into());
     }
-
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(
-            tracing_subscriber::fmt::format::FmtSpan::ENTER
-                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
-        )
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
 }
 
 #[cfg(test)]

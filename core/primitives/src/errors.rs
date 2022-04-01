@@ -21,6 +21,8 @@ pub enum TxExecutionError {
     InvalidTxError(InvalidTxError),
 }
 
+impl std::error::Error for TxExecutionError {}
+
 impl Display for TxExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
@@ -60,6 +62,14 @@ pub enum RuntimeError {
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
 }
+
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
+impl std::error::Error for RuntimeError {}
 
 /// Internal
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +141,8 @@ pub enum InvalidTxError {
     /// The size of serialized transaction exceeded the limit.
     TransactionSizeExceeded { size: u64, limit: u64 },
 }
+
+impl std::error::Error for InvalidTxError {}
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
@@ -244,6 +256,8 @@ impl Display for ReceiptValidationError {
     }
 }
 
+impl std::error::Error for ReceiptValidationError {}
+
 impl Display for ActionsValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
@@ -307,6 +321,8 @@ impl Display for ActionsValidationError {
     }
 }
 
+impl std::error::Error for ActionsValidationError {}
+
 /// An error happened during Acton execution
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
@@ -319,6 +335,8 @@ pub struct ActionError {
     /// The kind of ActionError happened
     pub kind: ActionErrorKind,
 }
+
+impl std::error::Error for ActionError {}
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, RpcError)]
@@ -532,6 +550,8 @@ impl Display for InvalidAccessKeyError {
     }
 }
 
+impl std::error::Error for InvalidAccessKeyError {}
+
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
@@ -617,8 +637,18 @@ impl Display for BalanceMismatchError {
     }
 }
 
+impl std::error::Error for BalanceMismatchError {}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct IntegerOverflowError;
+
+impl std::fmt::Display for IntegerOverflowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
+impl std::error::Error for IntegerOverflowError {}
 
 impl From<IntegerOverflowError> for InvalidTxError {
     fn from(_: IntegerOverflowError) -> Self {

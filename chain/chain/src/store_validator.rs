@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
 use tracing::warn;
 
 use near_chain_configs::GenesisConfig;
@@ -19,9 +19,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{
-    decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
-};
+use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges, SHOULD_COL_GC, SKIP_COL_GC};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -56,7 +54,7 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
-            gc_col: vec![0; NUM_COLS],
+            gc_col: vec![0; DBCol::COUNT],
             tx_refcount: HashMap::new(),
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
@@ -76,7 +74,7 @@ pub struct StoreValidator {
     me: Option<AccountId>,
     config: GenesisConfig,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    store: Arc<Store>,
+    store: Store,
     inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
@@ -90,7 +88,7 @@ impl StoreValidator {
         me: Option<AccountId>,
         config: GenesisConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        store: Arc<Store>,
+        store: Store,
     ) -> Self {
         StoreValidator {
             me,
@@ -355,7 +353,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
+                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, DBCol::COUNT);
                     return;
                 }
             }
@@ -409,7 +407,7 @@ mod tests {
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
     use super::*;
 
@@ -429,7 +427,7 @@ mod tests {
     #[test]
     fn test_io_error() {
         let (mut chain, mut sv) = init();
-        let mut store_update = chain.store().owned_store().store_update();
+        let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::ColBlock).is_ok());
         store_update
             .set_ser::<Vec<u8>>(
@@ -448,7 +446,7 @@ mod tests {
     #[test]
     fn test_db_corruption() {
         let (chain, mut sv) = init();
-        let mut store_update = chain.store().owned_store().store_update();
+        let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::ColTrieChanges).is_ok());
         store_update.set_ser::<Vec<u8>>(DBCol::ColTrieChanges, "567".as_ref(), &vec![123]).unwrap();
         store_update.commit().unwrap();

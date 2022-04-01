@@ -1,6 +1,5 @@
 use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
-use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
@@ -22,6 +21,7 @@ use near_primitives::{
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::{ReturnData, ViewConfig};
 use std::{str, sync::Arc, time::Instant};
+use tracing::debug;
 
 pub mod errors;
 

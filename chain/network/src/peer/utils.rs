@@ -1,9 +1,9 @@
 use tracing::error;
 
 /// Determines size of `PeerId` based on first byte of it's representation.
-/// Size of `PeerId` depends on type of `PublicMessage it stores`.
-/// PublicKey::ED25519 -> 1 + 32 bytes
-/// PublicKey::SECP256K1 -> 1 + 64 bytes
+/// Size of `PeerId` depends on type of `PublicMessage` it stores.
+/// `PublicKey::ED25519` -> `1 + 32 bytes`
+/// `PublicKey::SECP256K1` -> `1 + 64 bytes`
 fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
     // 1 byte for enum variant, then some number depending on the
     // public key type
@@ -17,7 +17,7 @@ fn peer_id_type_field_len(enum_var: u8) -> Option<usize> {
 /// Checks `bytes` represents `PeerMessage::Routed(RoutedMessage)`,
 /// and `RoutedMessage.body` has type of `RoutedMessageBody::ForwardTx`.
 ///
-/// This is done to avoid expensive borsch-deserializing.
+/// This is done to avoid expensive `borsh`-deserializing.
 pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
     // PeerMessage::Routed variant == 13
     let peer_message_variant = *bytes.get(0)?;
@@ -56,7 +56,7 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
     let ttl_idx = {
         let signature_variant = *bytes.get(signature_variant_idx)?;
 
-        // pub signature: Signature
+        // signature: Signature
         let signature_field_len = match signature_variant {
             0 => 1 + 64, // Signature::ED25519
             1 => 1 + 65, // Signature::SECP256K1
@@ -67,7 +67,7 @@ pub(crate) fn is_forward_transaction(bytes: &[u8]) -> Option<bool> {
         signature_variant_idx + signature_field_len
     };
 
-    // pub ttl: u8
+    // ttl: u8
     let message_body_idx = ttl_idx + 1;
 
     // check if type is `RoutedMessageBody::ForwardTx`
@@ -138,13 +138,16 @@ mod tests {
             )
         };
 
-        PeerMessage::Routed(RoutedMessage {
-            target,
-            author,
-            signature,
-            ttl: 99,
-            body: RoutedMessageBody::ForwardTx(tx),
-        })
+        PeerMessage::Routed(
+            RoutedMessage {
+                target,
+                author,
+                signature,
+                ttl: 99,
+                body: RoutedMessageBody::ForwardTx(tx),
+            }
+            .into(),
+        )
     }
 
     #[test]

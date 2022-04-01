@@ -1,10 +1,10 @@
-use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use tracing::info;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -23,9 +23,10 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PartialEdgeInfo, PeerManagerAdapter,
+    PeerManagerAdapter,
 };
 use near_network::PeerManagerActor;
+use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
@@ -153,6 +154,7 @@ pub fn setup(
         enable_doomslug,
         TEST_SEED,
         ctx,
+        None,
         #[cfg(feature = "test_features")]
         adv,
     )
@@ -620,7 +622,7 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+                        NetworkRequests::PartialEncodedChunkRequest { target, request , ..} => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkRequest(
                                     request.clone(),
@@ -637,7 +639,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone())
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
                             };
                             send_chunks(
                                 Arc::clone(&connectors1),
@@ -1092,7 +1094,7 @@ pub fn setup_client_with_runtime(
 }
 
 pub fn setup_client(
-    store: Arc<Store>,
+    store: Store,
     validators: Vec<Vec<AccountId>>,
     validator_groups: u64,
     num_shards: NumShards,
@@ -1393,7 +1395,7 @@ impl TestEnv {
         request: PeerManagerMessageRequest,
     ) {
         if let PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedChunkRequest { target, request },
+            NetworkRequests::PartialEncodedChunkRequest { target, request, .. },
         ) = request
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
@@ -1408,7 +1410,7 @@ impl TestEnv {
         }
     }
 
-    fn get_partial_encoded_chunk_response(
+    pub fn get_partial_encoded_chunk_response(
         &mut self,
         id: usize,
         request: PartialEncodedChunkRequestMsg,
@@ -1418,6 +1420,7 @@ impl TestEnv {
             request,
             CryptoHash::default(),
             client.chain.mut_store(),
+            &mut client.rs,
         );
         let response = self.network_adapters[id].pop().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
@@ -1513,7 +1516,7 @@ impl TestEnv {
     /// this `TestEnv` was created with custom runtime adapters that
     /// customisation will be lost.
     pub fn restart(&mut self, idx: usize) {
-        let store = self.clients[idx].chain.store().owned_store();
+        let store = self.clients[idx].chain.store().store().clone();
         let account_id = self.get_client_id(idx).clone();
         let rng_seed = match self.seeds.get(&account_id) {
             Some(seed) => *seed,

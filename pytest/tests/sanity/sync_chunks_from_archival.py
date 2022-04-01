@@ -91,6 +91,25 @@ class Handler(ProxyHandler):
         return True
 
 
+# TODO(mina86): Make it a utility class
+class Timeout:
+
+    def __init__(self, sesconds: float) -> None:
+        if sesconds <= 0:
+            raise ValueError('sesconds must be positive')
+        self.__start = time.monotonic()
+        self.__end = self.__start + sesconds
+
+    def check(self) -> bool:
+        return time.monotonic() < self.__end
+
+    def elapsed_seconds(self) -> float:
+        return time.monotonic() - self.__start
+
+    def left_seconds(self) -> float:
+        return self.__end - time.monotonic()
+
+
 if __name__ == '__main__':
     manager = multiprocessing.Manager()
     hash_to_metadata = manager.dict()
@@ -103,7 +122,7 @@ if __name__ == '__main__':
                 requests=requests,
                 responses=responses))
 
-    started = time.time()
+    timeout = Timeout(TIMEOUT)
 
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
@@ -174,7 +193,7 @@ if __name__ == '__main__':
     logging.info(f'Getting to height {HEIGHTS_BEFORE_ROTATE}')
     utils.wait_for_blocks(boot_node,
                           target=HEIGHTS_BEFORE_ROTATE,
-                          timeout=TIMEOUT)
+                          timeout=timeout.left_seconds())
 
     node2 = spin_up_node(config,
                          near_root,
@@ -211,7 +230,7 @@ if __name__ == '__main__':
 
         logging.info("Waiting for rotation to occur")
         while True:
-            assert time.time() - started < TIMEOUT, get_validators(boot_node)
+            assert timeout.check(), get_validators(boot_node)
             if set(get_validators(boot_node)) == set(expected_vals):
                 break
             else:
@@ -227,47 +246,57 @@ if __name__ == '__main__':
     logging.info(f'Getting to height {target}')
     height_to_sync_to, _ = utils.wait_for_blocks(node2,
                                                  target=target,
-                                                 timeout=TIMEOUT)
+                                                 timeout=timeout.left_seconds())
 
     logging.info("Spinning up one more node")
     node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)
 
-    logging.info("Waiting for the new node to sync. We are %s seconds in" %
-                 (time.time() - started))
+    logging.info('Waiting for the new node to sync.  '
+                 f'We are {timeout.elapsed_seconds()} seconds in')
     while True:
-        assert time.time() - started < TIMEOUT
+        assert timeout.check()
         sync_info = node4.get_status()['sync_info']
         if not sync_info['syncing']:
             new_height = sync_info['latest_block_height']
-            assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (
-                new_height, height_to_sync_to)
+            assert new_height > height_to_sync_to, (
+                f'new height {new_height} height to sync to {height_to_sync_to}'
+            )
             break
         time.sleep(1)
 
     logging.info("Checking the messages sent and received")
 
-    # The first two blocks are certainly more than two epochs in the
-    # past compared to head, and thus should be requested from
-    # archival nodes. Check that it's the case.
-    # Start from 10 to account for possibly skipped blocks while the nodes were starting
-    for h in range(12, HEIGHTS_BEFORE_ROTATE):
-        for shard in [0, 1]:
-            if (h, shard, 2) in requests:
-                assert (h, shard, 2) in responses, h
-                assert (h, shard, 3) not in responses, h
-            elif (h, shard, 3) in requests:
-                assert (h, shard, 3) in responses, h
-                assert (h, shard, 2) not in responses, h
+    # The first two blocks are certainly more than two epochs in the past
+    # compared to head, and thus should be requested from archival nodes. Check
+    # that it's the case.  Start from 10 to account for possibly skipped blocks
+    # while the nodes were starting.
+    for height in range(12, HEIGHTS_BEFORE_ROTATE):
+        for shard in (0, 1):
+            for node in (2, 3):
+                other = 5 - node
+                if (height, shard, node) in requests:
+                    assert (height, shard, node) in responses, (height, shard,
+                                                                node)
+                    assert (height, shard,
+                            other) not in requests, (height, shard, other)
+                    assert (height, shard,
+                            other) not in responses, (height, shard, other)
+                    break
             else:
-                assert False, f"Missing request for shard {shard} in block {h}"
+                assert False, f'Missing request for shard {shard} in block {height}'
 
-    # The last 5 blocks with epoch_length=10 will certainly be in the
-    # same epoch as head, or in the previous epoch, and thus should
-    # be requested from the block producers
-    for h in range(new_height - 5, new_height - 1):
-        for shard in [0, 1]:
-            for producer in [2, 3]:
-                assert (h, shard, producer) in requests, h
-                assert (h, shard, producer) in responses, h
+    # The last 5 blocks with epoch_length=10 will certainly be in the same epoch
+    # as head, or in the previous epoch, and thus should be requested from the
+    # block producers.  Note that in our case block producers are also archival
+    # nodes so we’re again checking nodes 2 and 3.
+    for height in range(new_height - 5, new_height - 1):
+        for shard in (0, 1):
+            found = False
+            for node in (2, 3):
+                if (height, shard, node) in requests:
+                    assert (height, shard, node) in responses, (height, shard,
+                                                                node)
+                    found = True
+            assert found, f'Missing request for shard {shard} in block {height}'
 
-    logging.info("Done. Took %s seconds" % (time.time() - started))
+    logging.info(f'Done.  Took {timeout.elapsed_seconds()} seconds')

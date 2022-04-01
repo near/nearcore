@@ -14,9 +14,9 @@ use near_primitives::types::NumShards;
 use std::str::from_utf8;
 
 /// Creates an in-memory database.
-pub fn create_test_store() -> Arc<Store> {
-    let db = Arc::pin(TestDB::new());
-    Arc::new(Store::new(db))
+pub fn create_test_store() -> Store {
+    let db = Arc::new(TestDB::new());
+    Store::new(db)
 }
 
 /// Creates a Trie using an in-memory database.
@@ -129,7 +129,7 @@ pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, 
 }
 
 pub(crate) fn simplify_changes(
-    changes: &Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    changes: &[(Vec<u8>, Option<Vec<u8>>)],
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     for (key, value) in changes.iter() {

@@ -1,4 +1,3 @@
-use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::routing_table_actor::Prune;
 use crate::routing::routing_table_view::{DELETE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME};
 use crate::test_utils::random_peer_id;
@@ -6,13 +5,15 @@ use crate::RoutingTableActor;
 use actix::System;
 use borsh::de::BorshDeserialize;
 use near_crypto::Signature;
+use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
 use near_store::test_utils::create_test_store;
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Instant;
+
+type SimpleEdgeDescription = (usize, usize, bool);
 
 #[derive(Eq, PartialEq, Hash)]
 struct EdgeDescription(usize, usize, EdgeState);
@@ -26,7 +27,7 @@ impl EdgeDescription {
 
 struct RoutingTableTest {
     routing_table: RoutingTableActor,
-    store: Arc<Store>,
+    store: Store,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
     times: Vec<Instant>,
@@ -78,7 +79,7 @@ impl RoutingTableTest {
     fn check(
         &mut self,
         on_memory: Vec<(usize, usize, bool)>,
-        on_disk_edges: Vec<(u64, Vec<(usize, usize, bool)>)>,
+        on_disk_edges: Vec<(u64, Vec<SimpleEdgeDescription>)>,
         on_disk_peers: Vec<(usize, u64)>,
     ) {
         let on_memory = on_memory.into_iter().map(EdgeDescription::from).collect::<HashSet<_>>();
@@ -166,7 +167,7 @@ impl RoutingTableTest {
 
     fn update_routing_table(&mut self) {
         self.routing_table.recalculate_routing_table();
-        self.routing_table.prune_edges(Prune::PruneOncePerHour, DELETE_PEERS_AFTER_TIME);
+        self.routing_table.prune_edges(Prune::OncePerHour, DELETE_PEERS_AFTER_TIME);
     }
 }
 

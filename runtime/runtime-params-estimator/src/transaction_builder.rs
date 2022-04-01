@@ -7,8 +7,7 @@ use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
-use crate::get_account_id;
-
+use crate::utils::get_account_id;
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]
 pub(crate) struct TransactionBuilder {
@@ -55,6 +54,33 @@ impl TransactionBuilder {
             deposit: 0,
         })];
         self.transaction_from_actions(sender, receiver, actions)
+    }
+
+    /// Transaction that inserts a value for a given key under an account.
+    /// The account must have the test contract deployed.
+    pub(crate) fn account_insert_key(
+        &mut self,
+        account: AccountId,
+        key: &str,
+        value: &str,
+    ) -> SignedTransaction {
+        let arg = (key.len() as u64)
+            .to_le_bytes()
+            .into_iter()
+            .chain(key.bytes())
+            .chain((value.len() as u64).to_le_bytes().into_iter())
+            .chain(value.bytes())
+            .collect();
+
+        self.transaction_from_function_call(account, "account_storage_insert_key", arg)
+    }
+
+    /// Transaction that checks existence of a given key under an account.
+    /// The account must have the test contract deployed.
+    pub(crate) fn account_has_key(&mut self, account: AccountId, key: &str) -> SignedTransaction {
+        let arg = (key.len() as u64).to_le_bytes().into_iter().chain(key.bytes()).collect();
+
+        self.transaction_from_function_call(account, "account_storage_has_key", arg)
     }
 
     pub(crate) fn rng(&mut self) -> ThreadRng {

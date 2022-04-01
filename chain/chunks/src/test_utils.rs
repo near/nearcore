@@ -3,12 +3,11 @@ use std::sync::Arc;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::types::RuntimeAdapter;
-use near_chain::ChainStore;
+use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::BlockHeader;
-use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
 use near_primitives::sharding::{
@@ -41,8 +40,7 @@ impl Default for SealsManagerTestFixture {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
         let validators = make_validators(12);
-        let mock_runtime =
-            KeyValueRuntime::new_with_validators(Arc::clone(&store), validators, 1, 3, 5);
+        let mock_runtime = KeyValueRuntime::new_with_validators(store.clone(), validators, 1, 3, 5);
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
@@ -91,7 +89,7 @@ impl Default for SealsManagerTestFixture {
 }
 
 impl SealsManagerTestFixture {
-    fn store_block_header(store: Arc<Store>, header: BlockHeader) {
+    fn store_block_header(store: Store, header: BlockHeader) {
         let mut chain_store = ChainStore::new(store, header.height());
         let mut update = chain_store.store_update();
         update.save_block_header(header).unwrap();
@@ -132,7 +130,7 @@ impl SealsManagerTestFixture {
     }
 }
 
-pub struct ChunkForwardingTestFixture {
+pub struct ChunkTestFixture {
     pub mock_runtime: Arc<KeyValueRuntime>,
     pub mock_network: Arc<MockPeerManagerAdapter>,
     pub chain_store: ChainStore,
@@ -141,16 +139,23 @@ pub struct ChunkForwardingTestFixture {
     pub mock_shard_tracker: AccountId,
     pub mock_chunk_header: ShardChunkHeader,
     pub mock_chunk_parts: Vec<PartialEncodedChunkPart>,
+    pub mock_chain_head: Tip,
     pub rs: ReedSolomonWrapper,
 }
 
-impl Default for ChunkForwardingTestFixture {
+impl Default for ChunkTestFixture {
     fn default() -> Self {
+        Self::new(false)
+    }
+}
+
+impl ChunkTestFixture {
+    pub fn new(orphan_chunk: bool) -> Self {
         let store = near_store::test_utils::create_test_store();
         // 12 validators, 3 shards => 4 validators per shard
         let validators = make_validators(12);
         let mock_runtime = Arc::new(KeyValueRuntime::new_with_validators(
-            Arc::clone(&store),
+            store.clone(),
             validators.clone(),
             1,
             3,
@@ -161,10 +166,12 @@ impl Default for ChunkForwardingTestFixture {
         let data_parts = mock_runtime.num_data_parts();
         let parity_parts = mock_runtime.num_total_parts() - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-        let mock_parent_hash = CryptoHash::default();
-        let mock_height: BlockHeight = 1;
+        let mock_ancestor_hash = CryptoHash::default();
+        // generate a random block hash for the block at height 1
+        let (mock_parent_hash, mock_height) =
+            if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         let mock_shard_id: ShardId = 0;
-        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
+        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
@@ -181,12 +188,12 @@ impl Default for ChunkForwardingTestFixture {
                 } else {
                     let tracks_shard = mock_runtime.cares_about_shard(
                         Some(*v),
-                        &mock_parent_hash,
+                        &mock_ancestor_hash,
                         mock_shard_id,
                         false,
                     ) || mock_runtime.will_care_about_shard(
                         Some(*v),
-                        &mock_parent_hash,
+                        &mock_ancestor_hash,
                         mock_shard_id,
                         false,
                     );
@@ -201,37 +208,29 @@ impl Default for ChunkForwardingTestFixture {
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
-        const TEST_SEED: RngSeed = [3; 32];
-        let mut producer_shard_manager = ShardsManager::new(
-            Some(mock_chunk_producer),
-            mock_runtime.clone(),
-            mock_network.clone(),
-            TEST_SEED,
-        );
         let receipts = Vec::new();
         let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
-        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &shard_layout);
+        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkles) = producer_shard_manager
-            .create_encoded_shard_chunk(
-                mock_parent_hash,
-                Default::default(),
-                Default::default(),
-                mock_height,
-                mock_shard_id,
-                0,
-                1000,
-                0,
-                Vec::new(),
-                Vec::new(),
-                &receipts,
-                receipts_root,
-                MerkleHash::default(),
-                &signer,
-                &mut rs,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
+        let (mock_chunk, mock_merkles) = ShardsManager::create_encoded_shard_chunk(
+            mock_parent_hash,
+            Default::default(),
+            Default::default(),
+            mock_height,
+            mock_shard_id,
+            0,
+            1000,
+            0,
+            Vec::new(),
+            Vec::new(),
+            &receipts,
+            receipts_root,
+            MerkleHash::default(),
+            &signer,
+            &mut rs,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
 
         let all_part_ords: Vec<u64> =
             (0..mock_chunk.content().parts.len()).map(|p| p as u64).collect();
@@ -239,14 +238,15 @@ impl Default for ChunkForwardingTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                mock_runtime.get_part_owner(&mock_parent_hash, *p).unwrap() == mock_chunk_part_owner
+                mock_runtime.get_part_owner(&mock_ancestor_hash, *p).unwrap()
+                    == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk =
             mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
         let chain_store = ChainStore::new(store, 0);
 
-        ChunkForwardingTestFixture {
+        ChunkTestFixture {
             mock_runtime,
             mock_network,
             chain_store,
@@ -255,12 +255,17 @@ impl Default for ChunkForwardingTestFixture {
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
             mock_chunk_parts: encoded_chunk.parts().clone(),
+            mock_chain_head: Tip {
+                height: 0,
+                last_block_hash: CryptoHash::default(),
+                prev_block_hash: CryptoHash::default(),
+                epoch_id: EpochId::default(),
+                next_epoch_id: EpochId::default(),
+            },
             rs,
         }
     }
-}
 
-impl ChunkForwardingTestFixture {
     pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunkV2 {
         let parts = part_ords
             .iter()

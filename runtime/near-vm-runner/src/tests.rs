@@ -24,13 +24,13 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(feature = "wasmer0_vm")]
+    #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
 
-    #[cfg(feature = "wasmer2_vm")]
+    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer2);
 }
 
@@ -117,4 +117,22 @@ fn make_simple_contract_call_vm(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
+}
+
+#[track_caller]
+fn gas_and_error_match(
+    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
+    expected_gas: Option<u64>,
+    expected_error: Option<VMError>,
+) {
+    match expected_gas {
+        Some(gas) => {
+            let outcome = outcome_and_error.0.unwrap();
+            assert_eq!(outcome.used_gas, gas, "used gas differs");
+            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
+        }
+        None => assert!(outcome_and_error.0.is_none()),
+    }
+
+    assert_eq!(outcome_and_error.1, expected_error);
 }

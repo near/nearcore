@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Clap;
+use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -9,9 +9,10 @@ use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::read_resource;
-use runtime_params_estimator::CostTable;
-use runtime_params_estimator::{costs_to_runtime_config, QemuCommandBuilder};
+use runtime_params_estimator::utils::read_resource;
+use runtime_params_estimator::{
+    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+};
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -21,7 +22,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
@@ -68,9 +69,22 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
+    /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
+    #[clap(long)]
+    drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io"])]
+    #[clap(long, multiple_occurrences = true, possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    /// Print detailed estimation results in JSON format. One line with one JSON
+    /// object per estimation.
+    #[clap(long)]
+    json_output: bool,
+    /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
+    #[clap(long)]
+    tracing_span_tree: bool,
+    /// Extra configuration parameters for RocksDB specific estimations
+    #[clap(flatten)]
+    db_test_config: RocksDBTestConfig,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -84,10 +98,17 @@ fn main() -> anyhow::Result<()> {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
+        let result = std::process::Command::new(build_test_contract)
             .current_dir(estimator_dir)
             .output()
             .context("could not build test contract")?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to build test contract, {}, stderr: {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 
     let temp_dir;
@@ -95,51 +116,49 @@ fn main() -> anyhow::Result<()> {
         Some(it) => it,
         None => {
             temp_dir = tempfile::tempdir()?;
-
-            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-                "test-contract/res/nightly_small_contract.wasm"
-            } else {
-                "test-contract/res/stable_small_contract.wasm"
-            });
-
-            let state_dump_path = temp_dir.path().to_path_buf();
-            nearcore::init_configs(
-                &state_dump_path,
-                None,
-                Some("test.near".parse().unwrap()),
-                Some("alice.near"),
-                1,
-                true,
-                None,
-                false,
-                None,
-                false,
-                None,
-                None,
-                None,
-            )
-            .expect("failed to init config");
-
-            let near_config = load_config(&state_dump_path, GenesisValidationMode::Full)
-                .context("Error loading config")?;
-
-            let store = create_store(&get_store_path(&state_dump_path));
-            GenesisBuilder::from_config_and_store(
-                &state_dump_path,
-                Arc::new(near_config.genesis),
-                store,
-            )
-            .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(contract_code)
-            .print_progress()
-            .build()
-            .unwrap()
-            .dump_state()
-            .unwrap();
-
-            state_dump_path
+            temp_dir.path().to_path_buf()
         }
     };
+    if state_dump_path.read_dir()?.next().is_none() {
+        let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+            "test-contract/res/nightly_small_contract.wasm"
+        } else {
+            "test-contract/res/stable_small_contract.wasm"
+        });
+
+        nearcore::init_configs(
+            &state_dump_path,
+            None,
+            Some("test.near".parse().unwrap()),
+            Some("alice.near"),
+            1,
+            true,
+            None,
+            false,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("failed to init config");
+
+        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full)
+            .context("Error loading config")?;
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(cli_args.additional_accounts_num)
+        .add_additional_accounts_contract(contract_code)
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
 
     let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
 
@@ -148,6 +167,7 @@ fn main() -> anyhow::Result<()> {
             &state_dump_path,
             cli_args.full,
             cli_args.docker_shell,
+            cli_args.json_output,
             debug_options.contains(&"io"),
         );
     }
@@ -180,7 +200,14 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if cli_args.tracing_span_tree {
+        tracing_span_tree::span_tree().enable();
+    }
+
     let warmup_iters_per_block = cli_args.warmup_iters;
+    let mut rocksdb_test_config = cli_args.db_test_config;
+    rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
+    rocksdb_test_config.drop_os_cache = cli_args.drop_os_cache;
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
     let metric = match cli_args.metric.as_str() {
@@ -206,6 +233,10 @@ fn main() -> anyhow::Result<()> {
         metric,
         vm_kind,
         costs_to_measure,
+        rocksdb_test_config,
+        debug_least_squares: debug_options.contains(&"least-squares"),
+        json_output: cli_args.json_output,
+        drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);
 
@@ -218,7 +249,7 @@ fn main() -> anyhow::Result<()> {
         env::current_dir()?.join(file_name)
     };
     fs::write(&output_path, &cost_table.to_string())?;
-    println!(
+    eprintln!(
         "\nFinished in {:.2?}, output saved to:\n\n    {}",
         start.elapsed(),
         output_path.display()
@@ -232,15 +263,20 @@ fn main_docker(
     state_dump_path: &Path,
     full: bool,
     debug_shell: bool,
+    json_output: bool,
     debug_io_log: bool,
 ) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
-    if exec("docker images -q rust-emu")?.is_empty() {
+
+    let image = "rust-emu";
+    let tag = "rust-1.58.1"; //< Update this when Dockerfile changes
+    let tagged_image = format!("{}:{}", image, tag);
+    if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
         let status = Command::new("docker")
-            .args(&["build", "--tag", "rust-emu"])
+            .args(&["build", "--tag", &tagged_image])
             .arg(project_root.join("runtime/runtime-params-estimator/emu-cost"))
             .status()?;
         if !status.success() {
@@ -307,13 +343,20 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"])
         .args(&["--env", "RUST_BACKTRACE=full"]);
+    // Spawning an interactive shell and pseudo TTY is necessary for debug shell
+    // and nice-to-have in the general case, for cargo to color its output. But
+    // it also merges stderr and stdout, which is problem when the stdout should
+    // be piped to another process. So far, only JSON output makes sense to
+    // pipe, everything else goes to stderr.
+    if debug_shell || !json_output {
+        cmd.args(&["--interactive", "--tty"]);
+    }
     if full {
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
-    cmd.arg("rust-emu");
+    cmd.arg(tagged_image);
 
     if debug_shell {
         cmd.args(&["/usr/bin/env", "bash"]);
