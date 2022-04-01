@@ -348,9 +348,29 @@ pub struct DebugBlockStatus {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerInfoView {
+    pub addr: String,
+    pub account_id: Option<AccountId>,
+    pub height: BlockHeight,
+    pub tracked_shards: Vec<ShardId>,
+    pub archival: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkInfoView {
+    pub peer_max_count: u32,
+    pub num_connected_peers: usize,
+    pub connected_peers: Vec<PeerInfoView>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub last_blocks: Vec<DebugBlockStatus>,
+    pub network_info: NetworkInfoView,
+    pub sync_status: String,
 }
 
 // TODO: add more information to status.
@@ -374,7 +394,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks.
+    /// Information about last blocks and sync info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }

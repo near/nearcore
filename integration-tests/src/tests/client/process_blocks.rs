@@ -24,7 +24,7 @@ use near_client::test_utils::{
 };
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-use near_logger_utils::init_test_logger;
+use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -46,6 +46,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
@@ -1587,7 +1588,7 @@ fn test_process_block_after_state_sync() {
         .clone();
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
+        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -1598,7 +1599,7 @@ fn test_process_block_after_state_sync() {
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+        .apply_state_part(0, chunk_extra.state_root(), PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block.into(), Provenance::PRODUCED);
@@ -2363,7 +2364,7 @@ fn test_catchup_gas_price_change() {
     for i in 0..num_parts {
         env.clients[1]
             .chain
-            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
@@ -2378,8 +2379,7 @@ fn test_catchup_gas_price_change() {
             rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                part_id,
-                msg.num_parts,
+                PartId::new(part_id, msg.num_parts),
                 &part,
                 &msg.epoch_id,
             )
@@ -3429,6 +3429,33 @@ fn test_limit_contract_functions_number_upgrade() {
     ));
 }
 
+#[test]
+/// Test that if a node's shard assignment will not change in the next epoch, the node
+/// does not need to catch up.
+fn test_catchup_no_sharding_change() {
+    init_integration_logger();
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    genesis.config.epoch_length = 5;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(1)
+        .validator_seats(1)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    // run the chain to a few epochs and make sure no catch up is triggered and the chain still
+    // functions
+    for h in 1..20 {
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::PRODUCED);
+        res.unwrap();
+        assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos(), vec![]);
+        assert_eq!(
+            env.clients[0].chain.store().get_blocks_to_catchup(block.header().prev_hash()).unwrap(),
+            vec![]
+        );
+    }
+}
+
 mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
@@ -4237,11 +4264,17 @@ mod contract_precompilation_tests {
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
+            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+            .apply_state_part(
+                0,
+                chunk_extra.state_root(),
+                PartId::new(0, 1),
+                &state_part,
+                &epoch_id,
+            )
             .unwrap();
     }
 

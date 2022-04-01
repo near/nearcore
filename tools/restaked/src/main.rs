@@ -2,12 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{App, Arg};
-use tracing::metadata::LevelFilter;
-use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
+use clap::{Arg, Command};
 
 use near_crypto::{InMemorySigner, KeyFile};
+use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
@@ -24,39 +22,36 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::default().add_directive(LevelFilter::DEBUG.into()))
-        .with_writer(std::io::stderr)
-        .init();
-
+    let filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish();
+    let _subscriber = near_o11y::default_subscriber(filter).global();
     let default_home = get_default_home();
-    let matches = App::new("Key-pairs generator")
+    let matches = Command::new("Key-pairs generator")
         .about(
             "Continuously checking the node and executes staking transaction if node is kicked out",
         )
         .arg(
-            Arg::with_name("home")
+            Arg::new("home")
                 .long("home")
                 .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("wait-period")
+            Arg::new("wait-period")
                 .long("wait-period")
                 .default_value(DEFAULT_WAIT_PERIOD_SEC)
                 .help("Waiting period between checking if node is kicked out (in seconds)")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("rpc-url")
+            Arg::new("rpc-url")
                 .long("rpc-url")
                 .default_value(DEFAULT_RPC_URL)
                 .help("Url of RPC for the node to monitor")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("stake-amount")
+            Arg::new("stake-amount")
                 .long("stake-amount")
                 .default_value("0")
                 .help("Stake amount in NEAR, if 0 is used it restakes last seen staked amount")
@@ -117,7 +112,10 @@ fn main() {
         if restake {
             // Already kicked out or getting kicked out.
             let amount = if stake_amount == 0 { last_stake_amount } else { stake_amount };
-            info!(target: "restaked", "Sending staking transaction {} -> {}", key_file.account_id, amount);
+            info!(
+                target: "restaked",
+                "Sending staking transaction {} -> {}", key_file.account_id, amount
+            );
             if let Err(err) =
                 user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
             {

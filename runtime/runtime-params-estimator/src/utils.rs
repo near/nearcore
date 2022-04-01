@@ -1,5 +1,6 @@
+use crate::apply_block_cost;
 use crate::config::Config;
-use crate::estimator_context::{EstimatorContext, Testbed};
+use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 
@@ -29,20 +30,27 @@ pub fn clear_linux_page_cache() -> std::io::Result<()> {
     std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
+#[track_caller]
 pub(crate) fn transaction_cost(
-    testbed: Testbed,
+    ctx: &mut EstimatorContext,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(testbed, block_size, make_transaction);
+    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
     gas_cost
 }
 
+#[track_caller]
 pub(crate) fn transaction_cost_ext(
-    mut testbed: Testbed,
+    ctx: &mut EstimatorContext,
     block_size: usize,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
+    block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let per_block_overhead = apply_block_cost(ctx);
+    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64 / block_size as u64;
+
+    let mut testbed = ctx.testbed();
     let blocks = {
         let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
         let mut blocks = Vec::with_capacity(n_blocks);
@@ -57,20 +65,32 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks);
-    let measurements =
+    let measurements = testbed.measure_blocks(blocks, block_latency);
+    let mut measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
+
+    // The assumption is that the overhead in the measurement due to applying blocks
+    // is negligible (<1%) and can therefore be ignored. This code is here to verify .
+    for (cost, _ext) in &mut measurements {
+        if measurement_overhead.clone() * 100 >= *cost {
+            cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
+        }
+    }
 
     aggregate_per_block_measurements(testbed.config, block_size, measurements)
 }
 
+#[track_caller]
 pub(crate) fn fn_cost(
     ctx: &mut EstimatorContext,
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
 ) -> GasCost {
-    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
+    // Most functions finish execution in a single block. Other measurements
+    // should use `fn_cost_count`.
+    let block_latency = 0;
+    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(measured_count, count);
 
     let base_cost = noop_function_call_cost(ctx);
@@ -78,18 +98,20 @@ pub(crate) fn fn_cost(
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / count
 }
 
+#[track_caller]
 pub(crate) fn fn_cost_count(
     ctx: &mut EstimatorContext,
     method: &str,
     ext_cost: ExtCosts,
+    block_latency: usize,
 ) -> (GasCost, u64) {
     let block_size = 2;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
-    let testbed = ctx.testbed();
-    let (gas_cost, ext_costs) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
+    let (gas_cost, ext_costs) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }
@@ -100,13 +122,11 @@ pub(crate) fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
     }
 
     let cost = {
-        let testbed = ctx.testbed();
-
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", Vec::new())
         };
-        transaction_cost(testbed, &mut make_transaction)
+        transaction_cost(ctx, &mut make_transaction)
     };
 
     ctx.cached.noop_function_call_cost = Some(cost.clone());
@@ -154,7 +174,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks);
+        let measurements = testbed.measure_blocks(blocks, 0);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()

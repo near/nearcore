@@ -434,11 +434,11 @@ pub(crate) fn print_apply_block_result(
 ) {
     let height = block.header().height();
     let block_hash = block.header().hash();
-    let chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, chunk_extra
+        shard_id,
+        height,
+        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit())
     );
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {

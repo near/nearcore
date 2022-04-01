@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use anyhow::Context;
-use clap::Clap;
+use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -22,7 +22,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Directory for config and data. If not set, a temporary directory is used
     /// to generate appropriate data.
@@ -73,8 +73,12 @@ struct CliArgs {
     #[clap(long)]
     drop_os_cache: bool,
     /// Print extra debug information
-    #[clap(long, multiple(true), possible_values=&["io", "rocksdb", "least-squares"])]
+    #[clap(long, multiple_occurrences = true, possible_values=&["io", "rocksdb", "least-squares"])]
     debug: Vec<String>,
+    /// Print detailed estimation results in JSON format. One line with one JSON
+    /// object per estimation.
+    #[clap(long)]
+    json_output: bool,
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
@@ -94,10 +98,17 @@ fn main() -> anyhow::Result<()> {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
+        let result = std::process::Command::new(build_test_contract)
             .current_dir(estimator_dir)
             .output()
             .context("could not build test contract")?;
+        if !result.status.success() {
+            anyhow::bail!(
+                "Failed to build test contract, {}, stderr: {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
     }
 
     let temp_dir;
@@ -155,6 +166,7 @@ fn main() -> anyhow::Result<()> {
             &state_dump_path,
             cli_args.full,
             cli_args.docker_shell,
+            cli_args.json_output,
             debug_options.contains(&"io"),
         );
     }
@@ -222,6 +234,7 @@ fn main() -> anyhow::Result<()> {
         costs_to_measure,
         rocksdb_test_config,
         debug_least_squares: debug_options.contains(&"least-squares"),
+        json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
     };
     let cost_table = runtime_params_estimator::run(config);
@@ -235,7 +248,7 @@ fn main() -> anyhow::Result<()> {
         env::current_dir()?.join(file_name)
     };
     fs::write(&output_path, &cost_table.to_string())?;
-    println!(
+    eprintln!(
         "\nFinished in {:.2?}, output saved to:\n\n    {}",
         start.elapsed(),
         output_path.display()
@@ -249,6 +262,7 @@ fn main_docker(
     state_dump_path: &Path,
     full: bool,
     debug_shell: bool,
+    json_output: bool,
     debug_io_log: bool,
 ) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
@@ -328,8 +342,15 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"])
         .args(&["--env", "RUST_BACKTRACE=full"]);
+    // Spawning an interactive shell and pseudo TTY is necessary for debug shell
+    // and nice-to-have in the general case, for cargo to color its output. But
+    // it also merges stderr and stdout, which is problem when the stdout should
+    // be piped to another process. So far, only JSON output makes sense to
+    // pipe, everything else goes to stderr.
+    if debug_shell || !json_output {
+        cmd.args(&["--interactive", "--tty"]);
+    }
     if full {
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);

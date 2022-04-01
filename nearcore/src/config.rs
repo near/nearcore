@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -25,7 +25,6 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -331,6 +330,10 @@ fn default_use_checkpoints_for_db_migration() -> bool {
     true
 }
 
+fn default_enable_rocksdb_statistics() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -453,6 +456,8 @@ pub struct Config {
     /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+    #[serde(default = "default_enable_rocksdb_statistics")]
+    pub enable_rocksdb_statistics: bool,
 }
 
 impl Default for Config {
@@ -481,16 +486,26 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
+            enable_rocksdb_statistics: false,
         }
     }
 }
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let mut unrecognised_fields = Vec::new();
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config = serde_json::from_str(&s)
+        let config =
+            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
+                unrecognised_fields.push(path.to_string());
+            })
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+
+        if !unrecognised_fields.is_empty() {
+            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+        }
+
         Ok(config)
     }
 
@@ -724,7 +739,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_iter(config.network.blacklist),
+                blacklist: config.network.blacklist,
                 outbound_disabled: false,
                 archive: config.archive,
             },
@@ -1242,7 +1257,7 @@ pub fn init_testnet_configs(
 
 pub fn get_genesis_url(chain_id: &str) -> String {
     format!(
-        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json",
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/genesis.json.xz",
         chain_id,
     )
 }

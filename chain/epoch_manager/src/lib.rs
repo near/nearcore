@@ -142,6 +142,64 @@ impl EpochManager {
         Ok(epoch_manager)
     }
 
+    /// Only used in mock network
+    /// Copy the necessary epoch info related to `block_hash` from `source_epoch_manager` to
+    /// the current epoch manager.
+    /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
+    /// the last block in an epoch in order for the epoch manager to work properly after this function
+    /// is called
+    #[cfg(feature = "mock_network")]
+    pub fn copy_epoch_info_as_of_block(
+        &mut self,
+        block_hash: &CryptoHash,
+        source_epoch_manager: &mut EpochManager,
+    ) -> Result<(), EpochError> {
+        let block_info = source_epoch_manager.get_block_info(block_hash)?.clone();
+        let prev_hash = block_info.prev_hash();
+        let epoch_id = &source_epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let next_epoch_id = &source_epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
+        let mut store_update = self.store.store_update();
+        self.save_epoch_info(
+            &mut store_update,
+            epoch_id,
+            source_epoch_manager.get_epoch_info(epoch_id)?.clone(),
+        )?;
+        // save next epoch info too
+        self.save_epoch_info(
+            &mut store_update,
+            next_epoch_id,
+            source_epoch_manager.get_epoch_info(next_epoch_id)?.clone(),
+        )?;
+        // save next next epoch info if the block is the last block
+        if source_epoch_manager.is_next_block_epoch_start(block_hash)? {
+            let next_next_epoch_id =
+                source_epoch_manager.get_next_epoch_id_from_prev_block(block_hash)?;
+            self.save_epoch_info(
+                &mut store_update,
+                &next_next_epoch_id,
+                source_epoch_manager.get_epoch_info(&next_next_epoch_id)?.clone(),
+            )?;
+        }
+
+        // save block info for the first block in the epoch
+        let epoch_first_block = block_info.epoch_first_block();
+        self.save_block_info(
+            &mut store_update,
+            source_epoch_manager.get_block_info(epoch_first_block)?.clone(),
+        )?;
+
+        self.save_block_info(&mut store_update, block_info)?;
+
+        self.save_epoch_start(
+            &mut store_update,
+            epoch_id,
+            source_epoch_manager.get_epoch_start_from_epoch_id(epoch_id)?,
+        )?;
+
+        store_update.commit()?;
+        Ok(())
+    }
+
     pub fn init_after_epoch_sync(
         &mut self,
         prev_epoch_first_block_info: BlockInfo,
