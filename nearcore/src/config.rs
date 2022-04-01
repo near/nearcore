@@ -845,7 +845,6 @@ fn generate_or_load_key(
 ) -> anyhow::Result<Option<InMemorySigner>> {
     let path = home_dir.join(filename);
     if path.exists() {
-        // Panics if the key is invalid.
         let signer = InMemorySigner::from_file(&path)
             .with_context(|| format!("Failed initializing signer from {}", path.display()))?;
         if let Some(account_id) = account_id {
@@ -924,20 +923,13 @@ fn test_generate_or_load_key() {
 
     assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
     assert!(k1 != k3);
-}
 
-#[test]
-#[should_panic(expected = "Failed to deserialize")]
-fn test_generate_or_load_key_panic() {
-    let tmp = tempfile::tempdir().unwrap();
-    let home_dir = tmp.path();
-
+    // file contains invalid JSON -> should return an error
     {
-        let mut file = std::fs::File::create(&home_dir.join("key")).unwrap();
+        let mut file = std::fs::File::create(&home_dir.join("bad_key")).unwrap();
         writeln!(file, "not JSON").unwrap();
     }
-
-    let _ = generate_or_load_key(home_dir, "key", Some("fred".parse().unwrap()), None);
+    test_err("bad_key", "fred", "");
 }
 
 pub fn mainnet_genesis() -> Genesis {
