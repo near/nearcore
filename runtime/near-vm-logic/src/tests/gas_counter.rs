@@ -156,7 +156,7 @@ fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
     let outcome = logic.compute_outcome_and_distribute_gas();
 
     // Test gas is distributed after outcome calculated.
-    let receipts = outcome.action_receipts().0.iter().map(|(_, rec)| rec);
+    let receipts = outcome.action_receipts.0.iter().map(|(_, rec)| rec);
 
     // Assert lengths are equal for zip
     assert_eq!(receipts.len(), function_calls.len());
@@ -168,7 +168,7 @@ fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
 
     // Verify last receipt received all remaining gas
     let (static_gas, weight) = function_calls.last().unwrap();
-    let (_, last_receipt) = outcome.action_receipts().0.last().unwrap();
+    let (_, last_receipt) = outcome.action_receipts.0.last().unwrap();
     assert_with_gas(last_receipt, |gas| {
         gas == static_gas + weight * gas_per_weight + remainder_gas
     });

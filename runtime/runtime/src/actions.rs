@@ -221,8 +221,8 @@ pub(crate) fn action_function_call(
         }
         None => true,
     };
-    if let Some(mut outcome) = outcome {
-        let new_receipts = outcome.take_receipts(
+    if let Some(outcome) = outcome {
+        let new_receipts = outcome.action_receipts.into_receipts(
             &account_id,
             &action_receipt.signer_id,
             &action_receipt.signer_public_key,

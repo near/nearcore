@@ -6,8 +6,7 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-use near_crypto::{PublicKey, Secp256K1Signature};
-use near_primitives::receipt::Receipt;
+use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
@@ -2702,7 +2701,7 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileData,
-    action_receipts: ActionReceipts,
+    pub action_receipts: ActionReceipts,
 }
 
 impl PartialEq for VMOutcome {
@@ -2729,25 +2728,5 @@ impl std::fmt::Debug for VMOutcome {
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
         )
-    }
-}
-
-impl VMOutcome {
-    /// Takes all action receipts generated from the VM execution and converts them into receipts
-    /// based on the context of the transaction.
-    pub fn take_receipts(
-        &mut self,
-        predecessor_id: &AccountId,
-        signer_id: &AccountId,
-        signer_public_key: &PublicKey,
-        gas_price: Balance,
-    ) -> Vec<Receipt> {
-        self.action_receipts.take_receipts(predecessor_id, signer_id, signer_public_key, gas_price)
-    }
-
-    #[allow(dead_code)]
-    #[cfg(test)]
-    pub(crate) fn action_receipts(&self) -> &ActionReceipts {
-        &self.action_receipts
     }
 }

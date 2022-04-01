@@ -37,11 +37,11 @@ impl ReceiptMetadata {
 }
 
 #[derive(Default, Clone, PartialEq)]
-pub(crate) struct ActionReceipts(pub(crate) Vec<(AccountId, ReceiptMetadata)>);
+pub struct ActionReceipts(pub(crate) Vec<(AccountId, ReceiptMetadata)>);
 
 impl ActionReceipts {
-    pub(crate) fn take_receipts(
-        &mut self,
+    pub fn into_receipts(
+        self,
         predecessor_id: &AccountId,
         signer_id: &AccountId,
         signer_public_key: &PublicKey,
@@ -49,7 +49,7 @@ impl ActionReceipts {
     ) -> Vec<Receipt> {
         let ActionReceipts(receipts) = self;
         receipts
-            .drain(..)
+            .into_iter()
             .map(|(receiver_id, receipt)| Receipt {
                 predecessor_id: predecessor_id.clone(),
                 receiver_id,
