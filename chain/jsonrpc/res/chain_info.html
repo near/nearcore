@@ -45,7 +45,7 @@
                     $('.js-current-header-head-height').text(header_head.height);
                 },
                 dataType: "json",
-                error: function (errMsg, textStatus, errorThrown) {
+                error: (errMsg, textStatus, errorThrown) => {
                     alert("Failed: " + textStatus + " :" + errorThrown);
                 },
                 contentType: "application/json; charset=utf-8",
