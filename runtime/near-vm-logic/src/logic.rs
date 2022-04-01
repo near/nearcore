@@ -2691,7 +2691,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2702,18 +2702,6 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileData,
     pub action_receipts: ActionReceipts,
-}
-
-impl PartialEq for VMOutcome {
-    fn eq(&self, other: &Self) -> bool {
-        self.balance == other.balance
-            && self.storage_usage == other.storage_usage
-            && self.return_data == other.return_data
-            && self.burnt_gas == other.burnt_gas
-            && self.used_gas == other.used_gas
-            && self.logs == other.logs
-            && self.profile == other.profile
-    }
 }
 
 impl std::fmt::Debug for VMOutcome {
