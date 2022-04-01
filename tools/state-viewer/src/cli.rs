@@ -121,7 +121,8 @@ pub enum StateViewerSubCommand {
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
-        let near_config = load_config(home_dir, genesis_validation);
+        let near_config = load_config(home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store = create_store_with_config(
             &get_store_path(home_dir),
             StoreConfig { read_only: true, enable_statistics: false },
