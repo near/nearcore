@@ -798,6 +798,8 @@ impl Handler<Status> for ClientActor {
                         self.client.chain.genesis_block().header().height(),
                     ),
                 ),
+                current_head_status: self.client.chain.head()?.clone().into(),
+                current_header_head_status: self.client.chain.header_head()?.clone().into(),
             })
         } else {
             None
