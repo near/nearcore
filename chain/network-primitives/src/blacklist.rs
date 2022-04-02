@@ -1,13 +1,7 @@
 /// A blacklist for socket addresses.  Supports adding individual IP:port tuples
 /// to the blacklist or entire IPs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Blacklist(std::collections::HashMap<std::net::IpAddr, PortsSet>);
-
-impl Default for Blacklist {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
 
 impl Blacklist {
     /// Construct a blacklist from list of addresses.
