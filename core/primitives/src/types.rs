@@ -12,6 +12,7 @@ use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
 
 use crate::receipt::Receipt;
+use crate::views::{BlockHeaderView, StateChangeValueView, StateChangeWithCauseView};
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 
@@ -214,6 +215,7 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWi
 
 #[derive(Debug)]
 pub enum StateChangesRequest {
+    AllAccountsChanges { block_header: BlockHeaderView },
     AccountChanges { account_ids: Vec<AccountId> },
     SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
@@ -414,6 +416,24 @@ impl StateChanges {
                 )
             })
             .collect())
+    }
+
+    pub fn get_accounts_ids_from_changes(
+        changes: &Vec<StateChangeWithCauseView>,
+    ) -> Vec<AccountId> {
+        changes
+            .into_iter()
+            .map(|change| match &change.value {
+                StateChangeValueView::AccountUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValueView::AccountDeletion { account_id, .. } => account_id.clone(),
+                StateChangeValueView::AccessKeyUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValueView::AccessKeyDeletion { account_id, .. } => account_id.clone(),
+                StateChangeValueView::DataUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValueView::DataDeletion { account_id, .. } => account_id.clone(),
+                StateChangeValueView::ContractCodeUpdate { account_id, .. } => account_id.clone(),
+                StateChangeValueView::ContractCodeDeletion { account_id, .. } => account_id.clone(),
+            })
+            .collect::<Vec<AccountId>>()
     }
 }
 

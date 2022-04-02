@@ -1541,6 +1541,9 @@ pub struct GasPriceView {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "changes_type", rename_all = "snake_case")]
 pub enum StateChangesRequestView {
+    AllAccountsChanges {
+        block_header: BlockHeaderView,
+    },
     AccountChanges {
         account_ids: Vec<AccountId>,
     },
@@ -1563,6 +1566,9 @@ pub enum StateChangesRequestView {
 impl From<StateChangesRequestView> for StateChangesRequest {
     fn from(request: StateChangesRequestView) -> Self {
         match request {
+            StateChangesRequestView::AllAccountsChanges { block_header } => {
+                Self::AllAccountsChanges { block_header }
+            }
             StateChangesRequestView::AccountChanges { account_ids } => {
                 Self::AccountChanges { account_ids }
             }

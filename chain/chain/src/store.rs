@@ -32,7 +32,7 @@ use near_primitives::types::{
     StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
-use near_primitives::views::LightClientBlockView;
+use near_primitives::views::{LightClientBlockView, StateChangeKindView};
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
     ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColBlockPerHeight, ColBlockRefCount,
@@ -706,6 +706,45 @@ impl ChainStore {
         //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
 
         Ok(match state_changes_request {
+            StateChangesRequest::AllAccountsChanges { block_header } => {
+                let state_changes: Vec<StateChangeKindView> = self
+                    .get_state_changes_in_block(&block_header.hash)?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect();
+
+                // TODO(mina86): Do we actually need ‘seen’?  I’m kinda confused at this
+                // point how changes are stored in the database and whether view_client can
+                // return duplicate AccountTouched entries.
+                let mut seen = std::collections::HashSet::new();
+                let touched_account_ids = state_changes
+                    .into_iter()
+                    .filter_map(|x| {
+                        if let near_primitives::views::StateChangeKindView::AccountTouched {
+                            account_id,
+                        } = x
+                        {
+                            Some(account_id)
+                        } else {
+                            None
+                        }
+                    })
+                    .filter(move |account_id| {
+                        // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
+                        // Clone::clone) once hash_set_entry stabilises.
+                        seen.insert(account_id.clone())
+                    })
+                    .collect::<Vec<_>>();
+
+                let all_accounts_changes = self
+                    .get_state_changes(
+                        &block_header.hash,
+                        &StateChangesRequest::AccountChanges { account_ids: touched_account_ids },
+                    )
+                    .expect("All accounts state changes received");
+
+                all_accounts_changes
+            }
             StateChangesRequest::AccountChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
