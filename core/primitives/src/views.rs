@@ -387,6 +387,8 @@ impl From<Tip> for BlockStatusView {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EpochInfoView {
+    pub epoch_id: CryptoHash,
+    pub start_time: String,
     pub validators: Vec<ValidatorInfo>,
 }
 

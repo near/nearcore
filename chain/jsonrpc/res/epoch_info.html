@@ -38,6 +38,8 @@
                 url: "/debug/api/status",
                 success: data => {
                     let epoch_info = data.detailed_debug_status.epoch_info;
+                    $('.js-epoch-id').text(epoch_info.epoch_id);
+                    $('.js-epoch-start-time').text(epoch_info.start_time);
                     epoch_info.validators.forEach((validator, index) =>
                         $('.js-tbody-validators').append($('<tr>')
                             .append($('<td>').append(validator.account_id))
@@ -60,7 +62,15 @@
     </h1>
     <h2>
         <p>
-            Current Validators
+            Current Epoch ID:
+            <span class="js-epoch-id"></span>
+        </p>
+        <p>
+            First block started at:
+            <span class="js-epoch-start-time"></span>
+        </p>
+        <p>
+            Validators
         </p>
     </h2>
 
