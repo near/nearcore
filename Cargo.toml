@@ -15,6 +15,7 @@ members = [
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
+    "runtime/runtime-params-estimator/estimator-warehouse",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",

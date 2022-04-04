@@ -1,13 +1,7 @@
 /// A blacklist for socket addresses.  Supports adding individual IP:port tuples
 /// to the blacklist or entire IPs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Blacklist(std::collections::HashMap<std::net::IpAddr, PortsSet>);
-
-impl Default for Blacklist {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
 
 impl Blacklist {
     /// Construct a blacklist from list of addresses.
@@ -16,10 +10,12 @@ impl Blacklist {
     /// - `blacklist` - list of strings in one of the following format:
     ///    - "IP" - for example 127.0.0.1 - if only IP is provided we will block all ports
     ///    - "IP:PORT - for example 127.0.0.1:2134
-    pub fn from_iter(blacklist: impl IntoIterator<Item = String>) -> Self {
+    pub fn from_iter<I: AsRef<str> + std::fmt::Display>(
+        blacklist: impl IntoIterator<Item = I>,
+    ) -> Self {
         let mut result = Self::default();
         for addr in blacklist {
-            if result.add(&addr).is_err() {
+            if result.add(addr.as_ref()).is_err() {
                 tracing::warn!(target: "network", "{}: invalid blacklist pattern, ignoring", addr);
             }
         }

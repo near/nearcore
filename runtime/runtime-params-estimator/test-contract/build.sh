@@ -33,6 +33,10 @@ function filesize
 
 rustup target add wasm32-unknown-unknown
 
+# Some users have CARGO_TARGET_DIR pointing to a custom target directory. This
+# script assumes a local target directory.
+unset CARGO_TARGET_DIR;
+
 # First, measure the size of the file without payload.
 rm -rf target
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release $features_with_arg

@@ -225,6 +225,7 @@ pub enum ReasonForBan {
     EpochSyncNoResponse = 11,
     EpochSyncInvalidResponse = 12,
     EpochSyncInvalidFinalizationResponse = 13,
+    Blacklisted = 14,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -277,12 +278,15 @@ pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,
     SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
 }
 
 #[cfg(feature = "sandbox")]
 #[derive(Eq, PartialEq, Debug)]
 pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
 }
 
 #[derive(actix::Message, AsStaticStr)]

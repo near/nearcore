@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
     init_integration_logger();
     let home_dir = get_default_home();
-    let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast);
+    let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     let num_trie_items = 10_000;
 
     bench.iter(move || {

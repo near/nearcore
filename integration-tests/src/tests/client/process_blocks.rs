@@ -378,6 +378,7 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::ready(())
@@ -454,6 +455,7 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
@@ -643,6 +645,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
