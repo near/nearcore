@@ -2051,28 +2051,32 @@ impl<'a> ChainStoreUpdate<'a> {
     /// garbage collected.  Roughly speaking this represents start of the ‘hot’
     /// data that we want to keep.
     ///
-    /// `gt_height_limit` indicates limit of how many heights to process.  This
-    /// limit means that the method may stop garbage collection before reaching
-    /// `gc_stop_height`.
+    /// `gt_height_limit` indicates limit of how many non-empty heights to
+    /// process.  This limit means that the method may stop garbage collection
+    /// before reaching `gc_stop_height`.
     pub fn clear_redundant_chunk_data(
         &mut self,
         gc_stop_height: BlockHeight,
         gc_height_limit: BlockHeightDelta,
     ) -> Result<(), Error> {
-        let start = self.chunk_tail()?;
-        let stop = gc_stop_height.min(start.saturating_add(gc_height_limit));
-        for height in start..stop {
+        let mut height = self.chunk_tail()?;
+        let mut remaining = gc_height_limit;
+        while height < gc_stop_height && remaining > 0 {
             let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
-            for chunk_hash in chunk_hashes {
-                let chunk_header_hash = chunk_hash.into();
-                self.gc_col(ColPartialChunks, &chunk_header_hash);
-                // Data in ColInvalidChunks isn’t technically redundant (as it
-                // cannot be calculated from any other data) but it is data we
-                // don’t need for anything so it can be deleted as well.
-                self.gc_col(ColInvalidChunks, &chunk_header_hash);
+            height += 1;
+            if !chunk_hashes.is_empty() {
+                remaining -= 1;
+                for chunk_hash in chunk_hashes {
+                    let chunk_header_hash = chunk_hash.into();
+                    self.gc_col(ColPartialChunks, &chunk_header_hash);
+                    // Data in ColInvalidChunks isn’t technically redundant (it
+                    // cannot be calculated from other data) but it is data we
+                    // don’t need for anything so it can be deleted as well.
+                    self.gc_col(ColInvalidChunks, &chunk_header_hash);
+                }
             }
         }
-        self.update_chunk_tail(stop);
+        self.update_chunk_tail(height);
         Ok(())
     }
 
