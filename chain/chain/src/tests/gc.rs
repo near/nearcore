@@ -152,11 +152,11 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    let clear_data = chain1.clear_data(tries1, 100);
+    /*let clear_data = chain1.clear_data(tries1, 100);
     if clear_data.is_err() {
         println!("clear data failed = {:?}", clear_data);
         assert!(false);
-    }
+    }*/
 
     let mut chain2 = get_chain(num_shards);
     let tries2 = chain2.runtime_adapter.get_tries();
