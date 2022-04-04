@@ -93,6 +93,7 @@ fn add_blocks(
             signer,
             next_bp_hash,
             block_merkle_tree.root(),
+            None,
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(NetworkClientMessages::Block(

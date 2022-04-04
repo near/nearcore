@@ -89,6 +89,7 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             next_block.mut_header().get_mut().inner_lite.timestamp =
                 to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));

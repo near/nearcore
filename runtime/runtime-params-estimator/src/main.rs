@@ -143,7 +143,8 @@ fn main() -> anyhow::Result<()> {
         )
         .expect("failed to init config");
 
-        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full);
+        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full)
+            .context("Error loading config")?;
         let store = create_store(&get_store_path(&state_dump_path));
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
@@ -166,6 +167,7 @@ fn main() -> anyhow::Result<()> {
             &state_dump_path,
             cli_args.full,
             cli_args.docker_shell,
+            cli_args.json_output,
             debug_options.contains(&"io"),
         );
     }
@@ -247,7 +249,7 @@ fn main() -> anyhow::Result<()> {
         env::current_dir()?.join(file_name)
     };
     fs::write(&output_path, &cost_table.to_string())?;
-    println!(
+    eprintln!(
         "\nFinished in {:.2?}, output saved to:\n\n    {}",
         start.elapsed(),
         output_path.display()
@@ -261,6 +263,7 @@ fn main_docker(
     state_dump_path: &Path,
     full: bool,
     debug_shell: bool,
+    json_output: bool,
     debug_io_log: bool,
 ) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
@@ -340,8 +343,15 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"])
         .args(&["--env", "RUST_BACKTRACE=full"]);
+    // Spawning an interactive shell and pseudo TTY is necessary for debug shell
+    // and nice-to-have in the general case, for cargo to color its output. But
+    // it also merges stderr and stdout, which is problem when the stdout should
+    // be piped to another process. So far, only JSON output makes sense to
+    // pipe, everything else goes to stderr.
+    if debug_shell || !json_output {
+        cmd.args(&["--interactive", "--tty"]);
+    }
     if full {
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);

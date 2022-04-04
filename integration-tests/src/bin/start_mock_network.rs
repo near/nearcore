@@ -75,7 +75,8 @@ fn main() {
     init_integration_logger();
     let args = Cli::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full);
+    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;
     let signer =
@@ -93,7 +94,7 @@ fn main() {
         let (mock_network, _client, view_client) = setup_mock_network(
             Path::new(&client_home_dir),
             home_dir,
-            &near_config,
+            near_config,
             args.mode,
             network_delay,
             args.client_start_height,

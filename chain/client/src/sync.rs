@@ -1502,6 +1502,7 @@ mod test {
                 &*signers[3],
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
+                None,
             );
             block_merkle_tree.insert(*block.hash());
 

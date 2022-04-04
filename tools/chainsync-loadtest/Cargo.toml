@@ -32,7 +32,3 @@ nearcore = { path = "../../nearcore" }
 near-network = { path = "../../chain/network" }
 near-network-primitives = { path = "../../chain/network-primitives" }
 near-o11y = { path = "../../core/o11y" }
-
-[features]
-[package.metadata.workspaces]
-independent = true
