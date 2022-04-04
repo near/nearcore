@@ -160,11 +160,6 @@ def get_all_blocks(node: cluster.BaseNode) -> typing.Sequence[cluster.BlockId]:
     return list(reversed(ids))
 
 
-def wait_for_node_to_sync(node: cluster.BaseNode,
-                          blocks: typing.Sequence[cluster.BlockId]) -> None:
-    """Waits for block to sync and asserts it sees the same blocks."""
-
-
 def run_test(cluster: Cluster) -> None:
     # Start the validator and the first observer.  Wait until the observer
     # synchronises a few epoch’s worth of blocks to be generated and then kill
