@@ -571,6 +571,21 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         &src_dir,
         StoreConfig { read_only: true, enable_statistics: false },
     );
+
+    let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let tip: Option<near_primitives::block::Tip> =
+            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
+        anyhow::ensure!(
+            tip.is_some(),
+            "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
+            src_dir.display(),
+            std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
+        );
+        tip.map(|tip| tip.height)
+    } else {
+        None
+    };
+
     let dst_store = create_store(&opts.dest_dir);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
@@ -629,17 +644,11 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // way from the genesis even though chunks at those heights have been
     // deleted.
     if skip_columns.contains(&DBCol::ColPartialChunks) {
-        let tip: Option<near_primitives::block::Tip> =
-            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
-        if let Some(tip) = tip {
-            let chunk_tail: near_primitives::types::BlockHeight = tip.height;
-            info!("Setting chunk tail to {}", chunk_tail);
-            let mut store_update = dst_store.store_update();
-            store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
-            store_update.commit()?;
-        } else {
-            info!("Final head not set; leaving chunk tail be");
-        }
+        let chunk_tail = final_head_height.unwrap();
+        info!("Setting chunk tail to {}", chunk_tail);
+        let mut store_update = dst_store.store_update();
+        store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+        store_update.commit()?;
     }
 
     core::mem::drop(dst_store);
