@@ -39,7 +39,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
-use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
@@ -103,8 +102,6 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
-    /// Keeps track of when the latest blocks and chunks were received.
-    pub chunks_delay_tracker: ChunksDelayTracker,
 }
 
 // Debug information about the upcoming block.
@@ -218,7 +215,6 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
-            chunks_delay_tracker: Default::default(),
         })
     }
 
@@ -729,7 +725,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
-        self.record_receive_block_timestamp(block.get_inner());
+        self.chain.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -931,7 +927,9 @@ impl Client {
             | ProcessPartialEncodedChunkResult::NeedBlock
             | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.record_receive_chunk_timestamp(&header.chunk_hash());
+                self.chain
+                    .blocks_delay_tracker
+                    .mark_chunk_received(&header.chunk_hash(), Clock::instant());
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 self.process_blocks_with_missing_chunks()
             }
@@ -1019,10 +1017,6 @@ impl Client {
         provenance: Provenance,
     ) {
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
-    }
-
-    pub fn record_accepted_block(&mut self, block_hash: &CryptoHash, chunks: &[ChunkHash]) {
-        self.chunks_delay_tracker.finish_block_processing(block_hash, chunks);
     }
 
     /// Gets called when block got accepted.
@@ -1221,7 +1215,7 @@ impl Client {
 
         let chunk_hashes: Vec<ChunkHash> =
             block.chunks().iter().map(|chunk| chunk.chunk_hash()).collect();
-        self.record_accepted_block(&block_hash, &chunk_hashes);
+        self.chain.blocks_delay_tracker.finish_block_processing(&block_hash, &chunk_hashes);
     }
 
     pub fn request_missing_chunks(
@@ -1232,7 +1226,11 @@ impl Client {
         let now = Clock::instant();
         for BlockMissingChunks { prev_hash, missing_chunks, block_hash } in blocks_missing_chunks {
             for chunk in &missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(&chunk.chunk_hash(), now, &block_hash);
+                self.chain.blocks_delay_tracker.mark_chunk_requested(
+                    &chunk.chunk_hash(),
+                    now,
+                    &block_hash,
+                );
             }
             self.shards_mgr.request_chunks(
                 missing_chunks,
@@ -1248,7 +1246,7 @@ impl Client {
             orphans_missing_chunks
         {
             for chunk in &missing_chunks {
-                self.chunks_delay_tracker.requested_chunk(
+                self.chain.blocks_delay_tracker.mark_chunk_requested(
                     &chunk.chunk_hash(),
                     now,
                     &requestor_block_hash,
@@ -1830,14 +1828,6 @@ impl Client {
         Ok(())
     }
 
-    fn record_receive_block_timestamp(&mut self, block: &Block) {
-        self.chunks_delay_tracker.received_block(block, Clock::instant());
-    }
-
-    fn record_receive_chunk_timestamp(&mut self, chunk_hash: &ChunkHash) {
-        self.chunks_delay_tracker.received_chunk(chunk_hash, Clock::instant());
-    }
-
     // Returns detailed information about the upcoming blocks.
     pub fn detailed_upcoming_blocks_info(&self) -> Result<String, Error> {
         let now = Instant::now();
@@ -1847,20 +1837,20 @@ impl Client {
         > = HashMap::new();
 
         // First - look at all the 'in progress' blocks.
-        for entry in self.chunks_delay_tracker.blocks_in_progress.iter() {
+        for entry in self.chain.blocks_delay_tracker.blocks_in_progress.iter() {
             if entry.1.height < self.chain.head()?.height {
                 // In case chunks delay tracker 'leaked' some old blocks - we don't want them to show up.
                 continue;
             }
             let height_status = height_status_map.entry(entry.1.height).or_default();
             let mut block_status = height_status.entry(*entry.0).or_default();
-            block_status.in_progress_for = now.checked_duration_since(entry.1.timestamp);
+            block_status.in_progress_for = now.checked_duration_since(entry.1.received_timestamp);
             block_status.chunk_hashes = entry.1.chunks.clone();
         }
 
         // And in-progress chunks.
         // Here we can see which ones we sent requests for and which responses already came back.
-        for entry in self.chunks_delay_tracker.chunks_in_progress.iter() {
+        for entry in self.chain.blocks_delay_tracker.chunks_in_progress.iter() {
             for height_entry in height_status_map.iter_mut() {
                 if height_entry.1.contains_key(&entry.1.block_hash) {
                     let block_status_entry = height_entry.1.get_mut(&entry.1.block_hash).unwrap();
@@ -1957,8 +1947,8 @@ impl Client {
         Ok(format!(
             "{:?} Blocks in progress: {} Chunks in progress: {} Orphans: {}{}{}",
             self.chain.head()?.epoch_id,
-            self.chunks_delay_tracker.blocks_in_progress.len(),
-            self.chunks_delay_tracker.chunks_in_progress.len(),
+            self.chain.blocks_delay_tracker.blocks_in_progress.len(),
+            self.chain.blocks_delay_tracker.chunks_in_progress.len(),
             self.chain.orphans().len(),
             if next_blocks_log.len() > 0 { "\n" } else { "" },
             next_blocks_log.join("\n")
