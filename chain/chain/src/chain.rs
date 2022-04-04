@@ -42,7 +42,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -310,6 +310,16 @@ impl OrphanBlockPool {
             );
         }
         res
+    }
+
+    pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
+        let mut rtn = Vec::new();
+        for (height, orphans) in &self.height_idx {
+            for orphan in orphans.iter() {
+                rtn.push(BlockStatusView::new(&height, &orphan));
+            }
+        }
+        rtn
     }
 
     /// Returns true if the block has not been requested yet and the number of orphans

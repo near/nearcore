@@ -372,6 +372,15 @@ pub struct BlockStatusView {
     pub hash: CryptoHash,
 }
 
+impl BlockStatusView {
+    pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
+        Self {
+            height: height.clone(),
+            hash: hash.clone(),
+        }
+    }
+}
+
 impl From<Tip> for BlockStatusView {
     fn from(tip: Tip) -> Self {
         Self { height: tip.height, hash: tip.last_block_hash }
@@ -386,6 +395,7 @@ pub struct DetailedDebugStatus {
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
+    pub orphans: Vec<BlockStatusView>,
 }
 
 // TODO: add more information to status.

@@ -14,7 +14,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
@@ -798,9 +798,6 @@ impl Handler<Status> for ClientActor {
                         self.client.chain.genesis_block().header().height(),
                     ),
                 ),
-                current_head_status: self.client.chain.head()?.clone().into(),
-                current_header_head_status: self.client.chain.header_head()?.clone().into(),
-                sync_status: self.client.sync_status.as_variant_name().to_string(),
                 current_head_status: self.client.chain.head()?.clone().into(),
                 current_header_head_status:  self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
