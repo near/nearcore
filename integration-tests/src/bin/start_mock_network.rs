@@ -75,7 +75,8 @@ fn main() {
     init_integration_logger();
     let args = Cli::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full);
+    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;
     let signer =
