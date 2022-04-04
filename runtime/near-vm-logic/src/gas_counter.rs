@@ -275,13 +275,14 @@ impl GasCounter {
     pub fn burnt_gas(&self) -> Gas {
         self.fast_counter.burnt_gas
     }
+
+    /// Amount of gas used through promises and amount burned.
     pub fn used_gas(&self) -> Gas {
         self.promises_gas + self.fast_counter.burnt_gas
     }
 
-    #[allow(dead_code)]
-    #[cfg(test)]
-    pub(crate) fn remaining_gas(&self) -> Gas {
+    /// Remaining gas based on the amount of prepaid gas not yet used.
+    pub fn remaining_gas(&self) -> Gas {
         self.prepaid_gas - self.used_gas()
     }
 

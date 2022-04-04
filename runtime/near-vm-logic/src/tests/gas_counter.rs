@@ -4,6 +4,13 @@ use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::Gas;
 use crate::{VMConfig, VMLogic};
 
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use crate::receipt_manager::ReceiptMetadata;
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::transaction::{Action, FunctionCallAction};
+#[cfg(feature = "protocol_feature_function_call_weight")]
+use near_primitives::types::GasWeight;
+
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let gas_limit = 10u64.pow(14);
@@ -103,20 +110,25 @@ fn test_hit_prepaid_gas_limit() {
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
-fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
-    use crate::receipt_manager::ReceiptMetadata;
-    use near_primitives::transaction::{Action, FunctionCallAction};
-    use near_primitives::types::GasWeight;
+fn assert_with_gas(receipt: &ReceiptMetadata, cb: impl Fn(Gas) -> bool) {
+    if let Action::FunctionCall(FunctionCallAction { gas, .. }) = receipt.actions()[0] {
+        assert!(cb(gas));
+    } else {
+        panic!("expected function call action");
+    }
+}
 
-    let gas_limit = 10u64.pow(14);
+#[cfg(feature = "protocol_feature_function_call_weight")]
+fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+    let gas_limit = 10_000_000_000;
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic_builder = VMLogicBuilder::free().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
     let mut ratios = vec![];
 
     // Schedule all function calls
-    for (static_gas, gas_weight) in function_calls {
+    for (static_gas, gas_weight, _) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
         promise_batch_action_function_call_weight(
             &mut logic,
@@ -129,27 +141,9 @@ fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
         ratios.push((index, *gas_weight));
     }
 
-    fn assert_with_gas(receipt: &ReceiptMetadata, cb: impl Fn(Gas) -> bool) {
-        if let Action::FunctionCall(FunctionCallAction { gas, .. }) = receipt.actions()[0] {
-            assert!(cb(gas));
-        } else {
-            panic!("expected function call action");
-        }
-    }
-
-    let (gas_per_weight, remainder_gas) = {
-        let gas_to_distribute = logic.gas_counter().remaining_gas();
-        let weight_sum: u64 = function_calls
-            .iter()
-            .map(|(_, weight)| weight)
-            // Saturating sum of weights
-            .fold(0, |sum, val| sum.checked_add(*val).unwrap_or(u64::MAX));
-        (gas_to_distribute / weight_sum, gas_to_distribute % weight_sum)
-    };
-
     // Test static gas assigned before
     let receipts = logic.receipt_manager().action_receipts.0.iter().map(|(_, rec)| rec);
-    for (receipt, (static_gas, _)) in receipts.zip(function_calls) {
+    for (receipt, (static_gas, _, _)) in receipts.zip(function_calls) {
         assert_with_gas(receipt, |gas| gas == *static_gas);
     }
 
@@ -162,16 +156,12 @@ fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
     assert_eq!(receipts.len(), function_calls.len());
 
     // Assert sufficient amount was given to
-    for (receipt, (static_gas, weight)) in receipts.zip(function_calls) {
-        assert_with_gas(receipt, |gas| gas >= static_gas + weight * gas_per_weight);
+    for (receipt, (_, _, expected)) in receipts.zip(function_calls) {
+        assert_with_gas(receipt, |gas| {
+            assert_eq!(gas, *expected);
+            true
+        });
     }
-
-    // Verify last receipt received all remaining gas
-    let (static_gas, weight) = function_calls.last().unwrap();
-    let (_, last_receipt) = outcome.action_receipts.0.last().unwrap();
-    assert_with_gas(last_receipt, |gas| {
-        gas == static_gas + weight * gas_per_weight + remainder_gas
-    });
 
     // Verify that all gas was consumed (assumes at least one ratio is provided)
     assert_eq!(outcome.used_gas, gas_limit);
@@ -179,39 +169,42 @@ fn function_call_weight_check(function_calls: &[(Gas, u64)]) {
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
-fn function_call_weight_single_prop_test() {
+fn function_call_weight_basic_cases_test() {
+    // Following tests input are in the format (static gas, gas weight, expected gas)
+    // and the gas limit is `10_000_000_000`
+
     // Single function call
-    function_call_weight_check(&[(0, 1)]);
+    function_call_weight_check(&[(0, 1, 10_000_000_000)]);
 
     // Single function with static gas
-    function_call_weight_check(&[(888, 1)]);
+    function_call_weight_check(&[(888, 1, 10_000_000_000)]);
 
     // Large weight
-    function_call_weight_check(&[(0, 88888)]);
+    function_call_weight_check(&[(0, 88888, 10_000_000_000)]);
 
     // Weight larger than gas limit
-    function_call_weight_check(&[(0, 11u64.pow(14))]);
+    function_call_weight_check(&[(0, 11u64.pow(14), 10_000_000_000)]);
 
     // Split two
-    function_call_weight_check(&[(0, 3), (0, 2)]);
+    function_call_weight_check(&[(0, 3, 6_000_000_000), (0, 2, 4_000_000_000)]);
 
     // Split two with static gas
-    function_call_weight_check(&[(1_000_000, 3), (3_000_000, 2)]);
+    function_call_weight_check(&[(1_000_000, 3, 5_998_600_000), (3_000_000, 2, 4_001_400_000)]);
 
     // Many different gas weights
     function_call_weight_check(&[
-        (1_000_000, 3),
-        (3_000_000, 2),
-        (0, 1),
-        (1_000_000_000, 0),
-        (0, 4),
+        (1_000_000, 3, 2_699_800_000),
+        (3_000_000, 2, 1_802_200_000),
+        (0, 1, 899_600_000),
+        (1_000_000_000, 0, 1_000_000_000),
+        (0, 4, 3_598_400_000),
     ]);
 
     // Weight over u64 bounds
-    function_call_weight_check(&[(0, u64::MAX), (0, 1000)]);
+    function_call_weight_check(&[(0, u64::MAX, 0), (0, 1000, 10_000_000_000)]);
 
     // Weights with one zero and one non-zero
-    function_call_weight_check(&[(0, 0), (0, 1)])
+    function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
