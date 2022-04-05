@@ -725,7 +725,6 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
-        self.chain.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,

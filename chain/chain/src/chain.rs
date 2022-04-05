@@ -993,6 +993,7 @@ impl Chain {
         block_orphaned_with_missing_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
+        self.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
         let block_hash = *block.hash();
         let res = self.process_block_single(
             me,
