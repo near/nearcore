@@ -1,3 +1,4 @@
+use crate::types::ReceiptIndex;
 use crate::External;
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
@@ -6,6 +7,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
+use near_primitives::types::{Balance, Nonce};
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
@@ -14,6 +16,8 @@ use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{HostError, VMLogicError};
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
+
+type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiptMetadata {
@@ -31,25 +35,48 @@ pub struct ReceiptMetadata {
 
 #[derive(Default, Clone, PartialEq)]
 pub(crate) struct ReceiptManager {
-    pub(crate) action_receipts: Vec<(AccountId, ReceiptMetadata)>,
+    pub(crate) action_receipts: ActionReceipts,
     #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
+/// Indexes the [`ReceiptManager`]'s action receipts and actions.
 #[cfg(feature = "protocol_feature_function_call_weight")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FunctionCallActionIndex {
+    /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
     receipt_index: usize,
+    /// Index of the [`Action`] within the [`ReceiptMetadata`].
     action_index: usize,
 }
 
+#[cfg(feature = "protocol_feature_function_call_weight")]
+fn get_fuction_call_action_mut(
+    action_receipts: &mut ActionReceipts,
+    index: FunctionCallActionIndex,
+) -> &mut FunctionCallAction {
+    let FunctionCallActionIndex { receipt_index, action_index } = index;
+    if let Some(Action::FunctionCall(action)) = action_receipts
+        .get_mut(receipt_index)
+        .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+    {
+        action
+    } else {
+        panic!(
+            "Invalid function call index \
+                        (promise_index={}, action_index={})",
+            receipt_index, action_index
+        );
+    }
+}
+
 impl ReceiptManager {
-    pub(crate) fn get_receipt_receiver(&self, receipt_index: u64) -> Option<&AccountId> {
+    pub(crate) fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> Option<&AccountId> {
         self.action_receipts.get(receipt_index as usize).map(|(id, _)| id)
     }
 
     /// Appends an action and returns the index the action was inserted in the receipt
-    pub(crate) fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
+    fn append_action(&mut self, receipt_index: ReceiptIndex, action: Action) -> usize {
         let actions = &mut self
             .action_receipts
             .get_mut(receipt_index as usize)
@@ -77,9 +104,9 @@ impl ReceiptManager {
     pub(crate) fn create_receipt(
         &mut self,
         ext: &mut dyn External,
-        receipt_indices: Vec<u64>,
+        receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
-    ) -> ExtResult<u64> {
+    ) -> ExtResult<ReceiptIndex> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = ext.generate_data_id();
@@ -94,7 +121,7 @@ impl ReceiptManager {
 
         let new_receipt =
             ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
-        let new_receipt_index = self.action_receipts.len() as u64;
+        let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
     }
@@ -108,7 +135,10 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub(crate) fn append_action_create_account(&mut self, receipt_index: u64) -> ExtResult<()> {
+    pub(crate) fn append_action_create_account(
+        &mut self,
+        receipt_index: ReceiptIndex,
+    ) -> ExtResult<()> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -125,7 +155,7 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_deploy_contract(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         code: Vec<u8>,
     ) -> ExtResult<()> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
@@ -157,10 +187,10 @@ impl ReceiptManager {
     #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn append_action_function_call_weight(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         method_name: Vec<u8>,
         args: Vec<u8>,
-        attached_deposit: u128,
+        attached_deposit: Balance,
         prepaid_gas: Gas,
         gas_weight: GasWeight,
     ) -> ExtResult<()> {
@@ -200,10 +230,10 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_function_call(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         method_name: Vec<u8>,
         args: Vec<u8>,
-        attached_deposit: u128,
+        attached_deposit: Balance,
         prepaid_gas: Gas,
     ) -> ExtResult<()> {
         self.append_action(
@@ -231,8 +261,8 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_transfer(
         &mut self,
-        receipt_index: u64,
-        deposit: u128,
+        receipt_index: ReceiptIndex,
+        deposit: Balance,
     ) -> ExtResult<()> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
@@ -251,8 +281,8 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_stake(
         &mut self,
-        receipt_index: u64,
-        stake: u128,
+        receipt_index: ReceiptIndex,
+        stake: Balance,
         public_key: Vec<u8>,
     ) -> ExtResult<()> {
         self.append_action(
@@ -279,9 +309,9 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_add_key_with_full_access(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
-        nonce: u64,
+        nonce: Nonce,
     ) -> ExtResult<()> {
         self.append_action(
             receipt_index,
@@ -313,10 +343,10 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_add_key_with_function_call(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
-        nonce: u64,
-        allowance: Option<u128>,
+        nonce: Nonce,
+        allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
     ) -> ExtResult<()> {
@@ -356,7 +386,7 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_delete_key(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
     ) -> ExtResult<()> {
         self.append_action(
@@ -381,7 +411,7 @@ impl ReceiptManager {
     /// Panics if the `receipt_index` does not refer to a known receipt.
     pub(crate) fn append_action_delete_account(
         &mut self,
-        receipt_index: u64,
+        receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
     ) -> ExtResult<()> {
         self.append_action(
@@ -406,49 +436,43 @@ impl ReceiptManager {
     ///
     /// Function returns a [GasDistribution] that indicates how the gas was distributed.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    pub(crate) fn distribute_unused_gas(&mut self, gas: u64) -> GasDistribution {
+    pub(crate) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
-        if gas_weight_sum != 0 {
-            // Floor division that will ensure gas allocated is <= gas to distribute
-            let gas_per_weight = (gas as u128 / gas_weight_sum) as u64;
 
-            let mut distribute_gas = |metadata: &FunctionCallActionIndex, assigned_gas: u64| {
-                let FunctionCallActionIndex { receipt_index, action_index } = metadata;
-                if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
-                    .action_receipts
-                    .get_mut(*receipt_index)
-                    .and_then(|(_, receipt)| receipt.actions.get_mut(*action_index))
-                {
-                    *gas += assigned_gas;
-                } else {
-                    panic!(
-                        "Invalid index for assigning unused gas weight \
-                        (promise_index={}, action_index={})",
-                        receipt_index, action_index
-                    );
-                }
-            };
-
-            let mut distributed = 0;
-            for (action_index, GasWeight(weight)) in &self.gas_weights {
-                // This can't overflow because the gas_per_weight is floor division
-                // of the weight sum.
-                let assigned_gas = gas_per_weight * weight;
-
-                distribute_gas(action_index, assigned_gas);
-
-                distributed += assigned_gas
-            }
-
-            // Distribute remaining gas to final action.
-            if let Some((last_idx, _)) = self.gas_weights.last() {
-                distribute_gas(last_idx, gas - distributed);
-            }
-            self.gas_weights.clear();
-            GasDistribution::All
-        } else {
-            GasDistribution::NoRatios
+        if gas_weight_sum == 0 {
+            return GasDistribution::NoRatios;
         }
+
+        // Floor division that will ensure gas allocated is <= gas to distribute
+        let gas_per_weight = (unused_gas as u128 / gas_weight_sum) as Gas;
+
+        let mut distribute_gas = |index: &FunctionCallActionIndex, assigned_gas: Gas| {
+            let FunctionCallAction { gas, .. } =
+                get_fuction_call_action_mut(&mut self.action_receipts, *index);
+
+            // This operation cannot overflow because the gas_per_weight calculation is a floor
+            // division of the total amount of gas by the weight sum and the remainder is
+            // distributed exactly.
+            *gas += assigned_gas;
+        };
+
+        let mut distributed = 0;
+        for (action_index, GasWeight(weight)) in &self.gas_weights {
+            // This can't overflow because the gas_per_weight is floor division
+            // of the weight sum.
+            let assigned_gas = gas_per_weight * weight;
+
+            distribute_gas(action_index, assigned_gas);
+
+            distributed += assigned_gas
+        }
+
+        // Distribute remaining gas to final action.
+        if let Some((last_idx, _)) = self.gas_weights.last() {
+            distribute_gas(last_idx, unused_gas - distributed);
+        }
+        self.gas_weights.clear();
+        GasDistribution::All
     }
 }

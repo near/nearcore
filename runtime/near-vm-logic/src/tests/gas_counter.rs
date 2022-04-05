@@ -110,6 +110,7 @@ fn test_hit_prepaid_gas_limit() {
 }
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
+#[track_caller]
 fn assert_with_gas(receipt: &ReceiptMetadata, cb: impl Fn(Gas) -> bool) {
     if let Action::FunctionCall(FunctionCallAction { gas, .. }) = receipt.actions[0] {
         assert!(cb(gas));
@@ -157,10 +158,7 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
 
     // Assert sufficient amount was given to
     for (receipt, (_, _, expected)) in receipts.zip(function_calls) {
-        assert_with_gas(receipt, |gas| {
-            assert_eq!(gas, *expected);
-            true
-        });
+        assert_with_gas(receipt, |gas| gas == *expected);
     }
 
     // Verify that all gas was consumed (assumes at least one ratio is provided)
