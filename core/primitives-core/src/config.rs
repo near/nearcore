@@ -4,6 +4,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use strum::EnumCount;
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
@@ -542,7 +543,7 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
@@ -611,13 +612,10 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_byte,
-
-    // NOTE: this should be the last element of the enum.
-    __count,
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,
@@ -630,9 +628,6 @@ pub enum ActionCosts {
     delete_key,
     value_return,
     new_receipt,
-
-    // NOTE: this should be the last element of the enum.
-    __count,
 }
 
 impl fmt::Display for ActionCosts {
@@ -642,10 +637,6 @@ impl fmt::Display for ActionCosts {
 }
 
 impl ActionCosts {
-    pub const fn count() -> usize {
-        ActionCosts::__count as usize
-    }
-
     pub fn name_of(index: usize) -> &'static str {
         vec![
             "create_account",
@@ -738,13 +729,7 @@ impl ExtCosts {
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
-
-            __count => unreachable!(),
         }
-    }
-
-    pub const fn count() -> usize {
-        ExtCosts::__count as usize
     }
 
     pub fn name_of(index: usize) -> &'static str {
