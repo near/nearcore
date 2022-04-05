@@ -636,7 +636,7 @@ fn test_fork_far_away_from_epoch_end() {
         SimpleChain { from: 0, length: 5, is_removed: false },
         SimpleChain { from: 5, length: 2, is_removed: true },
         // We want the chain to end up exactly at the new epoch start.
-        SimpleChain { from: 5, length: 5500 - 5 + 1, is_removed: false },
+        SimpleChain { from: 5, length: 6600 - 5 + 1, is_removed: false },
     ];
 
     let num_shards = 1;
