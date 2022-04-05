@@ -5,7 +5,7 @@
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{EpochId, ProtocolVersion};
+use near_primitives::types::EpochId;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::fmt::Formatter;
 use std::{fmt, io};
@@ -59,27 +59,6 @@ struct HandshakeAutoDes {
     sender_chain_info: PeerChainInfoV2,
     /// Info for new edge.
     partial_edge_info: PartialEdgeInfo,
-}
-
-impl Handshake {
-    pub(crate) fn new(
-        version: ProtocolVersion,
-        peer_id: PeerId,
-        target_peer_id: PeerId,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfoV2,
-        partial_edge_info: PartialEdgeInfo,
-    ) -> Self {
-        Handshake {
-            protocol_version: version,
-            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-            sender_peer_id: peer_id,
-            target_peer_id,
-            sender_listen_port: listen_port,
-            sender_chain_info: chain_info,
-            partial_edge_info,
-        }
-    }
 }
 
 // Use custom deserializer for HandshakeV2. Try to read version of the other peer from the header.
@@ -204,14 +183,11 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingTableSyncV2(RoutingSyncV2),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingSyncV2 {
     Version2(RoutingVersion2),
@@ -219,7 +195,6 @@ pub enum RoutingSyncV2 {
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct PartialSync {
@@ -227,7 +202,6 @@ pub struct PartialSync {
     pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
 }
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum RoutingState {
@@ -238,7 +212,6 @@ pub enum RoutingState {
     InitializeIbf,
 }
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutingVersion2 {

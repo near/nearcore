@@ -909,13 +909,15 @@ impl PeerManagerActor {
                 peer_type,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
-                recipient,
+                recipient.clone().recipient(),
+                recipient.clone().recipient(),
                 client_addr,
                 view_client_addr,
                 partial_edge_info,
                 txns_since_last_block,
                 peer_counter,
                 rate_limiter,
+                None,
             )
         });
     }

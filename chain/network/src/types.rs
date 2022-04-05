@@ -83,7 +83,7 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::AsStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
