@@ -241,14 +241,17 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
             } else {
                 assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
-            let aggregator = epoch_manager
-                .get_and_update_epoch_info_aggregator(
+            epoch_manager
+                .update_epoch_info_aggregator(
                     prev_block_info.epoch_id(),
                     block_info.prev_hash(),
-                    true,
+                    None,
                 )
                 .unwrap();
-            assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
+            assert_eq!(
+                &epoch_manager.epoch_info_aggregator.all_proposals, &proposals,
+                "Proposals do not match"
+            );
             proposals = BTreeMap::from_iter(
                 block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
             );
@@ -329,13 +332,10 @@ fn verify_block_stats(
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
-            let aggregator = epoch_manager
-                .get_and_update_epoch_info_aggregator(
-                    block_infos[i].epoch_id(),
-                    &block_hashes[i],
-                    true,
-                )
+            epoch_manager
+                .update_epoch_info_aggregator(block_infos[i].epoch_id(), &block_hashes[i], None)
                 .unwrap();
+            let aggregator = epoch_manager.epoch_info_aggregator.clone();
             let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
