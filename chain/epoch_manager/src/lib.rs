@@ -73,6 +73,11 @@ pub struct EpochManager {
     epoch_info_aggregator_needs_saving: bool,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+
+    /// Counts loop iterations inside of update_epoch_info_aggregator method.
+    /// Used for tests as a bit of white-box testing.
+    #[cfg(test)]
+    epoch_info_aggregator_loop_counter: usize,
 }
 
 impl EpochManager {
@@ -117,6 +122,8 @@ impl EpochManager {
             epoch_validators_ordered_unique: lru::LruCache::new(EPOCH_CACHE_SIZE),
             epoch_info_aggregator,
             epoch_info_aggregator_needs_saving: false,
+            #[cfg(test)]
+            epoch_info_aggregator_loop_counter: 0,
             largest_final_height: 0,
         };
         let genesis_epoch_id = EpochId::default();
@@ -1516,6 +1523,11 @@ impl EpochManager {
         let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
         let mut cur_hash = *last_block_hash;
         let overwrite = loop {
+            #[cfg(test)]
+            {
+                self.epoch_info_aggregator_loop_counter += 1;
+            }
+
             // To avoid cloning BlockInfo we need to first get reference to the
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
@@ -1555,7 +1567,8 @@ impl EpochManager {
             self.epoch_info_aggregator.merge(aggregator);
         }
 
-        Ok(overwrite || *self.get_block_info(last_block_hash)?.height() % AGGREGATOR_SAVE_PERIOD == 0)
+        Ok(overwrite
+            || *self.get_block_info(last_block_hash)?.height() % AGGREGATOR_SAVE_PERIOD == 0)
     }
 
     pub fn get_protocol_upgrade_block_height(
@@ -3362,6 +3375,11 @@ mod tests2 {
                 ("test1".parse().unwrap(), stake_amount),
                 ("test2".parse().unwrap(), stake_amount)
             ]),
+        );
+        assert_eq!(
+            BLOCK_CACHE_SIZE + 2,
+            epoch_manager.epoch_info_aggregator_loop_counter,
+            "Expected every block to be visited exactly once"
         );
     }
 
