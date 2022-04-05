@@ -374,10 +374,7 @@ pub struct BlockStatusView {
 
 impl BlockStatusView {
     pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
-        Self {
-            height: height.clone(),
-            hash: hash.clone(),
-        }
+        Self { height: height.clone(), hash: hash.clone() }
     }
 }
 

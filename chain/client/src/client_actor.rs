@@ -799,7 +799,7 @@ impl Handler<Status> for ClientActor {
                     ),
                 ),
                 current_head_status: self.client.chain.head()?.clone().into(),
-                current_header_head_status:  self.client.chain.header_head()?.clone().into(),
+                current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
             })
         } else {
