@@ -71,8 +71,11 @@ fn get_fuction_call_action_mut(
 }
 
 impl ReceiptManager {
-    pub(crate) fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> Option<&AccountId> {
-        self.action_receipts.get(receipt_index as usize).map(|(id, _)| id)
+    pub(crate) fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
+        self.action_receipts
+            .get(receipt_index as usize)
+            .map(|(id, _)| id)
+            .expect("receipt index should be valid for getting receiver")
     }
 
     /// Appends an action and returns the index the action was inserted in the receipt

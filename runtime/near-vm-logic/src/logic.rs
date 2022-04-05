@@ -1392,9 +1392,7 @@ impl<'a> VMLogic<'a> {
 
     /// Helper function to return the account id towards which the receipt is directed.
     fn get_account_by_receipt(&self, receipt_idx: ReceiptIndex) -> &AccountId {
-        self.receipt_manager
-            .get_receipt_receiver(receipt_idx)
-            .expect("promises and receipt_to_account should be consistent.")
+        self.receipt_manager.get_receipt_receiver(receipt_idx)
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
