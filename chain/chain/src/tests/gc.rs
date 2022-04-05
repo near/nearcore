@@ -199,7 +199,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    let clear_data = chain1.clear_data(tries1, 100);
+    let clear_data = chain1.clear_data(tries1, 1000);
     if clear_data.is_err() {
         println!("clear data failed = {:?}", clear_data);
         assert!(false);
@@ -509,7 +509,7 @@ fn test_gc_boundaries_large() {
 fn test_gc_random_common(runs: u64) {
     let mut rng = rand::thread_rng();
     for _tests in 0..runs {
-        let canonical_len = 100 + rng.gen_range(0, 20);
+        let canonical_len = 101;
         let mut chains = vec![SimpleChain { from: 0, length: canonical_len, is_removed: false }];
         for _num_chains in 1..10 {
             let from = rng.gen_range(0, 50);
