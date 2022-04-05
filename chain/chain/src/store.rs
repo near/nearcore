@@ -351,8 +351,6 @@ pub struct ChainStore {
     /// Processed block heights.
     processed_block_heights: LruCache<Vec<u8>, ()>,
     /// Is this a non-archival node that needs to store to ColTrieChanges?
-    /// TODO: this only exists because archival nodes don't need ColTrieChanges.
-    /// Should remove this field if and when that whole column is deleted.
     save_trie_changes: bool,
 }
 
