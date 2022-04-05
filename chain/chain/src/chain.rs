@@ -445,9 +445,10 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let store = ChainStore::new(store, chain_genesis.height);
+        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots,
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -487,10 +488,11 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store = ChainStore::new(store, chain_genesis.height);
+        let mut store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -600,16 +602,6 @@ impl Chain {
             doomslug_threshold_mode,
             pending_states_to_patch: None,
         })
-    }
-
-    pub fn new_archival(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        chain_genesis: &ChainGenesis,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-    ) -> Result<Chain, Error> {
-        let mut chain = Self::new(runtime_adapter, chain_genesis, doomslug_threshold_mode)?;
-        chain.store.ignore_trie_changes();
-        Ok(chain)
     }
 
     #[cfg(feature = "test_features")]

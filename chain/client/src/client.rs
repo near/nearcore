@@ -152,11 +152,12 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
-        let chain = if !config.archive {
-            Chain::new(runtime_adapter.clone(), &chain_genesis, doomslug_threshold_mode)?
-        } else {
-            Chain::new_archival(runtime_adapter.clone(), &chain_genesis, doomslug_threshold_mode)?
-        };
+        let chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            doomslug_threshold_mode,
+            !config.archive,
+        )?;
         let shards_mgr = ShardsManager::new(
             validator_signer.as_ref().map(|x| x.validator_id().clone()),
             runtime_adapter.clone(),

@@ -62,10 +62,15 @@ fn setup_mock_peer_manager_actor(
     mode: MockNetworkMode,
     network_delay: Duration,
     target_height: Option<BlockHeight>,
+    save_trie_changes: bool,
 ) -> MockPeerManagerActor {
-    let chain =
-        Chain::new_for_view_client(runtime, chain_genesis, DoomslugThresholdMode::NoApprovals)
-            .unwrap();
+    let chain = Chain::new_for_view_client(
+        runtime,
+        chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        save_trie_changes,
+    )
+    .unwrap();
     let chain_height = chain.head().unwrap().height;
     let target_height = min(target_height.unwrap_or(chain_height), chain_height);
 
@@ -158,8 +163,11 @@ pub fn setup_mock_network(
         #[cfg(feature = "mock_network")]
         let mut chain_store =
             ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
-        let mut network_chain_store =
-            ChainStore::new(mock_network_runtime.get_store(), config.genesis.config.genesis_height);
+        let mut network_chain_store = ChainStore::new(
+            mock_network_runtime.get_store(),
+            config.genesis.config.genesis_height,
+            !config.client_config.archive,
+        );
 
         let network_tail_height = network_chain_store.tail().unwrap();
         let network_head_height = network_chain_store.head().unwrap().height;
@@ -303,6 +311,7 @@ pub fn setup_mock_network(
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone();
     let genesis_config = config.genesis.config.clone();
+    let archival = config.client_config.archive;
     let mock_network_actor =
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
@@ -314,6 +323,7 @@ pub fn setup_mock_network(
                 mode,
                 network_delay,
                 target_height,
+                !archival,
             )
         });
     // for some reason, with "test_features", start_http requires PeerManagerActor,

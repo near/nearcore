@@ -1241,6 +1241,7 @@ pub fn setup_with_tx_validity_period(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
+        true,
     )
     .unwrap();
     let test_account = "test".parse::<AccountId>().unwrap();
@@ -1288,6 +1289,7 @@ pub fn setup_with_validators(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
+        true,
     )
     .unwrap();
     (chain, runtime, signers)

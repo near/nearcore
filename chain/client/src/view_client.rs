@@ -134,6 +134,7 @@ impl ViewClientActor {
             runtime_adapter.clone(),
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
+            !config.archive,
         )?;
         Ok(ViewClientActor {
             #[cfg(feature = "test_features")]

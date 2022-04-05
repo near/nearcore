@@ -365,7 +365,7 @@ pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> R
 }
 
 impl ChainStore {
-    pub fn new(store: Store, genesis_height: BlockHeight) -> ChainStore {
+    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> ChainStore {
         ChainStore {
             store,
             genesis_height,
@@ -395,12 +395,8 @@ impl ChainStore {
             block_merkle_tree: LruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: LruCache::new(CACHE_SIZE),
             processed_block_heights: LruCache::new(CACHE_SIZE),
-            save_trie_changes: true,
+            save_trie_changes,
         }
-    }
-
-    pub(crate) fn ignore_trie_changes(&mut self) {
-        self.save_trie_changes = false;
     }
 
     pub fn owned_store(&self) -> &Store {
@@ -3131,7 +3127,8 @@ mod tests {
             1,
             epoch_length,
         ));
-        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
+        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true)
+            .unwrap()
     }
 
     #[test]
