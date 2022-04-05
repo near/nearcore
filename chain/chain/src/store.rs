@@ -3355,7 +3355,7 @@ mod tests {
         // epoch didn't change so no data is garbage collected.
         for i in 0..15 {
             println!("height = {} hash = {}", i, blocks[i].hash());
-            if i < 9 {
+            if i < 8 {
                 assert!(chain.get_block(blocks[i].hash()).is_err());
                 assert!(chain
                     .mut_store()
@@ -3387,7 +3387,7 @@ mod tests {
             println!("current column is {:?}", col);
             if gced_cols.contains(&col) {
                 // only genesis block includes new chunk.
-                let count = if col == DBCol::ColOutcomeIds { Some(1) } else { Some(9) };
+                let count = if col == DBCol::ColOutcomeIds { Some(1) } else { Some(8) };
                 assert_eq!(
                     chain
                         .store()
