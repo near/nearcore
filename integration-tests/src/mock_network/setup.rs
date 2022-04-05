@@ -161,8 +161,11 @@ pub fn setup_mock_network(
     if let Some(start_height) = client_start_height {
         info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
         #[cfg(feature = "mock_network")]
-        let mut chain_store =
-            ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(
+            client_runtime.get_store(),
+            config.genesis.config.genesis_height,
+            !config.client_config.archive,
+        );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.get_store(),
             config.genesis.config.genesis_height,
