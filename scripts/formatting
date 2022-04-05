@@ -38,7 +38,8 @@ def run_tools(*, check: bool) -> str:
         import yapf as _
         has_yapf = True
     except ImportError:
-        has_yapf = run((sys.executable, '-m', 'pip', 'install', 'yapf'))
+        has_yapf = run((sys.executable, '-m', 'pip', 'install', 'yapf',
+                        '--no-warn-script-location'))
 
     flag = '-pdr' if check else '-pir'
     args = ('pytest', 'scripts', SELF_FILE)
