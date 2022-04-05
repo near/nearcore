@@ -49,6 +49,15 @@ fn do_fork(
     max_changes: usize,
     verbose: bool,
 ) {
+    if verbose {
+        println!(
+            "Prev Block: @{} {:?} {:?} {:?}",
+            prev_block.header().height(),
+            prev_block.header().epoch_id(),
+            prev_block.header().next_epoch_id(),
+            prev_block.hash()
+        );
+    }
     let mut rng = rand::thread_rng();
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test1".parse().unwrap(),
@@ -58,10 +67,48 @@ fn do_fork(
     let num_shards = prev_state_roots.len() as u64;
     let runtime_adapter = chain.runtime_adapter.clone();
     for i in 0..num_blocks {
-        runtime_adapter
+        let next_epoch_id = runtime_adapter
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
-        let block = Block::empty(&prev_block, &*signer);
+        let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
+            Block::empty(&prev_block, &*signer)
+        } else {
+            let prev_hash = prev_block.hash();
+            let epoch_id = prev_block.header().next_epoch_id().clone();
+            if verbose {
+                println!(
+                    "Creating block with new epoch id {:?} @{}",
+                    next_epoch_id,
+                    prev_block.header().height() + 1
+                );
+            }
+            let next_bp_hash = Chain::compute_bp_hash(
+                &*runtime_adapter,
+                next_epoch_id.clone(),
+                epoch_id.clone(),
+                &prev_hash,
+            )
+            .unwrap();
+            Block::empty_with_epoch(
+                &prev_block,
+                prev_block.header().height() + 1,
+                epoch_id,
+                next_epoch_id,
+                next_bp_hash,
+                &*signer,
+                &mut PartialMerkleTree::default(),
+            )
+        };
+
+        if verbose {
+            println!(
+                "Block: @{} {:?} {:?} {:?}",
+                block.header().height(),
+                block.header().epoch_id(),
+                block.header().next_epoch_id(),
+                block.hash()
+            );
+        }
 
         let head = chain.head().unwrap();
         let mut store_update = chain.mut_store().store_update();
@@ -152,11 +199,11 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    /*let clear_data = chain1.clear_data(tries1, 100);
+    let clear_data = chain1.clear_data(tries1, 100);
     if clear_data.is_err() {
         println!("clear data failed = {:?}", clear_data);
         assert!(false);
-    }*/
+    }
 
     let mut chain2 = get_chain(num_shards);
     let tries2 = chain2.runtime_adapter.get_tries();
@@ -223,6 +270,17 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut start_index = 1; // zero is for genesis
     for simple_chain in simple_chains.iter() {
         if simple_chain.is_removed {
+            for i in start_index..start_index + simple_chain.length {
+                let (block1, _, _) = states1[i as usize].clone();
+                // Make sure that blocks were removed.
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    false,
+                    "Block {:?}@{} should have been removed - as it belongs to removed fork.",
+                    block1.hash(),
+                    block1.header().height()
+                );
+            }
             start_index += simple_chain.length;
             continue;
         }
@@ -230,6 +288,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             let (block1, state_root1, _) = states1[i as usize].clone();
             let state_root1 = state_root1[shard_to_check_trie as usize];
             if block1.header().height() > gc_height || i == gc_height {
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    true,
+                    "Block {:?}@{} should exist",
+                    block1.hash(),
+                    block1.header().height()
+                );
                 assert!(trie1.iter(&state_root1).is_ok());
                 assert!(trie2.iter(&state_root1).is_ok());
                 let a = trie1
@@ -243,6 +308,15 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 assert_eq!(a, b);
+            } else {
+                // Make sure that blocks were removed.
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    false,
+                    "Block {:?}@{} should have been removed.",
+                    block1.hash(),
+                    block1.header().height()
+                );
             }
         }
         start_index += simple_chain.length;
@@ -546,4 +620,100 @@ fn test_gc_star_small() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_gc_star_large() {
     test_gc_star_common(20)
+}
+
+#[test]
+// This test covers the situation when fork happens far away from the end of the epoch.
+// Currently, we start fork cleanup, once we are at the epoch boundary, by setting 'fork_tail'.
+// Then in each step, we move the fork_tail backwards, cleaning up any forks that we might encounter.
+// But in order not to do too much work in one go, we check up to 1000 blocks (and we continue during the next execution of clean).
+// This test checks what happens when fork is more than 1k blocks from the epoch end - and checks that it gets properly cleaned
+// during the second run.
+fn test_fork_far_away_from_epoch_end() {
+    let verbose = false;
+    let max_changes = 1;
+    let simple_chains = vec![
+        SimpleChain { from: 0, length: 5, is_removed: false },
+        SimpleChain { from: 5, length: 2, is_removed: true },
+        // We want the chain to end up exactly at the new epoch start.
+        SimpleChain { from: 5, length: 5500 - 5 + 1, is_removed: false },
+    ];
+
+    let num_shards = 1;
+    // We pick the epoch length that is greater than 1k (GC_FORK_CLEAN_STEP)
+    let mut chain1 = get_chain_with_epoch_length_and_num_shards(1100, num_shards);
+    let tries1 = chain1.runtime_adapter.get_tries();
+    let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
+    let mut states1 = vec![(
+        genesis1,
+        vec![Trie::empty_root(); num_shards as usize],
+        vec![Vec::new(); num_shards as usize],
+    )];
+
+    for simple_chain in simple_chains.iter() {
+        let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
+        do_fork(
+            source_block1.clone(),
+            state_root1,
+            tries1.clone(),
+            &mut chain1,
+            simple_chain.length,
+            &mut states1,
+            max_changes,
+            verbose,
+        );
+    }
+
+    // GC execution
+    chain1.clear_data(tries1.clone(), 100).expect("Clear data failed");
+
+    // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
+    // yet - as fork_tail only clears the 'last' 1k blocks.
+    for i in 1..5 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            false,
+            "Block {:?}@{} should have been removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
+    // But blocks from the fork - shouldn't be removed yet.
+    for i in 6..7 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            true,
+            "Block {:?}@{} should NOT be removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
+    // Now let's add one more block - and now the fork (and the rest) should be successfully removed.
+    {
+        let (source_block1, state_root1, _) = states1.last().unwrap().clone();
+        do_fork(
+            source_block1.clone(),
+            state_root1,
+            tries1.clone(),
+            &mut chain1,
+            1,
+            &mut states1,
+            max_changes,
+            verbose,
+        );
+    }
+    chain1.clear_data(tries1, 100).expect("Clear data failed");
+    // And now all these blocks should be safely removed.
+    for i in 6..50 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            false,
+            "Block {:?}@{} should have been removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
 }
