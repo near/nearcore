@@ -1041,7 +1041,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 current_header =
                     self.get_block_header(&last_block_of_prev_epoch.0).unwrap().unwrap();
             }
-            println!("In stop height: {}", current_header.height());
             loop {
                 if current_header.next_epoch_id().0 == *current_header.prev_hash() {
                     break;
