@@ -1,14 +1,14 @@
 use crate::External;
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
-use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::receipt::DataReceiver;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance, Gas};
+use near_primitives_core::types::{AccountId, Gas};
 #[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{HostError, VMLogicError};
@@ -16,62 +16,22 @@ use near_vm_errors::{HostError, VMLogicError};
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ReceiptMetadata {
+pub struct ReceiptMetadata {
     /// If present, where to route the output data
-    output_data_receivers: Vec<DataReceiver>,
+    pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
     /// If all `input_data_ids` for this receipt are delivered to the account
     /// that means we have all the `ReceivedData` input which will be than converted to a
     /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
     /// depending on `ReceivedData` is `Some(_)` or `None`
-    input_data_ids: Vec<CryptoHash>,
+    pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
-    actions: Vec<Action>,
-}
-
-impl ReceiptMetadata {
-    #[cfg(test)]
-    pub(crate) fn actions(&self) -> &[Action] {
-        &self.actions
-    }
-}
-
-#[derive(Default, Clone, PartialEq)]
-pub struct ActionReceipts(pub(crate) Vec<(AccountId, ReceiptMetadata)>);
-
-impl ActionReceipts {
-    pub fn into_receipts(
-        self,
-        predecessor_id: &AccountId,
-        signer_id: &AccountId,
-        signer_public_key: &PublicKey,
-        gas_price: Balance,
-    ) -> Vec<Receipt> {
-        let ActionReceipts(receipts) = self;
-        receipts
-            .into_iter()
-            .map(|(receiver_id, receipt)| Receipt {
-                predecessor_id: predecessor_id.clone(),
-                receiver_id,
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: signer_id.clone(),
-                    signer_public_key: signer_public_key.clone(),
-                    gas_price,
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                }),
-            })
-            .collect()
-    }
+    pub actions: Vec<Action>,
 }
 
 #[derive(Default, Clone, PartialEq)]
 pub(crate) struct ReceiptManager {
-    pub(crate) action_receipts: ActionReceipts,
+    pub(crate) action_receipts: Vec<(AccountId, ReceiptMetadata)>,
     #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
@@ -84,15 +44,14 @@ struct FunctionCallActionIndex {
 }
 
 impl ReceiptManager {
-    pub fn get_receipt_receiver(&self, receipt_index: u64) -> Option<&AccountId> {
-        self.action_receipts.0.get(receipt_index as usize).map(|(id, _)| id)
+    pub(crate) fn get_receipt_receiver(&self, receipt_index: u64) -> Option<&AccountId> {
+        self.action_receipts.get(receipt_index as usize).map(|(id, _)| id)
     }
 
     /// Appends an action and returns the index the action was inserted in the receipt
-    pub fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
+    pub(crate) fn append_action(&mut self, receipt_index: u64, action: Action) -> usize {
         let actions = &mut self
             .action_receipts
-            .0
             .get_mut(receipt_index as usize)
             .expect("receipt index should be present")
             .1
@@ -115,7 +74,7 @@ impl ReceiptManager {
     /// * `generate_data_id` - function to generate a data id to connect receipt output to
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
-    pub fn create_receipt(
+    pub(crate) fn create_receipt(
         &mut self,
         ext: &mut dyn External,
         receipt_indices: Vec<u64>,
@@ -125,7 +84,6 @@ impl ReceiptManager {
         for receipt_index in receipt_indices {
             let data_id = ext.generate_data_id();
             self.action_receipts
-                .0
                 .get_mut(receipt_index as usize)
                 .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
@@ -136,8 +94,8 @@ impl ReceiptManager {
 
         let new_receipt =
             ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
-        let new_receipt_index = self.action_receipts.0.len() as u64;
-        self.action_receipts.0.push((receiver_id, new_receipt));
+        let new_receipt_index = self.action_receipts.len() as u64;
+        self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
     }
 
@@ -150,7 +108,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_create_account(&mut self, receipt_index: u64) -> ExtResult<()> {
+    pub(crate) fn append_action_create_account(&mut self, receipt_index: u64) -> ExtResult<()> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -165,7 +123,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_deploy_contract(
+    pub(crate) fn append_action_deploy_contract(
         &mut self,
         receipt_index: u64,
         code: Vec<u8>,
@@ -197,7 +155,7 @@ impl ReceiptManager {
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    pub fn append_action_function_call_weight(
+    pub(crate) fn append_action_function_call_weight(
         &mut self,
         receipt_index: u64,
         method_name: Vec<u8>,
@@ -240,7 +198,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_function_call(
+    pub(crate) fn append_action_function_call(
         &mut self,
         receipt_index: u64,
         method_name: Vec<u8>,
@@ -271,7 +229,11 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_transfer(&mut self, receipt_index: u64, deposit: u128) -> ExtResult<()> {
+    pub(crate) fn append_action_transfer(
+        &mut self,
+        receipt_index: u64,
+        deposit: u128,
+    ) -> ExtResult<()> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
     }
@@ -287,7 +249,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_stake(
+    pub(crate) fn append_action_stake(
         &mut self,
         receipt_index: u64,
         stake: u128,
@@ -315,7 +277,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_add_key_with_full_access(
+    pub(crate) fn append_action_add_key_with_full_access(
         &mut self,
         receipt_index: u64,
         public_key: Vec<u8>,
@@ -349,7 +311,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_add_key_with_function_call(
+    pub(crate) fn append_action_add_key_with_function_call(
         &mut self,
         receipt_index: u64,
         public_key: Vec<u8>,
@@ -392,7 +354,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_delete_key(
+    pub(crate) fn append_action_delete_key(
         &mut self,
         receipt_index: u64,
         public_key: Vec<u8>,
@@ -417,7 +379,7 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub fn append_action_delete_account(
+    pub(crate) fn append_action_delete_account(
         &mut self,
         receipt_index: u64,
         beneficiary_id: AccountId,
@@ -444,7 +406,7 @@ impl ReceiptManager {
     ///
     /// Function returns a [GasDistribution] that indicates how the gas was distributed.
     #[cfg(feature = "protocol_feature_function_call_weight")]
-    pub fn distribute_unused_gas(&mut self, gas: u64) -> GasDistribution {
+    pub(crate) fn distribute_unused_gas(&mut self, gas: u64) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
         if gas_weight_sum != 0 {
@@ -455,7 +417,6 @@ impl ReceiptManager {
                 let FunctionCallActionIndex { receipt_index, action_index } = metadata;
                 if let Some(Action::FunctionCall(FunctionCallAction { ref mut gas, .. })) = self
                     .action_receipts
-                    .0
                     .get_mut(*receipt_index)
                     .and_then(|(_, receipt)| receipt.actions.get_mut(*action_index))
                 {

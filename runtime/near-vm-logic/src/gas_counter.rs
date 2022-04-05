@@ -282,7 +282,7 @@ impl GasCounter {
     }
 
     /// Remaining gas based on the amount of prepaid gas not yet used.
-    pub fn remaining_gas(&self) -> Gas {
+    pub fn unused_gas(&self) -> Gas {
         self.prepaid_gas - self.used_gas()
     }
 

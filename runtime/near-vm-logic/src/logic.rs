@@ -1,10 +1,10 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::gas_counter::{FastGasCounter, GasCounter};
-use crate::receipt_manager::{ActionReceipts, ReceiptManager};
+use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::ValuePtr;
+use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
@@ -2643,13 +2643,11 @@ impl<'a> VMLogic<'a> {
         #[cfg(feature = "protocol_feature_function_call_weight")]
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
-            let unused_gas = self.context.prepaid_gas - self.gas_counter.used_gas();
+            let unused_gas = self.gas_counter.unused_gas();
 
-            // Distribute the unused gas and prepay for the gas.
-            if matches!(
-                self.receipt_manager.distribute_unused_gas(unused_gas),
-                GasDistribution::All
-            ) {
+            // Spend all remaining gas by distributing it among function calls that specify
+            // a gas weight
+            if let GasDistribution::All = self.receipt_manager.distribute_unused_gas(unused_gas) {
                 self.gas_counter.prepay_gas(unused_gas).unwrap();
             }
         }
@@ -2701,7 +2699,7 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileData,
-    pub action_receipts: ActionReceipts,
+    pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
 }
 
 impl std::fmt::Debug for VMOutcome {

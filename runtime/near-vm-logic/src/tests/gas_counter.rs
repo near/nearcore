@@ -111,7 +111,7 @@ fn test_hit_prepaid_gas_limit() {
 
 #[cfg(feature = "protocol_feature_function_call_weight")]
 fn assert_with_gas(receipt: &ReceiptMetadata, cb: impl Fn(Gas) -> bool) {
-    if let Action::FunctionCall(FunctionCallAction { gas, .. }) = receipt.actions()[0] {
+    if let Action::FunctionCall(FunctionCallAction { gas, .. }) = receipt.actions[0] {
         assert!(cb(gas));
     } else {
         panic!("expected function call action");
@@ -142,7 +142,7 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     }
 
     // Test static gas assigned before
-    let receipts = logic.receipt_manager().action_receipts.0.iter().map(|(_, rec)| rec);
+    let receipts = logic.receipt_manager().action_receipts.iter().map(|(_, rec)| rec);
     for (receipt, (static_gas, _, _)) in receipts.zip(function_calls) {
         assert_with_gas(receipt, |gas| gas == *static_gas);
     }
@@ -150,7 +150,7 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     let outcome = logic.compute_outcome_and_distribute_gas();
 
     // Test gas is distributed after outcome calculated.
-    let receipts = outcome.action_receipts.0.iter().map(|(_, rec)| rec);
+    let receipts = outcome.action_receipts.iter().map(|(_, rec)| rec);
 
     // Assert lengths are equal for zip
     assert_eq!(receipts.len(), function_calls.len());

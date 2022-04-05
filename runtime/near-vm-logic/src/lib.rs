@@ -21,6 +21,7 @@ pub use near_primitives_core::config::*;
 pub use near_primitives_core::profile;
 pub use near_primitives_core::types::ProtocolVersion;
 pub use near_vm_errors::{HostError, VMLogicError};
+pub use receipt_manager::ReceiptMetadata;
 pub use types::ReturnData;
 
 pub use gas_counter::with_ext_cost_counter;

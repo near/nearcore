@@ -6,7 +6,7 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -222,12 +222,25 @@ pub(crate) fn action_function_call(
         None => true,
     };
     if let Some(outcome) = outcome {
-        let new_receipts = outcome.action_receipts.into_receipts(
-            &account_id,
-            &action_receipt.signer_id,
-            &action_receipt.signer_public_key,
-            action_receipt.gas_price,
-        );
+        let new_receipts: Vec<_> = outcome
+            .action_receipts
+            .into_iter()
+            .map(|(receiver_id, receipt)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                }),
+            })
+            .collect();
         result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
         result.gas_burnt_for_function_call =
             safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
