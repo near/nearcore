@@ -35,7 +35,7 @@ impl NeardCmd {
         } else {
             env_filter
         };
-        let _subscriber = default_subscriber(env_filter);
+        let _subscriber = default_subscriber(env_filter).global();
 
         info!(
             target: "neard",
@@ -334,7 +334,8 @@ pub(super) struct RunCmd {
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation);
+        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
 
@@ -409,7 +410,7 @@ impl RunCmd {
                 futures::select! {
                     _ = sigint .recv().fuse() => "SIGINT",
                     _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "ClentActor died",
+                    _ = rx.fuse() => "ClientActor died",
                 }
             } else {
                 // TODO(#6372): Support graceful shutdown on windows.

@@ -238,7 +238,7 @@ impl InfoHelper {
     }
 }
 
-fn display_sync_status(
+pub fn display_sync_status(
     sync_status: &SyncStatus,
     head: &Tip,
     genesis_height: BlockHeight,

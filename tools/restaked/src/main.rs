@@ -23,7 +23,7 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 
 fn main() {
     let filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish();
-    let _subscriber = near_o11y::default_subscriber(filter);
+    let _subscriber = near_o11y::default_subscriber(filter).global();
     let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .about(
@@ -71,9 +71,14 @@ fn main() {
         .unwrap();
 
     let config = Config::from_file(&home_dir.join(CONFIG_FILENAME)).expect("can't load config");
-    let key_file = KeyFile::from_file(&home_dir.join(&config.validator_key_file));
+
+    let key_path = home_dir.join(&config.validator_key_file);
+    let key_file = KeyFile::from_file(&key_path)
+        .unwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
     // Support configuring if there is another key.
-    let signer = InMemorySigner::from_file(&home_dir.join(&config.validator_key_file));
+    let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
+        panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
+    });
     let account_id = signer.account_id.clone();
     let mut last_stake_amount = stake_amount;
 

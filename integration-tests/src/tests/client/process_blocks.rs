@@ -46,6 +46,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
@@ -377,6 +378,7 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::ready(())
@@ -453,6 +455,7 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
@@ -642,6 +645,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
@@ -1587,7 +1591,7 @@ fn test_process_block_after_state_sync() {
         .clone();
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
+        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -1598,7 +1602,7 @@ fn test_process_block_after_state_sync() {
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+        .apply_state_part(0, chunk_extra.state_root(), PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block.into(), Provenance::PRODUCED);
@@ -2363,7 +2367,7 @@ fn test_catchup_gas_price_change() {
     for i in 0..num_parts {
         env.clients[1]
             .chain
-            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
@@ -2378,8 +2382,7 @@ fn test_catchup_gas_price_change() {
             rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                part_id,
-                msg.num_parts,
+                PartId::new(part_id, msg.num_parts),
                 &part,
                 &msg.epoch_id,
             )
@@ -4264,11 +4267,17 @@ mod contract_precompilation_tests {
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
+            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+            .apply_state_part(
+                0,
+                chunk_extra.state_root(),
+                PartId::new(0, 1),
+                &state_part,
+                &epoch_id,
+            )
             .unwrap();
     }
 

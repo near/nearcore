@@ -214,6 +214,7 @@ impl Block {
         signer: &dyn ValidatorSigner,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
+        timestamp_override: Option<DateTime<chrono::Utc>>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -243,7 +244,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(Clock::utc());
+        let now = to_timestamp(timestamp_override.unwrap_or_else(Clock::utc));
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());

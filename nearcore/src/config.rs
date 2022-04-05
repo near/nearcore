@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -25,7 +25,6 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::blacklist_from_iter;
 use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
@@ -494,10 +493,19 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let mut unrecognised_fields = Vec::new();
         let s = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config = serde_json::from_str(&s)
+        let config =
+            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
+                unrecognised_fields.push(path.to_string());
+            })
             .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+
+        if !unrecognised_fields.is_empty() {
+            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+        }
+
         Ok(config)
     }
 
@@ -731,7 +739,7 @@ impl NearConfig {
                 max_routes_to_store: MAX_ROUTES_TO_STORE,
                 highest_peer_horizon: HIGHEST_PEER_HORIZON,
                 push_info_period: Duration::from_millis(100),
-                blacklist: blacklist_from_iter(config.network.blacklist),
+                blacklist: config.network.blacklist,
                 outbound_disabled: false,
                 archive: config.archive,
             },
@@ -837,8 +845,8 @@ fn generate_or_load_key(
 ) -> anyhow::Result<Option<InMemorySigner>> {
     let path = home_dir.join(filename);
     if path.exists() {
-        // Panics if the key is invalid.
-        let signer = InMemorySigner::from_file(&path);
+        let signer = InMemorySigner::from_file(&path)
+            .with_context(|| format!("Failed initializing signer from {}", path.display()))?;
         if let Some(account_id) = account_id {
             if account_id != signer.account_id {
                 return Err(anyhow!(
@@ -915,20 +923,13 @@ fn test_generate_or_load_key() {
 
     assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
     assert!(k1 != k3);
-}
 
-#[test]
-#[should_panic(expected = "Failed to deserialize")]
-fn test_generate_or_load_key_panic() {
-    let tmp = tempfile::tempdir().unwrap();
-    let home_dir = tmp.path();
-
+    // file contains invalid JSON -> should return an error
     {
-        let mut file = std::fs::File::create(&home_dir.join("key")).unwrap();
+        let mut file = std::fs::File::create(&home_dir.join("bad_key")).unwrap();
         writeln!(file, "not JSON").unwrap();
     }
-
-    let _ = generate_or_load_key(home_dir, "key", Some("fred".parse().unwrap()), None);
+    test_err("bad_key", "fred", "");
 }
 
 pub fn mainnet_genesis() -> Genesis {
@@ -1605,11 +1606,11 @@ struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
-    fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path).expect("Could not open key file.");
+    fn from_file(path: &Path) -> std::io::Result<Self> {
+        let mut file = File::open(path)?;
         let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from key file.");
-        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+        file.read_to_string(&mut content)?;
+        Ok(serde_json::from_str(&content)?)
     }
 }
 
@@ -1629,21 +1630,28 @@ impl From<NodeKeyFile> for KeyFile {
     }
 }
 
-pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> NearConfig {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME)).unwrap();
+pub fn load_config(
+    dir: &Path,
+    genesis_validation: GenesisValidationMode,
+) -> Result<NearConfig, anyhow::Error> {
+    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
-    let validator_signer = if dir.join(&config.validator_key_file).exists() {
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_file(&dir.join(&config.validator_key_file)))
-                as Arc<dyn ValidatorSigner>;
-        Some(signer)
+    let validator_file = dir.join(&config.validator_key_file);
+    let validator_signer = if validator_file.exists() {
+        let signer = InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
+            format!("Failed initializing validator signer from {}", validator_file.display())
+        })?;
+        Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)
     } else {
         None
     };
-    let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
+    let node_key_path = dir.join(&config.node_key_file);
+    let network_signer = NodeKeyFile::from_file(&node_key_path).with_context(|| {
+        format!("Failed reading node key file from {}", node_key_path.display())
+    })?;
 
     let genesis_records_file = config.genesis_records_file.clone();
-    NearConfig::new(
+    Ok(NearConfig::new(
         config,
         match genesis_records_file {
             Some(genesis_records_file) => Genesis::from_files(
@@ -1655,7 +1663,7 @@ pub fn load_config(dir: &Path, genesis_validation: GenesisValidationMode) -> Nea
         },
         network_signer.into(),
         validator_signer,
-    )
+    ))
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {

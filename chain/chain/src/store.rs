@@ -132,6 +132,8 @@ pub trait ChainStoreAccess {
     }
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
+    /// Does this chunk exist?
+    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
     /// GEt block extra for given block.
@@ -877,6 +879,10 @@ impl ChainStoreAccess for ChainStore {
         self.store.exists(ColBlock, h.as_ref()).map_err(|e| e.into())
     }
 
+    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        self.store.exists(ColChunks, h.as_ref()).map_err(|e| e.into())
+    }
+
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.get_block_header(header.prev_hash())
@@ -1335,6 +1341,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         Ok(self.chain_store_cache_update.blocks.contains_key(h)
             || self.chain_store.block_exists(h)?)
+    }
+
+    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+        Ok(self.chain_store_cache_update.chunks.contains_key(h)
+            || self.chain_store.chunk_exists(h)?)
     }
 
     /// Get previous header.
