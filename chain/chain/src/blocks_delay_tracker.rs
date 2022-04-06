@@ -106,7 +106,7 @@ impl BlocksDelayTracker {
             block_entry.removed_from_missing_chunks_timestamp = Some(timestamp);
         } else {
             debug_assert!(false);
-            warn!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
         }
     }
 
