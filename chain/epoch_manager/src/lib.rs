@@ -344,7 +344,7 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
 
-        self.update_epoch_info_aggregator(last_block_info.epoch_id(), last_block_hash, None)?;
+        debug_assert_eq!(last_block_hash, &self.epoch_info_aggregator.last_block_hash);
 
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
@@ -434,6 +434,9 @@ impl EpochManager {
     }
 
     /// Finalizes epoch (T), where given last block hash is given, and returns next next epoch id (T + 2).
+    ///
+    /// Assumes that self.epoch_info_aggregator has been updated up to
+    /// `last_block_hash`.
     fn finalize_epoch(
         &mut self,
         store_update: &mut StoreUpdate,
@@ -602,12 +605,18 @@ impl EpochManager {
                     is_new_final_block = true;
                 }
 
-                // Find the last block hash to properly update epoch info aggregator. We only update
+                let next_block_in_next_epoch = self.is_next_block_in_next_epoch(&block_info)?;
+
+                // If this is last block in the epoch, sync epoch info
+                // aggregator to it.  When we call finalize_epoch it’s going to
+                // have access to the up-to-date data.
+                //
+                // Otherwise, find the last block hash to properly update epoch info aggregator. We only update
                 // the aggregator if there is a change in the last final block or it is the epoch
                 // start.
-                let last_block_hash = if !is_new_final_block {
-                    None
-                } else {
+                let last_block_hash = if next_block_in_next_epoch {
+                    Some(&current_hash)
+                } else if is_new_final_block {
                     match self.get_block_info(block_info.last_final_block_hash()) {
                         Ok(final_block_info) => {
                             if final_block_info.epoch_id() != block_info.epoch_id() {
@@ -628,6 +637,8 @@ impl EpochManager {
                             None
                         }
                     }
+                } else {
+                    None
                 };
                 if let Some(last_block_hash) = last_block_hash {
                     self.update_epoch_info_aggregator(
@@ -638,7 +649,7 @@ impl EpochManager {
                 }
 
                 // If this is the last block in the epoch, finalize this epoch.
-                if self.is_next_block_in_next_epoch(&block_info)? {
+                if next_block_in_next_epoch {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
             }
@@ -1503,7 +1514,7 @@ impl EpochManager {
 
     /// Updates epoch info aggregator to block as of `last_block_hash`.  Assumes
     /// that aggregator needs updating, i.e. that `last_block_hash` does not
-    /// equal `self.epoch_info_aggregator_needs_saving.last_block_hash`.
+    /// equal `self.epoch_info_aggregator.last_block_hash`.
     ///
     /// Returns whether the aggregator should be saved in the database.
     fn update_epoch_info_aggregator_impl(
