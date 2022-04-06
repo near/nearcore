@@ -447,26 +447,22 @@ impl ReceiptManager {
             return GasDistribution::NoRatios;
         }
 
-        // Floor division that will ensure gas allocated is <= gas to distribute
-        let gas_per_weight = (unused_gas as u128 / gas_weight_sum) as Gas;
-
         let mut distribute_gas = |index: &FunctionCallActionIndex, assigned_gas: Gas| {
             let FunctionCallAction { gas, .. } =
                 get_fuction_call_action_mut(&mut self.action_receipts, *index);
 
-            // This operation cannot overflow because the gas_per_weight calculation is a floor
-            // division of the total amount of gas by the weight sum and the remainder is
-            // distributed exactly.
+            // Operation cannot overflow because the amount of assigned gas is a fraction of
+            // the unused gas and is using floor division.
             *gas += assigned_gas;
         };
 
         let mut distributed = 0;
         for (action_index, GasWeight(weight)) in &self.gas_weights {
-            // This can't overflow because the gas_per_weight is floor division
-            // of the weight sum.
-            let assigned_gas = gas_per_weight * weight;
+            // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
+            // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
+            let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
 
-            distribute_gas(action_index, assigned_gas);
+            distribute_gas(action_index, assigned_gas as u64);
 
             distributed += assigned_gas
         }
