@@ -5,7 +5,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::time::Instant;
-use tracing::warn;
+use tracing::error;
 
 use crate::metrics;
 
