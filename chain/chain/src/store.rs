@@ -27,9 +27,9 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
-    StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
+    StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -2034,6 +2034,47 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColHeaderHashesByHeight, key);
         }
         self.update_chunk_tail(min_chunk_height);
+        Ok(())
+    }
+
+    /// Clears chunk data which can be computed from other data in the storage.
+    ///
+    /// We are storing PartialEncodedChunk objects in the ColPartialChunks in
+    /// the storage.  However, those objects can be computed from data in
+    /// ColChunks and as such are redundant.  For performance reasons we want to
+    /// keep that data when operating at head of the chain but the data can be
+    /// safely removed from archival storage.
+    ///
+    /// `gc_stop_height` indicates height starting from which no data should be
+    /// garbage collected.  Roughly speaking this represents start of the ‘hot’
+    /// data that we want to keep.
+    ///
+    /// `gt_height_limit` indicates limit of how many non-empty heights to
+    /// process.  This limit means that the method may stop garbage collection
+    /// before reaching `gc_stop_height`.
+    pub fn clear_redundant_chunk_data(
+        &mut self,
+        gc_stop_height: BlockHeight,
+        gc_height_limit: BlockHeightDelta,
+    ) -> Result<(), Error> {
+        let mut height = self.chunk_tail()?;
+        let mut remaining = gc_height_limit;
+        while height < gc_stop_height && remaining > 0 {
+            let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
+            height += 1;
+            if !chunk_hashes.is_empty() {
+                remaining -= 1;
+                for chunk_hash in chunk_hashes {
+                    let chunk_header_hash = chunk_hash.into();
+                    self.gc_col(ColPartialChunks, &chunk_header_hash);
+                    // Data in ColInvalidChunks isn’t technically redundant (it
+                    // cannot be calculated from other data) but it is data we
+                    // don’t need for anything so it can be deleted as well.
+                    self.gc_col(ColInvalidChunks, &chunk_header_hash);
+                }
+            }
+        }
+        self.update_chunk_tail(height);
         Ok(())
     }
 
