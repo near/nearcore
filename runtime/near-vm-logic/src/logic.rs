@@ -1608,7 +1608,7 @@ impl<'a> VMLogic<'a> {
         arguments_ptr: u64,
         amount_ptr: u64,
         gas: Gas,
-        gas_weight: GasWeight,
+        gas_weight: u64,
     ) -> Result<()> {
         let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
             vm.receipt_manager.append_action_function_call_weight(
@@ -1617,7 +1617,7 @@ impl<'a> VMLogic<'a> {
                 arguments,
                 amount,
                 gas,
-                gas_weight,
+                GasWeight(gas_weight),
             )
         };
         self.internal_promise_batch_action_function_call(
