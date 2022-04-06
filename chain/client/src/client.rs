@@ -1103,17 +1103,20 @@ impl Client {
                 self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
-            if !self.config.archive {
-                let timer = metrics::GC_TIME.start_timer();
-                if let Err(err) = self
-                    .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
-                {
-                    error!(target: "client", "Can't clear old data, {:?}", err);
-                    debug_assert!(false);
-                };
-                timer.observe_duration();
-            }
+
+            let timer = metrics::GC_TIME.start_timer();
+            let gc_blocks_limit = self.config.gc_blocks_limit;
+            let result = if self.config.archive {
+                self.chain.clear_archive_data(gc_blocks_limit)
+            } else {
+                let tries = self.runtime_adapter.get_tries();
+                self.chain.clear_data(tries, gc_blocks_limit)
+            };
+            if let Err(err) = result {
+                error!(target: "client", "Can't clear old data, {:?}", err);
+                debug_assert!(false);
+            };
+            timer.observe_duration();
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
                 let next_epoch_protocol_version = unwrap_or_return!(self
