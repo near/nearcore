@@ -655,7 +655,7 @@ impl ChainStore {
         // 2. Extract the original Trie key out of the keys returned by RocksDB
         // 3. Try extracting `account_id` from the key using KeyFor* implementations
 
-        let storage_key = KeyForStateChanges::get_prefix(block_hash);
+        let storage_key = KeyForStateChanges::for_block(block_hash);
 
         let mut block_changes = storage_key.find_iter(&self.store);
 
@@ -666,7 +666,7 @@ impl ChainStore {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<StateChanges, Error> {
-        let storage_key = KeyForStateChanges::get_prefix(block_hash);
+        let storage_key = KeyForStateChanges::for_block(block_hash);
 
         let mut block_changes = storage_key.find_iter(&self.store);
 
@@ -709,8 +709,8 @@ impl ChainStore {
             StateChangesRequest::AccountChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = TrieKey::Account { account_id: account_id.clone() }.to_vec();
-                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
+                    let data_key = TrieKey::Account { account_id: account_id.clone() };
+                    let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_account_changes(changes_per_key)?);
                 }
@@ -722,9 +722,8 @@ impl ChainStore {
                     let data_key = TrieKey::AccessKey {
                         account_id: key.account_id.clone(),
                         public_key: key.public_key.clone(),
-                    }
-                    .to_vec();
-                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
+                    };
+                    let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key)?);
                 }
@@ -734,7 +733,7 @@ impl ChainStore {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
                     let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
                 }
@@ -743,9 +742,8 @@ impl ChainStore {
             StateChangesRequest::ContractCodeChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key =
-                        TrieKey::ContractCode { account_id: account_id.clone() }.to_vec();
-                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
+                    let data_key = TrieKey::ContractCode { account_id: account_id.clone() };
+                    let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
                 }
@@ -758,7 +756,7 @@ impl ChainStore {
                         account_id,
                         key_prefix.as_ref(),
                     );
-                    let storage_key = KeyForStateChanges::new(block_hash, data_key.as_ref());
+                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_data_changes(changes_per_key_prefix)?);
                 }
@@ -2211,7 +2209,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(ColNextBlockHashes, &block_hash_vec);
         self.gc_col(ColChallengedBlocks, &block_hash_vec);
         self.gc_col(ColBlocksToCatchup, &block_hash_vec);
-        let storage_key = KeyForStateChanges::get_prefix(&block_hash);
+        let storage_key = KeyForStateChanges::for_block(&block_hash);
         let stored_state_changes: Vec<Vec<u8>> = self
             .chain_store
             .store()
