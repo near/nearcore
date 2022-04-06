@@ -146,7 +146,7 @@ impl fmt::Debug for ProfileData {
                         writeln!(
                             f,
                             "{} -> {} [{}% host]",
-                            ExtCosts::name_of(*e as usize),
+                            e,
                             d,
                             Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
                         )?;
@@ -161,7 +161,7 @@ impl fmt::Debug for ProfileData {
                 Cost::ActionCost { action_cost_kind: a } => {
                     let d = self.get_action_cost(*a);
                     if d != 0 {
-                        writeln!(f, "{} -> {}", ActionCosts::name_of(*a as usize), d)?;
+                        writeln!(f, "{} -> {}", a, d)?;
                     }
                 }
                 _ => {}
