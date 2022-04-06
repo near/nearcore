@@ -25,8 +25,6 @@ use tracing::warn;
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
-// Note: If this number increases, make sure `LONG_TARGET_HEIGHT` in
-// block_sync_archival.py is updated as well.
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 /// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
