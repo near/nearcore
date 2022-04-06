@@ -617,19 +617,18 @@ impl EpochManager {
                 let last_block_hash = if next_block_in_next_epoch {
                     Some(&current_hash)
                 } else if is_new_final_block {
-                    match self.get_block_info(block_info.last_final_block_hash()) {
+                    let last_final_block_hash = block_info.last_final_block_hash();
+                    match self.get_block_info(last_final_block_hash) {
                         Ok(final_block_info) => {
-                            if final_block_info.epoch_id() != block_info.epoch_id() {
-                                if is_epoch_start {
-                                    Some(&current_hash)
-                                } else {
-                                    // This means there has been no final block in the epoch yet and
-                                    // we have already done the update at epoch start. Therefore we
-                                    // do no need to do anything.
-                                    None
-                                }
+                            if final_block_info.epoch_id() == block_info.epoch_id() {
+                                Some(last_final_block_hash)
+                            } else if is_epoch_start {
+                                Some(&current_hash)
                             } else {
-                                Some(block_info.last_final_block_hash())
+                                // This means there has been no final block in the epoch yet and
+                                // we have already done the update at epoch start. Therefore we
+                                // do no need to do anything.
+                                None
                             }
                         }
                         Err(e) => {
@@ -1483,7 +1482,7 @@ impl EpochManager {
 
     /// Updates epoch info aggregator to block as of `last_block_hash` if
     /// necessary.  If `epoch_id` doesn’t match the epoch id of the existing
-    /// aggregator, reinitialise the aggregator.  If `store_update` is true,
+    /// aggregator, reinitialise the aggregator.  If `store_update` is not-None,
     /// save the aggregator state to the store if epoch has changed or every
     /// AGGREGATOR_SAVE_PERIOD heights.
     pub fn update_epoch_info_aggregator(
