@@ -40,9 +40,9 @@ pub struct BlockInProgress {
     pub chunks: Vec<ChunkHash>,
 }
 
-#[derive(Debug)]
 /// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
 /// before it is received.
+#[derive(Debug)]
 pub struct ChunkInProgress {
     /// Timestamp of requesting a missing chunk.
     pub chunk_requested: Instant,
@@ -75,7 +75,7 @@ impl BlocksDelayTracker {
             block_entry.orphaned_timestamp = Some(timestamp);
         } else {
             debug_assert!(false);
-            warn!(target:"blocks_delay_tracker", "block {:?} was orphaned but was not marked received", block_hash);
+            error!(target:"blocks_delay_tracker", "block {:?} was orphaned but was not marked received", block_hash);
         }
     }
 
@@ -84,7 +84,7 @@ impl BlocksDelayTracker {
             block_entry.removed_from_orphan_timestamp = Some(timestamp);
         } else {
             debug_assert!(false);
-            warn!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
+            error!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
         }
     }
 
@@ -93,7 +93,7 @@ impl BlocksDelayTracker {
             block_entry.missing_chunks_timestamp = Some(timestamp);
         } else {
             debug_assert!(false);
-            warn!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
+            error!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
         }
     }
 
