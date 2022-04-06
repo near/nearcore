@@ -315,7 +315,12 @@ impl OrphanBlockPool {
     pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
         let mut rtn = Vec::new();
         for (height, orphans) in &self.height_idx {
-            rtn.push(orphans.iter().map(|orphan| BlockStatusView::new(&height, &orphan)).collect::<Vec<_>>());
+            rtn.push(
+                orphans
+                    .iter()
+                    .map(|orphan| BlockStatusView::new(&height, &orphan))
+                    .collect::<Vec<_>>(),
+            );
         }
         rtn.into_iter().flatten().collect()
     }
