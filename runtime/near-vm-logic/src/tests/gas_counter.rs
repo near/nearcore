@@ -195,7 +195,10 @@ fn function_call_weight_basic_cases_test() {
     ]);
 
     // Weight over u64 bounds
-    function_call_weight_check(&[(0, u64::MAX, 0), (0, 1000, 10_000_000_000)]);
+    function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
+
+    // Weight over u64 bounds with three values
+    function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1, 0), (0, 1000, 1)]);
 
     // Weights with one zero and one non-zero
     function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
