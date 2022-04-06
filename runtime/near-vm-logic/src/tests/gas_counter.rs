@@ -197,7 +197,7 @@ fn function_call_weight_basic_cases_test() {
     // Weight over u64 bounds
     function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
 
-    // Weight gas limit with three function calls
+    // Weight over gas limit with three function calls
     function_call_weight_check(&[
         (0, 10_000_000_000, 4_999_999_999),
         (0, 1, 0),
