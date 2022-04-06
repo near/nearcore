@@ -8,8 +8,6 @@ use crate::{VMConfig, VMLogic};
 use crate::receipt_manager::ReceiptMetadata;
 #[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives::transaction::{Action, FunctionCallAction};
-#[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives::types::GasWeight;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -129,17 +127,11 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     let mut ratios = vec![];
 
     // Schedule all function calls
-    for (static_gas, gas_weight, _) in function_calls {
+    for &(static_gas, gas_weight, _) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_weight(
-            &mut logic,
-            index,
-            0,
-            *static_gas,
-            GasWeight(*gas_weight),
-        )
-        .expect("batch action function call should succeed");
-        ratios.push((index, *gas_weight));
+        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
+            .expect("batch action function call should succeed");
+        ratios.push((index, gas_weight));
     }
 
     // Test static gas assigned before
@@ -208,15 +200,13 @@ fn function_call_weight_basic_cases_test() {
 #[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
 fn function_call_no_weight_refund() {
-    use near_primitives::types::GasWeight;
-
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, GasWeight(0))
+    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
         .expect("batch action function call should succeed");
 
     let outcome = logic.compute_outcome_and_distribute_gas();
