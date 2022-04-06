@@ -66,6 +66,11 @@ use near_primitives::utils::MaybeValidated;
 
 pub type PeerManagerMock = Mocker<PeerManagerActor>;
 
+/// min block production time in milliseconds
+pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
+/// max block production time in milliseconds
+pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
+
 const TEST_SEED: RngSeed = [3; 32];
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -285,8 +290,8 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             5,
             account_id,
             skip_sync_wait,
-            100,
-            200,
+            MIN_BLOCK_PROD_TIME.as_millis() as u64,
+            MAX_BLOCK_PROD_TIME.as_millis() as u64,
             enable_doomslug,
             false,
             false,
@@ -1669,6 +1674,7 @@ pub fn create_chunk(
         &*client.validator_signer.as_ref().unwrap().clone(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
+        None,
     );
     (chunk, merkle_paths, receipts, block)
 }

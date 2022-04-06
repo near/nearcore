@@ -438,6 +438,7 @@ impl Block {
             signer,
             next_bp_hash,
             block_merkle_root,
+            None,
         )
     }
 }

@@ -117,6 +117,7 @@ fn build_chain_with_orhpans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
+        None,
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
     assert_eq!(

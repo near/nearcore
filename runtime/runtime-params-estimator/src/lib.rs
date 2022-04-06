@@ -230,7 +230,7 @@ pub fn run(config: Config) -> CostTable {
         res.add(cost, gas);
 
         eprintln!(
-            "{:<40} {:>25} gas [{:>25}] {:<10}(computed in {:?}) {}",
+            "{:<40} {:>25} gas [{:>25}] {:<10}(computed in {:.2?}) {}",
             name,
             format_gas(gas),
             format!("{:?}", measurement),
