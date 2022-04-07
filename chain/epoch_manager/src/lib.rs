@@ -67,7 +67,10 @@ pub struct EpochManager {
     epoch_validators_ordered: lru::LruCache<EpochId, Vec<(ValidatorStake, bool)>>,
     /// Unique validators ordered by `block_producer_settlement`.
     epoch_validators_ordered_unique: lru::LruCache<EpochId, Vec<(ValidatorStake, bool)>>,
-    /// Aggregator that crunches data when we process block info
+    /// Aggregator that keeps statistics about the current epoch.  It’s data are
+    /// synced up to the last final block.  The information are updated by
+    /// [`update_epoch_info_aggregator_upto_final`] method.  To get statistics
+    /// up to a last block use [`get_epoch_info_aggregator_upto_last`] method.
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
@@ -1491,7 +1494,6 @@ impl EpochManager {
         if let Some((mut aggregator, replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
             if !replace {
                 aggregator.merge_prefix(&self.epoch_info_aggregator);
-                aggregator.last_block_hash = *last_block_hash;
             }
             Ok(aggregator)
         } else {
