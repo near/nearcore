@@ -350,6 +350,8 @@ pub struct ChainStore {
     block_ordinal_to_hash: LruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
     processed_block_heights: LruCache<Vec<u8>, ()>,
+    /// Is this a non-archival node that needs to store to ColTrieChanges?
+    save_trie_changes: bool,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -361,7 +363,7 @@ pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> R
 }
 
 impl ChainStore {
-    pub fn new(store: Store, genesis_height: BlockHeight) -> ChainStore {
+    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> ChainStore {
         ChainStore {
             store,
             genesis_height,
@@ -391,6 +393,7 @@ impl ChainStore {
             block_merkle_tree: LruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: LruCache::new(CACHE_SIZE),
             processed_block_heights: LruCache::new(CACHE_SIZE),
+            save_trie_changes,
         }
     }
 
@@ -2825,8 +2828,15 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes
-                .wrapped_into(&mut store_update)
+                .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            wrapped_trie_changes.state_changes_into(&mut store_update);
+
+            if self.chain_store.save_trie_changes {
+                wrapped_trie_changes
+                    .trie_changes_into(&mut store_update)
+                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            }
         }
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
@@ -3156,7 +3166,8 @@ mod tests {
             1,
             epoch_length,
         ));
-        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
+        Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true)
+            .unwrap()
     }
 
     #[test]
