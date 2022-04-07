@@ -514,7 +514,7 @@ pub struct RecompressOpts {
 }
 
 pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
-    use strum::{EnumCount, IntoEnumIterator};
+    use strum::IntoEnumIterator;
 
     let config_path = home_dir.join(config::CONFIG_FILENAME);
     let archive = config::Config::from_file(&config_path)
@@ -566,7 +566,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         opts.dest_dir.display()
     );
 
-    info!(target: "recompress"; src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing data");
+    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
     let src_store = create_store_with_config(
         &src_dir,
         StoreConfig { read_only: true, enable_statistics: false },
@@ -590,25 +590,19 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
-    for (n, column) in DBCol::iter().enumerate() {
-        if skip_columns.contains(&column) {
-            info!(
-                column_id = column as usize,
-                %column,
-                current_column = n + 1,
-                column_count = DBCol::COUNT,
-                "Clearing a column",                
-            );
+    for column in DBCol::iter() {
+        let skip = skip_columns.contains(&column);
+        info!(
+            target: "recompress",
+            column_id = column as usize,
+            %column,
+            "{}",
+            if skip { "Clearing  " } else { "Processing" }
+        );
+        if skip {
             continue;
         }
 
-        info!(
-            "Recompressing col{} ‘{}’ ({:2} / {:2})",
-            column as usize,
-            column,
-            n + 1,
-            DBCol::COUNT
-        );
         let mut store_update = dst_store.store_update();
         let mut total_written: u64 = 0;
         let mut batch_written: u64 = 0;
@@ -621,20 +615,22 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             if batch_written >= BATCH_SIZE_BYTES {
                 store_update.commit()?;
                 info!(
-                    "col{}: processed {} keys; {} GB ...",
-                    column as usize,
-                    count_keys,
-                    total_written as f64 / 1_000_000_000.0
+                    target: "recompress",
+                    column_id = column as usize,
+                    %count_keys,
+                    %total_written,
+                    "Processing",
                 );
                 batch_written = 0;
                 store_update = dst_store.store_update();
             }
         }
         info!(
-            "col{}: processed {} keys; {} GB",
-            column as usize,
-            count_keys,
-            total_written as f64 / 1_000_000_000.0
+            target: "recompress",
+            column_id = column as usize,
+            %count_keys,
+            %total_written,
+            "Done with "
         );
         store_update.commit()?;
     }
@@ -645,7 +641,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // deleted.
     if skip_columns.contains(&DBCol::ColPartialChunks) {
         let chunk_tail = final_head_height.unwrap();
-        info!(target: "recompress"; %chunk_tail, "Setting chunk tail");
+        info!(target: "recompress", %chunk_tail, "Setting chunk tail");
         let mut store_update = dst_store.store_update();
         store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
         store_update.commit()?;
@@ -654,6 +650,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!(target: "recompress"; dest_dir = ?opts.dest_dir, "Database recompressed");
+    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
     Ok(())
 }
