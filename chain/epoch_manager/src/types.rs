@@ -103,23 +103,51 @@ impl EpochInfoAggregator {
         }
     }
 
-    pub fn merge(&mut self, new_aggregator: EpochInfoAggregator) {
-        assert_eq!(self.epoch_id, new_aggregator.epoch_id);
+    pub fn merge(&mut self, other: EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.extend(other.version_tracker);
+        // merge proposals
+        self.all_proposals.extend(other.all_proposals);
+
+        self.last_block_hash = other.last_block_hash;
+    }
+
+    pub fn merge_prefix(&mut self, other: &EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.reserve(other.version_tracker.len());
+        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        for (k, v) in other.version_tracker.iter() {
+            self.version_tracker.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+
+        // merge proposals
+        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        for (k, v) in other.all_proposals.iter() {
+            self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+
+    fn merge_common(&mut self, other: &EpochInfoAggregator) {
+        assert_eq!(self.epoch_id, other.epoch_id);
 
         // merge block tracker
-        for (block_producer_id, stats) in new_aggregator.block_tracker {
+        for (block_producer_id, stats) in other.block_tracker.iter() {
             self.block_tracker
-                .entry(block_producer_id)
+                .entry(block_producer_id.clone())
                 .and_modify(|e| {
                     e.expected += stats.expected;
                     e.produced += stats.produced
                 })
-                .or_insert_with(|| stats);
+                .or_insert_with(|| stats.clone());
         }
         // merge shard tracker
-        for (shard_id, stats) in new_aggregator.shard_tracker {
+        for (shard_id, stats) in other.shard_tracker.iter() {
             self.shard_tracker
-                .entry(shard_id)
+                .entry(shard_id.clone())
                 .and_modify(|e| {
                     for (chunk_producer_id, stat) in stats.iter() {
                         e.entry(*chunk_producer_id)
@@ -130,12 +158,7 @@ impl EpochInfoAggregator {
                             .or_insert_with(|| stat.clone());
                     }
                 })
-                .or_insert_with(|| stats);
+                .or_insert_with(|| stats.clone());
         }
-        // merge version tracker
-        self.version_tracker.extend(new_aggregator.version_tracker.into_iter());
-        // merge proposals
-        self.all_proposals.extend(new_aggregator.all_proposals.into_iter());
-        self.last_block_hash = new_aggregator.last_block_hash;
     }
 }
