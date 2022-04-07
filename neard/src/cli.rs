@@ -466,12 +466,37 @@ pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
     #[clap(long)]
     output_dir: PathBuf,
+
+    /// Keep data in ColPartialChunks column.  Data in that column can be
+    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// always true if node is not an archival node.
+    #[clap(long)]
+    keep_partial_chunks: bool,
+
+    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// when receiving chunks and is not needed to serve archival requests.
+    /// This is always true if node is not an archival node.
+    #[clap(long)]
+    keep_invalid_chunks: bool,
+
+    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// by archival nodes.  This is always true if node is not an archival node.
+    #[clap(long)]
+    keep_trie_changes: bool,
 }
 
 impl RecompressStorageSubCommand {
     pub(super) fn run(self, home_dir: &Path) {
-        if let Err(err) = nearcore::recompress_storage(&home_dir, &self.output_dir) {
+        warn!(target: "neard", "Recompressing storage; note that this operation may take up to a day to finish.");
+        let opts = nearcore::RecompressOpts {
+            dest_dir: self.output_dir,
+            keep_partial_chunks: self.keep_partial_chunks,
+            keep_invalid_chunks: self.keep_invalid_chunks,
+            keep_trie_changes: self.keep_trie_changes,
+        };
+        if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
             error!("{}", err);
+            std::process::exit(1);
         }
     }
 }

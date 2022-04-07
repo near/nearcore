@@ -42,7 +42,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -310,6 +310,19 @@ impl OrphanBlockPool {
             );
         }
         res
+    }
+
+    pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
+        let mut rtn = Vec::new();
+        for (height, orphans) in &self.height_idx {
+            rtn.push(
+                orphans
+                    .iter()
+                    .map(|orphan| BlockStatusView::new(&height, &orphan))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        rtn.into_iter().flatten().collect()
     }
 
     /// Returns true if the block has not been requested yet and the number of orphans
@@ -872,7 +885,7 @@ impl Chain {
                     }
                 }
             }
-            chain_store_update.update_tail(height);
+            chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
         }
         Ok(())
@@ -1264,7 +1277,7 @@ impl Chain {
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail);
+        chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
