@@ -334,11 +334,7 @@ impl EpochManager {
             all_proposals,
             version_tracker,
             ..
-        } = self.get_and_update_epoch_info_aggregator(
-            last_block_info.epoch_id(),
-            last_block_hash,
-            false,
-        )?;
+        } = self.take_epoch_info_aggregator(last_block_info.epoch_id(), last_block_hash)?;
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
@@ -626,11 +622,8 @@ impl EpochManager {
                     }
                 };
                 if let Some(last_block_hash) = last_block_hash {
-                    let epoch_info_aggregator = self.get_and_update_epoch_info_aggregator(
-                        block_info.epoch_id(),
-                        last_block_hash,
-                        false,
-                    )?;
+                    let epoch_info_aggregator =
+                        self.take_epoch_info_aggregator(block_info.epoch_id(), last_block_hash)?;
                     self.save_epoch_info_aggregator(
                         &mut store_update,
                         epoch_info_aggregator,
@@ -1082,7 +1075,7 @@ impl EpochManager {
                 )
             }
             ValidatorInfoIdentifier::BlockHash(ref h) => {
-                let aggregator = self.get_and_update_epoch_info_aggregator(&epoch_id, h, true)?;
+                let aggregator = self.get_epoch_info_aggregator(&epoch_id, h)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -1462,23 +1455,47 @@ impl EpochManager {
         Ok(*self.epoch_id_to_start.get(epoch_id).unwrap())
     }
 
-    /// Get epoch info aggregator and update it to block info as of `last_block_hash`. If `epoch_id`
-    /// doesn't match the epoch id of the existing aggregator, re-initialize the aggregator.
-    /// If `copy_only` is true, then we clone what is in the cache. Otherwise we take the aggregator
-    /// from cache and invalidates the cache.
-    pub fn get_and_update_epoch_info_aggregator(
+    /// Get epoch info aggregator for `epoch_id`, updated to block info as of
+    /// `last_block_hash`.
+    fn get_epoch_info_aggregator(
         &mut self,
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
-        copy_only: bool,
     ) -> Result<EpochInfoAggregator, EpochError> {
-        let epoch_info_aggregator_cache = if copy_only {
-            self.epoch_info_aggregator.clone()
-        } else {
-            self.epoch_info_aggregator.take()
-        };
+        self.upate_info_aggregator(self.epoch_info_aggregator.clone(), epoch_id, last_block_hash)
+    }
+
+    /// Get epoch info aggregator for `epoch_id`, updated to block info as of
+    /// `last_block_hash`, and also bust the internal cache.
+    ///
+    /// See `save_epoch_info_aggregator` for how the cache is restored.
+    fn take_epoch_info_aggregator(
+        &mut self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<EpochInfoAggregator, EpochError> {
+        let cached = self.epoch_info_aggregator.take();
+        self.upate_info_aggregator(cached, epoch_id, last_block_hash)
+    }
+
+    /// Implementation detail of `get_epoch_info_aggregator` and
+    /// `save_epoch_info_aggregator`.
+    ///
+    /// Returns an up-to-date version of [`EpochInfoAggregator`] for `(epoch_id,
+    /// last_block_hash)`.
+    ///
+    /// First we try to update the passed cached version, if any. If there's no
+    /// in-memory cache, we fetch [`EpochInfoAggregator`] from the store. In
+    /// both cases, we check that the aggregator actually matches the epoch, and
+    /// start from scatch if that's not the case.
+    fn upate_info_aggregator(
+        &mut self,
+        cached: Option<EpochInfoAggregator>,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<EpochInfoAggregator, EpochError> {
         let mut epoch_change = false;
-        let mut aggregator = if let Some(aggregator) = epoch_info_aggregator_cache {
+        let mut aggregator = if let Some(aggregator) = cached {
             aggregator
         } else {
             epoch_change = true;
@@ -1589,8 +1606,7 @@ mod tests2 {
             let validator_id = *epoch_info
                 .get_validator_id(account_id)
                 .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
-            let aggregator =
-                self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
+            let aggregator = self.get_epoch_info_aggregator(epoch_id, last_known_block_hash)?;
             Ok(aggregator
                 .block_tracker
                 .get(&validator_id)
@@ -2834,14 +2850,14 @@ mod tests2 {
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..4, &[1, 3], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[3], true).unwrap();
+        let aggregator = em.get_epoch_info_aggregator(&epoch_id, &h[3]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker,);
 
         record_block_with_final_block_hash(&mut em, h[3], h[5], h[1], 5, vec![]);
 
         update_tracker(&epoch_info, 4..6, &[5], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], true).unwrap();
+        let aggregator = em.get_epoch_info_aggregator(&epoch_id, &h[5]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker,);
     }
 
@@ -2893,7 +2909,7 @@ mod tests2 {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 3, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator = em.take_epoch_info_aggregator(&epoch_id, &h[5]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert_eq!(
             aggregator.all_proposals,
@@ -2945,7 +2961,7 @@ mod tests2 {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 2, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator = em.take_epoch_info_aggregator(&epoch_id, &h[5]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
@@ -2995,7 +3011,7 @@ mod tests2 {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 5..8, &[7], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[7], true).unwrap();
+        let aggregator = em.take_epoch_info_aggregator(&epoch_id, &h[7]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
