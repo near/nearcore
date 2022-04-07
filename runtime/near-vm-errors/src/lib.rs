@@ -225,6 +225,9 @@ pub enum HostError {
     /// Serialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128SerializationError { msg: String },
+    /// Items limit error for alt_bn128_g1_multiexp
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    AltBn128MaxNumberOfItemsExceeded,
 }
 
 #[derive(Debug, PartialEq)]
@@ -425,6 +428,8 @@ impl std::fmt::Display for HostError {
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            AltBn128MaxNumberOfItemsExceeded => write!(f, "AltBn128 multi exp max items exceeded."),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
     }
