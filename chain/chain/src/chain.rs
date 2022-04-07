@@ -591,6 +591,9 @@ impl Chain {
 
         info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
 
+        metrics::TAIL_HEIGHT.set(store.tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
+        metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
         Ok(Chain {
             store,
             runtime_adapter,
@@ -898,6 +901,7 @@ impl Chain {
 
         let mut chain_store_update = self.store.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
+        metrics::CHUNK_TAIL_HEIGHT.set(self.store.chunk_tail()? as i64);
         chain_store_update.commit()
     }
 
