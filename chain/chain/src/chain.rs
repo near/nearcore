@@ -606,6 +606,9 @@ impl Chain {
 
         info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
 
+        metrics::TAIL_HEIGHT.set(store.tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
+        metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
         Ok(Chain {
             store,
             runtime_adapter,
@@ -815,7 +818,6 @@ impl Chain {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
-
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
@@ -825,6 +827,10 @@ impl Chain {
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != &head.epoch_id;
         let mut fork_tail = self.store.fork_tail()?;
+        metrics::TAIL_HEIGHT.set(tail as i64);
+        metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(self.store.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         if epoch_change && fork_tail < gc_stop_height {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
@@ -910,6 +916,8 @@ impl Chain {
 
         let mut chain_store_update = self.store.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         chain_store_update.commit()
     }
 
