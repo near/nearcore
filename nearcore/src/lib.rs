@@ -654,6 +654,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!("Done; recompressed database at {}", opts.dest_dir.display());
+    info!(target: "recompress"; dest_dir = ?opts.dest_dir, "Database recompressed");
     Ok(())
 }
