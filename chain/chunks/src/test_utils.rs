@@ -90,7 +90,7 @@ impl Default for SealsManagerTestFixture {
 
 impl SealsManagerTestFixture {
     fn store_block_header(store: Store, header: BlockHeader) {
-        let mut chain_store = ChainStore::new(store, header.height());
+        let mut chain_store = ChainStore::new(store, header.height(), true);
         let mut update = chain_store.store_update();
         update.save_block_header(header).unwrap();
         update.commit().unwrap();
@@ -244,7 +244,7 @@ impl ChunkTestFixture {
             .collect();
         let encoded_chunk =
             mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
-        let chain_store = ChainStore::new(store, 0);
+        let chain_store = ChainStore::new(store, 0, true);
 
         ChunkTestFixture {
             mock_runtime,

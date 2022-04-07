@@ -418,9 +418,13 @@ mod tests {
             Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
-        let chain =
-            Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
-                .unwrap();
+        let chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            true,
+        )
+        .unwrap();
         (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
     }
 

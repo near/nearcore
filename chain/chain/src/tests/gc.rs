@@ -35,7 +35,7 @@ fn get_chain_with_epoch_length_and_num_shards(
         num_shards,
         epoch_length,
     ));
-    Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
+    Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true).unwrap()
 }
 
 // Build a chain of num_blocks on top of prev_block
