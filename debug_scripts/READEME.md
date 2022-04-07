@@ -1,6 +1,6 @@
 # Debug Scripts
 ## Content
-* reqeust_chain_info.py
+* request_chain_info.py
 
   This script can be used to request blockchain info
 * send_validator_logs.py
@@ -11,27 +11,12 @@
 
 ## Instruction to RUN
 
-  Go to debug_scripts directory
   ```
   cd <path-to-nearcore>/nearcore/debug_scripts
-  ```
-
-  Install pipenv
-
-  ```
   python3 -m pip install pipenv
-  ```
-
-  ```
   python3 -m pipenv shell
-  ```
-
-  ```
-  python send_validator_logs.py --help
-  ```
+  python3 send_validator_logs.py --help
   OR
-
-  ```
-  python request_chain_info.py --help
+  python3 request_chain_info.py --help
   ```
 
