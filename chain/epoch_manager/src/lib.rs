@@ -1533,11 +1533,7 @@ impl EpochManager {
             let block_height = *self.get_block_info(block_hash)?.height();
             assert!(
                 agg_height < block_height,
-                "#{} {} >= #{} {}",
-                agg_hash,
-                agg_height,
-                block_hash,
-                block_height
+                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
             );
         }
 
