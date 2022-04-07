@@ -47,7 +47,11 @@ fn main() -> Result<()> {
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
     let store = create_store(&get_store_path(home_dir));
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        !near_config.client_config.archive,
+    );
     let runtime = NightshadeRuntime::new(
         home_dir,
         store,
