@@ -5,7 +5,6 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcGasPriceRequest {
-    #[serde(flatten)]
     pub block_id: MaybeBlockId,
 }
 
