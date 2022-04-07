@@ -42,7 +42,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -312,6 +312,19 @@ impl OrphanBlockPool {
         res
     }
 
+    pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
+        let mut rtn = Vec::new();
+        for (height, orphans) in &self.height_idx {
+            rtn.push(
+                orphans
+                    .iter()
+                    .map(|orphan| BlockStatusView::new(&height, &orphan))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        rtn.into_iter().flatten().collect()
+    }
+
     /// Returns true if the block has not been requested yet and the number of orphans
     /// for which we have requested missing chunks have not exceeded MAX_ORPHAN_MISSING_CHUNKS
     fn can_request_missing_chunks_for_orphan(&self, block_hash: &CryptoHash) -> bool {
@@ -447,9 +460,10 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let store = ChainStore::new(store, chain_genesis.height);
+        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots,
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -490,10 +504,11 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store = ChainStore::new(store, chain_genesis.height);
+        let mut store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -591,6 +606,9 @@ impl Chain {
 
         info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
 
+        metrics::TAIL_HEIGHT.set(store.tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
+        metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
         Ok(Chain {
             store,
             runtime_adapter,
@@ -800,7 +818,6 @@ impl Chain {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
-
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
@@ -810,6 +827,10 @@ impl Chain {
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != &head.epoch_id;
         let mut fork_tail = self.store.fork_tail()?;
+        metrics::TAIL_HEIGHT.set(tail as i64);
+        metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(self.store.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         if epoch_change && fork_tail < gc_stop_height {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
@@ -866,7 +887,7 @@ impl Chain {
                     }
                 }
             }
-            chain_store_update.update_tail(height);
+            chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
         }
         Ok(())
@@ -895,6 +916,8 @@ impl Chain {
 
         let mut chain_store_update = self.store.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         chain_store_update.commit()
     }
 
@@ -1257,7 +1280,7 @@ impl Chain {
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail);
+        chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
