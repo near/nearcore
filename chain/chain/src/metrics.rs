@@ -42,6 +42,14 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 pub static HEADER_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
 });
+pub static TAIL_HEIGHT: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_tail_height", "Height of tail").unwrap());
+pub static CHUNK_TAIL_HEIGHT: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_chunk_tail_height", "Height of chunk tail").unwrap());
+pub static FORK_TAIL_HEIGHT: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_fork_tail_height", "Height of fork tail").unwrap());
+pub static GC_STOP_HEIGHT: Lazy<IntGauge> =
+    Lazy::new(|| try_create_int_gauge("near_gc_stop_height", "Target height of gc").unwrap());
 pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_block_chunks_request_delay_seconds",

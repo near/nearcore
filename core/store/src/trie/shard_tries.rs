@@ -1,3 +1,4 @@
+use std::io;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
@@ -324,18 +325,12 @@ impl WrappedTrieChanges {
         }
     }
 
-    pub fn wrapped_into(
-        &mut self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.insertions_into(store_update)?;
-        self.state_changes_into(store_update);
+    pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> io::Result<()> {
         store_update.set_ser(
             DBCol::ColTrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
-        )?;
-        Ok(())
+        )
     }
 }
 
