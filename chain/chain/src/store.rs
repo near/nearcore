@@ -1975,19 +1975,20 @@ impl<'a> ChainStoreUpdate<'a> {
         self.fork_tail = None;
     }
 
-    pub fn update_tail(&mut self, height: BlockHeight) {
+    pub fn update_tail(&mut self, height: BlockHeight) -> Result<(), Error> {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
         // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
-        if self.fork_tail().unwrap_or(genesis_height) < height {
+        if self.fork_tail()? < height {
             self.fork_tail = Some(height);
         }
 
-        let chunk_tail = self.chunk_tail().unwrap_or(genesis_height);
+        let chunk_tail = self.chunk_tail()?;
         if chunk_tail == genesis_height {
             // For consistency, Chunk Tail should be set if Tail is set
             self.chunk_tail = Some(self.get_genesis_height());
         }
+        Ok(())
     }
 
     pub fn update_fork_tail(&mut self, height: BlockHeight) {
@@ -3646,7 +3647,7 @@ mod tests {
         {
             let mut store_update = chain.mut_store().store_update();
             assert_eq!(store_update.tail().unwrap(), 0);
-            store_update.update_tail(1);
+            store_update.update_tail(1).unwrap();
             store_update.commit().unwrap();
         }
         // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
@@ -3663,7 +3664,7 @@ mod tests {
         }
         {
             let mut store_update = chain.mut_store().store_update();
-            store_update.update_tail(2);
+            store_update.update_tail(2).unwrap();
             store_update.commit().unwrap();
         }
         {
