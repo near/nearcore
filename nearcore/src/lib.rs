@@ -593,11 +593,11 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     for (n, column) in DBCol::iter().enumerate() {
         if skip_columns.contains(&column) {
             info!(
-                "Clearing out col{} ‘{}’ ({:2} / {:2})",
-                column as usize,
-                column,
-                n + 1,
-                DBCol::COUNT
+                column_id = column as usize,
+                %column,
+                current_column = n + 1,
+                column_count = DBCol::COUNT,
+                "Clearing a column",                
             );
             continue;
         }
