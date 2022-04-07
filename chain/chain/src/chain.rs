@@ -879,7 +879,7 @@ impl Chain {
                     }
                 }
             }
-            chain_store_update.update_tail(height);
+            chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
         }
         Ok(())
@@ -1270,7 +1270,7 @@ impl Chain {
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail);
+        chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
