@@ -1034,12 +1034,33 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         if !self.no_gc {
+            // This code is 'incorrect' - as production one is always setting the GC to the
+            // first block of the epoch.
+            // Unfortunately many tests are depending on this and not setting epochs when
+            // they produce blocks.
             let block_height = self
                 .get_block_header(block_hash)
                 .unwrap_or_default()
                 .map(|h| h.height())
                 .unwrap_or_default();
             block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+        /*  // TODO: use this version of the code instead - after we fix the block creation
+            // issue in multiple tests.
+        // We have to return the first block of the epoch T-NUM_EPOCHS_TO_KEEP_STORE_DATA.
+        let mut current_header = self.get_block_header(block_hash).unwrap().unwrap();
+        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA {
+            let last_block_of_prev_epoch = current_header.next_epoch_id();
+            current_header =
+                self.get_block_header(&last_block_of_prev_epoch.0).unwrap().unwrap();
+        }
+        loop {
+            if current_header.next_epoch_id().0 == *current_header.prev_hash() {
+                break;
+            }
+            current_header =
+                self.get_block_header(current_header.prev_hash()).unwrap().unwrap();
+        }
+        current_header.height()*/
         } else {
             0
         }

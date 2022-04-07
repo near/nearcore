@@ -315,10 +315,8 @@ impl WrappedTrieChanges {
                 | TrieKey::ContractData { .. } => {}
                 _ => continue,
             };
-            let storage_key = KeyForStateChanges::new_from_trie_key(
-                &self.block_hash,
-                &change_with_trie_key.trie_key,
-            );
+            let storage_key =
+                KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key);
             store_update.set(
                 DBCol::ColStateChanges,
                 storage_key.as_ref(),
@@ -344,26 +342,26 @@ impl KeyForStateChanges {
         std::mem::size_of::<CryptoHash>()
     }
 
-    fn get_prefix_with_capacity(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
+    fn new(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
         let mut key_prefix = Vec::with_capacity(Self::estimate_prefix_len() + reserve_capacity);
         key_prefix.extend(block_hash.as_ref());
         debug_assert_eq!(key_prefix.len(), Self::estimate_prefix_len());
         Self(key_prefix)
     }
 
-    pub fn get_prefix(block_hash: &CryptoHash) -> Self {
-        Self::get_prefix_with_capacity(block_hash, 0)
+    pub fn for_block(block_hash: &CryptoHash) -> Self {
+        Self::new(block_hash, 0)
     }
 
-    pub fn new(block_hash: &CryptoHash, raw_key: &[u8]) -> Self {
-        let mut key = Self::get_prefix_with_capacity(block_hash, raw_key.len());
+    pub fn from_raw_key(block_hash: &CryptoHash, raw_key: &[u8]) -> Self {
+        let mut key = Self::new(block_hash, raw_key.len());
         key.0.extend(raw_key);
         key
     }
 
-    pub fn new_from_trie_key(block_hash: &CryptoHash, trie_key: &TrieKey) -> Self {
-        let mut key = Self::get_prefix_with_capacity(block_hash, trie_key.len());
-        key.0.extend(trie_key.to_vec());
+    pub fn from_trie_key(block_hash: &CryptoHash, trie_key: &TrieKey) -> Self {
+        let mut key = Self::new(block_hash, trie_key.len());
+        trie_key.append_into(&mut key.0);
         key
     }
 

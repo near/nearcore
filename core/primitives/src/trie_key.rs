@@ -128,64 +128,70 @@ impl TrieKey {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<u8> {
+    pub fn append_into(&self, buf: &mut Vec<u8>) {
         let expected_len = self.len();
-        let mut res = Vec::with_capacity(expected_len);
+        let start_len = buf.len();
+        buf.reserve(self.len());
         match self {
             TrieKey::Account { account_id } => {
-                res.extend(col::ACCOUNT);
-                res.extend(account_id.as_ref().as_bytes());
+                buf.extend(col::ACCOUNT);
+                buf.extend(account_id.as_ref().as_bytes());
             }
             TrieKey::ContractCode { account_id } => {
-                res.extend(col::CONTRACT_CODE);
-                res.extend(account_id.as_ref().as_bytes());
+                buf.extend(col::CONTRACT_CODE);
+                buf.extend(account_id.as_ref().as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
-                res.extend(col::ACCESS_KEY);
-                res.extend(account_id.as_ref().as_bytes());
-                res.extend(col::ACCESS_KEY);
-                res.extend(public_key.try_to_vec().unwrap());
+                buf.extend(col::ACCESS_KEY);
+                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(col::ACCESS_KEY);
+                buf.extend(public_key.try_to_vec().unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
-                res.extend(col::RECEIVED_DATA);
-                res.extend(receiver_id.as_ref().as_bytes());
-                res.extend(ACCOUNT_DATA_SEPARATOR);
-                res.extend(data_id.as_ref());
+                buf.extend(col::RECEIVED_DATA);
+                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(data_id.as_ref());
             }
             TrieKey::PostponedReceiptId { receiver_id, data_id } => {
-                res.extend(col::POSTPONED_RECEIPT_ID);
-                res.extend(receiver_id.as_ref().as_bytes());
-                res.extend(ACCOUNT_DATA_SEPARATOR);
-                res.extend(data_id.as_ref());
+                buf.extend(col::POSTPONED_RECEIPT_ID);
+                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(data_id.as_ref());
             }
             TrieKey::PendingDataCount { receiver_id, receipt_id } => {
-                res.extend(col::PENDING_DATA_COUNT);
-                res.extend(receiver_id.as_ref().as_bytes());
-                res.extend(ACCOUNT_DATA_SEPARATOR);
-                res.extend(receipt_id.as_ref());
+                buf.extend(col::PENDING_DATA_COUNT);
+                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(receipt_id.as_ref());
             }
             TrieKey::PostponedReceipt { receiver_id, receipt_id } => {
-                res.extend(col::POSTPONED_RECEIPT);
-                res.extend(receiver_id.as_ref().as_bytes());
-                res.extend(ACCOUNT_DATA_SEPARATOR);
-                res.extend(receipt_id.as_ref());
+                buf.extend(col::POSTPONED_RECEIPT);
+                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(receipt_id.as_ref());
             }
             TrieKey::DelayedReceiptIndices => {
-                res.extend(col::DELAYED_RECEIPT_INDICES);
+                buf.extend(col::DELAYED_RECEIPT_INDICES);
             }
             TrieKey::DelayedReceipt { index } => {
-                res.extend(col::DELAYED_RECEIPT_INDICES);
-                res.extend(&index.to_le_bytes());
+                buf.extend(col::DELAYED_RECEIPT_INDICES);
+                buf.extend(&index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {
-                res.extend(col::CONTRACT_DATA);
-                res.extend(account_id.as_ref().as_bytes());
-                res.extend(ACCOUNT_DATA_SEPARATOR);
-                res.extend(key);
+                buf.extend(col::CONTRACT_DATA);
+                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(key);
             }
         };
-        debug_assert_eq!(res.len(), expected_len);
-        res
+        debug_assert_eq!(expected_len, buf.len() - start_len);
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.len());
+        self.append_into(&mut buf);
+        buf
     }
 }
 
