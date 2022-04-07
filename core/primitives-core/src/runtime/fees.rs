@@ -43,6 +43,8 @@ impl Fee {
     }
 }
 
+/// Costs of different actions that need to be performed when sending and processing transaction
+/// and receipts.
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct RuntimeFeesConfig {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
