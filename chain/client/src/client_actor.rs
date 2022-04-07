@@ -48,7 +48,7 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
 use near_store::db::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
@@ -673,7 +673,7 @@ impl Handler<Status> for ClientActor {
                 return Err(StatusError::NodeIsSyncing);
             }
         }
-        let validators = self
+        let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
@@ -798,9 +798,28 @@ impl Handler<Status> for ClientActor {
                         self.client.chain.genesis_block().header().height(),
                     ),
                 ),
-                current_head_status: self.client.chain.head()?.clone().into(),
+                current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
+                epoch_info: EpochInfoView {
+                    epoch_id: head.epoch_id.0,
+                    height: epoch_start_height,
+                    first_block_hash: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .hash()
+                        .clone(),
+                    start_time: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .timestamp()
+                        .to_rfc3339(),
+                    validators: validators.to_vec(),
+                },
             })
         } else {
             None
