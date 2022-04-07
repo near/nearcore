@@ -803,6 +803,14 @@ impl Handler<Status> for ClientActor {
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
                 epoch_info: EpochInfoView {
                     epoch_id: head.epoch_id.0,
+                    height: epoch_start_height,
+                    first_block_hash: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .hash()
+                        .clone(),
                     start_time: self
                         .client
                         .chain

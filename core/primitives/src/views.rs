@@ -388,6 +388,8 @@ impl From<Tip> for BlockStatusView {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
+    pub height: BlockHeight,
+    pub first_block_hash: CryptoHash,
     pub start_time: String,
     pub validators: Vec<ValidatorInfo>,
 }
