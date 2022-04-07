@@ -645,7 +645,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // deleted.
     if skip_columns.contains(&DBCol::ColPartialChunks) {
         let chunk_tail = final_head_height.unwrap();
-        info!("Setting chunk tail to {}", chunk_tail);
+        info!(target: "recompress"; %chunk_tail, "Setting chunk tail");
         let mut store_update = dst_store.store_update();
         store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
         store_update.commit()?;
