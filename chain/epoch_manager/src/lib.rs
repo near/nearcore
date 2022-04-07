@@ -96,9 +96,8 @@ impl EpochManager {
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
-        let validator_reward = vec![(reward_calculator.protocol_treasury_account.clone(), 0u128)]
-            .into_iter()
-            .collect();
+        let validator_reward =
+            HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -259,8 +258,8 @@ impl EpochManager {
         let mut validator_kickout = HashMap::new();
 
         for (i, v) in epoch_info.validators_iter().enumerate() {
-            let account_id = v.account_id().clone();
-            if slashed.contains_key(&account_id) {
+            let account_id = v.account_id();
+            if slashed.contains_key(account_id) {
                 continue;
             }
             let block_stats = block_validator_tracker
@@ -296,8 +295,8 @@ impl EpochManager {
                 });
             }
 
-            let is_already_kicked_out = prev_validator_kickout.contains_key(&account_id);
-            if !validator_kickout.contains_key(&account_id) {
+            let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
+            if !validator_kickout.contains_key(account_id) {
                 validator_block_chunk_stats.insert(
                     account_id.clone(),
                     BlockChunkValidatorStats { block_stats: block_stats.clone(), chunk_stats },
@@ -346,16 +345,17 @@ impl EpochManager {
         // Next protocol version calculation.
         // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
         let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker.iter() {
-            let stake = epoch_info.validator_stake(*validator_id);
+        for (&validator_id, &version) in version_tracker.iter() {
+            let stake = epoch_info.validator_stake(validator_id);
             *versions.entry(version).or_insert(0) += stake;
         }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
             .iter()
+            .copied()
             .collect::<HashSet<_>>()
             .iter()
-            .map(|&id| epoch_info.validator_stake(*id))
+            .map(|&id| epoch_info.validator_stake(id))
             .sum();
 
         let protocol_version =
@@ -366,8 +366,10 @@ impl EpochManager {
             };
 
         let config = self.config.for_protocol_version(protocol_version);
-        let next_version = if let Some((&version, stake)) =
-            versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
+        // Note: non-deterministic iteration is fine here, there can be only one
+        // version with large enough stake.
+        let next_version = if let Some((version, stake)) =
+            versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
             if stake
                 > (total_block_producer_stake
@@ -383,7 +385,7 @@ impl EpochManager {
         };
 
         // Gather slashed validators and add them to kick out first.
-        let slashed_validators = last_block_info.slashed().clone();
+        let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
             validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Slashed);
         }
@@ -408,7 +410,7 @@ impl EpochManager {
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
-            &slashed_validators,
+            slashed_validators,
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
@@ -689,10 +691,9 @@ impl EpochManager {
                 self.get_all_block_producers_settlement(epoch_id, last_known_block_hash)?;
             let mut result = vec![];
             let mut validators: HashSet<AccountId> = HashSet::default();
-            for (validator_stake, is_slashed) in settlement.into_iter() {
+            for (validator_stake, is_slashed) in settlement {
                 let account_id = validator_stake.account_id();
-                if !validators.contains(account_id) {
-                    validators.insert(account_id.clone());
+                if validators.insert(account_id.clone()) {
                     result.push((validator_stake.clone(), *is_slashed));
                 }
             }
@@ -714,8 +715,7 @@ impl EpochManager {
         for validator_id in epoch_info.block_producers_settlement().into_iter() {
             let validator_stake = epoch_info.get_validator(*validator_id);
             let account_id = validator_stake.account_id();
-            if !validators.contains(account_id) {
-                validators.insert(account_id.clone());
+            if validators.insert(account_id.clone()) {
                 result.push(validator_stake.get_approval_stake(false));
             }
         }
@@ -944,12 +944,10 @@ impl EpochManager {
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}, slashed: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change, last_block_info.slashed()
         );
-        let mut all_keys = HashSet::new();
-        for (key, _) in
-            prev_prev_stake_change.iter().chain(prev_stake_change.iter()).chain(stake_change.iter())
-        {
-            all_keys.insert(key);
-        }
+        let all_stake_changes =
+            prev_prev_stake_change.iter().chain(&prev_stake_change).chain(stake_change);
+        let all_keys: HashSet<&AccountId> = all_stake_changes.map(|(key, _)| key).collect();
+
         let mut stake_info = HashMap::new();
         for account_id in all_keys {
             if last_block_info.slashed().contains_key(account_id) {
