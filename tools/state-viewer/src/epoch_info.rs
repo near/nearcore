@@ -85,10 +85,10 @@ fn get_block_height_range(
             cur_block_info,
             epoch_info.epoch_height()
         );
-        let prev_epoch_last_block_hash =
-            *epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap().prev_hash();
+        let epoch_first_block_info =
+            epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
-            epoch_manager.get_block_info(&prev_epoch_last_block_hash).unwrap();
+            epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
         if cur_epoch_height == epoch_info.epoch_height() {
             return epoch_manager.get_epoch_start_height(cur_block_info.hash()).unwrap()
                 ..(cur_block_info.height() + 1);
