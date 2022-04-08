@@ -150,7 +150,7 @@ impl<'c> Testbed<'c> {
                     })
                     .collect();
 
-                results[-1].clone()
+                results[results.len() - 1].clone()
             })
             .collect()
     }
