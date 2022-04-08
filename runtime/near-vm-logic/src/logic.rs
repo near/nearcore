@@ -17,7 +17,6 @@ use near_primitives_core::runtime::fees::{
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-#[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
@@ -1537,16 +1536,7 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
-        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
-            vm.receipt_manager.append_action_function_call(
-                receipt_idx,
-                method_name,
-                arguments,
-                amount,
-                gas,
-            )
-        };
-        self.internal_promise_batch_action_function_call(
+        self.promise_batch_action_function_call_weight(
             promise_idx,
             method_name_len,
             method_name_ptr,
@@ -1554,7 +1544,7 @@ impl<'a> VMLogic<'a> {
             arguments_ptr,
             amount_ptr,
             gas,
-            append_action_fn,
+            0,
         )
     }
 
@@ -1594,7 +1584,6 @@ impl<'a> VMLogic<'a> {
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_idx: u64,
@@ -1605,39 +1594,6 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
         gas_weight: u64,
-    ) -> Result<()> {
-        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
-            vm.receipt_manager.append_action_function_call_weight(
-                receipt_idx,
-                method_name,
-                arguments,
-                amount,
-                gas,
-                GasWeight(gas_weight),
-            )
-        };
-        self.internal_promise_batch_action_function_call(
-            promise_idx,
-            method_name_len,
-            method_name_ptr,
-            arguments_len,
-            arguments_ptr,
-            amount_ptr,
-            gas,
-            append_action_fn,
-        )
-    }
-
-    fn internal_promise_batch_action_function_call(
-        &mut self,
-        promise_idx: u64,
-        method_name_len: u64,
-        method_name_ptr: u64,
-        arguments_len: u64,
-        arguments_ptr: u64,
-        amount_ptr: u64,
-        gas: Gas,
-        append_action_fn: impl FnOnce(&mut Self, u64, Vec<u8>, Vec<u8>, u128, u64) -> Result<()>,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -1673,7 +1629,14 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        append_action_fn(self, receipt_idx, method_name, arguments, amount, gas)
+        self.receipt_manager.append_action_function_call_weight(
+            receipt_idx,
+            method_name,
+            arguments,
+            amount,
+            gas,
+            GasWeight(gas_weight),
+        )
     }
 
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
@@ -2637,9 +2600,7 @@ impl<'a> VMLogic<'a> {
     /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
     /// distributed to functions that specify a gas weight. If there are no functions with
     /// a gas weight, the outcome will contain unused gas as usual.
-    #[cfg_attr(not(feature = "protocol_feature_function_call_weight"), allow(unused_mut))]
     pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
-        #[cfg(feature = "protocol_feature_function_call_weight")]
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
             let unused_gas = self.gas_counter.unused_gas();

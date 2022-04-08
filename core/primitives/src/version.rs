@@ -153,7 +153,6 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     FunctionCallWeight,
 }
 
@@ -164,7 +163,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 54;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
@@ -222,6 +221,7 @@ impl ProtocolFeature {
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
             ProtocolFeature::IncreaseDeploymentCost => 53,
+            ProtocolFeature::FunctionCallWeight => 54,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -232,8 +232,6 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_function_call_weight")]
-            ProtocolFeature::FunctionCallWeight => 127,
         }
     }
 }
