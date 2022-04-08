@@ -60,11 +60,12 @@ no_cache = [
 ]
 wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
-nightly_protocol_features = ["protocol_feature_alt_bn128"]
+nightly_protocol_features = ["protocol_feature_alt_bn128", "protocol_feature_chunk_nodes_cache"]
 protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
     "near-vm-runner/protocol_feature_alt_bn128",
     "node-runtime/protocol_feature_alt_bn128",
     "nearcore/protocol_feature_alt_bn128",
 ]
+protocol_feature_chunk_nodes_cache = ["nearcore/protocol_feature_chunk_nodes_cache"]
 sandbox = ["node-runtime/sandbox"]
