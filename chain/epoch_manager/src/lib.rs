@@ -1580,28 +1580,25 @@ impl EpochManager {
 
 #[cfg(test)]
 mod tests2 {
-    use num_rational::Rational;
-
-    use near_primitives::challenge::SlashedValidator;
-    use near_primitives::hash::hash;
-    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_test_store;
-
+    use super::*;
+    use crate::reward_calculator::NUM_NS_IN_SECOND;
     use crate::test_utils::{
         block_info, change_stake, default_reward_calculator, epoch_config,
         epoch_info_with_num_seats, hash_range, record_block, record_block_with_final_block_hash,
         record_block_with_slashes, record_with_block_info, reward, setup_default_epoch_manager,
         setup_epoch_manager, stake, DEFAULT_TOTAL_SUPPLY,
     };
-
-    use super::*;
-    use crate::reward_calculator::NUM_NS_IN_SECOND;
+    use near_primitives::challenge::SlashedValidator;
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::epoch_manager::ShardConfig;
+    use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::test_utils::create_test_store;
+    use num_rational::Rational;
 
     impl EpochManager {
         /// Returns number of produced and expected blocks by given validator.
