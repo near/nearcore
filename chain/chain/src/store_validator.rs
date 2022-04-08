@@ -429,7 +429,7 @@ mod tests {
             true,
         )
         .unwrap();
-        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))
     }
 
     #[test]
