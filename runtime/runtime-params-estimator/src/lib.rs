@@ -1195,7 +1195,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let num_values: usize = 100;
     let value_len: usize = 4000;
     let signer = tb.random_account();
-    let values: Vec<_> = (0..num_values).map(|| tb.random_vec(value_len)).collect();
+    let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
     let mut setup_block = Vec::new();
     for (i, value) in values.iter().cloned().enumerate() {
         let key = vec![i as u8];

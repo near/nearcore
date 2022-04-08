@@ -130,7 +130,7 @@ impl TransactionBuilder {
     }
 
     pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
-        (0..len).map(|| self.rng().gen_range(0, u8::MAX)).collect()
+        (0..len).map(|_| self.rng().gen_range(0, u8::MAX)).collect()
     }
 
     fn nonce(&mut self, account_id: &AccountId) -> u64 {

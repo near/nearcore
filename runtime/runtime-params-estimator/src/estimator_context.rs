@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::TrieCacheMode;
-use near_store::{TrieCache, TrieCachingStorage};
+use near_store::{TrieCache, TrieCachingStorage, TrieStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -121,7 +121,7 @@ impl<'c> Testbed<'c> {
         caching_storage.set_mode(TrieCacheMode::CachingChunk);
 
         (0..iters)
-            .map(|| {
+            .map(|_| {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
                 keys.iter().for_each(|key| {
