@@ -184,10 +184,15 @@ impl StoreUpdate {
         self.transaction.update_refcount(column, key, value)
     }
 
+    // Saves a given value.
+    // Must not be used for RC columns - please use 'update refcount' instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        debug_assert!(!column.is_rc());
         self.transaction.put(column, key, value)
     }
 
+    // Saves a BorshSerialized value.
+    // Must not be used for RC columns - please use 'update refcount' instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -200,7 +205,9 @@ impl StoreUpdate {
         Ok(())
     }
 
+    // Deletes a given key - must not be used on RC columns.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
+        debug_assert!(!column.is_rc());
         self.transaction.delete(column, key);
     }
 
