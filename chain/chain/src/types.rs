@@ -771,7 +771,11 @@ pub struct LatestKnown {
     pub seen: u64,
 }
 
-/// Either an epoch id or latest block hash
+/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
+/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
+/// be hash of the latest block in the current epoch.  Using current epoch id
+/// with `EpochId` or arbitrary block hash in past or present epochs will result
+/// in errors.
 #[derive(Debug)]
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),
