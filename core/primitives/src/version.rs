@@ -137,6 +137,7 @@ pub enum ProtocolFeature {
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
+    IncreaseDeploymentCost,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -218,6 +219,7 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
+            ProtocolFeature::IncreaseDeploymentCost => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]

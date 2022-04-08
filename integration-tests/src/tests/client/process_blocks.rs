@@ -3462,8 +3462,8 @@ fn test_catchup_no_sharding_change() {
 /// Tests if the cost of deployment is higher after the protocol update 53
 #[test]
 fn test_deploy_cost_increased() {
-    let old_protocol_version = 52;
-    let new_protocol_version = 53;
+    let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
+    let old_protocol_version = new_protocol_version - 1;
 
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
@@ -3496,11 +3496,11 @@ fn test_deploy_cost_increased() {
         block_hash: CryptoHash::default(),
     };
 
-    // Run the transaction & get tx outcome.
-    let old_outcome = {
+    // Run the transaction & get tx outcome in a closure.
+    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
+            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
         let tx_hash = signed_transaction.get_hash();
         env.clients[0].process_tx(signed_transaction, false, false);
         for i in 0..epoch_length {
@@ -3508,6 +3508,8 @@ fn test_deploy_cost_increased() {
         }
         env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     };
+
+    let old_outcome = deploy_contract(&mut env, 10);
 
     // Move to the new protocol version.
     {
@@ -3527,18 +3529,7 @@ fn test_deploy_cost_increased() {
         }
     }
 
-    // Re-run the transaction & get tx outcome.
-    let new_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..epoch_length {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
+    let new_outcome = deploy_contract(&mut env, 11);
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
     assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
