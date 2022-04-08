@@ -1190,25 +1190,25 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
-    let tb = testbed.transaction_builder();
-
-    let num_values: usize = 100;
-    let value_len: usize = 4000;
-    let signer = tb.random_account();
-    let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
-    let mut setup_block = Vec::new();
-    for (i, value) in values.iter().cloned().enumerate() {
-        let key = vec![i as u8];
-        setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
-    }
-
-    let mut blocks = vec![setup_block];
-    testbed.measure_blocks(blocks, 0);
-
-    let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
+    // let tb = testbed.transaction_builder();
+    //
+    // let num_values: usize = 100;
+    // let value_len: usize = 4000;
+    // let signer = tb.random_account();
+    // let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
+    // let mut setup_block = Vec::new();
+    // for (i, value) in values.iter().cloned().enumerate() {
+    //     let key = vec![i as u8];
+    //     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
+    // }
+    //
+    // let mut blocks = vec![setup_block];
+    // testbed.measure_blocks(blocks, 0);
+    //
+    // let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
 
     let results: Vec<(GasCost, HashMap<ExtCosts, u64>)> =
-        testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters, &value_hashes);
+        testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters);
 
     results.iter().for_each(|(cost, _)| {
         eprintln!("cost = {:?}", cost);

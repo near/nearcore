@@ -1,4 +1,4 @@
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use rand::prelude::SliceRandom;
 use std::collections::HashMap;
@@ -114,24 +114,43 @@ impl<'c> Testbed<'c> {
     pub(crate) fn measure_trie_node_reads(
         &mut self,
         iters: usize,
-        keys: &[CryptoHash],
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
-        let store = self.inner.store();
-        let caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-        caching_storage.set_mode(TrieCacheMode::CachingChunk);
-
         (0..iters)
             .map(|_| {
-                eprintln!("{}", caching_storage.get_touched_nodes_count());
-                self.clear_caches();
-                let mut keys_order = keys.to_vec();
-                keys_order.shuffle(&mut rand::thread_rng());
-                let start = GasCost::measure(self.config.metric);
-                keys_order.iter().for_each(|key| {
-                    caching_storage.retrieve_raw_bytes(key).unwrap();
-                });
-                (start.elapsed(), HashMap::new())
+                let tb = self.transaction_builder();
+
+                let num_values: usize = 100;
+                let value_len: usize = 4000;
+                let signer = tb.random_account();
+                let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
+                let mut setup_block = Vec::new();
+                for (i, value) in values.iter().cloned().enumerate() {
+                    let key = vec![i as u8];
+                    setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
+                }
+
+                let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
+
+                let mut blocks = vec![setup_block];
+                self.measure_blocks(blocks, 0);
+
+                let store = self.inner.store();
+                let caching_storage =
+                    TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+                caching_storage.set_mode(TrieCacheMode::CachingChunk);
+
+                let results: Vec<_> = (0..2)
+                    .map(|_| {
+                        self.clear_caches();
+                        let start = GasCost::measure(self.config.metric);
+                        value_hashes.iter().for_each(|key| {
+                            caching_storage.retrieve_raw_bytes(key).unwrap();
+                        });
+                        (start.elapsed(), HashMap::new())
+                    })
+                    .collect();
+
+                results[-1].clone()
             })
             .collect()
     }
