@@ -6,7 +6,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
+use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
@@ -146,5 +146,9 @@ impl RuntimeTestbed {
         let store = self.tries.get_store();
         let rocksdb = store.get_rocksdb().unwrap();
         rocksdb.flush().unwrap();
+    }
+
+    pub fn store(&mut self) -> Store {
+        self.tries.get_store()
     }
 }

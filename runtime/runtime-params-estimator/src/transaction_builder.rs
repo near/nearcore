@@ -75,6 +75,23 @@ impl TransactionBuilder {
         self.transaction_from_function_call(account, "account_storage_insert_key", arg)
     }
 
+    pub(crate) fn account_insert_key_bytes(
+        &mut self,
+        account: AccountId,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> SignedTransaction {
+        let arg = (key.len() as u64)
+            .to_le_bytes()
+            .into_iter()
+            .chain(key.into_iter())
+            .chain((value.len() as u64).to_le_bytes().into_iter())
+            .chain(value.into_iter())
+            .collect();
+
+        self.transaction_from_function_call(account, "account_storage_insert_key", arg)
+    }
+
     /// Transaction that checks existence of a given key under an account.
     /// The account must have the test contract deployed.
     pub(crate) fn account_has_key(&mut self, account: AccountId, key: &str) -> SignedTransaction {
@@ -111,6 +128,11 @@ impl TransactionBuilder {
             }
         }
     }
+
+    pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
+        (0..len).map(|| self.rng().gen_range(0, u8::MAX)).collect()
+    }
+
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
         let nonce = self.nonces.entry(account_id.clone()).or_default();
         *nonce += 1;

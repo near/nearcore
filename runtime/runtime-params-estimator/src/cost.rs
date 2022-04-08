@@ -465,6 +465,7 @@ pub enum Cost {
     /// the longest key. The gas estimation difference is divided by the
     /// difference of actually touched nodes.
     TouchingTrieNodeWrite,
+    ReadCachedTrieNode,
     /// Estimates `promise_and_base` which is charged for every call to
     /// `promise_and`. This should cover the base cost for creating receipt
     /// dependencies.

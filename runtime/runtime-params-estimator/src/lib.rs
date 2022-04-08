@@ -71,6 +71,7 @@ pub mod config;
 mod function_call;
 mod gas_metering;
 
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::iter;
 use std::time::Instant;
@@ -81,6 +82,7 @@ use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -181,6 +183,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::TouchingTrieNodeRead, touching_trie_node_read),
     (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
+    (Cost::ReadCachedTrieNode, read_cached_trie_node),
     (Cost::ApplyBlock, apply_block_cost),
     (Cost::ContractCompileBase, contract_compile_base),
     (Cost::ContractCompileBytes, contract_compile_bytes),
@@ -1180,6 +1183,45 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     let cost = cost_delta / nodes_touched_delta;
 
     ctx.cached.touching_trie_node_write = Some(cost.clone());
+    cost
+}
+
+fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
+    let warmup_iters = ctx.config.warmup_iters_per_block;
+    let measured_iters = ctx.config.iter_per_block;
+    let mut testbed = ctx.testbed();
+    let tb = testbed.transaction_builder();
+
+    let num_values: usize = 100;
+    let value_len: usize = 4000;
+    let signer = tb.random_account();
+    let values: Vec<_> = (0..num_values).map(|| tb.random_vec(value_len)).collect();
+    let mut setup_block = Vec::new();
+    for (i, value) in values.iter().cloned().enumerate() {
+        let key = vec![i as u8];
+        setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
+    }
+
+    let mut blocks = vec![setup_block];
+    testbed.measure_blocks(blocks, 0);
+
+    let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
+
+    let results: Vec<(GasCost, HashMap<ExtCosts, u64>)> =
+        testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters, &value_hashes);
+
+    results.iter().for_each(|(cost, _)| {
+        eprintln!("cost = {:?}", cost);
+    });
+
+    let (cost, _) = aggregate_per_block_measurements(
+        &ctx.config,
+        num_values,
+        results[1 + warmup_iters..].to_vec(),
+    );
+
+    eprintln!("cost = {:?}", cost);
+
     cost
 }
 
