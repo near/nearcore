@@ -123,6 +123,7 @@ impl<'c> Testbed<'c> {
 
         (0..iters)
             .map(|_| {
+                eprintln!("{}", caching_storage.get_touched_nodes_count());
                 self.clear_caches();
                 let mut keys_order = keys.to_vec();
                 keys_order.shuffle(&mut rand::thread_rng());
