@@ -1,0 +1,18 @@
+# from typing_extensions import assert_type
+import unittest
+import datetime
+import io
+import sys
+from send_validator_logs import filter_log_file
+
+class test_validator_log_filtering(unittest.TestCase):
+
+    def test_time_filtering(self):
+        start_time = datetime.datetime(2022, 4, 4, 23, 42, 0, 0)
+        end_time = datetime.datetime(2022, 4, 4, 23, 49, 0, 0)
+        output_file_obj = filter_log_file("./tests/data/node0.log", start_time=start_time, end_time=end_time)
+        self.assertIsInstance(output_file_obj, io.BytesIO, "Parsed file object should be of type io.BytesIO")
+        self.assertGreater(sys.getsizeof(output_file_obj), 0, "Parsed file should not be 0 bytes.")
+        
+if __name__ == '__main__':
+    unittest.main()

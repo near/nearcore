@@ -12,9 +12,7 @@ def filter_log_file(log_file: str, start_time: datetime.datetime, end_time: date
     """
     Filter log file for a time range.
     """
-    min_start_timestamp = end_timestamp
-    max_end_timestamp = start_timestamp
-    print(f"Log time range: {start_timestamp} \t {end_timestamp}")
+    print(f"Log time range: {start_time} \t {end_time}")
 
     filtered_logs = io.StringIO()
 
@@ -24,12 +22,8 @@ def filter_log_file(log_file: str, start_time: datetime.datetime, end_time: date
             # [0m and [2m are ANSI shell color codes. Removing them to parse dates.
             split_lines = line.split("[0m", 1)[0].replace("\x1b[2m", "")
             dt = datetime.datetime.strptime(split_lines[:-5], "%b %d %H:%M:%S").replace(year=datetime.datetime.now().year)
-            if dt >= start_timestamp and dt <= end_timestamp:
+            if dt >= start_time and dt <= end_time:
                 filtered_logs.write(line)
-                if dt < min_start_timestamp:
-                    min_start_timestamp = dt
-                elif dt > max_end_timestamp:
-                    max_end_timestamp = dt
     return io.BytesIO(filtered_logs.getvalue().encode())
 
 
