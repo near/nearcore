@@ -3459,6 +3459,87 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
+/// Tests if the cost of deployment is higher after the protocol update 53
+#[test]
+fn test_deploy_cost_increased() {
+    let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
+    let old_protocol_version = new_protocol_version - 1;
+
+    let contract_size = 1024 * 1024;
+    let test_contract = near_test_contracts::sized_contract(contract_size);
+
+    // Prepare TestEnv with a contract at the old protocol version.
+    let epoch_length = 5;
+    let mut env = {
+        let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = old_protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                Path::new("../../../.."),
+                create_test_store(),
+                &genesis,
+                TrackedConfig::new_empty(),
+                RuntimeConfigStore::new(None),
+            ))];
+        TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
+    };
+
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let tx = Transaction {
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
+        public_key: signer.public_key(),
+        actions: vec![Action::DeployContract(DeployContractAction { code: test_contract })],
+        nonce: 0,
+        block_hash: CryptoHash::default(),
+    };
+
+    // Run the transaction & get tx outcome in a closure.
+    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
+        let tip = env.clients[0].chain.head().unwrap();
+        let signed_transaction =
+            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
+        let tx_hash = signed_transaction.get_hash();
+        env.clients[0].process_tx(signed_transaction, false, false);
+        for i in 0..epoch_length {
+            env.produce_block(0, tip.height + i + 1);
+        }
+        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
+    };
+
+    let old_outcome = deploy_contract(&mut env, 10);
+
+    // Move to the new protocol version.
+    {
+        let tip = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
+        assert!(res.is_ok());
+        for i in 0..epoch_length {
+            env.produce_block(0, tip.height + i + 2);
+        }
+    }
+
+    let new_outcome = deploy_contract(&mut env, 11);
+
+    assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+    assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+
+    let old_deploy_gas = old_outcome.receipts_outcome[0].outcome.gas_burnt;
+    let new_deploy_gas = new_outcome.receipts_outcome[0].outcome.gas_burnt;
+    assert!(new_deploy_gas > old_deploy_gas);
+    assert_eq!(new_deploy_gas - old_deploy_gas, contract_size as u64 * (64_572_944 - 6_812_999));
+}
+
 mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
