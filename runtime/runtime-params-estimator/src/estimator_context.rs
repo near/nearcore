@@ -1,5 +1,6 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use rand::prelude::SliceRandom;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
@@ -123,8 +124,10 @@ impl<'c> Testbed<'c> {
         (0..iters)
             .map(|_| {
                 self.clear_caches();
+                let mut keys_order = keys.to_vec();
+                keys_order.shuffle(&mut rand::thread_rng());
                 let start = GasCost::measure(self.config.metric);
-                keys.iter().for_each(|key| {
+                keys_order.iter().for_each(|key| {
                     caching_storage.retrieve_raw_bytes(key).unwrap();
                 });
                 (start.elapsed(), HashMap::new())
