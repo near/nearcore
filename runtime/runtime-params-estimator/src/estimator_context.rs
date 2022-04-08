@@ -137,7 +137,7 @@ impl<'c> Testbed<'c> {
                 let store = self.inner.store();
                 let caching_storage =
                     TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-                // caching_storage.set_mode(TrieCacheMode::CachingChunk);
+                caching_storage.set_mode(TrieCacheMode::CachingChunk);
 
                 let results: Vec<_> = (0..2)
                     .map(|_| {
