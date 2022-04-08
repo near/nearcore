@@ -137,6 +137,8 @@ pub enum ProtocolFeature {
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
+    /// Increase cost per deployed code byte to cover for the compilation steps
+    /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
 
     // nightly features
