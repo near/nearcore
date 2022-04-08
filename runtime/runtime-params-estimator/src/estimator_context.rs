@@ -143,9 +143,13 @@ impl<'c> Testbed<'c> {
                     .map(|_| {
                         self.clear_caches();
                         let start = GasCost::measure(self.config.metric);
-                        value_hashes.iter().for_each(|key| {
-                            caching_storage.retrieve_raw_bytes(key).unwrap();
-                        });
+                        let sum: usize = value_hashes
+                            .iter()
+                            .map(|key| {
+                                caching_storage.retrieve_raw_bytes(key).unwrap().to_vec().len()
+                            })
+                            .sum();
+                        assert_eq!(sum, num_values * value_len);
                         (start.elapsed(), HashMap::new())
                     })
                     .collect();
