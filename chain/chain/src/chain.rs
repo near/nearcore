@@ -42,7 +42,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -50,6 +50,7 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 use near_primitives::state_record::StateRecord;
 
+use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -311,6 +312,19 @@ impl OrphanBlockPool {
         res
     }
 
+    pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
+        let mut rtn = Vec::new();
+        for (height, orphans) in &self.height_idx {
+            rtn.push(
+                orphans
+                    .iter()
+                    .map(|orphan| BlockStatusView::new(&height, &orphan))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        rtn.into_iter().flatten().collect()
+    }
+
     /// Returns true if the block has not been requested yet and the number of orphans
     /// for which we have requested missing chunks have not exceeded MAX_ORPHAN_MISSING_CHUNKS
     fn can_request_missing_chunks_for_orphan(&self, block_hash: &CryptoHash) -> bool {
@@ -424,6 +438,7 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     pending_states_to_patch: Option<Vec<StateRecord>>,
+    pub blocks_delay_tracker: BlocksDelayTracker,
 }
 
 impl ChainAccess for Chain {
@@ -445,9 +460,10 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let store = ChainStore::new(store, chain_genesis.height);
+        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots,
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -480,6 +496,7 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
+            blocks_delay_tracker: BlocksDelayTracker::default(),
         })
     }
 
@@ -487,10 +504,11 @@ impl Chain {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store = ChainStore::new(store, chain_genesis.height);
+        let mut store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -588,6 +606,9 @@ impl Chain {
 
         info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
 
+        metrics::TAIL_HEIGHT.set(store.tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
+        metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
         Ok(Chain {
             store,
             runtime_adapter,
@@ -599,6 +620,7 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
+            blocks_delay_tracker: BlocksDelayTracker::default(),
         })
     }
 
@@ -796,7 +818,6 @@ impl Chain {
         let head = self.store.head()?;
         let tail = self.store.tail()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
-
         if gc_stop_height > head.height {
             return Err(ErrorKind::GCError(
                 "gc_stop_height cannot be larger than head.height".into(),
@@ -806,6 +827,10 @@ impl Chain {
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
         let epoch_change = prev_epoch_id != &head.epoch_id;
         let mut fork_tail = self.store.fork_tail()?;
+        metrics::TAIL_HEIGHT.set(tail as i64);
+        metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(self.store.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         if epoch_change && fork_tail < gc_stop_height {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
@@ -862,10 +887,38 @@ impl Chain {
                     }
                 }
             }
-            chain_store_update.update_tail(height);
+            chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
         }
         Ok(())
+    }
+
+    /// Garbage collect data which archival node doesn’t need to keep.
+    ///
+    /// Normally, archival nodes keep all the data from the genesis block and
+    /// don’t run garbage collection.  On the other hand, for better performance
+    /// the storage contains some data duplication, i.e. values in some of the
+    /// columns can be recomputed from data in different columns.  To save on
+    /// storage, archival nodes do garbage collect that data.
+    ///
+    /// `gc_height_limit` limits how many heights will the function process.
+    pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
+        let _d = DelayDetector::new(|| "GC".into());
+
+        let head = self.store.head()?;
+        let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
+        if gc_stop_height > head.height {
+            return Err(ErrorKind::GCError(
+                "gc_stop_height cannot be larger than head.height".into(),
+            )
+            .into());
+        }
+
+        let mut chain_store_update = self.store.store_update();
+        chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
+        metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
+        chain_store_update.commit()
     }
 
     pub fn clear_forks_data(
@@ -994,6 +1047,7 @@ impl Chain {
         block_orphaned_with_missing_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
+        self.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
         let block_hash = *block.hash();
         let res = self.process_block_single(
             me,
@@ -1226,7 +1280,7 @@ impl Chain {
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail);
+        chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
@@ -1356,7 +1410,9 @@ impl Chain {
                                 false
                             };
 
-                            let orphan = Orphan { block, provenance, added: Clock::instant() };
+                            let time = Clock::instant();
+                            self.blocks_delay_tracker.mark_block_orphaned(block.hash(), time);
+                            let orphan = Orphan { block, provenance, added: time };
                             self.orphans.add(orphan, requested_missing_chunks);
 
                             debug!(
@@ -1381,7 +1437,9 @@ impl Chain {
                             missing_chunks,
                             block_hash,
                         });
-                        let orphan = Orphan { block, provenance, added: Clock::instant() };
+                        let time = Clock::instant();
+                        self.blocks_delay_tracker.mark_block_has_missing_chunks(block.hash(), time);
+                        let orphan = Orphan { block, provenance, added: time };
                         self.blocks_with_missing_chunks
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
                         debug!(
@@ -1540,6 +1598,7 @@ impl Chain {
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
         for orphan in orphans {
             let block_hash = *orphan.block.header().hash();
+            let time = Clock::instant();
             let res = self.process_block_single(
                 me,
                 orphan.block,
@@ -1552,6 +1611,8 @@ impl Chain {
             match res {
                 Ok(_) => {
                     debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
+                    self.blocks_delay_tracker
+                        .mark_block_completed_missing_chunks(&block_hash, time);
                     new_blocks_accepted.push(block_hash);
                 }
                 Err(_) => {
@@ -1617,6 +1678,7 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
+                    self.blocks_delay_tracker.mark_block_unorphaned(&block_hash, Clock::instant());
                     let res = self.process_block_single(
                         me,
                         orphan.block,

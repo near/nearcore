@@ -184,9 +184,6 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             contract_id,
-            originator_id,
-            &public_key,
-            0,
             &empty_hash,
             &view_state.epoch_id,
             &view_state.prev_block_hash,

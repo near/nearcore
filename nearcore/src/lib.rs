@@ -506,8 +506,30 @@ pub fn start_with_config_and_synchronization(
     })
 }
 
-pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()> {
-    use strum::{EnumCount, IntoEnumIterator};
+pub struct RecompressOpts {
+    pub dest_dir: PathBuf,
+    pub keep_partial_chunks: bool,
+    pub keep_invalid_chunks: bool,
+    pub keep_trie_changes: bool,
+}
+
+pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
+    use strum::IntoEnumIterator;
+
+    let config_path = home_dir.join(config::CONFIG_FILENAME);
+    let archive = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
+        .archive;
+    let mut skip_columns = Vec::new();
+    if archive && !opts.keep_partial_chunks {
+        skip_columns.push(near_store::db::DBCol::ColPartialChunks);
+    }
+    if archive && !opts.keep_invalid_chunks {
+        skip_columns.push(near_store::db::DBCol::ColInvalidChunks);
+    }
+    if archive && !opts.keep_trie_changes {
+        skip_columns.push(near_store::db::DBCol::ColTrieChanges);
+    }
 
     // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
     // can open that many by ensuring nofile limit is large enough to give us
@@ -515,6 +537,8 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     let (soft, hard) = rlimit::Resource::NOFILE
         .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
+    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
+    // opening two databases and need some descriptors to spare thus 3*512.
     if soft < 3 * 512 {
         rlimit::Resource::NOFILE
             .set(3 * 512, hard)
@@ -537,33 +561,53 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
     );
 
     anyhow::ensure!(
-        !store_path_exists(&dst_dir),
+        !store_path_exists(&opts.dest_dir),
         "{}: directory already exists",
-        dst_dir.display()
+        opts.dest_dir.display()
     );
 
-    info!("Recompressing data from {} into {}", src_dir.display(), dst_dir.display());
+    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
     let src_store = create_store_with_config(
         &src_dir,
         StoreConfig { read_only: true, enable_statistics: false },
     );
-    let dst_store = create_store(&dst_dir);
+
+    let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let tip: Option<near_primitives::block::Tip> =
+            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
+        anyhow::ensure!(
+            tip.is_some(),
+            "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
+            src_dir.display(),
+            std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
+        );
+        tip.map(|tip| tip.height)
+    } else {
+        None
+    };
+
+    let dst_store = create_store(&opts.dest_dir);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
-    for (n, column) in DBCol::iter().enumerate() {
+    for column in DBCol::iter() {
+        let skip = skip_columns.contains(&column);
         info!(
-            "Recompressing col{} ‘{}’ ({:2} / {:2})",
-            column as usize,
-            column,
-            n + 1,
-            DBCol::COUNT
+            target: "recompress",
+            column_id = column as usize,
+            %column,
+            "{}",
+            if skip { "Clearing  " } else { "Processing" }
         );
+        if skip {
+            continue;
+        }
+
         let mut store_update = dst_store.store_update();
         let mut total_written: u64 = 0;
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
-        for (key, value) in src_store.iter(column) {
+        for (key, value) in src_store.iter_without_rc_logic(column) {
             store_update.set(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;
@@ -571,27 +615,41 @@ pub fn recompress_storage(home_dir: &Path, dst_dir: &Path) -> anyhow::Result<()>
             if batch_written >= BATCH_SIZE_BYTES {
                 store_update.commit()?;
                 info!(
-                    "col{}: processed {} keys; {} GB ...",
-                    column as usize,
-                    count_keys,
-                    total_written as f64 / 1_000_000_000.0
+                    target: "recompress",
+                    column_id = column as usize,
+                    %count_keys,
+                    %total_written,
+                    "Processing",
                 );
                 batch_written = 0;
                 store_update = dst_store.store_update();
             }
         }
         info!(
-            "col{}: processed {} keys; {} GB",
-            column as usize,
-            count_keys,
-            total_written as f64 / 1_000_000_000.0
+            target: "recompress",
+            column_id = column as usize,
+            %count_keys,
+            %total_written,
+            "Done with "
         );
+        store_update.commit()?;
+    }
+
+    // If we’re not keeping ColPartialChunks, update chunk tail to point to
+    // current final block.  If we don’t do that, the gc will try to work its
+    // way from the genesis even though chunks at those heights have been
+    // deleted.
+    if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let chunk_tail = final_head_height.unwrap();
+        info!(target: "recompress", %chunk_tail, "Setting chunk tail");
+        let mut store_update = dst_store.store_update();
+        store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
         store_update.commit()?;
     }
 
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!("Done; recompressed database at {}", dst_dir.display());
+    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
     Ok(())
 }
