@@ -1613,7 +1613,7 @@ impl<'a> VMLogic<'a> {
                 arguments,
                 amount,
                 gas,
-                GasWeight(gas_weight),
+                GasWeight::new(gas_weight),
             )
         };
         self.internal_promise_batch_action_function_call(

@@ -193,7 +193,7 @@ impl ReceiptManager {
         args: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-        gas_weight: GasWeight,
+        gas_weight: Option<GasWeight>,
     ) -> logic::Result<()> {
         let action_index = self.append_action(
             receipt_index,
@@ -206,7 +206,7 @@ impl ReceiptManager {
             }),
         );
 
-        if gas_weight.0 > 0 {
+        if let Some(gas_weight) = gas_weight {
             self.gas_weights.push((
                 FunctionCallActionIndex { receipt_index: receipt_index as usize, action_index },
                 gas_weight,
@@ -439,7 +439,7 @@ impl ReceiptManager {
     #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
-            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
+            self.gas_weights.iter().map(|(_, weight)| weight.as_u128()).sum();
 
         if gas_weight_sum == 0 {
             return GasDistribution::NoRatios;
@@ -455,10 +455,10 @@ impl ReceiptManager {
         };
 
         let mut distributed = 0;
-        for (action_index, GasWeight(weight)) in &self.gas_weights {
+        for (action_index, weight) in &self.gas_weights {
             // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
             // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
-            let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
+            let assigned_gas = (unused_gas as u128 * weight.as_u128() / gas_weight_sum) as u64;
 
             distribute_gas(action_index, assigned_gas as u64);
 

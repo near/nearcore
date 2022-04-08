@@ -1,4 +1,5 @@
 use crate::hash::CryptoHash;
+use std::num::NonZeroU64;
 
 /// Account identifier. Provides access to user's state.
 pub use crate::account::id::AccountId;
@@ -28,8 +29,19 @@ pub type Gas = u64;
 /// Weight of unused gas to distribute to scheduled function call actions.
 /// Used in `promise_batch_action_function_call_weight` host function.
 #[cfg(feature = "protocol_feature_function_call_weight")]
-#[derive(Clone, Debug, PartialEq)]
-pub struct GasWeight(pub u64);
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GasWeight(NonZeroU64);
+
+#[cfg(feature = "protocol_feature_function_call_weight")]
+impl GasWeight {
+    pub fn new(weight: u64) -> Option<GasWeight> {
+        NonZeroU64::new(weight).map(GasWeight)
+    }
+
+    pub fn as_u128(self) -> u128 {
+        self.0.get().into()
+    }
+}
 
 /// Result from a gas distribution among function calls with ratios.
 #[cfg(feature = "protocol_feature_function_call_weight")]
