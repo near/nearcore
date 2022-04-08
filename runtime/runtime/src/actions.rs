@@ -118,10 +118,9 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
-    // test
-    // if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
-    //     runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-    // }
+    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
 
     result
 }
