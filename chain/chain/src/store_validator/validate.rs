@@ -124,9 +124,11 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
         sv.store.get_ser::<BlockHeight>(ColBlockMisc, FORK_TAIL_KEY),
         "Can't get Chunk Tail from storage"
     );
-    if tail_db.is_none() && chunk_tail_db.is_some() || tail_db.is_some() && chunk_tail_db.is_none()
-    {
-        err!("Tail is {:?} and Chunk Tail is {:?}", tail_db, chunk_tail_db);
+    if tail_db.is_none() != chunk_tail_db.is_none() {
+        // Archival nodes can have chunk_tail set without tail being set.
+        if !sv.is_archival || chunk_tail_db.is_none() {
+            err!("Tail is {:?} and Chunk Tail is {:?}", tail_db, chunk_tail_db);
+        }
     }
     if tail_db.is_some() && fork_tail_db.is_none() {
         err!("Tail is {:?} but fork tail is None", tail_db);
