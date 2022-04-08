@@ -20,6 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -686,19 +687,12 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(
-        &self,
-        state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
-        data: &Vec<u8>,
-    ) -> bool;
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool;
 
     fn apply_update_to_split_states(
         &self,
@@ -720,8 +714,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
         part: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
@@ -778,7 +771,11 @@ pub struct LatestKnown {
     pub seen: u64,
 }
 
-/// Either an epoch id or latest block hash
+/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
+/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
+/// be hash of the latest block in the current epoch.  Using current epoch id
+/// with `EpochId` or arbitrary block hash in past or present epochs will result
+/// in errors.
 #[derive(Debug)]
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),

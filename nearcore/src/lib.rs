@@ -21,6 +21,7 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
+use near_store::db::DBCol;
 use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -28,7 +29,7 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, Store};
+use near_store::{create_store, create_store_with_config, Store, StoreConfig};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -367,7 +368,13 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store(&path);
+    let store = create_store_with_config(
+        &path,
+        StoreConfig {
+            read_only: false,
+            enable_statistics: near_config.config.enable_rocksdb_statistics,
+        },
+    );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -497,4 +504,152 @@ pub fn start_with_config_and_synchronization(
         rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
     })
+}
+
+pub struct RecompressOpts {
+    pub dest_dir: PathBuf,
+    pub keep_partial_chunks: bool,
+    pub keep_invalid_chunks: bool,
+    pub keep_trie_changes: bool,
+}
+
+pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
+    use strum::IntoEnumIterator;
+
+    let config_path = home_dir.join(config::CONFIG_FILENAME);
+    let archive = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
+        .archive;
+    let mut skip_columns = Vec::new();
+    if archive && !opts.keep_partial_chunks {
+        skip_columns.push(near_store::db::DBCol::ColPartialChunks);
+    }
+    if archive && !opts.keep_invalid_chunks {
+        skip_columns.push(near_store::db::DBCol::ColInvalidChunks);
+    }
+    if archive && !opts.keep_trie_changes {
+        skip_columns.push(near_store::db::DBCol::ColTrieChanges);
+    }
+
+    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
+    // can open that many by ensuring nofile limit is large enough to give us
+    // some room to spare over 1024 file descriptors.
+    let (soft, hard) = rlimit::Resource::NOFILE
+        .get()
+        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
+    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
+    // opening two databases and need some descriptors to spare thus 3*512.
+    if soft < 3 * 512 {
+        rlimit::Resource::NOFILE
+            .set(3 * 512, hard)
+            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
+    }
+
+    let src_dir = home_dir.join(STORE_PATH);
+    anyhow::ensure!(
+        store_path_exists(&src_dir),
+        "{}: source storage doesn’t exist",
+        src_dir.display()
+    );
+    let db_version = get_store_version(&src_dir);
+    anyhow::ensure!(
+        db_version == near_primitives::version::DB_VERSION,
+        "{}: expected DB version {} but got {}",
+        src_dir.display(),
+        near_primitives::version::DB_VERSION,
+        db_version
+    );
+
+    anyhow::ensure!(
+        !store_path_exists(&opts.dest_dir),
+        "{}: directory already exists",
+        opts.dest_dir.display()
+    );
+
+    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
+    let src_store = create_store_with_config(
+        &src_dir,
+        StoreConfig { read_only: true, enable_statistics: false },
+    );
+
+    let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let tip: Option<near_primitives::block::Tip> =
+            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
+        anyhow::ensure!(
+            tip.is_some(),
+            "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
+            src_dir.display(),
+            std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
+        );
+        tip.map(|tip| tip.height)
+    } else {
+        None
+    };
+
+    let dst_store = create_store(&opts.dest_dir);
+
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
+
+    for column in DBCol::iter() {
+        let skip = skip_columns.contains(&column);
+        info!(
+            target: "recompress",
+            column_id = column as usize,
+            %column,
+            "{}",
+            if skip { "Clearing  " } else { "Processing" }
+        );
+        if skip {
+            continue;
+        }
+
+        let mut store_update = dst_store.store_update();
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
+        for (key, value) in src_store.iter(column) {
+            store_update.set(column, &key, &value);
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
+            count_keys += 1;
+            if batch_written >= BATCH_SIZE_BYTES {
+                store_update.commit()?;
+                info!(
+                    target: "recompress",
+                    column_id = column as usize,
+                    %count_keys,
+                    %total_written,
+                    "Processing",
+                );
+                batch_written = 0;
+                store_update = dst_store.store_update();
+            }
+        }
+        info!(
+            target: "recompress",
+            column_id = column as usize,
+            %count_keys,
+            %total_written,
+            "Done with "
+        );
+        store_update.commit()?;
+    }
+
+    // If we’re not keeping ColPartialChunks, update chunk tail to point to
+    // current final block.  If we don’t do that, the gc will try to work its
+    // way from the genesis even though chunks at those heights have been
+    // deleted.
+    if skip_columns.contains(&DBCol::ColPartialChunks) {
+        let chunk_tail = final_head_height.unwrap();
+        info!(target: "recompress", %chunk_tail, "Setting chunk tail");
+        let mut store_update = dst_store.store_update();
+        store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+        store_update.commit()?;
+    }
+
+    core::mem::drop(dst_store);
+    core::mem::drop(src_store);
+
+    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
+    Ok(())
 }

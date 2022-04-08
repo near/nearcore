@@ -2,6 +2,7 @@
 
 ## [unreleased]
 * increasing max_gas_burnt from 200TGas to 300Tgas, allowing larger transactions.
+* increasing `action_creation_config.deploy_contract_cost_per_byte.execution`
 
 ### Protocol Changes
 

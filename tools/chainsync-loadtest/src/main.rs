@@ -2,16 +2,12 @@ mod concurrency;
 mod fetch_chain;
 mod network;
 
-use std::io;
 use std::sync::Arc;
 
 use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
-use clap::Clap;
+use clap::Parser;
 use openssl_probe;
-use tracing::metadata::LevelFilter;
-use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
@@ -20,6 +16,7 @@ use near_chain_configs::Genesis;
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::{db, Store};
@@ -71,7 +68,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     return Ok(NearConfig::new(config, genesis, (&node_signer).into(), None));
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct Cmd {
     #[clap(long)]
     pub chain_id: String,
@@ -132,20 +129,11 @@ impl Cmd {
     }
 }
 
-fn init_logging() {
-    let env_filter = EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(
-            tracing_subscriber::fmt::format::FmtSpan::ENTER
-                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
-        )
-        .with_env_filter(env_filter)
-        .with_writer(io::stderr)
-        .init();
-}
-
 fn main() {
-    init_logging();
+    let env_filter = near_o11y::EnvFilterBuilder::from_env()
+        .finish()
+        .add_directive(near_o11y::tracing::Level::INFO.into());
+    let _subscriber = near_o11y::default_subscriber(env_filter).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

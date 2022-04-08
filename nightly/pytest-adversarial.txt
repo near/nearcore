@@ -12,8 +12,9 @@ pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py overtake --features nightly_protocol,nightly_protocol_features
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py doomslug_off --features nightly_protocol,nightly_protocol_features
-pytest adversarial/start_from_genesis.py overtake doomslug_off
-pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly_protocol,nightly_protocol_features
+# TODO(#6421): Currently broken.
+#pytest adversarial/start_from_genesis.py overtake doomslug_off
+#pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly_protocol,nightly_protocol_features
 
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix.

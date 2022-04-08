@@ -119,6 +119,10 @@ pub(crate) async fn convert_block_to_transactions(
         .await?
         .unwrap();
 
+    // TODO(mina86): Do we actually need ‘seen’?  I’m kinda confused at this
+    // point how changes are stored in the database and whether view_client can
+    // return duplicate AccountTouched entries.
+    let mut seen = std::collections::HashSet::new();
     let touched_account_ids = state_changes
         .into_iter()
         .filter_map(|x| {
@@ -128,7 +132,12 @@ pub(crate) async fn convert_block_to_transactions(
                 None
             }
         })
-        .collect::<std::collections::HashSet<_>>();
+        .filter(move |account_id| {
+            // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
+            // Clone::clone) once hash_set_entry stabilises.
+            seen.insert(account_id.clone())
+        })
+        .collect::<Vec<_>>();
 
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
@@ -142,7 +151,7 @@ pub(crate) async fn convert_block_to_transactions(
             block_hash: block.header.hash,
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
-                    account_ids: touched_account_ids.into_iter().collect(),
+                    account_ids: touched_account_ids,
                 },
         })
         .await??;

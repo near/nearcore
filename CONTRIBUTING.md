@@ -48,8 +48,10 @@ The `test plan` should describe in detail what tests are presented, and what cas
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within 48 hours.
-   The reviewers will first review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
+2. Once the CI passes, you should expect the first feedback to appear within one business day. 
+   One code owner (chosen in a round robin order for the codeowner list) will first review your pull request.
+   They may re-assign the pull request to another person if they feel that they don't have sufficient expertise to review the pull request.
+   The reviewers will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
    If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
 3. Once you address all the comments, and your PR is accepted, we will take care of merging it.
 4. If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.

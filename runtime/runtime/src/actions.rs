@@ -6,7 +6,7 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -150,9 +150,6 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
-        &action_receipt.signer_id,
-        &action_receipt.signer_public_key,
-        action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
         &apply_state.prev_block_hash,
@@ -235,6 +232,25 @@ pub(crate) fn action_function_call(
         None => true,
     };
     if let Some(outcome) = outcome {
+        let new_receipts: Vec<_> = outcome
+            .action_receipts
+            .into_iter()
+            .map(|(receiver_id, receipt)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                }),
+            })
+            .collect();
         result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
         result.gas_burnt_for_function_call =
             safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
@@ -249,7 +265,7 @@ pub(crate) fn action_function_call(
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
+            result.new_receipts.extend(new_receipts);
         }
     } else {
         assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")

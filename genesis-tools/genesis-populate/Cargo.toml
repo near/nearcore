@@ -4,13 +4,13 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
 borsh = "0.9"
 indicatif = "0.15.0"
-clap = "2.33.0"
+clap = { version = "3.1.6", features = ["derive"] }
 tempfile = "3"
 
 nearcore = { path = "../../nearcore" }

@@ -71,8 +71,7 @@ test category and the test specification arguments.  Those are
 `--skip-build` causes build step to be skipped for the test.  This
 means that the test doesn’t have access to build artefacts (located in
 `target/debug` or `target/release`) but also doesn’t need to wait for
-the build to finish and thus can start faster.  For example, the flag
-is used with fuzzing tests which need to build their own code.
+the build to finish and thus can start faster.
 
 `--timeout=<timeout>` specifies the time after which the test will be
 stopped and considered failed.  `<timeout>` is an integer with an

@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::state_part::PartId;
 use num_rational::Rational;
 use tracing::debug;
 
@@ -929,11 +930,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
-        assert!(part_id < num_parts);
-        if part_id != 0 {
+        if part_id.idx != 0 {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
@@ -944,11 +943,9 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_state_part(
         &self,
         _state_root: &StateRoot,
-        part_id: u64,
-        num_parts: u64,
+        _part_id: PartId,
         _data: &Vec<u8>,
     ) -> bool {
-        assert!(part_id < num_parts);
         // We do not care about deeper validation in test_utils
         true
     }
@@ -957,12 +954,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _shard_id: ShardId,
         state_root: &StateRoot,
-        part_id: u64,
-        _num_parts: u64,
+        part_id: PartId,
         data: &[u8],
         _epoch_id: &EpochId,
     ) -> Result<(), Error> {
-        if part_id != 0 {
+        if part_id.idx != 0 {
             return Ok(());
         }
         let state = KVState::try_from_slice(data).unwrap();
@@ -1038,12 +1034,33 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         if !self.no_gc {
+            // This code is 'incorrect' - as production one is always setting the GC to the
+            // first block of the epoch.
+            // Unfortunately many tests are depending on this and not setting epochs when
+            // they produce blocks.
             let block_height = self
                 .get_block_header(block_hash)
                 .unwrap_or_default()
                 .map(|h| h.height())
                 .unwrap_or_default();
             block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+        /*  // TODO: use this version of the code instead - after we fix the block creation
+            // issue in multiple tests.
+        // We have to return the first block of the epoch T-NUM_EPOCHS_TO_KEEP_STORE_DATA.
+        let mut current_header = self.get_block_header(block_hash).unwrap().unwrap();
+        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA {
+            let last_block_of_prev_epoch = current_header.next_epoch_id();
+            current_header =
+                self.get_block_header(&last_block_of_prev_epoch.0).unwrap().unwrap();
+        }
+        loop {
+            if current_header.next_epoch_id().0 == *current_header.prev_hash() {
+                break;
+            }
+            current_header =
+                self.get_block_header(current_header.prev_hash()).unwrap().unwrap();
+        }
+        current_header.height()*/
         } else {
             0
         }
@@ -1245,6 +1262,7 @@ pub fn setup_with_tx_validity_period(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
+        true,
     )
     .unwrap();
     let test_account = "test".parse::<AccountId>().unwrap();
@@ -1292,6 +1310,7 @@ pub fn setup_with_validators(
             protocol_version: PROTOCOL_VERSION,
         },
         DoomslugThresholdMode::NoApprovals,
+        true,
     )
     .unwrap();
     (chain, runtime, signers)
