@@ -74,24 +74,6 @@ pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_block_chunks_request_delay_seconds",
-        "Delay between receiving a block and requesting its chunks",
-        &["shard_id"],
-        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
-pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_receive_delay_seconds",
-        "Delay between requesting and receiving a chunk.",
-        &["shard_id"],
-        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
 pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(
         "near_validators_chunks_produced",
