@@ -154,6 +154,10 @@ impl<'c> Testbed<'c> {
                     })
                     .collect();
 
+                results.iter().for_each(|(cost, _)| {
+                    eprintln!("cost = {:?}", cost);
+                });
+
                 results[results.len() - 1].clone()
             })
             .collect()
