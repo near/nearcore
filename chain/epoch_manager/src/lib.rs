@@ -1292,7 +1292,8 @@ impl EpochManager {
 
     pub fn get_shard_config(&mut self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version).clone().into())
+        let epoch_config = self.config.for_protocol_version(protocol_version);
+        Ok(ShardConfig::new(epoch_config))
     }
 
     pub fn get_epoch_config(&mut self, epoch_id: &EpochId) -> Result<&EpochConfig, EpochError> {
