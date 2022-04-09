@@ -1,7 +1,7 @@
-use near_metrics::{try_create_gauge_vec, try_create_int_gauge};
+use near_metrics::{try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec};
 use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
-use prometheus::{GaugeVec, IntGauge};
+use prometheus::{GaugeVec, IntGauge, IntGaugeVec};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -25,6 +25,8 @@ static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
 pub(crate) struct RocksDBMetrics {
     // Contains counters and sums, which are integer statistics in RocksDB.
     int_gauges: HashMap<String, IntGauge>,
+    // Contains integer statistics with labels.
+    int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
 }
@@ -35,7 +37,26 @@ impl RocksDBMetrics {
         stats: StoreStatistics,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (stat_name, values) in stats.data {
-            if values.len() == 1 {
+            if values.is_empty() {
+                continue;
+            }
+            if let StatsValue::ColumnValue(_, _) = values[0] {
+                for labeled_value in values {
+                    if let StatsValue::ColumnValue(label, value) = labeled_value {
+                        let key = &stat_name;
+
+                        let gauge = match self.int_vec_gauges.entry(key.to_string()) {
+                            Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(
+                                &get_prometheus_metric_name(&stat_name),
+                                &stat_name,
+                                &["col"],
+                            )?),
+                            Entry::Occupied(entry) => entry.into_mut(),
+                        };
+                        gauge.with_label_values(&[&label]).set(value);
+                    }
+                }
+            } else if values.len() == 1 {
                 // A counter stats.
                 // A statistic 'a.b.c' creates the following prometheus metric:
                 // - near_a_b_c
@@ -86,6 +107,9 @@ impl RocksDBMetrics {
                                 .with_label_values(&[&format!("{:.2}", percentile as f64 * 0.01)])
                                 .set(value);
                         }
+                        StatsValue::ColumnValue(_, _) => unreachable!(
+                            "ColumnValue supposed to appear in vec that starts with a ColumnValue"
+                        ),
                     }
                 }
             }
@@ -116,7 +140,7 @@ impl RocksDBMetrics {
 }
 
 fn get_prometheus_metric_name(stat_name: &str) -> String {
-    format!("near_{}", stat_name.replace(".", "_"))
+    format!("near_{}", stat_name.replace(".", "_").replace("-", "_"))
 }
 
 fn get_metric_name_summary_count_gauge(stat_name: &str) -> String {

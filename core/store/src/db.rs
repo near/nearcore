@@ -391,6 +391,7 @@ pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
+pub const CF_STAT_NAMES: [&'static str; 1] = ["rocksdb.total-sst-files-size"];
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,
@@ -716,17 +717,25 @@ impl Database for RocksDB {
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        let mut stats = vec![];
         if let Some(stats_str) = self.db_opt.get_statistics() {
             match parse_statistics(&stats_str) {
                 Ok(parsed_statistics) => {
-                    return Some(parsed_statistics);
+                    stats.push(parsed_statistics);
                 }
                 Err(err) => {
                     warn!(target: "store", "Failed to parse store statistics: {:?}", err);
                 }
             }
         }
-        None
+        if let Some(cf_stats) = self.get_cf_statistics() {
+            stats.push(cf_stats);
+        }
+        if !stats.is_empty() {
+            Some(StoreStatistics { data: stats.into_iter().map(|x| x.data).flatten().collect() })
+        } else {
+            None
+        }
     }
 }
 
@@ -974,6 +983,30 @@ impl RocksDB {
     pub fn flush(&self) -> Result<(), DBError> {
         self.db.flush().map_err(DBError::from)
     }
+
+    fn get_cf_statistics(&self) -> Option<StoreStatistics> {
+        use strum::IntoEnumIterator;
+
+        let mut result = vec![];
+        for stat_name in CF_STAT_NAMES {
+            let mut values = vec![];
+            for col in DBCol::iter() {
+                let size =
+                    self.db.property_int_value_cf(unsafe { &*self.cfs[col as usize] }, stat_name);
+                if let Ok(Some(value)) = size {
+                    values.push(StatsValue::ColumnValue(col_name(col), value as i64));
+                }
+            }
+            if !values.is_empty() {
+                result.push((stat_name.to_string(), values));
+            }
+        }
+        if !result.is_empty() {
+            Some(StoreStatistics { data: result })
+        } else {
+            None
+        }
+    }
 }
 
 fn available_space<P: AsRef<Path> + std::fmt::Debug>(
@@ -1046,11 +1079,12 @@ impl TestDB {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StatsValue {
     Count(i64),
     Sum(i64),
     Percentile(u32, f64),
+    ColumnValue(String, i64),
 }
 
 #[derive(Debug, PartialEq)]
