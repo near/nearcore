@@ -71,19 +71,17 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             };
             hashes[i] = hash;
             if len > 1 {
-                if i % 2 == 0 {
-                    for j in 0..counter {
-                        let index = ((i + 1) * counter + j) as usize;
-                        if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Left });
-                        }
-                    }
-                } else {
-                    for j in 0..counter {
-                        let index = ((i - 1) * counter + j) as usize;
-                        if index < arr.len() {
-                            paths[index].push(MerklePathItem { hash, direction: Direction::Right });
-                        }
+                for j in 0..counter {
+                    let index = ((i + if i % 2 == 0 { 1 } else { -1 }) * counter + j) as usize;
+                    if index < arr.len() {
+                        paths[index].push(MerklePathItem {
+                            hash,
+                            direction: if i % 2 == 0 {
+                                Direction::Left
+                            } else {
+                                direction: Direction::Right
+                            },
+                        });
                     }
                 }
             }
