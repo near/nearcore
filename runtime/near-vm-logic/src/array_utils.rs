@@ -33,10 +33,10 @@ pub(crate) struct ArrayChunks<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> ArrayChunks<'a, N> {
-    pub(crate) fn new(bytes: &'a [u8]) -> Result<ArrayChunks<'a, N>, &'a [u8]> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Result<ArrayChunks<'a, N>, ()> {
         let inner = bytes.chunks_exact(N);
         if !inner.remainder().is_empty() {
-            return Err(inner.remainder());
+            return Err(());
         }
         Ok(ArrayChunks { inner })
     }

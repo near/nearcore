@@ -27,8 +27,11 @@ impl From<InvalidInput> for VMLogicError {
 pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
 ) -> Result<ArrayChunks<'_, ELEMENT_SIZE>, InvalidInput> {
-    ArrayChunks::new(data)
-        .map_err(|leftover| InvalidInput { msg: format!("{} leftover bytes", leftover.len()) })
+    ArrayChunks::new(data).map_err(|leftover| {
+        let msg =
+            format!("invalid array, byte length {}, element size {}", data.len(), ELEMENT_SIZE);
+        InvalidInput { msg }
+    })
 }
 
 const G1_MULTIEXP_ELEMENT_SIZE: usize = POINT_SIZE + SCALAR_SIZE;
