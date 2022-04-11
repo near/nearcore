@@ -404,29 +404,16 @@ pub enum DBOp {
 }
 
 impl DBTransaction {
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, col: DBCol, key: K, value: V) {
-        self.ops.push(DBOp::Insert {
-            col,
-            key: key.as_ref().to_owned(),
-            value: value.as_ref().to_owned(),
-        });
+    pub fn put(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        self.ops.push(DBOp::Insert { col, key, value });
     }
 
-    pub fn update_refcount<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &mut self,
-        col: DBCol,
-        key: K,
-        value: V,
-    ) {
-        self.ops.push(DBOp::UpdateRefcount {
-            col,
-            key: key.as_ref().to_owned(),
-            value: value.as_ref().to_owned(),
-        });
+    pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
-    pub fn delete<K: AsRef<[u8]>>(&mut self, col: DBCol, key: K) {
-        self.ops.push(DBOp::Delete { col, key: key.as_ref().to_owned() });
+    pub fn delete(&mut self, col: DBCol, key: Vec<u8>) {
+        self.ops.push(DBOp::Delete { col, key });
     }
 
     pub fn delete_all(&mut self, col: DBCol) {
