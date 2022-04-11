@@ -239,24 +239,23 @@ pub enum DBCol {
 impl DBCol {
     /// Whethere this column is reference-counted.
     pub fn is_rc(&self) -> bool {
-        IS_COL_RC[*self as usize]
+        RC_COLUMNS[*self as usize]
     }
-    /// Whether GC should be implemented for this column.
-    pub fn should_gc(&self) -> bool {
-        !SHOULD_NOT_COL_GC[*self as usize]
+    /// Whether this column is garbage collected.
+    pub fn is_gc(&self) -> bool {
+        !NO_GC_COLUMNS[*self as usize]
     }
-    /// All columns for which [`DBCol::should_gc`] returns true.
+    /// Whether GC for this column is possible, but optional.
+    pub fn is_gc_optional(&self) -> bool {
+        OPTIONAL_GC_COLUMNS[*self as usize]
+    }
+    /// All garbage-collected columns.
     pub fn all_gc_columns() -> impl Iterator<Item = DBCol> {
-        DBCol::iter().filter(|col| col.should_gc())
-    }
-    /// Whether GC may not be executed for this column  even in a fully
-    /// operational node.
-    pub fn skip_gc(&self) -> bool {
-        SKIP_COL_GC[*self as usize]
+        DBCol::iter().filter(|col| col.is_gc())
     }
 }
 
-const SHOULD_NOT_COL_GC: [bool; DBCol::COUNT] = col_set(&[
+const NO_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     DBCol::ColDbVersion, // DB version is unrelated to GC
     DBCol::ColBlockMisc,
     // TODO #3488 remove
@@ -277,14 +276,14 @@ const SHOULD_NOT_COL_GC: [bool; DBCol::COUNT] = col_set(&[
     DBCol::ColCachedContractCode,
 ]);
 
-const SKIP_COL_GC: [bool; DBCol::COUNT] = col_set(&[
+const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     // A node may never restarted
     DBCol::ColStateHeaders,
     // True until #2515
     DBCol::ColStateParts,
 ]);
 
-const IS_COL_RC: [bool; DBCol::COUNT] = col_set(&[
+const RC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     DBCol::ColState,
     DBCol::ColTransactions,
     DBCol::ColReceipts,

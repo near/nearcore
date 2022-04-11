@@ -791,7 +791,7 @@ pub(crate) fn gc_col_count(
     col: &DBCol,
     count: &u64,
 ) -> Result<(), StoreValidatorError> {
-    if col.should_gc() {
+    if col.is_gc() {
         sv.inner.gc_col[*col as usize] = *count;
     } else {
         if *count > 0 {

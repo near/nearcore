@@ -114,8 +114,8 @@ impl StoreValidator {
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            if col.should_gc() && self.inner.gc_col[col as usize] == 0 {
-                if col.skip_gc() {
+            if col.is_gc() && self.inner.gc_col[col as usize] == 0 {
+                if col.is_gc_optional() {
                     res.push((
                         to_string(&col) + " (skipping is acceptable)",
                         self.inner.gc_col[col as usize],

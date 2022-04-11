@@ -2374,7 +2374,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
-        assert!(col.should_gc());
+        assert!(col.is_gc());
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
