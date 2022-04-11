@@ -14,6 +14,7 @@ use crate::trie_key::TrieKey;
 use crate::receipt::Receipt;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+use std::ops::Sub;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -989,4 +990,24 @@ pub enum TrieCacheMode {
     /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
     /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
     CachingChunk,
+}
+
+/// Counts accessed trie nodes during tx/receipt execution for proper storage costs charging.
+#[derive(Debug)]
+pub struct TrieNodesCount {
+    /// Number of nodes read from storage or shard cache.
+    pub touches: u64,
+    /// Number of nodes read from the chunk cache.
+    pub chunk_cache_reads: u64,
+}
+
+impl Sub for TrieNodesCount {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Self {
+            touches: self.touches - other.touches,
+            chunk_cache_reads: self.chunk_cache_reads - other.chunk_cache_reads,
+        }
+    }
 }
