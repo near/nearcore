@@ -36,9 +36,9 @@ impl From<rocksdb::Error> for DBError {
     }
 }
 
-impl Into<io::Error> for DBError {
-    fn into(self) -> io::Error {
-        io::Error::new(io::ErrorKind::Other, self)
+impl From<DBError> for io::Error {
+    fn from(err: DBError) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, err)
     }
 }
 
