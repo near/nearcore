@@ -16,7 +16,7 @@ lazy_static = "1.4"
 strum = { version = "0.20", features = ["derive"] }
 
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2"
+actix = "0.12.0"
 actix-web = "=4.0.0-beta.6"
 actix-http = "=3.0.0-beta.6"
 actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }

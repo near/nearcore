@@ -1,3 +1,4 @@
+use crate::logic;
 use crate::types::ReceiptIndex;
 use crate::External;
 use borsh::BorshDeserialize;
@@ -13,9 +14,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
 #[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::{HostError, VMLogicError};
-
-type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
+use near_vm_errors::HostError;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 
@@ -64,8 +63,7 @@ fn get_fuction_call_action_mut(
     } else {
         panic!(
             "Invalid function call index \
-                        (promise_index={}, action_index={})",
-            receipt_index, action_index
+             (promise_index={receipt_index}, action_index={action_index})",
         );
     }
 }
@@ -109,7 +107,7 @@ impl ReceiptManager {
         ext: &mut dyn External,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
-    ) -> ExtResult<ReceiptIndex> {
+    ) -> logic::Result<ReceiptIndex> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = ext.generate_data_id();
@@ -141,7 +139,7 @@ impl ReceiptManager {
     pub(crate) fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -160,7 +158,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
         Ok(())
     }
@@ -196,7 +194,7 @@ impl ReceiptManager {
         attached_deposit: Balance,
         prepaid_gas: Gas,
         gas_weight: GasWeight,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         let action_index = self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
@@ -238,7 +236,7 @@ impl ReceiptManager {
         args: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
@@ -266,7 +264,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         deposit: Balance,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
     }
@@ -287,7 +285,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         stake: Balance,
         public_key: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::Stake(StakeAction {
@@ -315,7 +313,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
         nonce: Nonce,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -352,7 +350,7 @@ impl ReceiptManager {
         allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -391,7 +389,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::DeleteKey(DeleteKeyAction {
@@ -416,7 +414,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
