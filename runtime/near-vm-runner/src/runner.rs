@@ -125,8 +125,7 @@ impl VMResult {
     pub fn not_run(error: VMError) -> VMResult {
         VMResult::NotRun(error)
     }
-    #[cfg_attr(not(feature = "protocol_feature_function_call_weight"), allow(unused_mut))]
-    pub fn abort(mut logic: VMLogic, error: VMError) -> VMResult {
+    pub fn abort(logic: VMLogic, error: VMError) -> VMResult {
         let outcome = logic.compute_outcome_and_distribute_gas();
         VMResult::aborted(outcome, error)
     }
