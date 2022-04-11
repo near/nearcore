@@ -26,8 +26,7 @@ fn parse_le_bytes(s: &str, buf: &mut Vec<u8>) {
         buf.push(byte.parse::<u8>().unwrap());
         return;
     }
-    assert!(s.starts_with("0x"));
-    let s = &s[2..];
+    let s = s.strip_prefix("0x").expect("0x prefix was expected");
     let zeros = "0".repeat(64 - s.len());
     let s = format!("{zeros}{s}");
     let hi = u128::from_str_radix(&s[..32], 16).unwrap();
