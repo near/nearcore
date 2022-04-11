@@ -48,6 +48,7 @@ fn main() {
         near_config.genesis.config,
         runtime_adapter.clone(),
         store,
+        false,
     );
     store_validator.validate();
 
