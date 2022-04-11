@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
 use borsh::ser::BorshSerialize;
@@ -84,6 +84,10 @@ impl SafeEpochManager {
     fn write(&self) -> RwLockWriteGuard<EpochManager> {
         self.0.write().expect(POISONED_LOCK_ERR)
     }
+
+    fn read(&self) -> RwLockReadGuard<EpochManager> {
+        self.0.read().expect(POISONED_LOCK_ERR)
+    }
 }
 
 impl EpochInfoProvider for SafeEpochManager {
@@ -93,9 +97,9 @@ impl EpochInfoProvider for SafeEpochManager {
         last_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<Option<Balance>, EpochError> {
-        let mut epoch_manager = self.write();
-        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?;
-        if slashed.contains_key(account_id) {
+        let epoch_manager = self.read();
+        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
+        if last_block_info.slashed().contains_key(account_id) {
             return Ok(None);
         }
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
@@ -107,23 +111,18 @@ impl EpochInfoProvider for SafeEpochManager {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> Result<Balance, EpochError> {
-        let mut epoch_manager = self.write();
-        let slashed = epoch_manager.get_slashed_validators(last_block_hash)?.clone();
+        let epoch_manager = self.read();
+        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
         let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         Ok(epoch_info
             .validators_iter()
-            .filter_map(|info| {
-                if slashed.contains_key(info.account_id()) {
-                    None
-                } else {
-                    Some(info.stake())
-                }
-            })
+            .filter(|info| !last_block_info.slashed().contains_key(info.account_id()))
+            .map(|info| info.stake())
             .sum())
     }
 
     fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
-        let mut epoch_manager = self.write();
+        let epoch_manager = self.read();
         epoch_manager.minimum_stake(prev_block_hash)
     }
 }
@@ -234,7 +233,7 @@ impl NightshadeRuntime {
     }
 
     pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
@@ -376,7 +375,7 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
         let shard_version =
@@ -389,7 +388,7 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let shard_version =
             epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
         Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
@@ -400,7 +399,7 @@ impl NightshadeRuntime {
         account_id: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<ShardUId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         let shard_id = account_id_to_shard_id(account_id, shard_layout);
         Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
@@ -430,7 +429,7 @@ impl NightshadeRuntime {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
-            let mut epoch_manager = self.epoch_manager.write();
+            let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?.clone();
             debug!(target: "runtime",
                    "block height: {}, is next_block_epoch_start {}",
@@ -710,7 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         vrf_value: &near_crypto::vrf::Value,
         vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let validator = epoch_manager.get_block_producer_info(epoch_id, block_height)?;
         let public_key = near_crypto::key_conversion::convert_public_key(
             validator.public_key().unwrap_as_ed25519(),
@@ -890,17 +889,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let block_producer =
             epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        let slashed = match epoch_manager.get_slashed_validators(header.prev_hash()) {
-            Ok(slashed) => slashed,
+        match epoch_manager.get_block_info(header.prev_hash()) {
+            Ok(block_info) => {
+                if block_info.slashed().contains_key(block_producer.account_id()) {
+                    return Ok(false);
+                }
+                Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
+            }
             Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
-        };
-        if slashed.contains_key(block_producer.account_id()) {
-            return Ok(false);
         }
-        Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 
     fn verify_chunk_signature_with_header_parts(
@@ -912,12 +912,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         if let Ok(chunk_producer) =
             epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
         {
-            let slashed = epoch_manager.get_slashed_validators(last_known_hash)?;
-            if slashed.contains_key(chunk_producer.account_id()) {
+            let block_info = epoch_manager.get_block_info(last_known_hash)?;
+            if block_info.slashed().contains_key(chunk_producer.account_id()) {
                 return Ok(false);
             }
             Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
@@ -936,7 +936,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         approvals: &[Option<Signature>],
     ) -> Result<(), Error> {
         let info = {
-            let mut epoch_manager = self.epoch_manager.write();
+            let epoch_manager = self.epoch_manager.read();
             epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
         };
 
@@ -975,7 +975,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         let info = {
-            let mut epoch_manager = self.epoch_manager.write();
+            let epoch_manager = self.epoch_manager.read();
             epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
         };
         if approvals.len() > info.len() {
@@ -1007,7 +1007,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
@@ -1015,7 +1015,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
 
@@ -1024,7 +1024,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
     }
 
@@ -1034,7 +1034,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
 
@@ -1044,11 +1044,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
             Ok(Some(validator)) => {
-                let slashed = epoch_manager.get_slashed_validators(last_known_block_hash)?;
-                Ok((validator, slashed.contains_key(account_id)))
+                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+                Ok((validator, block_info.slashed().contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -1061,11 +1061,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
             Ok(Some(fisherman)) => {
-                let slashed = epoch_manager.get_slashed_validators(last_known_block_hash)?;
-                Ok((fisherman, slashed.contains_key(account_id)))
+                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+                Ok((fisherman, block_info.slashed().contains_key(account_id)))
             }
             Ok(None) => Err(ErrorKind::NotAValidator.into()),
             Err(e) => Err(e.into()),
@@ -1073,18 +1073,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
-        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone().into())
+        let epoch_manager = self.epoch_manager.read();
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
+        Ok(ShardConfig::new(&epoch_config))
     }
 
     fn get_prev_shard_ids(
@@ -1123,7 +1124,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
     }
@@ -1151,13 +1152,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<ShardId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(account_id_to_shard_id(account_id, shard_layout))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let settlement =
             epoch_manager.get_all_block_producers_settlement(&epoch_id, parent_hash)?;
@@ -1185,12 +1186,12 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
@@ -1198,18 +1199,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         (|| -> Result<BlockHeight, Error> {
-            let mut epoch_manager = self.epoch_manager.write();
+            let epoch_manager = self.epoch_manager.read();
             // an epoch must have a first block.
             let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
@@ -1229,12 +1230,12 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_epoch_info(epoch_id).is_ok()
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
     }
 
@@ -1268,22 +1269,32 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_epoch_last_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         next_epoch_id: &EpochId,
-    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        let epoch_manager = self.epoch_manager.read();
         let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
         let prev_epoch_id = last_block_info.epoch_id().clone();
         Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?.clone(),
-            epoch_manager.get_block_info(last_block_info.prev_hash())?.clone(),
+            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
+            epoch_manager.get_block_info(last_block_info.prev_hash())?,
             last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?.clone(),
-            epoch_manager.get_epoch_info(epoch_id)?.clone(),
-            epoch_manager.get_epoch_info(next_epoch_id)?.clone(),
+            epoch_manager.get_epoch_info(&prev_epoch_id)?,
+            epoch_manager.get_epoch_info(epoch_id)?,
+            epoch_manager.get_epoch_info(next_epoch_id)?,
         ))
     }
 
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
     }
 
@@ -1479,7 +1490,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             QueryRequest::CallFunction { account_id, method_name, args } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) = {
-                    let mut epoch_manager = self.epoch_manager.write();
+                    let epoch_manager = self.epoch_manager.read();
                     let epoch_info = epoch_manager.get_epoch_info(epoch_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
                             err,
@@ -1579,7 +1590,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
@@ -1771,7 +1782,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         other_epoch_id: &EpochId,
     ) -> Result<Ordering, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
 
@@ -1780,7 +1791,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk_prev_block_hash: &CryptoHash,
         header_head: &CryptoHash,
     ) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
         let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
         let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
@@ -1803,7 +1814,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut genesis_config = self.genesis_config.clone();
         genesis_config.protocol_version = protocol_version;
         let shard_config = {
-            let mut epoch_manager = self.epoch_manager.write();
+            let epoch_manager = self.epoch_manager.read();
             epoch_manager.get_shard_config(epoch_id)?
         };
         genesis_config.num_block_producer_seats_per_shard =
@@ -1820,7 +1831,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
             epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
         } else {
@@ -1829,7 +1840,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
@@ -1837,7 +1848,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, Error> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
@@ -1846,7 +1857,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         block_hash: CryptoHash,
     ) -> Result<Option<BlockHeight>, EpochError> {
-        let mut epoch_manager = self.epoch_manager.write();
+        let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_protocol_upgrade_block_height(block_hash)
     }
 }
@@ -2747,7 +2758,7 @@ mod test {
             |env: &mut TestEnv, expected_blocks: &mut [u64], expected_chunks: &mut [u64]| {
                 let epoch_id = env.head.epoch_id.clone();
                 let height = env.head.height;
-                let mut em = env.runtime.epoch_manager.0.write().unwrap();
+                let em = env.runtime.epoch_manager.0.read().unwrap();
                 let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
                 let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
 
