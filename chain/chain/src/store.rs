@@ -44,13 +44,13 @@ use near_store::{
     ColStateHeaders, ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
     KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
-use near_store::db::DBCol::ColStateChangesForSplitStates;
 use near_store::db::StoreStatistics;
+use near_store::DBCol::ColStateChangesForSplitStates;
 #[cfg(feature = "mock_network")]
 use std::sync::Arc;
 
@@ -2374,7 +2374,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
-        assert!(SHOULD_COL_GC[col as usize]);
+        assert!(col.should_gc());
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {

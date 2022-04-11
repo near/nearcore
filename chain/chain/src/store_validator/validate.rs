@@ -20,7 +20,7 @@ use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColHeaderHashesByHeight, ColOutcomeIds,
     ColStateHeaders, ColTransactionResult, DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY,
-    FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, SHOULD_COL_GC, TAIL_KEY,
+    FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -791,7 +791,7 @@ pub(crate) fn gc_col_count(
     col: &DBCol,
     count: &u64,
 ) -> Result<(), StoreValidatorError> {
-    if SHOULD_COL_GC[*col as usize] {
+    if col.should_gc() {
         sv.inner.gc_col[*col as usize] = *count;
     } else {
         if *count > 0 {
@@ -914,12 +914,7 @@ pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreVal
     if zeroes == DBCol::COUNT {
         return Ok(());
     }
-    let mut gc_col_count = 0;
-    for gc_col in SHOULD_COL_GC.iter() {
-        if *gc_col == true {
-            gc_col_count += 1;
-        }
-    }
+    let gc_col_count = DBCol::all_gc_columns().count();
     // 2. All columns are GCed case is acceptable
     if zeroes == DBCol::COUNT - gc_col_count {
         return Ok(());
