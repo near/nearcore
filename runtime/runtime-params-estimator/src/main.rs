@@ -295,7 +295,7 @@ fn main_docker(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
   --package runtime-params-estimator --bin runtime-params-estimator \
-  --features required --release;
+  --features nightly_protocol,protocol_feature_chunk_nodes_cache,required --release;
 ",
         );
 
