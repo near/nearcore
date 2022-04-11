@@ -1079,15 +1079,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _prev_epoch_last_block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         _next_epoch_id: &EpochId,
-    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error> {
-        Ok((
-            BlockInfo::default(),
-            BlockInfo::default(),
-            BlockInfo::default(),
-            EpochInfo::default(),
-            EpochInfo::default(),
-            EpochInfo::default(),
-        ))
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    > {
+        Ok(Default::default())
     }
 
     fn get_epoch_sync_data_hash(
