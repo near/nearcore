@@ -403,6 +403,7 @@ pub struct DetailedDebugStatus {
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
+    pub missing_chunks: Vec<BlockStatusView>,
     pub epoch_info: EpochInfoView,
 }
 
