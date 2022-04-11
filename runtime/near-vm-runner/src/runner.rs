@@ -6,7 +6,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMOutcome};
+use near_vm_logic::{External, VMContext, VMLogic, VMOutcome};
 
 use crate::vm_kind::VMKind;
 
@@ -33,7 +33,7 @@ pub fn run(
     promise_results: &[PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(
@@ -72,7 +72,7 @@ pub trait VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> (Option<VMOutcome>, Option<VMError>);
+    ) -> VMResult;
 
     /// Precompile a WASM contract to a VM specific format and store the result into the `cache`.
     ///
@@ -105,6 +105,64 @@ impl VMKind {
             Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
+        }
+    }
+}
+
+/// Type returned by any VM instance after loading a contract and executing a
+/// function inside.
+#[derive(Debug, PartialEq)]
+pub enum VMResult {
+    /// Execution was not able to start because preconditions were not met.
+    /// TODO: Remove this with more refactoring or present a good reason why it
+    /// is needed.
+    NotRun(VMError),
+    /// Execution started but hit an error.
+    Aborted(VMOutcome, VMError),
+    /// Execution finished without error.
+    Ok(VMOutcome),
+}
+
+impl VMResult {
+    /// Consumes the `VMLogic` object and computes the final outcome with the
+    /// given error that stopped execution from finishing successfully.
+    pub fn abort(logic: VMLogic, error: VMError) -> VMResult {
+        let outcome = logic.compute_outcome_and_distribute_gas();
+        VMResult::Aborted(outcome, error)
+    }
+
+    /// Consumes the `VMLogic` object and computes the final outcome for a
+    /// successful execution.
+    pub fn ok(logic: VMLogic) -> VMResult {
+        let outcome = logic.compute_outcome_and_distribute_gas();
+        VMResult::Ok(outcome)
+    }
+
+    /// Borrow the internal outcome, if there is one.
+    pub fn outcome(&self) -> Option<&VMOutcome> {
+        match self {
+            VMResult::NotRun(_err) => None,
+            VMResult::Aborted(outcome, _err) => Some(outcome),
+            VMResult::Ok(outcome) => Some(outcome),
+        }
+    }
+
+    /// Borrow the internal error, if there is one.
+    pub fn error(&self) -> Option<&VMError> {
+        match self {
+            VMResult::NotRun(err) => Some(err),
+            VMResult::Aborted(_outcome, err) => Some(err),
+            VMResult::Ok(_outcome) => None,
+        }
+    }
+
+    /// Unpack the internal outcome and error. This method mostly exists for
+    /// easy compatibility with code that was written before `VMResult` existed.
+    pub fn outcome_error(self) -> (Option<VMOutcome>, Option<VMError>) {
+        match self {
+            VMResult::NotRun(err) => (None, Some(err)),
+            VMResult::Aborted(outcome, err) => (Some(outcome), Some(err)),
+            VMResult::Ok(outcome) => (Some(outcome), None),
         }
     }
 }

@@ -1,6 +1,7 @@
 use crate::cache::into_vm_result;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::prepare::WASM_FEATURES;
+use crate::runner::VMResult;
 use crate::{cache, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
@@ -10,7 +11,7 @@ use near_stable_hasher::StableHasher;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -433,7 +434,7 @@ impl Wasmer2VM {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
-    ) -> (Option<VMOutcome>, Option<VMError>) {
+    ) -> VMResult {
         let vmmemory = memory.vm();
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
@@ -446,10 +447,13 @@ impl Wasmer2VM {
         );
         let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
-            return (None, Some(e));
+            return VMResult::NotRun(e);
         }
-        let err = self.run_method(artifact, import, method_name).err();
-        (Some(logic.compute_outcome_and_distribute_gas()), err)
+        let status = self.run_method(artifact, import, method_name);
+        match status {
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
+        }
     }
 }
 
@@ -526,7 +530,7 @@ impl crate::runner::VM for Wasmer2VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> (Option<VMOutcome>, Option<VMError>) {
+    ) -> VMResult {
         let _span = tracing::debug_span!(
             target: "vm",
             "run_wasmer2",
@@ -536,18 +540,16 @@ impl crate::runner::VM for Wasmer2VM {
         .entered();
 
         if method_name.is_empty() {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName,
-                ))),
-            );
+            let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ));
+            return VMResult::NotRun(error);
         }
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
-            Err(err) => return (None, Some(err)),
+            Err(err) => return VMResult::NotRun(err),
         };
 
         let mut memory = Wasmer2Memory::new(
@@ -570,19 +572,20 @@ impl crate::runner::VM for Wasmer2VM {
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
-            return (
-                Some(logic.compute_outcome_and_distribute_gas()),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ))),
-            );
+            let error = VMError::FunctionCallError(FunctionCallError::HostError(
+                near_vm_errors::HostError::GasExceeded,
+            ));
+            return VMResult::abort(logic, error);
         }
         let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
-            return (None, Some(e));
+            // TODO: This should return an outcome to account for loading cost
+            return VMResult::NotRun(e);
         }
-        let err = self.run_method(&artifact, import, method_name).err();
-        (Some(logic.compute_outcome_and_distribute_gas()), err)
+        match self.run_method(&artifact, import, method_name) {
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
+        }
     }
 
     fn precompile(
