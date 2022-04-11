@@ -206,6 +206,9 @@ pub struct Network {
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
+    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
+    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
+    pub whitelist_nodes: String,
     /// Maximum number of active peers. Hard limit.
     #[serde(default = "default_max_num_peers")]
     pub max_num_peers: u32,
@@ -255,6 +258,7 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
+            whitelist_nodes: "".to_string(),
             max_num_peers: default_max_num_peers(),
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
@@ -711,6 +715,11 @@ impl NearConfig {
                         .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
+                whitelist_nodes: (|| -> Vec<_> {
+                    let w = &config.network.whitelist_nodes;
+                    if w.is_empty() { return vec![]; }
+                    w.split(',').map(|peer|peer.try_into().expect("Failed to parse PeerInfo")).collect()
+                }()),
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),

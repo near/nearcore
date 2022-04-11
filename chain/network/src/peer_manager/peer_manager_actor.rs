@@ -890,6 +890,16 @@ impl PeerManagerActor {
         self.connected_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers as usize
     }
 
+    fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+        for x in &self.config.whitelist_nodes {
+            if x.id != peer_info.id { continue }
+            if x.addr.is_some() && x.addr != peer_info.addr { continue }
+            if x.account_id.is_some() && x.account_id != peer_info.account_id { continue }
+            return true;
+        }
+        return false;
+    }
+
     /// Returns single random peer with close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
         // This finds max height among peers, and returns one peer close to such height.
@@ -1920,13 +1930,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
-
-        if self.is_inbound_allowed() {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
-        } else {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
-        }
+        self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
     }
 
     #[cfg(feature = "test_features")]
@@ -2021,7 +2025,7 @@ impl PeerManagerActor {
             }
         }
 
-        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() {
+        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() && !self.is_peer_whitelisted(&msg.peer_info) {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network",
                 connected_peers = self.connected_peers.len(), outgoing_peers = self.outgoing_peers.len(),
