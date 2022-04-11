@@ -120,7 +120,7 @@ impl<'c> Testbed<'c> {
                 let tb = self.transaction_builder();
 
                 let num_values: usize = 100;
-                let value_len: usize = 2000;
+                let value_len: usize = 1000;
                 let signer = tb.random_account();
                 let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
                 let mut setup_block = Vec::new();
