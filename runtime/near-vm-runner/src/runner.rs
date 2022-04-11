@@ -114,6 +114,8 @@ impl VMKind {
 #[derive(Debug, PartialEq)]
 pub enum VMResult {
     /// Execution was not able to start because preconditions were not met.
+    /// TODO: Remove this with more refactoring or present a good reason why it
+    /// is needed.
     NotRun(VMError),
     /// Execution started but hit an error.
     Aborted(VMOutcome, VMError),
