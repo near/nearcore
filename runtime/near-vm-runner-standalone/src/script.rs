@@ -268,8 +268,8 @@ fn test_evm_slow_deserialize_repro() {
 
         script.step(contract, "deploy_code").input(input).repeat(3);
         let res = script.run();
-        assert_eq!(res.outcomes[0].1, None);
-        assert_eq!(res.outcomes[1].1, None);
+        assert_eq!(res.outcomes[0].error(), None);
+        assert_eq!(res.outcomes[1].error(), None);
     }
 
     evm_slow_deserialize_repro(VMKind::Wasmer0);
