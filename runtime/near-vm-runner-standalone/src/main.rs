@@ -165,10 +165,7 @@ fn main() {
 
     let mut results = script.run();
     let last_result = results.outcomes.pop().unwrap();
-    let maybe_error = match &last_result {
-        VMResult::NotRun(err) | VMResult::Aborted(_, err) => Some(err),
-        VMResult::Ok(_) => None,
-    };
+    let maybe_error = last_result.error();
 
     match &last_result {
         VMResult::NotRun(_) => {}
