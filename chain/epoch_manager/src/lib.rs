@@ -67,10 +67,18 @@ pub struct EpochManager {
     epoch_validators_ordered: lru::LruCache<EpochId, Vec<(ValidatorStake, bool)>>,
     /// Unique validators ordered by `block_producer_settlement`.
     epoch_validators_ordered_unique: lru::LruCache<EpochId, Vec<(ValidatorStake, bool)>>,
-    /// Aggregator that crunches data when we process block info
-    epoch_info_aggregator: Option<EpochInfoAggregator>,
+    /// Aggregator that keeps statistics about the current epoch.  It’s data are
+    /// synced up to the last final block.  The information are updated by
+    /// [`update_epoch_info_aggregator_upto_final`] method.  To get statistics
+    /// up to a last block use [`get_epoch_info_aggregator_upto_last`] method.
+    epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+
+    /// Counts loop iterations inside of aggregate_epoch_info_upto method.
+    /// Used for tests as a bit of white-box testing.
+    #[cfg(test)]
+    epoch_info_aggregator_loop_counter: usize,
 }
 
 impl EpochManager {
@@ -98,6 +106,10 @@ impl EpochManager {
     ) -> Result<Self, EpochError> {
         let validator_reward =
             HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
+        let epoch_info_aggregator = store
+            .get_ser(ColEpochInfo, AGGREGATOR_KEY)
+            .map_err(EpochError::from)?
+            .unwrap_or_default();
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -108,7 +120,9 @@ impl EpochManager {
             epoch_id_to_start: lru::LruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: lru::LruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: lru::LruCache::new(EPOCH_CACHE_SIZE),
-            epoch_info_aggregator: None,
+            epoch_info_aggregator,
+            #[cfg(test)]
+            epoch_info_aggregator_loop_counter: 0,
             largest_final_height: 0,
         };
         let genesis_epoch_id = EpochId::default();
@@ -328,24 +342,22 @@ impl EpochManager {
         let epoch_info = self.get_epoch_info(last_block_info.epoch_id())?.clone();
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
+
         let EpochInfoAggregator {
             block_tracker: block_validator_tracker,
             shard_tracker: chunk_validator_tracker,
             all_proposals,
             version_tracker,
             ..
-        } = self.get_and_update_epoch_info_aggregator(
-            last_block_info.epoch_id(),
-            last_block_hash,
-            false,
-        )?;
+        } = self.get_epoch_info_aggregator_upto_last(last_block_hash)?;
+
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
         // Next protocol version calculation.
         // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
         let mut versions = HashMap::new();
-        for (&validator_id, &version) in version_tracker.iter() {
+        for (validator_id, version) in version_tracker {
             let stake = epoch_info.validator_stake(validator_id);
             *versions.entry(version).or_insert(0) += stake;
         }
@@ -397,7 +409,7 @@ impl EpochManager {
                 {
                     validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
                 }
-                proposals.push(proposal);
+                proposals.push(proposal.clone());
             }
         }
 
@@ -592,49 +604,16 @@ impl EpochManager {
 
                 // Save current block info.
                 self.save_block_info(&mut store_update, block_info.clone())?;
-                let mut is_new_final_block = false;
                 if block_info.last_finalized_height() > &self.largest_final_height {
                     self.largest_final_height = *block_info.last_finalized_height();
-                    is_new_final_block = true;
-                }
 
-                // Find the last block hash to properly update epoch info aggregator. We only update
-                // the aggregator if there is a change in the last final block or it is the epoch
-                // start.
-                let last_block_hash = if !is_new_final_block {
-                    None
-                } else {
-                    match self.get_block_info(block_info.last_final_block_hash()) {
-                        Ok(final_block_info) => {
-                            if final_block_info.epoch_id() != block_info.epoch_id() {
-                                if is_epoch_start {
-                                    Some(&current_hash)
-                                } else {
-                                    // This means there has been no final block in the epoch yet and
-                                    // we have already done the update at epoch start. Therefore we
-                                    // do no need to do anything.
-                                    None
-                                }
-                            } else {
-                                Some(block_info.last_final_block_hash())
-                            }
-                        }
-                        Err(e) => {
-                            warn!(target: "epoch_manger", "last final block of {} cannot be found: {}", current_hash, e);
-                            None
-                        }
-                    }
-                };
-                if let Some(last_block_hash) = last_block_hash {
-                    let epoch_info_aggregator = self.get_and_update_epoch_info_aggregator(
-                        block_info.epoch_id(),
-                        last_block_hash,
-                        false,
-                    )?;
-                    self.save_epoch_info_aggregator(
+                    // Update epoch info aggregator.  We only update the if
+                    // there is a change in the last final block.  This way we
+                    // never need to rollback any information in
+                    // self.epoch_info_aggregator.
+                    self.update_epoch_info_aggregator_upto_final(
+                        block_info.last_final_block_hash(),
                         &mut store_update,
-                        epoch_info_aggregator,
-                        is_epoch_start || *block_info.height() % AGGREGATOR_SAVE_PERIOD == 0,
                     )?;
                 }
 
@@ -1082,7 +1061,9 @@ impl EpochManager {
                 )
             }
             ValidatorInfoIdentifier::BlockHash(ref h) => {
-                let aggregator = self.get_and_update_epoch_info_aggregator(&epoch_id, h, true)?;
+                // If we are here, `h` is hash of the latest block of the
+                // current epoch.
+                let aggregator = self.get_epoch_info_aggregator_upto_last(h)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -1119,12 +1100,10 @@ impl EpochManager {
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
+                let all_proposals =
+                    aggregator.all_proposals.iter().map(|(_, p)| p.clone().into()).collect();
                 let next_epoch_id = self.get_next_epoch_id(h)?;
-                (
-                    cur_validators,
-                    next_epoch_id,
-                    aggregator.all_proposals.into_iter().map(|(_, p)| p.into()).collect(),
-                )
+                (cur_validators, next_epoch_id, all_proposals)
             }
         };
 
@@ -1313,7 +1292,8 @@ impl EpochManager {
 
     pub fn get_shard_config(&mut self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.config.for_protocol_version(protocol_version).clone().into())
+        let epoch_config = self.config.for_protocol_version(protocol_version);
+        Ok(ShardConfig::new(epoch_config))
     }
 
     pub fn get_epoch_config(&mut self, epoch_id: &EpochId) -> Result<&EpochConfig, EpochError> {
@@ -1462,73 +1442,146 @@ impl EpochManager {
         Ok(*self.epoch_id_to_start.get(epoch_id).unwrap())
     }
 
-    /// Get epoch info aggregator and update it to block info as of `last_block_hash`. If `epoch_id`
-    /// doesn't match the epoch id of the existing aggregator, re-initialize the aggregator.
-    /// If `copy_only` is true, then we clone what is in the cache. Otherwise we take the aggregator
-    /// from cache and invalidates the cache.
-    pub fn get_and_update_epoch_info_aggregator(
+    /// Updates epoch info aggregator to state as of `last_final_block_hash`
+    /// block.
+    ///
+    /// The block hash passed as argument should be a final block so that the
+    /// method can perform efficient incremental updates.  Calling this method
+    /// on a block which has not been finalised yet is likely to result in
+    /// performance issues since handling forks will force it to traverse the
+    /// entire epoch from scratch.
+    ///
+    /// The result of the aggregation is stored in `self.epoch_info_aggregator`.
+    ///
+    /// Saves the aggregator to `store_update` if epoch id changes or every
+    /// AGGREGATOR_SAVE_PERIOD heights.
+    pub fn update_epoch_info_aggregator_upto_final(
         &mut self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-        copy_only: bool,
-    ) -> Result<EpochInfoAggregator, EpochError> {
-        let epoch_info_aggregator_cache = if copy_only {
-            self.epoch_info_aggregator.clone()
-        } else {
-            self.epoch_info_aggregator.take()
-        };
-        let mut epoch_change = false;
-        let mut aggregator = if let Some(aggregator) = epoch_info_aggregator_cache {
-            aggregator
-        } else {
-            epoch_change = true;
-            self.store
-                .get_ser(ColEpochInfo, AGGREGATOR_KEY)
-                .map_err(EpochError::from)?
-                .unwrap_or_else(|| EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash))
-        };
-        if &aggregator.epoch_id != epoch_id {
-            aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
-            epoch_change = true;
-        }
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let mut new_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *last_block_hash);
-        let mut cur_hash = *last_block_hash;
-        let mut overwrite = false;
-        while cur_hash != aggregator.last_block_hash || epoch_change {
-            // Avoid cloning
-            let prev_hash = *self.get_block_info(&cur_hash)?.prev_hash();
-            let prev_height = self.get_block_info(&prev_hash).map(|info| *info.height());
-
-            let block_info = self.get_block_info(&cur_hash)?;
-            if block_info.epoch_id() != epoch_id || block_info.prev_hash() == &CryptoHash::default()
-            {
-                // This means that we reached the previous epoch and still hasn't seen
-                // `aggregator.last_block_hash` and therefore implies either a fork has happened
-                // or we are at the start of an epoch. In this case, the new aggregator should
-                // overwrite the old one.
-                overwrite = true;
-                break;
+        last_final_block_hash: &CryptoHash,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), EpochError> {
+        if let Some((aggregator, replace)) =
+            self.aggregate_epoch_info_upto(last_final_block_hash)?
+        {
+            let save = if replace {
+                self.epoch_info_aggregator = aggregator;
+                true
+            } else {
+                self.epoch_info_aggregator.merge(aggregator);
+                let block_info = self.get_block_info(last_final_block_hash)?;
+                *block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
+            };
+            if save {
+                store_update.set_ser(ColEpochInfo, AGGREGATOR_KEY, &self.epoch_info_aggregator)?;
             }
-            new_aggregator.update(block_info, &epoch_info, prev_height?);
-            cur_hash = *block_info.prev_hash();
         }
-        aggregator.merge(new_aggregator, overwrite);
-
-        Ok(aggregator)
+        Ok(())
     }
 
-    fn save_epoch_info_aggregator(
+    /// Returns epoch info aggregate with state up to `last_block_hash`.
+    ///
+    /// The block hash passed as argument should be the latest block belonging
+    /// to current epoch.  Calling this method on any other block is likely to
+    /// result in performance issues since handling something which is not past
+    /// the final block will force it to traverse the entire epoch from scratch.
+    ///
+    /// This method does not change `self.epoch_info_aggregator`.
+    pub fn get_epoch_info_aggregator_upto_last(
         &mut self,
-        store_update: &mut StoreUpdate,
-        aggregator: EpochInfoAggregator,
-        write_to_storage: bool,
-    ) -> Result<(), EpochError> {
-        if write_to_storage {
-            store_update.set_ser(ColEpochInfo, AGGREGATOR_KEY, &aggregator)?;
+        last_block_hash: &CryptoHash,
+    ) -> Result<EpochInfoAggregator, EpochError> {
+        if let Some((mut aggregator, replace)) = self.aggregate_epoch_info_upto(last_block_hash)? {
+            if !replace {
+                aggregator.merge_prefix(&self.epoch_info_aggregator);
+            }
+            Ok(aggregator)
+        } else {
+            Ok(self.epoch_info_aggregator.clone())
         }
-        self.epoch_info_aggregator = Some(aggregator);
-        Ok(())
+    }
+
+    /// Aggregates epoch info between last final block and given block.
+    ///
+    /// More specifically, aggregates epoch information from block denoted by
+    /// `self.epoch_info_aggregator.last_block_hash` (excluding that block) up
+    /// to one denoted by `block_hash` (including that block).  If the two
+    /// blocks belong to different epochs, stops aggregating once it reaches
+    /// start of epoch `block_hash` belongs to.
+    ///
+    /// The block hash passed as argument should be a latest final block or
+    /// a descendant of a latest final block. Calling this method on any other
+    /// block is likely to result in performance issues since handling forks
+    /// will force it to traverse the entire epoch from scratch.
+    ///
+    /// If `block_hash` equals `self.epoch_info_aggregator.last_block_hash`
+    /// returns None.  Otherwise returns `Some((aggregator, full_info))` tuple.
+    /// The first element of the pair is aggregator with collected information;
+    /// the second specifies whether the returned aggregator includes full
+    /// information about an epoch (such that it does not need to be merged with
+    /// `self.epoch_info_aggregator`).  That happens if the method reaches epoch
+    /// boundary.
+    fn aggregate_epoch_info_upto(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<(EpochInfoAggregator, bool)>, EpochError> {
+        if block_hash == &self.epoch_info_aggregator.last_block_hash {
+            return Ok(None);
+        }
+
+        if cfg!(debug) {
+            let agg_hash = self.epoch_info_aggregator.last_block_hash.clone();
+            let agg_height = *self.get_block_info(&agg_hash)?.height();
+            let block_height = *self.get_block_info(block_hash)?.height();
+            assert!(
+                agg_height < block_height,
+                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
+            );
+        }
+
+        let epoch_id = self.get_block_info(block_hash)?.epoch_id().clone();
+        let epoch_info = self.get_epoch_info(&epoch_id)?.clone();
+
+        let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
+        let mut cur_hash = *block_hash;
+        Ok(Some(loop {
+            #[cfg(test)]
+            {
+                self.epoch_info_aggregator_loop_counter += 1;
+            }
+
+            // To avoid cloning BlockInfo we need to first get reference to the
+            // current block, but then drop it so that we can call
+            // get_block_info for previous block.
+            let block_info = self.get_block_info(&cur_hash)?;
+            let prev_hash = *block_info.prev_hash();
+            let different_epoch = &epoch_id != block_info.epoch_id();
+
+            if different_epoch || prev_hash == CryptoHash::default() {
+                // We’ve reached the beginning of an epoch or a genesis block
+                // without seeing self.epoch_info_aggregator.last_block_hash.
+                // This implies self.epoch_info_aggregator.last_block_hash
+                // belongs to different epoch or we’re on different fork (though
+                // the latter should never happen).  In either case, the
+                // aggregator contains full epoch information.
+                break (aggregator, true);
+            }
+
+            let prev_info = self.get_block_info(&prev_hash)?;
+            let prev_height = *prev_info.height();
+            let prev_epoch = prev_info.epoch_id().clone();
+
+            let block_info = self.get_block_info(&cur_hash)?;
+            aggregator.update(block_info, &epoch_info, prev_height);
+
+            if prev_hash == self.epoch_info_aggregator.last_block_hash {
+                // We’ve reached sync point of the old aggregator.  If old
+                // aggregator was for a different epoch, we have full info in
+                // our aggregator; otherwise we don’t.
+                break (aggregator, epoch_id != prev_epoch);
+            }
+
+            cur_hash = prev_hash;
+        }))
     }
 
     pub fn get_protocol_upgrade_block_height(
@@ -1589,8 +1642,7 @@ mod tests2 {
             let validator_id = *epoch_info
                 .get_validator_id(account_id)
                 .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
-            let aggregator =
-                self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
+            let aggregator = self.get_epoch_info_aggregator_upto_last(last_known_block_hash)?;
             Ok(aggregator
                 .block_tracker
                 .get(&validator_id)
@@ -2828,21 +2880,27 @@ mod tests2 {
         record_block(&mut em, Default::default(), h[0], 0, vec![]);
         record_block_with_final_block_hash(&mut em, h[0], h[1], h[0], 1, vec![]);
         record_block_with_final_block_hash(&mut em, h[1], h[3], h[0], 3, vec![]);
+        assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
         let epoch_id = em.get_epoch_id(&h[3]).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
 
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..4, &[1, 3], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[3], true).unwrap();
-        assert_eq!(aggregator.block_tracker, tracker,);
+        let aggregator = em.get_epoch_info_aggregator_upto_last(&h[3]).unwrap();
+        assert_eq!(aggregator.block_tracker, tracker);
+        // get_epoch_info_aggregator_upto_last does not change
+        // epoch_info_aggregator
+        assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
 
         record_block_with_final_block_hash(&mut em, h[3], h[5], h[1], 5, vec![]);
+        assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
 
         update_tracker(&epoch_info, 4..6, &[5], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], true).unwrap();
-        assert_eq!(aggregator.block_tracker, tracker,);
+        let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
+        assert_eq!(aggregator.block_tracker, tracker);
+        assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
     }
 
     /// If the node stops and restarts, the aggregator should be able to recover
@@ -2881,7 +2939,8 @@ mod tests2 {
             3,
             vec![stake("test2".parse().unwrap(), stake_amount + 10)],
         );
-        em.epoch_info_aggregator = None;
+        assert_eq!(h[1], em.epoch_info_aggregator.last_block_hash);
+        em.epoch_info_aggregator = EpochInfoAggregator::default();
         record_block(
             &mut em,
             h[3],
@@ -2889,11 +2948,12 @@ mod tests2 {
             5,
             vec![stake("test1".parse().unwrap(), stake_amount - 1)],
         );
+        assert_eq!(h[3], em.epoch_info_aggregator.last_block_hash);
         let epoch_id = em.get_epoch_id(&h[5]).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 3, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert_eq!(
             aggregator.all_proposals,
@@ -2945,7 +3005,7 @@ mod tests2 {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 2, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
@@ -2995,7 +3055,7 @@ mod tests2 {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 5..8, &[7], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[7], true).unwrap();
+        let aggregator = em.get_epoch_info_aggregator_upto_last(&h[7]).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
@@ -3335,6 +3395,11 @@ mod tests2 {
                 ("test1".parse().unwrap(), stake_amount),
                 ("test2".parse().unwrap(), stake_amount)
             ]),
+        );
+        assert_eq!(
+            BLOCK_CACHE_SIZE + 2,
+            epoch_manager.epoch_info_aggregator_loop_counter,
+            "Expected every block to be visited exactly once"
         );
     }
 
@@ -4018,7 +4083,7 @@ mod tests2 {
         }
 
         let epoch_aggregator_final_hash =
-            epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
+            epoch_manager.epoch_info_aggregator.last_block_hash.clone();
 
         epoch_manager
             .record_block_info(
@@ -4029,7 +4094,7 @@ mod tests2 {
             .commit()
             .unwrap();
         let new_epoch_aggregator_final_hash =
-            epoch_manager.epoch_info_aggregator.as_ref().map(|a| a.last_block_hash).unwrap();
+            epoch_manager.epoch_info_aggregator.last_block_hash.clone();
         assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
     }
 

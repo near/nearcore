@@ -1084,7 +1084,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
         let mut epoch_manager = self.epoch_manager.write();
-        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone().into())
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
+        Ok(ShardConfig::new(&epoch_config))
     }
 
     fn get_prev_shard_ids(
