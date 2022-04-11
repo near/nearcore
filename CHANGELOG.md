@@ -7,6 +7,7 @@
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions [#5482](https://github.com/near/nearcore/pull/5482)
+* Include `promise_batch_action_function_call_weight` host function on the runtime. [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
 
 ### Non-protocol Changes
 
