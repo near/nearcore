@@ -404,7 +404,7 @@ pub enum DBOp {
 }
 
 impl DBTransaction {
-    pub fn put(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
 

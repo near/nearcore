@@ -132,7 +132,7 @@ impl Store {
             let mut value = vec![0; value_len];
             file.read_exact(&mut value)?;
 
-            transaction.put(column, key, value);
+            transaction.insert(column, key, value);
         }
         self.storage.write(transaction).map_err(io::Error::from)
     }
@@ -173,7 +173,7 @@ impl StoreUpdate {
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.put(column, key.to_vec(), value.to_vec())
+        self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
     pub fn set_ser<T: BorshSerialize>(
@@ -211,7 +211,7 @@ impl StoreUpdate {
     fn merge_transaction(&mut self, transaction: DBTransaction) {
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => self.transaction.put(col, key, value),
+                DBOp::Insert { col, key, value } => self.transaction.insert(col, key, value),
                 DBOp::Delete { col, key } => self.transaction.delete(col, key),
                 DBOp::UpdateRefcount { col, key, value } => {
                     self.transaction.update_refcount(col, key, value)
