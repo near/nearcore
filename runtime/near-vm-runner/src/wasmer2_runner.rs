@@ -549,9 +549,7 @@ impl crate::runner::VM for Wasmer2VM {
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
-            Err(err) => {
-                return VMResult::NotRun(err);
-            }
+            Err(err) => return VMResult::NotRun(err),
         };
 
         let mut memory = Wasmer2Memory::new(

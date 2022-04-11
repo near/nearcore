@@ -155,8 +155,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        if result.error().is_some() {
-            let err = result.error().unwrap();
+        if let Some(err) = result.error() {
             eprintln!("error: {}", err);
         }
         assert!(result.error().is_none());
