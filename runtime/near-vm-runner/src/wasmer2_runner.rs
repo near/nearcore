@@ -447,13 +447,12 @@ impl Wasmer2VM {
         );
         let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
-            return VMResult::not_run(e);
+            return VMResult::NotRun(e);
         }
         let status = self.run_method(artifact, import, method_name);
-        let outcome = logic.compute_outcome_and_distribute_gas();
         match status {
-            Ok(()) => VMResult::ok(outcome),
-            Err(err) => VMResult::aborted(outcome, err),
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
         }
     }
 }
@@ -544,14 +543,14 @@ impl crate::runner::VM for Wasmer2VM {
             let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ));
-            return VMResult::not_run(error);
+            return VMResult::NotRun(error);
         }
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
             Err(err) => {
-                return VMResult::not_run(err);
+                return VMResult::NotRun(err);
             }
         };
 
@@ -583,11 +582,11 @@ impl crate::runner::VM for Wasmer2VM {
         let import = imports::wasmer2::build(vmmemory, &mut logic, current_protocol_version);
         if let Err(e) = get_entrypoint_index(&*artifact.artifact, method_name) {
             // TODO: This should return an outcome to account for loading cost
-            return VMResult::not_run(e);
+            return VMResult::NotRun(e);
         }
         match self.run_method(&artifact, import, method_name) {
-            Ok(()) => VMResult::ok(logic.compute_outcome_and_distribute_gas()),
-            Err(err) => VMResult::aborted(logic.compute_outcome_and_distribute_gas(), err),
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
         }
     }
 

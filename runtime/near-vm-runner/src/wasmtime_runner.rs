@@ -207,11 +207,11 @@ impl crate::runner::VM for WasmtimeVM {
         .unwrap();
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
-            Err(err) => return VMResult::not_run(VMError::from(err)),
+            Err(err) => return VMResult::NotRun(VMError::from(err)),
         };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
-            Err(err) => return VMResult::not_run(err.into_vm_error()),
+            Err(err) => return VMResult::NotRun(err.into_vm_error()),
         };
         let mut linker = Linker::new(&engine);
         let memory_copy = memory.0;
@@ -241,7 +241,7 @@ impl crate::runner::VM for WasmtimeVM {
             let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ));
-            return VMResult::not_run(err);
+            return VMResult::NotRun(err);
         }
         match module.get_export(method_name) {
             Some(export) => match export {
@@ -252,7 +252,7 @@ impl crate::runner::VM for WasmtimeVM {
                                 MethodResolveError::MethodInvalidSignature,
                             ));
                         // TODO: This should return an outcome to account for loading cost
-                        return VMResult::not_run(err);
+                        return VMResult::NotRun(err);
                     }
                 }
                 _ => {
@@ -260,7 +260,7 @@ impl crate::runner::VM for WasmtimeVM {
                         MethodResolveError::MethodNotFound,
                     ));
                     // TODO: This should return an outcome to account for loading cost
-                    return VMResult::not_run(err);
+                    return VMResult::NotRun(err);
                 }
             },
             None => {
@@ -268,14 +268,14 @@ impl crate::runner::VM for WasmtimeVM {
                     MethodResolveError::MethodNotFound,
                 ));
                 // TODO: This should return an outcome to account for loading cost
-                return VMResult::not_run(err);
+                return VMResult::NotRun(err);
             }
         }
         match linker.instantiate(&mut store, &module) {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => VMResult::ok(logic.compute_outcome_and_distribute_gas()),
+                        Ok(_) => VMResult::ok(logic),
                         Err(err) => (VMResult::abort(logic, err.into_vm_error())),
                     },
                     Err(err) => VMResult::abort(logic, err.into_vm_error()),
@@ -285,7 +285,7 @@ impl crate::runner::VM for WasmtimeVM {
                         MethodResolveError::MethodNotFound,
                     ));
                     // TODO: This should return an outcome to account for loading cost
-                    VMResult::not_run(err)
+                    VMResult::NotRun(err)
                 }
             },
             Err(err) => VMResult::abort(logic, err.into_vm_error()),

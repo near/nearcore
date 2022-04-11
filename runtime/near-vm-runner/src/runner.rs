@@ -122,19 +122,21 @@ pub enum VMResult {
 }
 
 impl VMResult {
-    pub fn not_run(error: VMError) -> VMResult {
-        VMResult::NotRun(error)
-    }
+    /// Consumes the `VMLogic` object and computes the final outcome with the
+    /// given error that stopped execution from finishing successfully.
     pub fn abort(logic: VMLogic, error: VMError) -> VMResult {
         let outcome = logic.compute_outcome_and_distribute_gas();
-        VMResult::aborted(outcome, error)
-    }
-    pub fn aborted(outcome: VMOutcome, error: VMError) -> VMResult {
         VMResult::Aborted(outcome, error)
     }
-    pub fn ok(outcome: VMOutcome) -> VMResult {
+
+    /// Consumes the `VMLogic` object and computes the final outcome for a
+    /// successful execution.
+    pub fn ok(logic: VMLogic) -> VMResult {
+        let outcome = logic.compute_outcome_and_distribute_gas();
         VMResult::Ok(outcome)
     }
+
+    /// Borrow the internal outcome, if there is one.
     pub fn outcome(&self) -> Option<&VMOutcome> {
         match self {
             VMResult::NotRun(_err) => None,
@@ -142,6 +144,8 @@ impl VMResult {
             VMResult::Ok(outcome) => Some(outcome),
         }
     }
+
+    /// Borrow the internal error, if there is one.
     pub fn error(&self) -> Option<&VMError> {
         match self {
             VMResult::NotRun(err) => Some(err),
@@ -149,6 +153,9 @@ impl VMResult {
             VMResult::Ok(_outcome) => None,
         }
     }
+
+    /// Unpack the internal outcome and error. This method mostly exists for
+    /// easy compatibility with code that was written before `VMResult` existed.
     pub fn outcome_error(self) -> (Option<VMOutcome>, Option<VMError>) {
         match self {
             VMResult::NotRun(err) => (None, Some(err)),

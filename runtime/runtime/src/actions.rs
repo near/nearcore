@@ -57,10 +57,10 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return VMResult::not_run(VMError::FunctionCallError(error));
+            return VMResult::NotRun(VMError::FunctionCallError(error));
         }
         Err(e) => {
-            return VMResult::not_run(VMError::ExternalError(AnyError::new(
+            return VMResult::NotRun(VMError::ExternalError(AnyError::new(
                 ExternalError::StorageError(e),
             )));
         }

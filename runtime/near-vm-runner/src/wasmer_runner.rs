@@ -238,7 +238,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
             MethodResolveError::MethodEmptyName,
         ));
-        return VMResult::not_run(err);
+        return VMResult::NotRun(err);
     }
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
@@ -256,12 +256,12 @@ pub(crate) fn run_wasmer0_module<'a>(
     let import_object = imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
-        return VMResult::not_run(e);
+        return VMResult::NotRun(e);
     }
 
     match run_method(&module, &import_object, method_name) {
-        Ok(()) => VMResult::ok(logic.compute_outcome_and_distribute_gas()),
-        Err(err) => VMResult::aborted(logic.compute_outcome_and_distribute_gas(), err),
+        Ok(()) => VMResult::ok(logic),
+        Err(err) => VMResult::abort(logic, err),
     }
 }
 
@@ -315,14 +315,14 @@ impl crate::runner::VM for Wasmer0VM {
             let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ));
-            return VMResult::not_run(err);
+            return VMResult::NotRun(err);
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
         let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
         let module = match into_vm_result(module) {
             Ok(x) => x,
-            Err(err) => return VMResult::not_run(err),
+            Err(err) => return VMResult::NotRun(err),
         };
         let mut memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
@@ -355,12 +355,12 @@ impl crate::runner::VM for Wasmer0VM {
 
         if let Err(e) = check_method(&module, method_name) {
             // TODO: This should return an outcome to account for loading cost
-            return VMResult::not_run(e);
+            return VMResult::NotRun(e);
         }
 
         match run_method(&module, &import_object, method_name) {
-            Ok(()) => VMResult::ok(logic.compute_outcome_and_distribute_gas()),
-            Err(err) => VMResult::aborted(logic.compute_outcome_and_distribute_gas(), err),
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
         }
     }
 
