@@ -503,13 +503,13 @@ impl EpochManager {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
                 warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
-                let mut epoch_info = (*next_epoch_info).clone();
+                let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
             }
             Err(EpochError::NotEnoughValidators { num_validators, num_shards }) => {
                 warn!(target: "epoch_manager", "Not enough validators for required number of shards (all validators tried to unstake?): num_validators={} num_shards={}", num_validators, num_shards);
-                let mut epoch_info = (*next_epoch_info).clone();
+                let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
             }
@@ -1346,7 +1346,7 @@ impl EpochManager {
             .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
     }
 
-    // NOTE: beware, after calling `save_epoch_validator_info`,
+    // Note(#6572): beware, after calling `save_epoch_validator_info`,
     // `get_epoch_validator_info` will return stale results.
     fn save_epoch_validator_info(
         &self,
