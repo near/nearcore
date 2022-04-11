@@ -8,7 +8,7 @@ rust-version = "1.60.0"
 publish = false
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.12.0"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"

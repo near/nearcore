@@ -356,6 +356,7 @@ impl ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
+                            self.adv.read().unwrap().is_archival,
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();

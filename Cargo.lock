@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "actix"
-version = "0.11.0-beta.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eb78f9871feb3519e06b947c2becbf2cc7f67ce786e510e6bd3f9a27da3dbf1"
+checksum = "3720d0064a0ce5c0de7bd93bdb0a6caebab2a9b5668746145d7b3b0c5da02914"
 dependencies = [
  "actix-rt",
  "actix_derive",
@@ -16,6 +16,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-task",
+ "futures-util",
  "log",
  "once_cell",
  "parking_lot 0.11.2",
@@ -242,9 +243,9 @@ dependencies = [
 
 [[package]]
 name = "actix_derive"
-version = "0.6.0-beta.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae749cf2582eb83efd288edd4e9704600fdce1bc4f69aa0c86ca1368a3e4c13f"
+checksum = "6d44b8fee1ced9671ba043476deddef739dd0959bf77030b26b738cc591737a7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2759,7 +2760,7 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "chrono",
- "lru",
+ "near-cache",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -2864,7 +2865,6 @@ name = "near-jsonrpc-fuzz"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix_derive",
  "arbitrary",
  "awc",
  "base64 0.13.0",
@@ -2981,7 +2981,6 @@ name = "near-network-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix_derive",
  "anyhow",
  "borsh",
  "chrono",
@@ -3321,7 +3320,6 @@ dependencies = [
  "actix",
  "actix-rt",
  "actix-web",
- "actix_derive",
  "anyhow",
  "awc",
  "bencher",

@@ -18,7 +18,7 @@ use crate::types::{
     PeersResponse, RoutingTableUpdate,
 };
 use actix::{
-    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

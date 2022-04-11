@@ -3664,6 +3664,7 @@ mod tests {
                 genesis.clone(),
                 chain.runtime_adapter.clone(),
                 chain.store().store().clone(),
+                false,
             );
             store_validator.validate();
             println!("errors = {:?}", store_validator.errors);
