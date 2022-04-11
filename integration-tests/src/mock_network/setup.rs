@@ -17,8 +17,8 @@ use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::db::TestDB;
-use near_store::{create_store, Store};
+use near_store::create_store;
+use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
 use regex::Regex;
@@ -38,7 +38,7 @@ fn setup_runtime(
     in_memory_storage: bool,
 ) -> Arc<NightshadeRuntime> {
     let store = if in_memory_storage {
-        Store::new(Arc::new(TestDB::new()))
+        create_test_store()
     } else {
         let path = get_store_path(home_dir);
         create_store(&path)

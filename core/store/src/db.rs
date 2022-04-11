@@ -392,11 +392,11 @@ pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 
-pub struct DBTransaction {
-    pub ops: Vec<DBOp>,
+pub(crate) struct DBTransaction {
+    pub(crate) ops: Vec<DBOp>,
 }
 
-pub enum DBOp {
+pub(crate) enum DBOp {
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     Delete { col: DBCol, key: Vec<u8> },
@@ -404,19 +404,19 @@ pub enum DBOp {
 }
 
 impl DBTransaction {
-    pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub(crate) fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
-    pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub(crate) fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
-    pub fn delete(&mut self, col: DBCol, key: Vec<u8>) {
+    pub(crate) fn delete(&mut self, col: DBCol, key: Vec<u8>) {
         self.ops.push(DBOp::Delete { col, key });
     }
 
-    pub fn delete_all(&mut self, col: DBCol) {
+    pub(crate) fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
     }
 }
@@ -583,7 +583,7 @@ pub struct TestDB {
     db: RwLock<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
-pub trait Database: Sync + Send {
+pub(crate) trait Database: Sync + Send {
     fn transaction(&self) -> DBTransaction {
         DBTransaction { ops: Vec::new() }
     }

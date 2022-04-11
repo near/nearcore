@@ -48,7 +48,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Store {
+    pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
@@ -155,7 +155,7 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
+    pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
     }

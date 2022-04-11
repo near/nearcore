@@ -79,7 +79,7 @@ impl ShardTries {
         self.0.store.clone()
     }
 
-    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut shards = HashMap::new();
         for op in &transaction.ops {
