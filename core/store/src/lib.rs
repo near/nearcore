@@ -58,10 +58,7 @@ impl Store {
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
         match self.get(column, key)? {
-            Some(bytes) => match T::try_from_slice(&bytes) {
-                Ok(result) => Ok(Some(result)),
-                Err(e) => Err(e),
-            },
+            Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
             None => Ok(None),
         }
     }
@@ -204,7 +201,7 @@ impl StoreUpdate {
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
         match (&self.tries, other.tries) {
-            (None | Some(_), None) => (),
+            (_, None) => (),
             (None, Some(tries)) => self.tries = Some(tries),
             (Some(t1), Some(t2)) => debug_assert!(t1.is_same(&t2)),
         }
