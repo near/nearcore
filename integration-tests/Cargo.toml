@@ -12,7 +12,7 @@ path = "src/bin/start_mock_network.rs"
 name = "start_mock_network"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.12.0"
 actix-rt = "2"
 base64 = "0.11"
 borsh = "0.9"
