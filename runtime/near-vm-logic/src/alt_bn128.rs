@@ -3,8 +3,7 @@ use bn::Group;
 use near_vm_errors::{HostError, VMLogicError};
 
 const BOOL_SIZE: usize = 1;
-const U128_SIZE: usize = 128 / 8;
-const SCALAR_SIZE: usize = U128_SIZE * 2;
+const SCALAR_SIZE: usize = 256 / 8;
 const POINT_SIZE: usize = SCALAR_SIZE * 2;
 
 pub(crate) struct InvalidInput {
@@ -27,7 +26,7 @@ impl From<InvalidInput> for VMLogicError {
 pub(crate) fn split_elements<const ELEMENT_SIZE: usize>(
     data: &[u8],
 ) -> Result<ArrayChunks<'_, ELEMENT_SIZE>, InvalidInput> {
-    ArrayChunks::new(data).map_err(|leftover| {
+    ArrayChunks::new(data).map_err(|()| {
         let msg =
             format!("invalid array, byte length {}, element size {}", data.len(), ELEMENT_SIZE);
         InvalidInput { msg }
