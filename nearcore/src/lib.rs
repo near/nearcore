@@ -608,7 +608,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut total_written: u64 = 0;
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
-        for (key, value) in src_store.iter(column) {
+        for (key, value) in src_store.iter_without_rc_logic(column) {
             store_update.set(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;
