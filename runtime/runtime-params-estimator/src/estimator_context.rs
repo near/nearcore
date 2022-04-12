@@ -136,10 +136,6 @@ impl<'c> Testbed<'c> {
                 for (i, value) in values.iter().cloned().enumerate() {
                     let key = vec![(i / 256) as u8, (i % 256) as u8];
                     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
-
-                    if i % 600 == 599 {
-                        setup_block = vec![];
-                    }
                 }
                 blocks.push(setup_block.clone());
 
@@ -162,7 +158,7 @@ impl<'c> Testbed<'c> {
                             .iter()
                             .enumerate()
                             .map(|(i, key)| {
-                                // eprintln!("retrieve {}", i);
+                                eprintln!("retrieve {}", i);
                                 let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
                                 // let bytes = match caching_storage.retrieve_raw_bytes(key) {
                                 //     Ok(bytes) => bytes,
