@@ -71,8 +71,9 @@ pub struct EpochManager {
     epoch_validators_ordered_unique: SyncLruCache<EpochId, Arc<[(ValidatorStake, bool)]>>,
     /// Aggregator that keeps statistics about the current epoch.  It’s data are
     /// synced up to the last final block.  The information are updated by
-    /// [`update_epoch_info_aggregator_upto_final`] method.  To get statistics
-    /// up to a last block use [`get_epoch_info_aggregator_upto_last`] method.
+    /// [`Self::update_epoch_info_aggregator_upto_final`] method.  To get
+    /// statistics up to a last block use
+    /// [`Self::get_epoch_info_aggregator_upto_last`] method.
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
@@ -1426,7 +1427,7 @@ impl EpochManager {
     /// The result of the aggregation is stored in `self.epoch_info_aggregator`.
     ///
     /// Saves the aggregator to `store_update` if epoch id changes or every
-    /// AGGREGATOR_SAVE_PERIOD heights.
+    /// [`AGGREGATOR_SAVE_PERIOD`] heights.
     pub fn update_epoch_info_aggregator_upto_final(
         &mut self,
         last_final_block_hash: &CryptoHash,
@@ -1544,7 +1545,7 @@ impl EpochManager {
             let prev_epoch = prev_info.epoch_id().clone();
 
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update(&block_info, &epoch_info, prev_height);
+            aggregator.update_tail(&block_info, &epoch_info, prev_height);
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old

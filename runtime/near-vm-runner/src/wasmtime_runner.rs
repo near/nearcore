@@ -1,5 +1,6 @@
 use crate::errors::IntoVMError;
 use crate::prepare::WASM_FEATURES;
+use crate::runner::VMResult;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -12,7 +13,7 @@ use near_vm_errors::{
     WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, MemoryLike, VMContext, VMLogic};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::str;
@@ -187,7 +188,7 @@ impl crate::runner::VM for WasmtimeVM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
-    ) -> (Option<VMOutcome>, Option<VMError>) {
+    ) -> VMResult {
         let _span = tracing::debug_span!(
             target: "vm",
             "run_wasmtime",
@@ -206,11 +207,11 @@ impl crate::runner::VM for WasmtimeVM {
         .unwrap();
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
-            Err(err) => return (None, Some(VMError::from(err))),
+            Err(err) => return VMResult::NotRun(VMError::from(err)),
         };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
-            Err(err) => return (None, Some(err.into_vm_error())),
+            Err(err) => return VMResult::NotRun(err.into_vm_error()),
         };
         let mut linker = Linker::new(&engine);
         let memory_copy = memory.0;
@@ -226,12 +227,10 @@ impl crate::runner::VM for WasmtimeVM {
 
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
-            return (
-                Some(logic.compute_outcome_and_distribute_gas()),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ))),
-            );
+            let err = VMError::FunctionCallError(FunctionCallError::HostError(
+                near_vm_errors::HostError::GasExceeded,
+            ));
+            return VMResult::abort(logic, err);
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
@@ -239,70 +238,57 @@ impl crate::runner::VM for WasmtimeVM {
         let raw_logic = &mut logic as *mut _ as *mut c_void;
         imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
         if method_name.is_empty() {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName,
-                ))),
-            );
+            let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ));
+            return VMResult::NotRun(err);
         }
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
                     if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                        return (
-                            None,
-                            Some(VMError::FunctionCallError(
-                                FunctionCallError::MethodResolveError(
-                                    MethodResolveError::MethodInvalidSignature,
-                                ),
-                            )),
-                        );
+                        let err =
+                            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                                MethodResolveError::MethodInvalidSignature,
+                            ));
+                        // TODO: This should return an outcome to account for loading cost
+                        return VMResult::NotRun(err);
                     }
                 }
                 _ => {
-                    return (
-                        None,
-                        Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                            MethodResolveError::MethodNotFound,
-                        ))),
-                    )
+                    let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                        MethodResolveError::MethodNotFound,
+                    ));
+                    // TODO: This should return an outcome to account for loading cost
+                    return VMResult::NotRun(err);
                 }
             },
             None => {
-                return (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodNotFound,
-                    ))),
-                )
+                let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound,
+                ));
+                // TODO: This should return an outcome to account for loading cost
+                return VMResult::NotRun(err);
             }
         }
         match linker.instantiate(&mut store, &module) {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => (Some(logic.compute_outcome_and_distribute_gas()), None),
-                        Err(err) => (
-                            Some(logic.compute_outcome_and_distribute_gas()),
-                            Some(err.into_vm_error()),
-                        ),
+                        Ok(_) => VMResult::ok(logic),
+                        Err(err) => (VMResult::abort(logic, err.into_vm_error())),
                     },
-                    Err(err) => (
-                        Some(logic.compute_outcome_and_distribute_gas()),
-                        Some(err.into_vm_error()),
-                    ),
+                    Err(err) => VMResult::abort(logic, err.into_vm_error()),
                 },
-                None => (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                None => {
+                    let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
-                    ))),
-                ),
+                    ));
+                    // TODO: This should return an outcome to account for loading cost
+                    VMResult::NotRun(err)
+                }
             },
-            Err(err) => {
-                (Some(logic.compute_outcome_and_distribute_gas()), Some(err.into_vm_error()))
-            }
+            Err(err) => VMResult::abort(logic, err.into_vm_error()),
         }
     }
 

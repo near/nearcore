@@ -415,7 +415,8 @@ pub fn start_with_config_and_synchronization(
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::default());
     #[cfg(feature = "test_features")]
-    let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+    let adv =
+        Arc::new(std::sync::RwLock::new(AdversarialControls::new(config.client_config.archive)));
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),

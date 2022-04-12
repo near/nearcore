@@ -20,6 +20,7 @@ pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieCh
 pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
+pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;
 pub mod iterator;
@@ -751,8 +752,8 @@ impl Trie {
         TrieIterator::new(self, root)
     }
 
-    pub fn get_touched_nodes_count(&self) -> u64 {
-        self.storage.get_touched_nodes_count()
+    pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        self.storage.get_trie_nodes_count()
     }
 }
 

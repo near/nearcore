@@ -78,6 +78,7 @@ pub struct StoreValidator {
     inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
+    pub is_archival: bool,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,
@@ -89,6 +90,7 @@ impl StoreValidator {
         config: GenesisConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         store: Store,
+        is_archival: bool,
     ) -> Self {
         StoreValidator {
             me,
@@ -98,6 +100,7 @@ impl StoreValidator {
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
+            is_archival,
             errors: vec![],
             tests: 0,
         }
@@ -337,6 +340,7 @@ impl StoreValidator {
         }
         Ok(())
     }
+
     pub fn validate(&mut self) {
         self.start_time = Clock::instant();
 
@@ -425,7 +429,7 @@ mod tests {
             true,
         )
         .unwrap();
-        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))
     }
 
     #[test]

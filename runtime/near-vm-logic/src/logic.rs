@@ -2335,12 +2335,12 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
-        let nodes_before = self.ext.get_touched_nodes_count();
+        let nodes_before = self.ext.get_trie_nodes_count();
         let evicted_ptr = self.ext.storage_get(&key)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
-        self.gas_counter
-            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2416,10 +2416,10 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_touched_nodes_count();
+        let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
-        self.gas_counter
-            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
         match read {
             Some(value) => {
@@ -2466,14 +2466,14 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_touched_nodes_count();
+        let nodes_before = self.ext.get_trie_nodes_count();
         let removed_ptr = self.ext.storage_get(&key)?;
         let removed =
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
         self.ext.storage_remove(&key)?;
-        self.gas_counter
-            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2517,10 +2517,10 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_touched_nodes_count();
+        let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
-        self.gas_counter
-            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
         Ok(res? as u64)
     }
 
