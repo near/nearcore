@@ -172,7 +172,8 @@ pub struct TrieCachingStorage {
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
-    /// Counts trie nodes retrieved from storage or shard cache.
+    /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
+    /// from DB or shard cache.
     pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
     pub(crate) mem_read_nodes: Cell<u64>,
