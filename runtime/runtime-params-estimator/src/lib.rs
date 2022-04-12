@@ -1211,7 +1211,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
         testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters);
 
     let (cost, _) =
-        aggregate_per_block_measurements(&ctx.config, 100, results[1 + warmup_iters..].to_vec());
+        aggregate_per_block_measurements(&ctx.config, 200, results[1 + warmup_iters..].to_vec());
 
     eprintln!("cost = {:?}", cost);
 
