@@ -160,13 +160,14 @@ impl<'c> Testbed<'c> {
                         let sum: usize = value_hashes
                             .iter()
                             .map(|key| {
-                                let bytes = match caching_storage.retrieve_raw_bytes(key) {
-                                    Ok(bytes) => bytes,
-                                    _ => {
-                                        // eprintln!("issue");
-                                        return 0;
-                                    }
-                                };
+                                let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
+                                // let bytes = match caching_storage.retrieve_raw_bytes(key) {
+                                //     Ok(bytes) => bytes,
+                                //     _ => {
+                                //         // eprintln!("issue");
+                                //         return 0;
+                                //     }
+                                // };
                                 let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
                                 match node.node {
                                     RawTrieNode::Extension(v, _) => v.len(),
