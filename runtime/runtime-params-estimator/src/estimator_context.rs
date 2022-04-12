@@ -137,7 +137,7 @@ impl<'c> Testbed<'c> {
                     let key = vec![i as u8];
                     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
 
-                    if i % 200 == 199 {
+                    if i % 600 == 599 {
                         blocks.push(setup_block.clone());
                         setup_block = vec![];
                     }
