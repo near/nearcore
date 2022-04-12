@@ -142,7 +142,9 @@ impl<'c> Testbed<'c> {
                         setup_block = vec![];
                     }
                 }
-
+                for v in blocks.iter() {
+                    eprintln!("{}", v.len());
+                }
                 let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
                 self.measure_blocks(blocks, 0);
 
@@ -161,7 +163,7 @@ impl<'c> Testbed<'c> {
                                 let bytes = match caching_storage.retrieve_raw_bytes(key) {
                                     Ok(bytes) => bytes,
                                     _ => {
-                                        eprintln!("issue");
+                                        // eprintln!("issue");
                                         return 0;
                                     }
                                 };
