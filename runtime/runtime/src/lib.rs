@@ -1293,12 +1293,14 @@ impl Runtime {
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        for receipt in local_receipts.iter() {
+        for (i, receipt) in local_receipts.iter().enumerate() {
             if total_gas_burnt < gas_limit {
+                eprintln!("process {}", i);
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
+                eprintln!("delay {}", i);
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
