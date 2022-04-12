@@ -21,7 +21,6 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::DBCol;
 use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -29,6 +28,7 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
+use near_store::DBCol;
 use near_store::{create_store, create_store_with_config, Store, StoreConfig};
 use near_telemetry::TelemetryActor;
 use std::fs;
@@ -523,13 +523,13 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         .archive;
     let mut skip_columns = Vec::new();
     if archive && !opts.keep_partial_chunks {
-        skip_columns.push(near_store::db::DBCol::ColPartialChunks);
+        skip_columns.push(near_store::DBCol::ColPartialChunks);
     }
     if archive && !opts.keep_invalid_chunks {
-        skip_columns.push(near_store::db::DBCol::ColInvalidChunks);
+        skip_columns.push(near_store::DBCol::ColInvalidChunks);
     }
     if archive && !opts.keep_trie_changes {
-        skip_columns.push(near_store::db::DBCol::ColTrieChanges);
+        skip_columns.push(near_store::DBCol::ColTrieChanges);
     }
 
     // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we

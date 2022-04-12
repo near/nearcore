@@ -19,7 +19,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges, SHOULD_COL_GC, SKIP_COL_GC};
+use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -114,8 +114,8 @@ impl StoreValidator {
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            if SHOULD_COL_GC[col as usize] && self.inner.gc_col[col as usize] == 0 {
-                if SKIP_COL_GC[col as usize] {
+            if col.is_gc() && self.inner.gc_col[col as usize] == 0 {
+                if col.is_gc_optional() {
                     res.push((
                         to_string(&col) + " (skipping is acceptable)",
                         self.inner.gc_col[col as usize],
