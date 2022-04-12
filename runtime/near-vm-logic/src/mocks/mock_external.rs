@@ -81,7 +81,7 @@ impl External for MockedExternal {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        TrieNodesCount { touches: 0, chunk_cache_reads: 0 }
+        TrieNodesCount { db_reads: 0, mem_reads: 0 }
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {

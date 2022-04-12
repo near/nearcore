@@ -173,9 +173,9 @@ pub struct TrieCachingStorage {
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
     /// Counts trie nodes retrieved from storage or shard cache.
-    pub(crate) touched_nodes: Cell<u64>,
+    pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
-    pub(crate) chunk_cache_reads: Cell<u64>,
+    pub(crate) mem_read_nodes: Cell<u64>,
 }
 
 impl TrieCachingStorage {
@@ -186,8 +186,8 @@ impl TrieCachingStorage {
             shard_cache,
             cache_mode: Cell::new(TrieCacheMode::CachingShard),
             chunk_cache: RefCell::new(Default::default()),
-            touched_nodes: Cell::new(0),
-            chunk_cache_reads: Cell::new(0),
+            db_read_nodes: Cell::new(0),
+            mem_read_nodes: Cell::new(0),
         }
     }
 
@@ -212,12 +212,12 @@ impl TrieCachingStorage {
         key
     }
 
-    fn inc_touched_nodes(&self) {
-        self.touched_nodes.set(self.touched_nodes.get() + 1);
+    fn inc_db_read_nodes(&self) {
+        self.db_read_nodes.set(self.db_read_nodes.get() + 1);
     }
 
-    fn inc_chunk_cache_reads(&self) {
-        self.chunk_cache_reads.set(self.chunk_cache_reads.get() + 1);
+    fn inc_mem_read_nodes(&self) {
+        self.mem_read_nodes.set(self.mem_read_nodes.get() + 1);
     }
 
     /// Set cache mode.
@@ -230,7 +230,7 @@ impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from chunk cache containing free of charge nodes.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
-            self.inc_chunk_cache_reads();
+            self.inc_mem_read_nodes();
             return Ok(val.clone());
         }
 
@@ -272,7 +272,7 @@ impl TrieStorage for TrieCachingStorage {
         // - - size of trie keys and values is limited by receipt gas limit / lowest per byte fee
         // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
         // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
-        self.inc_touched_nodes();
+        self.inc_db_read_nodes();
         if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
             self.chunk_cache.borrow_mut().insert(*hash, val.clone());
         };
@@ -285,9 +285,6 @@ impl TrieStorage for TrieCachingStorage {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        TrieNodesCount {
-            touches: self.touched_nodes.get(),
-            chunk_cache_reads: self.chunk_cache_reads.get(),
-        }
+        TrieNodesCount { db_reads: self.db_read_nodes.get(), mem_reads: self.mem_read_nodes.get() }
     }
 }

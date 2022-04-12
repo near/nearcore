@@ -163,10 +163,10 @@ mod nodes_counter_tests {
         items
             .iter()
             .map(|(key, value)| {
-                let initial_count = trie.get_trie_nodes_count().touches;
+                let initial_count = trie.get_trie_nodes_count().db_reads;
                 let got_value = trie.get(&state_root, key).unwrap();
                 assert_eq!(*value, got_value);
-                trie.get_trie_nodes_count().touches - initial_count
+                trie.get_trie_nodes_count().db_reads - initial_count
             })
             .collect()
     }
@@ -251,8 +251,8 @@ mod caching_storage_tests {
             let result = trie_caching_storage.retrieve_raw_bytes(&key);
             let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
             assert_eq!(result.unwrap().as_ref(), value);
-            assert_eq!(count_delta.touches, 1);
-            assert_eq!(count_delta.chunk_cache_reads, 0);
+            assert_eq!(count_delta.db_reads, 1);
+            assert_eq!(count_delta.mem_reads, 0);
             assert_eq!(trie_cache.get(&key).unwrap().as_ref(), value);
         }
     }
@@ -289,8 +289,8 @@ mod caching_storage_tests {
         let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(trie_cache.get(&key), None);
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_delta.touches, 0);
-        assert_eq!(count_delta.chunk_cache_reads, 1);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 
     /// Check that positions of item and costs of its retrieval are returned correctly.
@@ -318,16 +318,16 @@ mod caching_storage_tests {
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_delta.touches, 1);
-        assert_eq!(count_delta.chunk_cache_reads, 0);
+        assert_eq!(count_delta.db_reads, 1);
+        assert_eq!(count_delta.mem_reads, 0);
 
         // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_delta.touches, 0);
-        assert_eq!(count_delta.chunk_cache_reads, 1);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
         // dropped only when trie caching storage is dropped.
@@ -336,8 +336,8 @@ mod caching_storage_tests {
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_delta.touches, 0);
-        assert_eq!(count_delta.chunk_cache_reads, 1);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 
     /// Check that if an item present in chunk cache gets evicted from the shard cache, it stays in the chunk cache.
@@ -369,7 +369,7 @@ mod caching_storage_tests {
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
         let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_delta.touches, 0);
-        assert_eq!(count_delta.chunk_cache_reads, 1);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 }

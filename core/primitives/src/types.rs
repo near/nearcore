@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
+use std::ops;
 
 use near_crypto::PublicKey;
 
@@ -14,7 +15,6 @@ use crate::trie_key::TrieKey;
 use crate::receipt::Receipt;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-use std::ops::Sub;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -992,22 +992,23 @@ pub enum TrieCacheMode {
     CachingChunk,
 }
 
-/// Counts accessed trie nodes during tx/receipt execution for proper storage costs charging.
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
 #[derive(Debug)]
 pub struct TrieNodesCount {
-    /// Number of nodes read from storage or shard cache.
-    pub touches: u64,
-    /// Number of nodes read from the chunk cache.
-    pub chunk_cache_reads: u64,
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
 }
 
-impl Sub for TrieNodesCount {
+/// Used to determine the number of trie nodes charged during some operation. Panics on underflow.
+impl ops::Sub for TrieNodesCount {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
         Self {
-            touches: self.touches - other.touches,
-            chunk_cache_reads: self.chunk_cache_reads - other.chunk_cache_reads,
+            db_reads: self.db_reads - other.db_reads,
+            mem_reads: self.mem_reads - other.mem_reads,
         }
     }
 }
