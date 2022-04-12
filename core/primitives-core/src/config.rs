@@ -87,7 +87,7 @@ pub struct VMLimitConfig {
     /// If present, stores the secondary stack limit as implemented by wasmer2.
     ///
     /// This limit should never be hit normally.
-    #[serde(default="wasmer2_stack_limit_default")]
+    #[serde(default = "wasmer2_stack_limit_default")]
     pub wasmer2_stack_limit: i32,
 }
 
