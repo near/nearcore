@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::db::DBCol::ColBlockMerkleTree;
+use near_store::DBCol::ColBlockMerkleTree;
 use near_store::{create_store, DBCol, Store};
 use std::time::{Duration, Instant};
 

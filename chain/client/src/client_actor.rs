@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::db::DBCol::ColStateParts;
+use near_store::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
+                        for _ in store.iter(near_store::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
