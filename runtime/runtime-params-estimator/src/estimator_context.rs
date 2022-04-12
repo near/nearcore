@@ -2,7 +2,6 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use rand::prelude::SliceRandom;
 use std::collections::HashMap;
-use std::intrinsics::unreachable;
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::TrieCacheMode;
