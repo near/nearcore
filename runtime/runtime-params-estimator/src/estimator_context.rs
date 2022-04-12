@@ -119,7 +119,7 @@ impl<'c> Testbed<'c> {
             .map(|_| {
                 let tb = self.transaction_builder();
 
-                let num_values: usize = 100;
+                let num_values: usize = 200;
                 let value_len: usize = 2000;
                 let signer = tb.random_account();
                 let values: Vec<_> = (0..num_values)
