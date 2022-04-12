@@ -351,25 +351,19 @@ impl PeerManagerActor {
         }
     }
 
-    fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
+    fn broadcast_accounts(&mut self, mut accounts: Vec<AnnounceAccount>) {
         // Filter the accounts again, so that we're sending only the ones that were not added.
         // without it - if we have multiple 'broadcast_accounts' calls queued up, we'll end up sending a lot of repeated messages.
-        let accounts: Vec<(AnnounceAccount)> = accounts
-            .into_iter()
-            .filter_map(|announce_account| {
-                if let Some(current_announce_account) =
-                    self.routing_table_view.get_announce(&announce_account.account_id)
+        accounts.retain(|announce_account| {
+            match self.routing_table_view.get_announce(&announce_account.account_id) {
+                Some(current_announce_account)
+                    if announce_account.epoch_id == current_announce_account.epoch_id =>
                 {
-                    if announce_account.epoch_id == current_announce_account.epoch_id {
-                        None
-                    } else {
-                        Some(announce_account)
-                    }
-                } else {
-                    Some(announce_account)
+                    false
                 }
-            })
-            .collect();
+                _ => true,
+            }
+        });
 
         if accounts.is_empty() {
             return;
@@ -1755,15 +1749,6 @@ impl PeerManagerActor {
                         }
                     })
                     .collect();
-
-                /*warn!(
-                    "Received SyncRoutingTable request from {:?}: {} remaining",
-                    peer_id,
-                    accounts.len()
-                );
-                if accounts.len() > 0 {
-                    warn!("Account: {:?}", accounts.last().unwrap());
-                }*/
 
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
