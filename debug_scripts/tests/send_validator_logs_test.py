@@ -1,4 +1,3 @@
-# from typing_extensions import assert_type
 import unittest
 import datetime
 import io
