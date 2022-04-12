@@ -314,18 +314,16 @@ impl Default for StoreConfig {
 }
 
 pub fn create_store(path: &Path) -> Store {
-    create_store_with_config(path, StoreConfig::default())
+    create_store_with_config(path, &StoreConfig::default())
 }
 
-pub fn create_store_with_config(path: &Path, store_config: StoreConfig) -> Store {
-    let mut opts = RocksDBOptions::default()
-        .max_open_files(store_config.max_open_files)
-        .col_state_cache_size(store_config.col_state_cache_size);
+pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
+    let mut opts = RocksDBOptions::default();
     if store_config.enable_statistics {
         opts = opts.enable_statistics();
     }
 
-    let db = if store_config.read_only { opts.read_only(path) } else { opts.read_write(path) }
+    let db = if store_config.read_only { opts.read_only(path, &store_config) } else { opts.read_write(path, &store_config) }
         .expect("Failed to open the database");
     Store::new(Arc::new(db))
 }

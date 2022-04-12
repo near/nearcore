@@ -125,7 +125,7 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store = create_store_with_config(
             &get_store_path(home_dir),
-            StoreConfig {
+            &StoreConfig {
                 read_only: true,
                 enable_statistics: false,
                 max_open_files: near_config.config.store.max_open_files,

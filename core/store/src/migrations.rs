@@ -42,12 +42,13 @@ use crate::migrations::v8_to_v9::{
 use crate::trie::{TrieCache, TrieCachingStorage};
 use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
+use super::StoreConfig;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
 
-pub fn get_store_version(path: &Path) -> DbVersion {
-    RocksDB::get_version(path).expect("Failed to open the database")
+pub fn get_store_version(path: &Path, store_config: &StoreConfig) -> DbVersion {
+    RocksDB::get_version(path, &store_config).expect("Failed to open the database")
 }
 
 fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
