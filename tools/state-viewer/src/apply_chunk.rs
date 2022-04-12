@@ -13,7 +13,7 @@ use near_primitives::syncing::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
-use near_store::db::DBCol;
+use near_store::DBCol;
 use near_store::Store;
 use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;

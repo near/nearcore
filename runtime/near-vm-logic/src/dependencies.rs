@@ -1,6 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
 
@@ -165,7 +166,7 @@ pub trait External {
     fn generate_data_id(&mut self) -> CryptoHash;
 
     /// Returns amount of touched trie nodes by storage operations
-    fn get_touched_nodes_count(&self) -> u64;
+    fn get_trie_nodes_count(&self) -> TrieNodesCount;
 
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.

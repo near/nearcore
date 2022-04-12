@@ -1,5 +1,6 @@
 use crate::{External, ValuePtr};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance, Gas};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,8 +80,8 @@ impl External for MockedExternal {
         data_id
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
-        0
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        TrieNodesCount { db_reads: 0, mem_reads: 0 }
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> Result<Option<Balance>> {

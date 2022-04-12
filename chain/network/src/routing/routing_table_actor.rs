@@ -13,7 +13,7 @@ use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
-use near_store::db::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,7 +38,7 @@ pub enum Prune {
 ///   - list of all known edges
 ///   - helper data structure for exchanging routing table
 ///   - routing information (where a message should be send to reach given peer)
-///  
+///
 /// We use store for following reasons:
 ///   - store removed edges to disk
 ///   - we currently don't store active edges to disk

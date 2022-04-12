@@ -1268,7 +1268,7 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.get_touched_nodes_count()).entered();
+            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = ?state_update.trie.get_trie_nodes_count()).entered();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1278,7 +1278,7 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = state_update.trie.get_touched_nodes_count());
+            tracing::debug!(target: "runtime", node_counter = ?state_update.trie.get_trie_nodes_count());
             result?.into_iter().try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
