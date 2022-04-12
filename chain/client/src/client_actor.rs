@@ -802,7 +802,11 @@ impl Handler<Status> for ClientActor {
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
-                blocks_with_missing_chunks: self.client.chain.blocks_with_missing_chunks.list_blocks_by_height(),
+                blocks_with_missing_chunks: self
+                    .client
+                    .chain
+                    .blocks_with_missing_chunks
+                    .list_blocks_by_height(),
                 epoch_info: EpochInfoView {
                     epoch_id: head.epoch_id.0,
                     height: epoch_start_height,

@@ -151,7 +151,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
             result.extend(
                 blocks_with_missing_chunks
                     .iter()
-                    .map(|block| BlockStatusView::new(&height, &block))
+                    .map(|block| BlockStatusView::new(&height, &block)),
             );
         }
         result
