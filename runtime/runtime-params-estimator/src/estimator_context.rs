@@ -158,7 +158,7 @@ impl<'c> Testbed<'c> {
                             .iter()
                             .enumerate()
                             .map(|(i, key)| {
-                                eprintln!("retrieve {}", i);
+                                // eprintln!("retrieve {}", i);
                                 let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
                                 // let bytes = match caching_storage.retrieve_raw_bytes(key) {
                                 //     Ok(bytes) => bytes,
