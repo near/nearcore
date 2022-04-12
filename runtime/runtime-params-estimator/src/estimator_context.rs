@@ -159,7 +159,9 @@ impl<'c> Testbed<'c> {
                         let start = GasCost::measure(self.config.metric);
                         let sum: usize = value_hashes
                             .iter()
-                            .map(|key| {
+                            .enumerate()
+                            .map(|(i, key)| {
+                                eprintln!("retrieve {}", i);
                                 let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
                                 // let bytes = match caching_storage.retrieve_raw_bytes(key) {
                                 //     Ok(bytes) => bytes,
