@@ -307,7 +307,7 @@ impl Default for StoreConfig {
         StoreConfig {
             read_only: false,
             enable_statistics: false,
-            max_open_files: 10 * 1000,
+            max_open_files: 512,
             col_state_cache_size: 512 * 1024 * 1024,
         }
     }
