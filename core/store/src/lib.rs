@@ -8,10 +8,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use lru::LruCache;
 
-pub use db::DBCol::{self, *};
+pub use columns::DBCol::{self, *};
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, SKIP_COL_GC, TAIL_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -37,6 +37,7 @@ pub use crate::trie::{
     TrieChanges, WrappedTrieChanges,
 };
 
+mod columns;
 pub mod db;
 pub mod migrations;
 pub mod test_utils;
@@ -48,7 +49,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(storage: Arc<dyn Database>) -> Store {
+    pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
@@ -119,22 +120,20 @@ impl Store {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
         let mut transaction = self.storage.transaction();
-        let mut key = Vec::new();
-        let mut value = Vec::new();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
                 Ok(key_len) => key_len as usize,
                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
                 Err(err) => return Err(err),
             };
-            key.resize(key_len, 0);
+            let mut key = vec![0; key_len];
             file.read_exact(&mut key)?;
 
             let value_len = file.read_u32::<LittleEndian>()? as usize;
-            value.resize(value_len, 0);
+            let mut value = vec![0; value_len];
             file.read_exact(&mut value)?;
 
-            transaction.put(column, &key, &value);
+            transaction.insert(column, key, value);
         }
         self.storage.write(transaction).map_err(io::Error::from)
     }
@@ -157,7 +156,7 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<dyn Database>) -> Self {
+    pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
     }
@@ -171,11 +170,11 @@ impl StoreUpdate {
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
         debug_assert!(column.is_rc());
         let value = encode_value_with_rc(value, rc_delta);
-        self.transaction.update_refcount(column, key, value)
+        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.put(column, key, value)
+        self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
     pub fn set_ser<T: BorshSerialize>(
@@ -191,7 +190,7 @@ impl StoreUpdate {
     }
 
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        self.transaction.delete(column, key);
+        self.transaction.delete(column, key.to_vec());
     }
 
     pub fn delete_all(&mut self, column: DBCol) {
@@ -213,10 +212,10 @@ impl StoreUpdate {
     fn merge_transaction(&mut self, transaction: DBTransaction) {
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => self.transaction.put(col, &key, &value),
-                DBOp::Delete { col, key } => self.transaction.delete(col, &key),
+                DBOp::Insert { col, key, value } => self.transaction.insert(col, key, value),
+                DBOp::Delete { col, key } => self.transaction.delete(col, key),
                 DBOp::UpdateRefcount { col, key, value } => {
-                    self.transaction.update_refcount(col, &key, &value)
+                    self.transaction.update_refcount(col, key, value)
                 }
                 DBOp::DeleteAll { col } => self.transaction.delete_all(col),
             }

@@ -21,8 +21,7 @@ pub fn create_test_store() -> Store {
 
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
-    let store = create_test_store();
-    ShardTries::new(store, 0, 1)
+    create_tries_complex(0, 1)
 }
 
 pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
