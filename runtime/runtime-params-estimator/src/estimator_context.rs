@@ -125,7 +125,8 @@ impl<'c> Testbed<'c> {
                 let values: Vec<_> = (0..num_values)
                     .map(|_| {
                         let v = tb.random_vec(value_len);
-                        let node = RawTrieNode::Extension(v, hash(&v));
+                        let h = hash(&v);
+                        let node = RawTrieNode::Extension(v, h);
                         let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
                         node_with_size.encode().unwrap()
                     })
