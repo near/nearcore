@@ -25,7 +25,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -718,7 +718,15 @@ impl NearConfig {
                 whitelist_nodes: (|| -> Vec<_> {
                     let w = &config.network.whitelist_nodes;
                     if w.is_empty() { return vec![]; }
-                    w.split(',').map(|peer|peer.try_into().expect("Failed to parse PeerInfo")).collect()
+                    let mut peers = vec![];
+                    for peer in w.split(',') {
+                        let peer : PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
+                        if peer.addr.is_none() {
+                            panic!("whitelist_nodes are required to specify both PeerId and IP:port")
+                        }
+                        peers.push(peer);
+                    }
+                    peers
                 }()),
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,

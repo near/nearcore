@@ -48,6 +48,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -890,12 +891,31 @@ impl PeerManagerActor {
         self.connected_peers.len() + self.outgoing_peers.len() < self.config.max_num_peers as usize
     }
 
+    /// is_peer_whitelisted checks whether a peer is a whitelisted node.
+    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
+    /// been reached. This predicate should be evaluated AFTER the Handshake.
     fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
         for x in &self.config.whitelist_nodes {
             if x.id != peer_info.id { continue }
+            debug_assert!(x.addr.is_some(),"addr for whitelisted nodes is requred!");
             if x.addr.is_some() && x.addr != peer_info.addr { continue }
             if x.account_id.is_some() && x.account_id != peer_info.account_id { continue }
             return true;
+        }
+        return false;
+    }
+
+    /// is_ip_whitelisted checks whether the IP address of an inbound
+    /// connection may belong to a whitelisted node. All whitelisted nodes
+    /// are required to have IP:port specified. We consider only IPs since
+    /// the port of an inbound TCP connection is assigned at random.
+    /// This predicate should be evaluated BEFORE the Handshake.
+    fn is_ip_whitelisted(&self, ip:&IpAddr) -> bool {
+        for x in &self.config.whitelist_nodes {
+            debug_assert!(x.addr.is_some(),"addr for whitelisted nodes is requred!");
+            if x.addr.map(|a|a.ip()==*ip).unwrap_or(false) {
+                return true;
+            }
         }
         return false;
     }
@@ -1930,7 +1950,12 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
-        self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        if self.is_inbound_allowed() || msg.stream.peer_addr().map(|addr|self.is_ip_whitelisted(&addr.ip())).unwrap_or(false) {
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        } else {
+            // TODO(1896): Gracefully drop inbound connection for other peer.
+            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+        }
     }
 
     #[cfg(feature = "test_features")]
