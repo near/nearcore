@@ -2669,10 +2669,9 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
-        self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
-        self.gas_counter.pay_base(contract_compile_base)
+    pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
+        self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
+        self.gas_counter.pay_base(contract_loading_base)
     }
 
     /// Gets pointer to the fast gas counter.

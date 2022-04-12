@@ -2767,12 +2767,12 @@ fn test_execution_metadata() {
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
-        "cost": "CONTRACT_COMPILE_BASE",
-        "gas_used": config.wasm_config.ext_costs.contract_compile_base.to_string()
+        "cost": "CONTRACT_LOADING_BASE",
+        "gas_used": config.wasm_config.ext_costs.contract_loading_base.to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
-        "cost": "CONTRACT_COMPILE_BYTES",
+        "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
       // We spend two wasm instructions (call & drop).
