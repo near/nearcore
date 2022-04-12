@@ -318,7 +318,9 @@ pub fn create_store(path: &Path) -> Store {
 }
 
 pub fn create_store_with_config(path: &Path, store_config: StoreConfig) -> Store {
-    let mut opts = RocksDBOptions::default().max_open_files(store_config.max_open_files).col_state_cache_size(store_config.col_state_cache_size);
+    let mut opts = RocksDBOptions::default()
+        .max_open_files(store_config.max_open_files)
+        .col_state_cache_size(store_config.col_state_cache_size);
     if store_config.enable_statistics {
         opts = opts.enable_statistics();
     }

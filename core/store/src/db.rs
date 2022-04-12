@@ -536,7 +536,8 @@ impl RocksDBOptions {
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(self.max_open_files));
-        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, self.col_state_cache_size)));
+        let cf_with_opts = DBCol::iter()
+            .map(|col| (col_name(col), rocksdb_column_options(col, self.col_state_cache_size)));
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
@@ -556,7 +557,8 @@ impl RocksDBOptions {
     /// Opens the database in read/write mode.
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let mut options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(self.max_open_files));
+        let mut options =
+            self.rocksdb_options.unwrap_or_else(|| rocksdb_options(self.max_open_files));
         if self.enable_statistics {
             options = enable_statistics(options);
         }
@@ -564,7 +566,12 @@ impl RocksDBOptions {
             self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
             DBCol::iter()
-                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col, self.col_state_cache_size)))
+                .map(|col| {
+                    ColumnFamilyDescriptor::new(
+                        col_name(col),
+                        rocksdb_column_options(col, self.col_state_cache_size),
+                    )
+                })
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;

@@ -334,7 +334,6 @@ fn default_enable_rocksdb_statistics() -> bool {
     false
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StoreConfig {
     /// Maximum number of store files being opened simultaneously.
