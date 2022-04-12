@@ -345,8 +345,11 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
-    /// Cost per touched trie node
+    /// Cost per reading trie node from DB
     pub touching_trie_node: Gas,
+    /// Cost for reading trie node from memory
+    #[serde(default = "default_read_cached_trie_node")]
+    pub read_cached_trie_node: Gas,
 
     // ###############
     // # Promise API #
@@ -390,6 +393,10 @@ pub struct ExtCostsConfig {
     /// Cost for pairing check per byte
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_byte: Gas,
+}
+
+pub fn default_read_cached_trie_node() -> Gas {
+    SAFETY_MULTIPLIER * 760_000_000
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -447,6 +454,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
             storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
             touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
+            read_cached_trie_node: default_read_cached_trie_node(),
             promise_and_base: SAFETY_MULTIPLIER * 488337800,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
             promise_return: SAFETY_MULTIPLIER * 186717462,
@@ -518,6 +526,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
             touching_trie_node: 0,
+            read_cached_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
@@ -592,6 +601,7 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
+    read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
     promise_return,
@@ -680,6 +690,7 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
+            read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,
