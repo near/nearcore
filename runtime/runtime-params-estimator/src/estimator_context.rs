@@ -114,12 +114,12 @@ impl<'c> Testbed<'c> {
     pub(crate) fn measure_trie_node_reads(
         &mut self,
         iters: usize,
+        num_values: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         (0..iters)
             .map(|_| {
                 let tb = self.transaction_builder();
 
-                let num_values: usize = 200;
                 let value_len: usize = 2000;
                 let signer = tb.random_account();
                 let values: Vec<_> = (0..num_values)
