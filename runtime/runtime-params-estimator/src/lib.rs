@@ -1207,7 +1207,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     //
     // let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
 
-    let num_values = 200;
+    let num_values = 600;
     let results: Vec<(GasCost, HashMap<ExtCosts, u64>)> =
         testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters, num_values);
 

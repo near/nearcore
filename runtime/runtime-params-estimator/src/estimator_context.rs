@@ -132,14 +132,18 @@ impl<'c> Testbed<'c> {
                     })
                     .collect();
                 let mut setup_block = Vec::new();
+                let mut blocks = vec![];
                 for (i, value) in values.iter().cloned().enumerate() {
                     let key = vec![i as u8];
                     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
+
+                    if i % 200 == 199 {
+                        blocks.push(setup_block.clone());
+                        setup_block = vec![];
+                    }
                 }
 
                 let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
-
-                let mut blocks = vec![setup_block];
                 self.measure_blocks(blocks, 0);
 
                 let store = self.inner.store();
