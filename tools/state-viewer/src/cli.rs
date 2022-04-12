@@ -125,7 +125,12 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store = create_store_with_config(
             &get_store_path(home_dir),
-            StoreConfig { read_only: true, enable_statistics: false },
+            StoreConfig {
+                read_only: true,
+                enable_statistics: false,
+                max_open_files: near_config.store_config.max_open_files,
+                col_state_cache_size: near_config.store_config.col_state_cache_size,
+            },
         );
         match self {
             StateViewerSubCommand::Peers => peers(store),

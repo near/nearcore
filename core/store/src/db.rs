@@ -471,6 +471,8 @@ pub struct RocksDBOptions {
     free_space_threshold: bytesize::ByteSize,
     warn_treshold: bytesize::ByteSize,
     enable_statistics: bool,
+    max_open_files: i32,
+    col_state_cache_size: usize,
 }
 
 /// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
@@ -486,6 +488,8 @@ impl Default for RocksDBOptions {
             free_space_threshold: bytesize::ByteSize::mb(16),
             warn_treshold: bytesize::ByteSize::mb(256),
             enable_statistics: false,
+            max_open_files: 10 * 1000,
+            col_state_cache_size: 512 * 1024 * 1024,
         }
     }
 }
@@ -531,8 +535,8 @@ impl RocksDBOptions {
     /// Opens a read only database.
     pub fn read_only<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
-        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col)));
+        let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(self.max_open_files));
+        let cf_with_opts = DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, self.col_state_cache_size)));
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
@@ -552,7 +556,7 @@ impl RocksDBOptions {
     /// Opens the database in read/write mode.
     pub fn read_write<P: AsRef<std::path::Path>>(self, path: P) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let mut options = self.rocksdb_options.unwrap_or_else(rocksdb_options);
+        let mut options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(self.max_open_files));
         if self.enable_statistics {
             options = enable_statistics(options);
         }
@@ -560,7 +564,7 @@ impl RocksDBOptions {
             self.cf_names.unwrap_or_else(|| DBCol::iter().map(|col| col_name(col)).collect());
         let cf_descriptors = self.cf_descriptors.unwrap_or_else(|| {
             DBCol::iter()
-                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col)))
+                .map(|col| ColumnFamilyDescriptor::new(col_name(col), rocksdb_column_options(col, self.col_state_cache_size)))
                 .collect()
         });
         let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
@@ -588,6 +592,16 @@ impl RocksDBOptions {
 
     pub fn enable_statistics(mut self) -> Self {
         self.enable_statistics = true;
+        self
+    }
+
+    pub fn max_open_files(mut self, max_open_files: i32) -> Self {
+        self.max_open_files = max_open_files;
+        self
+    }
+
+    pub fn col_state_cache_size(mut self, col_state_cache_size: usize) -> Self {
+        self.col_state_cache_size = col_state_cache_size;
         self
     }
 }
@@ -811,14 +825,14 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 /// DB level options
-fn rocksdb_options() -> Options {
+fn rocksdb_options(max_open_files: i32) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(512);
+    opts.set_max_open_files(max_open_files);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
@@ -869,18 +883,18 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
 }
 
 // TODO(#5213) Use ByteSize package to represent sizes.
-fn choose_cache_size(col: DBCol) -> usize {
+fn choose_cache_size(col: DBCol, col_state_cache_size: usize) -> usize {
     match col {
-        DBCol::ColState => 512 * 1024 * 1024,
+        DBCol::ColState => col_state_cache_size,
         _ => 32 * 1024 * 1024,
     }
 }
 
-fn rocksdb_column_options(col: DBCol) -> Options {
+fn rocksdb_column_options(col: DBCol, col_state_cache_size: usize) -> Options {
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = choose_cache_size(col);
+    let cache_size = choose_cache_size(col, col_state_cache_size);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
 
     // Note that this function changes a lot of rustdb parameters including:

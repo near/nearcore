@@ -289,13 +289,28 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct StoreConfig {
     /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
     pub read_only: bool,
     /// Re-export storage layer statistics as prometheus metrics.
     /// Minor performance impact is expected.
     pub enable_statistics: bool,
+    /// Maximum number of store files being opened simultaneously.
+    pub max_open_files: i32,
+    /// Cache size for ColState column.
+    pub col_state_cache_size: usize,
+}
+
+impl Default for StoreConfig {
+    fn default() -> StoreConfig {
+        StoreConfig {
+            read_only: false,
+            enable_statistics: false,
+            max_open_files: 10 * 1000,
+            col_state_cache_size: 512 * 1024 * 1024,
+        }
+    }
 }
 
 pub fn create_store(path: &Path) -> Store {
@@ -303,7 +318,7 @@ pub fn create_store(path: &Path) -> Store {
 }
 
 pub fn create_store_with_config(path: &Path, store_config: StoreConfig) -> Store {
-    let mut opts = RocksDBOptions::default();
+    let mut opts = RocksDBOptions::default().max_open_files(store_config.max_open_files).col_state_cache_size(store_config.col_state_cache_size);
     if store_config.enable_statistics {
         opts = opts.enable_statistics();
     }

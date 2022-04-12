@@ -334,6 +334,34 @@ fn default_enable_rocksdb_statistics() -> bool {
     false
 }
 
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StoreConfig {
+    /// Maximum number of store files being opened simultaneously.
+    #[serde(default = "default_max_open_files")]
+    pub max_open_files: i32,
+    /// Cache size for ColState column.
+    #[serde(default = "default_col_state_cache_size")]
+    pub col_state_cache_size: usize,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        StoreConfig {
+            max_open_files: default_max_open_files(),
+            col_state_cache_size: default_col_state_cache_size(),
+        }
+    }
+}
+
+fn default_max_open_files() -> i32 {
+    10 * 1000
+}
+
+fn default_col_state_cache_size() -> usize {
+    512 * 1024 * 1024
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -458,6 +486,7 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     #[serde(default = "default_enable_rocksdb_statistics")]
     pub enable_rocksdb_statistics: bool,
+    pub store_config: StoreConfig,
 }
 
 impl Default for Config {
@@ -487,6 +516,7 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
             enable_rocksdb_statistics: false,
+            store_config: StoreConfig::default(),
         }
     }
 }
@@ -643,6 +673,7 @@ pub struct NearConfig {
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
+    pub store_config: StoreConfig,
 }
 
 impl NearConfig {
@@ -750,6 +781,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
+            store_config: config.store_config,
         }
     }
 

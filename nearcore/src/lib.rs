@@ -373,6 +373,8 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
         StoreConfig {
             read_only: false,
             enable_statistics: near_config.config.enable_rocksdb_statistics,
+            max_open_files: near_config.store_config.max_open_files,
+            col_state_cache_size: near_config.store_config.col_state_cache_size,
         },
     );
     if !store_exists {
@@ -518,9 +520,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     use strum::IntoEnumIterator;
 
     let config_path = home_dir.join(config::CONFIG_FILENAME);
-    let archive = config::Config::from_file(&config_path)
-        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
-        .archive;
+    let config = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?;
+    let archive = config.archive;
     let mut skip_columns = Vec::new();
     if archive && !opts.keep_partial_chunks {
         skip_columns.push(near_store::db::DBCol::ColPartialChunks);
@@ -570,7 +572,12 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
     let src_store = create_store_with_config(
         &src_dir,
-        StoreConfig { read_only: true, enable_statistics: false },
+        StoreConfig {
+            read_only: true,
+            enable_statistics: false,
+            max_open_files: config.store_config.max_open_files,
+            col_state_cache_size: config.store_config.col_state_cache_size,
+        },
     );
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
