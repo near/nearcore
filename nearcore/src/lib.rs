@@ -373,8 +373,8 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
         StoreConfig {
             read_only: false,
             enable_statistics: near_config.config.enable_rocksdb_statistics,
-            max_open_files: near_config.store_config.max_open_files,
-            col_state_cache_size: near_config.store_config.col_state_cache_size,
+            max_open_files: near_config.config.store.max_open_files,
+            col_state_cache_size: near_config.config.store.col_state_cache_size,
         },
     );
     if !store_exists {
@@ -575,8 +575,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         StoreConfig {
             read_only: true,
             enable_statistics: false,
-            max_open_files: config.store_config.max_open_files,
-            col_state_cache_size: config.store_config.col_state_cache_size,
+            max_open_files: config.store.max_open_files,
+            col_state_cache_size: config.store.col_state_cache_size,
         },
     );
 

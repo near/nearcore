@@ -128,8 +128,8 @@ impl StateViewerSubCommand {
             StoreConfig {
                 read_only: true,
                 enable_statistics: false,
-                max_open_files: near_config.store_config.max_open_files,
-                col_state_cache_size: near_config.store_config.col_state_cache_size,
+                max_open_files: near_config.config.store.max_open_files,
+                col_state_cache_size: near_config.config.store.col_state_cache_size,
             },
         );
         match self {

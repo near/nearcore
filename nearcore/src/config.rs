@@ -485,7 +485,7 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     #[serde(default = "default_enable_rocksdb_statistics")]
     pub enable_rocksdb_statistics: bool,
-    pub store_config: StoreConfig,
+    pub store: StoreConfig,
 }
 
 impl Default for Config {
@@ -515,7 +515,7 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
             enable_rocksdb_statistics: false,
-            store_config: StoreConfig::default(),
+            store: StoreConfig::default(),
         }
     }
 }
@@ -672,7 +672,6 @@ pub struct NearConfig {
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    pub store_config: StoreConfig,
 }
 
 impl NearConfig {
@@ -780,7 +779,6 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
-            store_config: config.store_config,
         }
     }
 
