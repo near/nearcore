@@ -1293,14 +1293,12 @@ impl Runtime {
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        for (i, receipt) in local_receipts.iter().enumerate() {
+        for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
-                eprintln!("process {}", i);
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
-                eprintln!("delay {}", i);
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
@@ -1336,16 +1334,14 @@ impl Runtime {
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
-        for (i, receipt) in incoming_receipts.iter().enumerate() {
+        for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
-                eprintln!("process {}", i);
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
-                eprintln!("delay {}", i);
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }

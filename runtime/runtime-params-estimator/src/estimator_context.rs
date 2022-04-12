@@ -134,17 +134,18 @@ impl<'c> Testbed<'c> {
                 let mut setup_block = Vec::new();
                 let mut blocks = vec![];
                 for (i, value) in values.iter().cloned().enumerate() {
-                    let key = vec![i as u8];
+                    let key = vec![(i / 256) as u8, (i % 256) as u8];
                     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
 
                     if i % 600 == 599 {
-                        blocks.push(setup_block.clone());
                         setup_block = vec![];
                     }
                 }
-                for v in blocks.iter() {
-                    eprintln!("{}", v.len());
-                }
+                blocks.push(setup_block.clone());
+
+                // for v in blocks.iter() {
+                //     eprintln!("{}", v.len());
+                // }
                 let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
                 self.measure_blocks(blocks, 0);
 
@@ -161,7 +162,7 @@ impl<'c> Testbed<'c> {
                             .iter()
                             .enumerate()
                             .map(|(i, key)| {
-                                eprintln!("retrieve {}", i);
+                                // eprintln!("retrieve {}", i);
                                 let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
                                 // let bytes = match caching_storage.retrieve_raw_bytes(key) {
                                 //     Ok(bytes) => bytes,
