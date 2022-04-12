@@ -2,10 +2,11 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use rand::prelude::SliceRandom;
 use std::collections::HashMap;
+use std::intrinsics::unreachable;
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::TrieCacheMode;
-use near_store::{TrieCache, TrieCachingStorage, TrieStorage};
+use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieCache, TrieCachingStorage, TrieStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -120,9 +121,16 @@ impl<'c> Testbed<'c> {
                 let tb = self.transaction_builder();
 
                 let num_values: usize = 100;
-                let value_len: usize = 16000;
+                let value_len: usize = 4000;
                 let signer = tb.random_account();
-                let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
+                let values: Vec<_> = (0..num_values)
+                    .map(|_| {
+                        let v = tb.random_vec(value_len);
+                        let node = RawTrieNode::Extension(v, hash(&v));
+                        let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
+                        node_with_size.encode().unwrap()
+                    })
+                    .collect();
                 let mut setup_block = Vec::new();
                 for (i, value) in values.iter().cloned().enumerate() {
                     let key = vec![i as u8];
@@ -139,14 +147,21 @@ impl<'c> Testbed<'c> {
                     TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
                 caching_storage.set_mode(TrieCacheMode::CachingChunk);
 
-                let results: Vec<_> = (0..2)
+                let results: Vec<_> = (0..3)
                     .map(|_| {
                         self.clear_caches();
                         let start = GasCost::measure(self.config.metric);
                         let sum: usize = value_hashes
                             .iter()
                             .map(|key| {
-                                caching_storage.retrieve_raw_bytes(key).unwrap().to_vec().len()
+                                let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
+                                let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
+                                match node.node {
+                                    RawTrieNode::Extension(v, _) => v.len(),
+                                    _ => {
+                                        unreachable!();
+                                    }
+                                }
                             })
                             .sum();
                         assert_eq!(sum, num_values * value_len);
