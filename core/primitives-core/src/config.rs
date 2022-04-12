@@ -84,6 +84,15 @@ pub struct VMLimitConfig {
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
+    /// If present, stores the secondary stack limit as implemented by wasmer2.
+    ///
+    /// This limit should never be hit normally.
+    #[serde(default = "wasmer2_stack_limit_default")]
+    pub wasmer2_stack_limit: i32,
+}
+
+fn wasmer2_stack_limit_default() -> i32 {
+    100 * 1024
 }
 
 /// Our original code for limiting WASM stack was buggy. We fixed that, but we
@@ -216,6 +225,7 @@ impl VMLimitConfig {
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
             max_functions_number_per_contract: None,
+            wasmer2_stack_limit: 200 * 1024,
         }
     }
 }
