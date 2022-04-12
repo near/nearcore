@@ -147,7 +147,7 @@ impl<'c> Testbed<'c> {
                     TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
                 caching_storage.set_mode(TrieCacheMode::CachingChunk);
 
-                let results: Vec<_> = (0..3)
+                let results: Vec<_> = (0..2)
                     .map(|_| {
                         self.clear_caches();
                         let start = GasCost::measure(self.config.metric);
