@@ -1334,14 +1334,16 @@ impl Runtime {
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
-        for receipt in incoming_receipts.iter() {
+        for (i, receipt) in incoming_receipts.iter().enumerate() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
             validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
+                eprintln!("process {}", i);
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
+                eprintln!("delay {}", i);
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
