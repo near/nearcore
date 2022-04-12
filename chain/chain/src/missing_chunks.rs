@@ -146,16 +146,15 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
     }
 
     pub fn list_blocks_by_height(&self) -> Vec<BlockStatusView> {
-        let mut rtn = Vec::new();
+        let mut result = Vec::new();
         for (height, blocks_with_missing_chunks) in &self.height_idx {
-            rtn.push(
+            result.extend(
                 blocks_with_missing_chunks
                     .iter()
                     .map(|block| BlockStatusView::new(&height, &block))
-                    .collect::<Vec<_>>(),
             );
         }
-        rtn.into_iter().flatten().collect()
+        result
     }
 
     fn mark_block_as_ready(&mut self, block_hash: &BlockHash) {
