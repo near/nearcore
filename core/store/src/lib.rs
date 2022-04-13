@@ -297,7 +297,7 @@ pub struct StoreConfig {
 
     /// Re-export storage layer statistics as prometheus metrics.
     /// Minor performance impact is expected.
-    #[serde(default = "default_enable_statistics")]
+    #[serde(default)]
     pub enable_statistics: bool,
 
     /// Maximum number of store files being opened simultaneously.
@@ -319,26 +319,22 @@ pub struct StoreConfig {
     pub col_state_cache_size: usize,
 }
 
-fn default_enable_statistics() -> bool {
-    false
-}
-
 fn default_max_open_files() -> i32 {
-    StoreConfig::MAX_OPEN_FILES
+    StoreConfig::DEFAULT_MAX_OPEN_FILES
 }
 
 fn default_col_state_cache_size() -> usize {
-    StoreConfig::COL_STATE_CACHE_SIZE
+    StoreConfig::DEFAULT_COL_STATE_CACHE_SIZE
 }
 
 impl StoreConfig {
     // This is a value that we've used since 3 Dec 2019.
-    pub const MAX_OPEN_FILES: i32 = 512;
+    pub const DEFAULT_MAX_OPEN_FILES: i32 = 512;
 
     // We used to have the same cache size for all columns 32MB. When some RocksDB
     // inefficiencies were found ColState cache size was increased up to 512MB.
     // This was done Nov 13 2021 and we consider increasing the value.
-    pub const COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
+    pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
 
     pub fn read_only() -> StoreConfig {
         StoreConfig::read_write().with_read_only(true)
@@ -347,7 +343,7 @@ impl StoreConfig {
     pub fn read_write() -> StoreConfig {
         StoreConfig {
             read_only: false,
-            enable_statistics: default_enable_statistics(),
+            enable_statistics: false,
             max_open_files: default_max_open_files(),
             col_state_cache_size: default_col_state_cache_size(),
         }
