@@ -349,10 +349,9 @@ impl StoreConfig {
         }
     }
 
-    pub fn with_read_only(&self, read_only: bool) -> Self {
-        let mut result = self.clone();
-        result.read_only = read_only;
-        result
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
     }
 }
 

@@ -368,7 +368,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store_with_config(&path, &near_config.config.store.with_read_only(false));
+    let store = create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
