@@ -1095,7 +1095,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let measured_iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
 
-    let num_values = 2000;
+    let num_values = 100;
     trie::read_node_from_chunk_cache(&mut testbed, warmup_iters, measured_iters, num_values)
 }
 

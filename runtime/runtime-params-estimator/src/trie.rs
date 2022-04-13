@@ -1,15 +1,14 @@
 use near_primitives::hash::hash;
-use std::collections::HashMap;
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_primitives::types::TrieCacheMode;
-use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieStorage};
+use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieCachingStorage, TrieStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::estimator_context::Testbed;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
-use crate::utils::aggregate_per_block_measurements;
+use crate::utils::{aggregate_per_block_measurements, is_high_variance};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
 
@@ -126,19 +125,24 @@ pub(crate) fn read_node_from_chunk_cache(
     num_values: usize,
 ) -> GasCost {
     // Trie nodes are largest when they hold part of a storage key (Extension or
-    // Leaf) and keys can be up to 2kiB. Therefore, this is the
+    // Leaf) and keys can be up to 2kiB. Therefore, this is about the maximum
+    // size possible.
     let value_len: usize = 2048;
 
     // Prepare a data buffer that we can read again later to overwrite CPU caches
     let assumed_max_l3_size = 128 * 1024 * 1024;
     let dummy_data = testbed.transaction_builder().random_vec(assumed_max_l3_size);
 
+    // Spread factor to reduce data locality
+    let data_spread_factor = 11;
+
     let iters = warmup_iters + measured_iters;
     let results = (0..iters)
-        .map(|_| {
+        .map(|i| {
             let tb = testbed.transaction_builder();
             let signer = tb.random_account();
-            let values: Vec<_> = (0..num_values)
+            let values_inserted = num_values * data_spread_factor;
+            let values: Vec<_> = (0..values_inserted)
                 .map(|_| {
                     let v = tb.random_vec(value_len);
                     let h = hash(&v);
@@ -148,54 +152,75 @@ pub(crate) fn read_node_from_chunk_cache(
                 })
                 .collect();
             let mut setup_block = Vec::new();
-            let mut blocks = vec![];
-            for (i, value) in values.iter().cloned().enumerate() {
-                let key = i.to_le_bytes().to_vec();
+            for (j, value) in values.iter().cloned().enumerate() {
+                let key = j.to_le_bytes().to_vec();
                 setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
             }
-            blocks.push(setup_block.clone());
+            testbed.process_block(setup_block, 0);
 
-            let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
-            testbed.measure_blocks(blocks, 0);
+            // Collect keys of the inserted nodes and select a subset for testing.
+            let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
+            let sample_value_hashes: Vec<_> =
+                all_value_hashes.iter().step_by(data_spread_factor).cloned().collect();
+            assert_eq!(sample_value_hashes.len(), num_values);
 
+            // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
             caching_storage.set_mode(TrieCacheMode::CachingChunk);
+            let _dummy_sum = read_raw_nodes_from_storage(&caching_storage, &all_value_hashes);
 
-            let results: Vec<_> = (0..2)
-                .map(|i| {
-                    // Ensure the trie node data is available in CPU caches by
-                    // filling the caches with useless data.
-                    let dummy_count = dummy_data.iter().filter(|n| **n == i).count();
-                    SINK.fetch_add(dummy_count, Ordering::SeqCst);
+            // Remove trie nodes from CPU caches by filling the caches with useless data.
+            // (To measure latency from main memory, not CPU caches)
+            let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
+            SINK.fetch_add(dummy_count, Ordering::SeqCst);
 
-                    let start = GasCost::measure(testbed.config.metric);
-                    let dummy_sum: usize = value_hashes
-                        .iter()
-                        .enumerate()
-                        .map(|(_i, key)| {
-                            let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
-                            let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
-                            match node.node {
-                                RawTrieNode::Extension(v, _) => v.len(),
-                                _ => {
-                                    unreachable!();
-                                }
-                            }
-                        })
-                        .sum();
-                    let cost = start.elapsed();
-                    SINK.fetch_add(dummy_sum, Ordering::SeqCst);
-                    (cost, HashMap::new())
-                })
-                .collect();
+            let start = GasCost::measure(testbed.config.metric);
+            let dummy_sum = read_raw_nodes_from_storage(&caching_storage, &sample_value_hashes);
+            let cost = start.elapsed();
+            SINK.fetch_add(dummy_sum, Ordering::SeqCst);
 
-            results[results.len() - 1].clone()
+            cost / num_values as u64
         })
+        .skip(warmup_iters)
         .collect::<Vec<_>>();
-    let (cost, _) = aggregate_per_block_measurements(
-        &testbed.config,
-        num_values,
-        results[1 + warmup_iters..].to_vec(),
-    );
-    cost
+    // DEBUG
+    for (i, cost) in results.iter().enumerate() {
+        println!("{i} {}", cost.to_gas() / 1_000_000);
+    }
+    // /DEBUG
+
+    assert_eq!(measured_iters, results.len());
+    let mut total_cost = GasCost::zero(testbed.config.metric);
+    let mut block_costs = Vec::new();
+    for gas_cost in results {
+        block_costs.push(gas_cost.to_gas() as f64);
+        total_cost += gas_cost;
+    }
+    let mut per_node_cost = total_cost / iters as u64;
+    if is_high_variance(&block_costs) {
+        per_node_cost.set_uncertain("HIGH-VARIANCE");
+    }
+    per_node_cost
+}
+
+/// Read trie nodes directly from a `TrieCachingStorage`, without the runtime.
+/// Keys are hashes of the nodes.
+/// The return value is just a value to ensure nothing gets optimized out by the
+/// compiler.
+fn read_raw_nodes_from_storage(
+    caching_storage: &TrieCachingStorage,
+    keys: &[near_primitives::hash::CryptoHash],
+) -> usize {
+    keys.iter()
+        .map(|key| {
+            let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
+            let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
+            match node.node {
+                RawTrieNode::Extension(v, _) => v.len(),
+                _ => {
+                    unreachable!();
+                }
+            }
+        })
+        .sum()
 }
