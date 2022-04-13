@@ -529,11 +529,7 @@ impl RocksDBOptions {
 
     /// Opens the database either in read only or in read/write mode depending on the read_only
     /// parameter specified in the store_config.
-    pub fn open<P: AsRef<std::path::Path>>(
-        self,
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<RocksDB, DBError> {
+    pub fn open(self, path: &Path, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
         if store_config.read_only {
             return self.read_only(path, &store_config);
         }
@@ -541,16 +537,17 @@ impl RocksDBOptions {
     }
 
     /// Opens a read only database.
-    fn read_only<P: AsRef<std::path::Path>>(
-        self,
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<RocksDB, DBError> {
+    fn read_only(self, path: &Path, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
         let cf_with_opts =
             DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
-        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
+        let db = DB::open_cf_with_opts_for_read_only(
+            &options,
+            AsRef::<Path>::as_ref(path),
+            cf_with_opts,
+            false,
+        )?;
         let cfs = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
             .collect();
@@ -567,11 +564,7 @@ impl RocksDBOptions {
     }
 
     /// Opens the database in read/write mode.
-    fn read_write<P: AsRef<std::path::Path>>(
-        self,
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<RocksDB, DBError> {
+    fn read_write(self, path: &Path, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let mut options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
         if store_config.enable_statistics {
@@ -589,7 +582,7 @@ impl RocksDBOptions {
                 })
                 .collect()
         });
-        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        let db = DB::open_cf_descriptors(&options, AsRef::<Path>::as_ref(path), cf_descriptors)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
@@ -943,10 +936,7 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version<P: AsRef<std::path::Path>>(
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<DbVersion, DBError> {
+    pub fn get_version(path: &Path, store_config: &StoreConfig) -> Result<DbVersion, DBError> {
         if !store_config.read_only {
             warn!("consider opening the database in read only mode to get the version");
         }
@@ -960,10 +950,7 @@ impl RocksDB {
         })
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<Self, DBError> {
+    pub fn new(path: &Path, store_config: &StoreConfig) -> Result<Self, DBError> {
         RocksDBOptions::default().open(path, &store_config)
     }
 
@@ -1118,7 +1105,7 @@ mod tests {
     use crate::db::DBCol::ColState;
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol, StoreStatistics, StoreConfig};
+    use crate::{create_store, DBCol, StoreConfig, StoreStatistics};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]

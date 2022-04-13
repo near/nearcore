@@ -6,6 +6,7 @@ use strum::IntoEnumIterator;
 
 use crate::db::{col_name, rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
 use crate::{DBCol, StoreConfig};
+use std::path::Path;
 
 fn refcount_merge_v6(
     _new_key: &[u8],
@@ -57,7 +58,7 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 }
 
 impl RocksDB {
-    pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub(crate) fn new_v6(path: &Path) -> Result<Self, DBError> {
         RocksDBOptions::default()
             .cf_names(DBCol::iter().map(|col| col_name(col)).collect())
             .cf_descriptors(
