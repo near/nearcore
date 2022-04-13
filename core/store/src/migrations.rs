@@ -28,7 +28,6 @@ use near_primitives::utils::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
-use super::StoreConfig;
 use crate::db::DBCol::{
     ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
     ColPartialChunks, ColStateParts,
@@ -47,8 +46,8 @@ use std::path::Path;
 pub mod v6_to_v7;
 pub mod v8_to_v9;
 
-pub fn get_store_version(path: &Path, store_config: &StoreConfig) -> DbVersion {
-    RocksDB::get_version(path, &store_config).expect("Failed to open the database")
+pub fn get_store_version(path: &Path) -> DbVersion {
+    RocksDB::get_version(path).expect("Failed to open the database")
 }
 
 fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {

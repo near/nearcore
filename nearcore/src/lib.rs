@@ -114,13 +114,9 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
     Ok(checkpoint_path)
 }
 
-fn get_store_version_with_config(path: &Path, near_config: &NearConfig) -> u32 {
-    get_store_version(&path, &near_config.config.store.with_read_only(true))
-}
-
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
-    let db_version = get_store_version_with_config(&path, &near_config);
+    let db_version = get_store_version(&path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
         std::process::exit(1);
@@ -342,7 +338,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
 
     #[cfg(not(feature = "nightly_protocol"))]
     {
-        let db_version = get_store_version_with_config(&path, &near_config);
+        let db_version = get_store_version(&path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
 
@@ -551,7 +547,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         src_dir.display()
     );
     let store_config = config.store.with_read_only(true);
-    let db_version = get_store_version(&src_dir, &store_config);
+    let db_version = get_store_version(&src_dir);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
         "{}: expected DB version {} but got {}",

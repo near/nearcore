@@ -937,10 +937,8 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version(path: &Path, store_config: &StoreConfig) -> Result<DbVersion, DBError> {
-        let mut read_only_store_config = store_config.clone();
-        read_only_store_config.read_only = true;
-        let db = RocksDB::new(path, &store_config)?;
+    pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
+        let db = RocksDB::new(path, &StoreConfig::read_only())?;
         db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
             serde_json::from_slice(
                 &result
