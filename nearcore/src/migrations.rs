@@ -19,8 +19,8 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
+use near_store::DBCol::ColReceipts;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
 

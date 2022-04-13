@@ -3,60 +3,14 @@ use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store_with_config, Store};
-use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-use once_cell::sync::Lazy;
+use nearcore::{get_store_path, load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
-
-#[derive(Parser)]
-pub struct StateViewerCmd {
-    #[clap(flatten)]
-    opts: StateViewerOpts,
-    #[clap(subcommand)]
-    subcmd: StateViewerSubCommand,
-}
-
-impl StateViewerCmd {
-    pub fn parse_and_run() {
-        let state_viewer_cmd = Self::parse();
-        state_viewer_cmd.opts.init();
-        println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
-
-        let home_dir = state_viewer_cmd.opts.home;
-        let genesis_validation = if state_viewer_cmd.opts.unsafe_fast_startup {
-            GenesisValidationMode::UnsafeFast
-        } else {
-            GenesisValidationMode::Full
-        };
-        state_viewer_cmd.subcmd.run(&home_dir, genesis_validation);
-    }
-}
-
-#[derive(Parser, Debug)]
-struct StateViewerOpts {
-    /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
-    home: PathBuf,
-    /// Skips consistency checks of the 'genesis.json' file upon startup.
-    /// Let's you start `neard` slightly faster.
-    #[clap(long)]
-    pub unsafe_fast_startup: bool,
-}
-
-impl StateViewerOpts {
-    fn init(&self) {
-        init_integration_logger();
-    }
-}
 
 #[derive(Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -120,13 +74,12 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store = create_store_with_config(
-            &get_store_path(home_dir),
-            &near_config.config.store.with_read_only(true),
-        );
+        let store_path = get_store_path(home_dir);
+        let store_config = &near_config.config.store.with_read_only(!readwrite);
+        let store = create_store_with_config(&store_path, store_config);
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
