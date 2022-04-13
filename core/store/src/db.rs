@@ -178,7 +178,11 @@ impl RocksDBOptions {
 
     /// Opens the database either in read only or in read/write mode depending on the read_only
     /// parameter specified in the store_config.
-    pub fn open(self, path: impl AsRef<Path>, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+    pub fn open(
+        self,
+        path: impl AsRef<Path>,
+        store_config: &StoreConfig,
+    ) -> Result<RocksDB, DBError> {
         let path = path.as_ref();
         if store_config.read_only {
             return self.read_only(path, &store_config);
