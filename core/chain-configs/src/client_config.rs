@@ -18,7 +18,7 @@ pub enum LogSummaryStyle {
 }
 
 /// Configuration for garbage collection.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
