@@ -68,11 +68,12 @@ pub enum StateViewerSubCommand {
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation);
-        let store = if readwrite {
-            create_store(&get_store_path(home_dir))
-        } else {
-            open_read_only_store(&get_store_path(home_dir))
+        let store_path = get_store_path(home_dir);
+        let store_config = StoreConfig {
+          read_only: !readwrite,
+          .. StoreConfig::default()
         };
+        let store = create_store_with_config(&store_path, &store_config);
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
