@@ -104,6 +104,8 @@ impl NeardCmd {
 pub(crate) enum RunError {
     #[error("invalid logging directives provided")]
     EnvFilter(#[source] BuildEnvFilterError),
+    #[error("could not install a rayon thread pool")]
+    RayonInstall(#[source] rayon::ThreadPoolBuildError),
 }
 
 #[derive(Parser)]

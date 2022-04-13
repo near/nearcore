@@ -637,6 +637,9 @@ impl NightshadeRuntime {
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
+        //
+        // FIXME: a more appropriate way would be to limit the number of tasks executed by a global
+        // thread pool, than spawning new threads here.
         rayon::ThreadPoolBuilder::new()
             .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
             .build()
