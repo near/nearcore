@@ -196,7 +196,7 @@ pub(crate) fn read_node_from_chunk_cache(
         block_costs.push(gas_cost.to_gas() as f64);
         total_cost += gas_cost;
     }
-    let mut per_node_cost = total_cost / iters as u64;
+    let mut per_node_cost = total_cost / measured_iters as u64;
     if is_high_variance(&block_costs) {
         per_node_cost.set_uncertain("HIGH-VARIANCE");
     }
