@@ -456,12 +456,13 @@ unsafe impl Sync for RocksDB {}
 /// Options for configuring [`RocksDB`](RocksDB).
 ///
 /// ```rust
+/// use std::path::Path;
 /// use near_store::{db::RocksDBOptions, StoreConfig};
 ///
 /// let rocksdb = RocksDBOptions::default()
 ///     .check_free_space_interval(256)
 ///     .free_disk_space_threshold(bytesize::ByteSize::mb(10))
-///     .open("/db/path", &StoreConfig::read_only());
+///     .open(Path::new("/db/path"), &StoreConfig::read_only());
 /// ```
 pub struct RocksDBOptions {
     cf_names: Option<Vec<String>>,
@@ -1131,7 +1132,7 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir, &StoreConfig::read_write()).unwrap();
+        let store = RocksDB::new(tmp_dir.path(), &StoreConfig::read_write()).unwrap();
         store.pre_write_check().unwrap()
     }
 

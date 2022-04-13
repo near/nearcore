@@ -29,14 +29,13 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, create_store_with_config, Store, StoreConfig};
+use near_store::{create_store, create_store_with_config, Store};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tracing::{error, info, trace};
-use crate::config::update_with;
 
 pub mod append_only_map;
 pub mod config;
@@ -106,8 +105,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
             path.display()));
     }
 
-    let store_config = update_with(StoreConfig::read_write(), &near_config.config);
-    let db = RocksDB::new(&path, &store_config)?;
+    let db = RocksDB::new(&path, &near_config.config.store)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -117,8 +115,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
 }
 
 fn get_store_version_with_config(path: &Path, near_config: &NearConfig) -> u32 {
-    let store_config = update_with(StoreConfig::read_only(), &near_config.config);
-    get_store_version(&path, &store_config)
+    get_store_version(&path, &near_config.config.store.with_read_only(true))
 }
 
 /// Function checks current version of the database and applies migrations to the database.
@@ -375,10 +372,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store_with_config(
-        &path,
-        &update_with(StoreConfig::read_write(), &near_config.config),
-    );
+    let store = create_store_with_config(&path, &near_config.config.store);
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -556,7 +550,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let store_config = update_with(StoreConfig::read_only(), &config);
+    let store_config = config.store.with_read_only(true);
     let db_version = get_store_version(&src_dir, &store_config);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,

@@ -335,43 +335,6 @@ fn default_enable_rocksdb_statistics() -> bool {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StoreConfig {
-    /// Maximum number of store files being opened simultaneously.
-    /// Default value: 512.
-    /// The underlying storage can require simultaneously opening a large number of files.
-    /// Increasing this value helps to prevent the storage constantly closing/opening files it
-    /// needs.
-    /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
-    /// Linux.
-    #[serde(default = "default_max_open_files")]
-    pub max_open_files: i32,
-    /// Cache size for ColState column.
-    /// Default value: 512MiB.
-    /// Increasing ColState cache size helps making storage more efficient. On the other hand we
-    /// don't want to increase hugely requirements for running a node so currently we use a small
-    /// default value for it.
-    #[serde(default = "default_col_state_cache_size")]
-    pub col_state_cache_size: usize,
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        StoreConfig {
-            max_open_files: default_max_open_files(),
-            col_state_cache_size: default_col_state_cache_size(),
-        }
-    }
-}
-
-fn default_max_open_files() -> i32 {
-    near_store::StoreConfig::read_write().max_open_files
-}
-
-fn default_col_state_cache_size() -> usize {
-    near_store::StoreConfig::read_write().col_state_cache_size
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -495,7 +458,7 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     #[serde(default = "default_enable_rocksdb_statistics")]
     pub enable_rocksdb_statistics: bool,
-    pub store: StoreConfig,
+    pub store: near_store::StoreConfig,
 }
 
 impl Default for Config {
@@ -525,7 +488,7 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
             enable_rocksdb_statistics: false,
-            store: StoreConfig::default(),
+            store: near_store::StoreConfig::read_write(),
         }
     }
 }
@@ -825,17 +788,6 @@ impl NearConfig {
 
         self.genesis.to_file(&dir.join(&self.config.genesis_file));
     }
-}
-
-pub fn update_with(
-    store_config: near_store::StoreConfig,
-    config: &Config,
-) -> near_store::StoreConfig {
-    let mut store_config = store_config.clone();
-    store_config.enable_statistics = config.enable_rocksdb_statistics;
-    store_config.max_open_files = config.store.max_open_files;
-    store_config.col_state_cache_size = config.store.col_state_cache_size;
-    store_config
 }
 
 fn add_protocol_account(records: &mut Vec<StateRecord>) {
