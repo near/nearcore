@@ -155,11 +155,10 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        if result.1.is_some() {
-            let err = result.1.as_ref().unwrap();
+        if let Some(err) = result.error() {
             eprintln!("error: {}", err);
         }
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
 
     // Run with gas metering.
@@ -175,7 +174,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
     let total_raw_with_gas = start.elapsed();
 
@@ -191,7 +190,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
 
     // Run without gas metering.
@@ -207,7 +206,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
     let total_raw_no_gas = start.elapsed();
 

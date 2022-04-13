@@ -22,6 +22,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (50, include_config!("50.json")),
     // max_gas_burnt increased to 300 TGas
     (52, include_config!("52.json")),
+    // Increased deployment costs, increased wasmer2 stack_limit
+    (53, include_config!("53.json")),
 ];
 
 pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
@@ -122,6 +124,7 @@ mod tests {
             "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
             "HFetcNKaC5s8Mj7bQz7jGMF7Rsvtuc3kjZRevWQ334n4",
             "EP9bv2znwbuBuimUgrSQm48ymHqwbHyUArZcWavSbPce",
+            "3i1T4Gg7JR8SgBDBQxeRUQ4FCgtjKvthC9LQ685zk7Qa",
         ];
         let actual_hashes = CONFIGS
             .iter()

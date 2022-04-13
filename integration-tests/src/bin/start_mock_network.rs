@@ -1,11 +1,11 @@
 extern crate integration_tests;
 
 use actix::{Actor, System};
-use clap::Clap;
+use clap::Parser;
 use futures::{future, FutureExt};
 use std::path::Path;
 
-use integration_tests::mock_network::setup::{setup_mock_network, SyncMode};
+use integration_tests::mock_network::setup::{setup_mock_network, MockNetworkMode};
 use integration_tests::mock_network::GetChainTargetBlockHeight;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
@@ -19,16 +19,31 @@ use std::time::Duration;
 /// Program to start a testing environment for one client and a mock network environment
 /// The mock network simulates the entire network by reading a pre-generated chain history
 /// on storage and responds to the client's network requests.
-/// The binary runs in two modes, Sync and NoSync, determined by flag `sync`.
+/// The binary runs in two modes, NoNewBlocks and ProduceNewBlocks, determined by flag `mode`.
 ///
-/// In Sync mode, the client and mock network start from different height and client is trying
-/// to catch up. The client starts from genesis height, and the mock network starts from
-/// target height (see args.target_height) and no new blocks are produced.
+/// In NoNewBlocks mode, the mock network will not simulate block production.
+/// The simulated peers will start from the target height and no new blocks are produced.
 ///
-/// In NoSync mode, the client and mock network start at the same height and new blocks will
-/// be produced. They both start from genesis height and the mock network will produce
-/// blocks until target height.
-#[derive(Clap)]
+/// In ProduceNewBlocks mode, new blocks will be produced, i.e., the client will receive new
+/// blocks from the mock network. User can provide a number in this mode, which will be the starting
+/// height the new produced blocks. If no number is provided, the mock network will start at
+/// the same height as the client, which is specified by client_start_height.
+///
+/// Example commands:
+/// start_mock_network ~/.near/localnet/node0 -h 100 --mode no_new_blocks
+///
+/// Client starts at genesis height and mock network starts at height 100. No new blocks will be produced.
+/// The simulated peers stay at height 100.
+///
+/// start_mock_network ~/.near/localnet/node0 -s 61 -h 100 --mode produce_new_blocks
+///
+/// Both client and mock network starts at height 61, mock network will produce new blocks until height 100
+///  
+/// start_mock_network ~/.near/localnet/node0 -h 100 --mode "produce_new_blocks(20)"
+///
+/// Client starts at genesis height and mock network starts at heigh 20,
+/// mock network will produce new blocks until height 100
+#[derive(Parser)]
 struct Cli {
     /// Existing home dir for the pre-generated chain history. For example, you can use
     /// the home dir of a near node.
@@ -39,20 +54,29 @@ struct Cli {
     /// Simulated network delay (in ms)
     #[clap(short = 'd', long, default_value = "100")]
     network_delay: u64,
-    /// Sync mode of the binary
-    #[clap(short = 'S', long)]
-    sync: bool,
+    /// Mode of the mock network, choices: [no_new_blocks, produce_new_blocks, produce_new_blocks(u64)]
+    #[clap(short = 'M', long)]
+    mode: MockNetworkMode,
+    /// If specified, the binary will set up client home dir before starting the client node
+    /// so head of the client chain will be the specified height when the client starts.
+    /// The given height must be the last block in an epoch.
+    #[clap(short = 's', long)]
+    client_start_height: Option<BlockHeight>,
     /// Target height that the client should sync to before stopping. If not specified,
     /// use the height of the last block in chain history
     #[clap(short = 'h', long)]
     target_height: Option<BlockHeight>,
+    /// If true, use in memory storage instead of rocksdb for the client
+    #[clap(short = 'i', long)]
+    in_memory_storage: bool,
 }
 
 fn main() {
     init_integration_logger();
     let args = Cli::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full);
+    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;
     let signer =
@@ -65,16 +89,17 @@ fn main() {
     let tempdir = tempfile::Builder::new().prefix("mock_network_node").tempdir().unwrap();
     let client_home_dir =
         args.client_home_dir.unwrap_or(String::from(tempdir.path().to_str().unwrap()));
-    let sync_mode = if args.sync { SyncMode::Sync } else { SyncMode::NoSync };
     let network_delay = Duration::from_millis(args.network_delay);
     run_actix(async move {
         let (mock_network, _client, view_client) = setup_mock_network(
             Path::new(&client_home_dir),
             home_dir,
-            &near_config,
-            sync_mode,
+            near_config,
+            args.mode,
             network_delay,
+            args.client_start_height,
             args.target_height,
+            args.in_memory_storage,
         );
         let target_height =
             async { mock_network.send(GetChainTargetBlockHeight).await }.await.unwrap();

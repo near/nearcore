@@ -1,36 +1,4 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
-/chain/ @bowenwang1996 @mzhangmzz @mm-near
-/chain/client/src/view_client.rs @khorolets @rtsai123
-/chain/client-primitives/ @mina86 @nikurt
-/chain/network/ @mm-near @bowenwang1996
-/chain/network-primitives/ @mm-near
-/chain/jsonrpc/ @mina86 @nikurt
-/chain/jsonrpc-primitives/ @mina86 @nikurt
-/chain/indexer/ @khorolets @mm-near
-/chain/indexer-primitives/ @khorolets @mm-near
-/chain/rosetta-rpc/ @frol @mina86
-/utils  @mm-near
-
-/runtime/ @bowenwang1996 @EgorKulikov @mzhangmzz @mm-near
-/runtime/runtime-params-estimator/ @matklad @jakmeier
-/runtime/near-test-contracts/ @matklad @Longarithm
-/runtime/near-vm-runner-standalone/ @matklad @nagisa
-/runtime/near-vm-runner/  @matklad @nagisa
-
-/genesis-tools/ @nikurt
-/tools/indexer/ @khorolets
-/tools/themis/ @miraclx
-
-/core/  @bowenwang1996 @matklad @mm-near
-/core/store/src/trie @mzhangmzz @longarithm
-/neard/ @bowenwang1996 @mm-near
-/nearcore/ @bowenwang1996 @mm-near
-/test-utils/state-viewer @nikurt
-/test-utils/runtime-tester @posvyatokum @matklad
-
+* @near/nearcore-codeowners
 /.buildkite/ @rtsai123 @mhalambek
-/scripts/ @rtsai123 @mhalambek @mina86 @nikurt
-
-/docs/ @bowenwang1996 @matklad @mm-near
-/pytest/ @mm-near @mina86

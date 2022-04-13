@@ -1,6 +1,7 @@
 use bn::arith::U256;
 use bn::{pairing_batch, AffineG1, AffineG2, Fq, Fq2, Fr, Group, GroupError, Gt, G1, G2};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_vm_errors::VMLogicError;
 use std::io::{self, Error, ErrorKind, Write};
 
 use crate::HostError;
@@ -9,36 +10,16 @@ const POINT_IS_NOT_ON_THE_CURVE: &str = "point is not on the curve";
 const POINT_IS_NOT_IN_THE_SUBGROUP: &str = "point is not in the subgroup";
 const NOT_IN_FIELD: &str = "integer is not less than modulus";
 
-pub fn ilog2(mut n: u64) -> u64 {
+#[inline]
+pub fn ilog2(n: u64) -> u64 {
     assert!(n > 0);
-    let mut r = 0;
-    if n >> 32 != 0 {
-        n >>= 32;
-        r += 32;
-    }
-    if n >> 16 != 0 {
-        n >>= 16;
-        r += 16;
-    }
-    if n >> 8 != 0 {
-        n >>= 8;
-        r += 8;
-    }
-    if n >> 4 != 0 {
-        n >>= 4;
-        r += 4;
-    }
-    if n >> 2 != 0 {
-        n >>= 2;
-        r += 2;
-    }
-    if n >> 1 != 0 {
-        r += 1;
-    }
-    r
+    63 - n.leading_zeros() as u64
 }
 
-pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discount: u64) -> u64 {
+pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(
+    n_bytes: u64,
+    discount: u64,
+) -> Result<u64, HostError> {
     // details of computation alt_bn128 parameters are available at https://gist.github.com/snjax/90e8b3e7f5c16a983a5f6347d1d28bde
     const A: u64 = 85158;
     const B: u64 = 15119;
@@ -46,21 +27,34 @@ pub fn alt_bn128_g1_multiexp_sublinear_complexity_estimate(n_bytes: u64, discoun
     const MULTIEXP_ITEM_SIZE: u64 = std::mem::size_of::<(G1, Fr)>() as u64;
 
     // A+C*n/(log2(n)+4) - B*n - discount
+    let n = (n_bytes)
+        .checked_add(MULTIEXP_ITEM_SIZE)
+        .ok_or(HostError::IntegerOverflow)?
+        .checked_add(MULTIEXP_ITEM_SIZE)
+        .ok_or(HostError::IntegerOverflow)?
+        / MULTIEXP_ITEM_SIZE;
 
-    let n = (n_bytes + MULTIEXP_ITEM_SIZE - 1) / MULTIEXP_ITEM_SIZE;
-    let mut res = A + if n == 0 {
-        0
-    } else {
-        // set linear complexity growth for n > 32768
-        let l = std::cmp::min(ilog2(n), 15);
-        (n * (l + 3) + (1 << (1 + l))) * C / ((l + 4) * (l + 5))
-    };
-
-    if res < B * n + discount {
-        return 0;
+    let res = A;
+    if n != 0 {
+        let growth_factor = std::cmp::min(ilog2(n), 15);
+        res.checked_add(
+            n.checked_mul(growth_factor + 3)
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(1 << (1 + growth_factor))
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_mul(C)
+                .ok_or(HostError::IntegerOverflow)?
+                / ((growth_factor + 4) * (growth_factor + 5)),
+        )
+        .ok_or(HostError::IntegerOverflow)?;
     }
-    res -= B * n + discount;
-    res
+
+    Ok(res.saturating_sub(
+        B.checked_mul(n)
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(discount)
+            .ok_or(HostError::IntegerOverflow)?,
+    ))
 }
 
 #[derive(Copy, Clone)]
@@ -216,6 +210,7 @@ impl BorshDeserialize for WrapG2 {
 
 /// Computes multiexp on alt_bn128 curve using Pippenger's algorithm
 /// \sum_i mul_i g_{1 i} should be equal result.
+/// Allows at max 5000 items
 ///
 /// # Arguments
 ///
@@ -253,6 +248,11 @@ pub fn alt_bn128_g1_multiexp(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .into_iter()
         .map(|e| (e.0 .0, e.1 .0))
         .collect::<Vec<_>>();
+    // Upper bounded by 2^9 buckets
+    // Reference: https://github.com/zeropoolnetwork/bn/blob/b25e138cd5a7d98ad16c091c20b4fa273ca1f993/src/groups/mod.rs#L71
+    if items.len() > 5000 {
+        return Err(VMLogicError::HostError(HostError::AltBn128MaxNumberOfItemsExceeded));
+    }
     let result = WrapG1(G1::multiexp(&items))
         .try_to_vec()
         .map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
@@ -299,13 +299,8 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
         .collect::<Vec<_>>();
 
     let mut acc = G1::zero();
-    for &(sign, e) in items.iter() {
-        if sign {
-            acc = acc - e;
-        } else {
-            acc = acc + e;
-        }
-    }
+    acc = items.iter().fold(acc, |acc, &(sign, e)| if sign { acc - e } else { acc + e });
+
     let result = WrapG1(acc)
         .try_to_vec()
         .map_err(|e| HostError::AltBn128SerializationError { msg: format!("{}", e) })?;
@@ -313,7 +308,7 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 }
 
 /// Computes pairing check on alt_bn128 curve.
-/// \sum_i e(g_{1 i}, g_{2 i}) should be equal zero (in additive notation), e(g1, g2) is Ate pairing
+/// \sum_i e(g_{1 i}, g_{2 i}) should be equal to one (in additive notation), e(g1, g2) is Ate pairing
 ///
 /// # Arguments
 ///
@@ -332,8 +327,6 @@ pub fn alt_bn128_g1_sum(data: &[u8]) -> crate::logic::Result<Vec<u8>> {
 /// is not in the field or data are wrong serialized, for example,
 /// `data.len()%std::mem::sizeof::<(G1,G2)>()!=0`, the function returns `AltBn128DeserializationError`.
 ///
-/// If `borsh::BorshSerialize` returns error during serialization, the function
-/// returns `AltBn128SerializationError`.///
 /// # Example
 /// ```
 /// # use near_vm_logic::alt_bn128::alt_bn128_pairing_check;

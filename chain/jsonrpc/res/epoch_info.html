@@ -1,0 +1,96 @@
+<html>
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(() => {
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: data => {
+                    let epoch_info = data.detailed_debug_status.epoch_info;
+                    $('.js-epoch-id').text(epoch_info.epoch_id);
+                    $('.js-epoch-height').text(epoch_info.height);
+                    $('.js-epoch-first-block-hash').text(epoch_info.first_block_hash);
+                    $('.js-epoch-start-time').text(epoch_info.start_time);
+                    epoch_info.validators.forEach((validator, index) =>
+                        $('.js-tbody-validators').append($('<tr>')
+                            .append($('<td>').append(validator.account_id))
+                        )
+                    );
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+    </script>
+</head>
+<body>
+    <h1>
+        Welcome to the Epoch Status page!
+    </h1>
+    <h2>
+        <p>
+            Current Epoch ID:
+            <span class="js-epoch-id"></span>
+        </p>
+        <p>
+            First block hash:
+            <span class="js-epoch-first-block-hash"></span>
+        </p>
+        <p>
+            Height at:
+            <span class="js-epoch-height"></span>
+        </p>
+        <p>
+            Started at:
+            <span class="js-epoch-start-time"></span>
+        </p>
+        <p>
+            Validators
+        </p>
+    </h2>
+
+    <table>
+        <thead><tr>
+            <th>Account ID</th>
+        </tr></thead>
+        <tbody class="js-tbody-validators">
+        </tbody>
+    </table>
+</body>
+
+</html>

@@ -1,5 +1,6 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io;
+use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ pub struct KeyFile {
 }
 
 impl KeyFile {
-    pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+    pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
         let mut file = File::create(path)?;
         #[cfg(unix)]
         {
@@ -28,10 +29,8 @@ impl KeyFile {
         file.write_all(str.as_bytes())
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path).expect("Could not open key file.");
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from key file.");
-        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    pub fn from_file(path: &Path) -> io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
     }
 }

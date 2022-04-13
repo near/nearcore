@@ -46,6 +46,7 @@ fn build_chain() {
         // Instant calls for CryptoHashTimer.
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
     }
 
     let (mut chain, _, signer) = setup();
@@ -73,7 +74,7 @@ fn build_chain() {
     let count_instant = mock_clock_guard.instant_call_count();
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 8);
+    assert_eq!(count_instant, 12);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
@@ -116,6 +117,7 @@ fn build_chain_with_orhpans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
+        None,
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
     assert_eq!(

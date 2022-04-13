@@ -184,9 +184,6 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             contract_id,
-            originator_id,
-            &public_key,
-            0,
             &empty_hash,
             &view_state.epoch_id,
             &view_state.prev_block_hash,
@@ -240,7 +237,8 @@ impl TrieViewer {
             config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
-        );
+        )
+        .outcome_error();
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;

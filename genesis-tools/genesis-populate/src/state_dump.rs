@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use near_primitives::types::StateRoot;
-use near_store::db::DBCol::ColState;
+use near_store::DBCol::ColState;
 use near_store::{create_store, Store};
 
 const STATE_DUMP_FILE: &str = "state_dump";
