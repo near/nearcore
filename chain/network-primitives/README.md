@@ -2,8 +2,8 @@
 TODO - already in another PR
 
 # Project structure
-- `network_protocol.rs` - contains types, which are part of network protocol, they should be changes with care. 
-All of them derive `BorhSerialize` / `BorshDeserialize`
+- `network_protocol.rs` - contains types, which are part of network protocol, they should be changed with care. 
+All of them derive `BorshSerialize` / `BorshDeserialize`
 - `types.rs` - TODO
 - `config.rs` - TODO
 - `actix.rs` - TODO
@@ -42,4 +42,4 @@ Actors below, their related messages, are considered private:
 - `ClientActor` related `Actix` messages
 - `ViewClientActor` related `Actix` messages
 - Part of `borsh` serialized network messages exchanged between nodes.
-- `NetworkConfig` - it's logic is split between `utils.rs` and `types.rs`.
+- `NetworkConfig` - its logic is split between `utils.rs` and `types.rs`.
