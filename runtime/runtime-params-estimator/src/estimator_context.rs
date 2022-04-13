@@ -1,11 +1,8 @@
-use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
-use rand::prelude::SliceRandom;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::TrieCacheMode;
-use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieCache, TrieCachingStorage, TrieStorage};
+use near_store::{TrieCache, TrieCachingStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -111,83 +108,11 @@ impl<'c> Testbed<'c> {
         res
     }
 
-    pub(crate) fn measure_trie_node_reads(
-        &mut self,
-        iters: usize,
-        num_values: usize,
-    ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
-        (0..iters)
-            .map(|_| {
-                let tb = self.transaction_builder();
-
-                let value_len: usize = 2000;
-                let signer = tb.random_account();
-                let values: Vec<_> = (0..num_values)
-                    .map(|_| {
-                        let v = tb.random_vec(value_len);
-                        let h = hash(&v);
-                        let node = RawTrieNode::Extension(v, h);
-                        let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
-                        node_with_size.encode().unwrap()
-                    })
-                    .collect();
-                let mut setup_block = Vec::new();
-                let mut blocks = vec![];
-                for (i, value) in values.iter().cloned().enumerate() {
-                    let key = vec![(i / 256) as u8, (i % 256) as u8];
-                    setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
-                }
-                blocks.push(setup_block.clone());
-
-                // for v in blocks.iter() {
-                //     eprintln!("{}", v.len());
-                // }
-                let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
-                self.measure_blocks(blocks, 0);
-
-                let store = self.inner.store();
-                let caching_storage =
-                    TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
-                caching_storage.set_mode(TrieCacheMode::CachingChunk);
-
-                let results: Vec<_> = (0..2)
-                    .map(|_| {
-                        self.clear_caches();
-                        let start = GasCost::measure(self.config.metric);
-                        let sum: usize = value_hashes
-                            .iter()
-                            .enumerate()
-                            .map(|(i, key)| {
-                                // eprintln!("retrieve {}", i);
-                                let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
-                                // let bytes = match caching_storage.retrieve_raw_bytes(key) {
-                                //     Ok(bytes) => bytes,
-                                //     _ => {
-                                //         // eprintln!("issue");
-                                //         return 0;
-                                //     }
-                                // };
-                                let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
-                                match node.node {
-                                    RawTrieNode::Extension(v, _) => v.len(),
-                                    _ => {
-                                        unreachable!();
-                                    }
-                                }
-                            })
-                            .sum();
-                        // assert_eq!(sum, num_values * value_len);
-                        (start.elapsed(), HashMap::new())
-                    })
-                    .collect();
-
-                results.iter().for_each(|(cost, _)| {
-                    eprintln!("cost = {:?}", cost);
-                });
-
-                results[results.len() - 1].clone()
-            })
-            .collect()
+    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+        let store = self.inner.store();
+        let caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        caching_storage
     }
 
     fn clear_caches(&mut self) {

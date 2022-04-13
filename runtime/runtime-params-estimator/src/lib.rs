@@ -70,10 +70,9 @@ pub mod testbed;
 pub mod config;
 mod function_call;
 mod gas_metering;
+mod trie;
 
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::iter;
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
@@ -82,7 +81,6 @@ use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::hash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -1067,54 +1065,7 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
-    let tb = testbed.transaction_builder();
-
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
-
-    // Prepare a long chain in the trie
-    let signer = tb.random_account();
-    let key = "j".repeat(final_key_len);
-    let mut setup_block = Vec::new();
-    for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
-        let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
-    }
-
-    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
-    blocks.push(setup_block);
-
-    blocks.extend(
-        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key.as_str()[0..1])])
-            .take(measured_iters + warmup_iters),
-    );
-    blocks.extend(
-        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key)])
-            .take(measured_iters + warmup_iters),
-    );
-
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
-    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
-
-    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        &ctx.config,
-        1,
-        short_key_results[warmup_iters..].to_vec(),
-    );
-    let (cost_long_key, ext_cost_long_key) =
-        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
-
-    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
-        - ext_cost_short_key[&ExtCosts::touching_trie_node];
-    // The exact number of touched nodes is a implementation that we don't want
-    // to test here but it should be close to 2*final_key_len
-    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
-    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
-    let cost_delta =
-        cost_long_key.saturating_sub(&cost_short_key, &NonNegativeTolerance::PER_MILLE);
-    let cost = cost_delta / nodes_touched_delta;
+    let cost = trie::read_node_from_db(&mut testbed, warmup_iters, measured_iters);
 
     ctx.cached.touching_trie_node_read = Some(cost.clone());
     cost
@@ -1127,60 +1078,7 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
-    let tb = testbed.transaction_builder();
-
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
-
-    // Prepare a long chain in the trie
-    let signer = tb.random_account();
-    let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
-    let mut setup_block = Vec::new();
-    for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
-        let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
-    }
-
-    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
-    blocks.push(setup_block);
-
-    blocks.extend(
-        ["1", "2", "3"]
-            .iter()
-            .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], value)])
-            .take(measured_iters + warmup_iters),
-    );
-    blocks.extend(
-        ["1", "2", "3"]
-            .iter()
-            .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key, value)])
-            .take(measured_iters + warmup_iters),
-    );
-
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
-    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
-
-    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        &ctx.config,
-        1,
-        short_key_results[warmup_iters..].to_vec(),
-    );
-    let (cost_long_key, ext_cost_long_key) =
-        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
-
-    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
-        - ext_cost_short_key[&ExtCosts::touching_trie_node];
-    // The exact number of touched nodes is a implementation that we don't want
-    // to test here but it should be close to 2*final_key_len
-    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
-    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
-    let cost_delta =
-        cost_long_key.saturating_sub(&cost_short_key, &NonNegativeTolerance::PER_MILLE);
-    let cost = cost_delta / nodes_touched_delta;
+    let cost = trie::write_node(&mut testbed, warmup_iters, measured_iters);
 
     ctx.cached.touching_trie_node_write = Some(cost.clone());
     cost
@@ -1190,32 +1088,10 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
-    // let tb = testbed.transaction_builder();
-    //
-    // let num_values: usize = 100;
-    // let value_len: usize = 4000;
-    // let signer = tb.random_account();
-    // let values: Vec<_> = (0..num_values).map(|_| tb.random_vec(value_len)).collect();
-    // let mut setup_block = Vec::new();
-    // for (i, value) in values.iter().cloned().enumerate() {
-    //     let key = vec![i as u8];
-    //     setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
-    // }
-    //
-    // let mut blocks = vec![setup_block];
-    // testbed.measure_blocks(blocks, 0);
-    //
-    // let value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
 
     let num_values = 2000;
-    let results: Vec<(GasCost, HashMap<ExtCosts, u64>)> =
-        testbed.measure_trie_node_reads(1 + warmup_iters + measured_iters, num_values);
-
-    let (cost, _) = aggregate_per_block_measurements(
-        &ctx.config,
-        num_values,
-        results[1 + warmup_iters..].to_vec(),
-    );
+    let cost =
+        trie::read_node_from_chunk_cache(&mut testbed, warmup_iters, measured_iters, num_values);
 
     eprintln!("cost = {:?}", cost);
 
