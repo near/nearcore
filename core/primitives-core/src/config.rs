@@ -242,10 +242,10 @@ pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
 
-    /// Base cost of loading and compiling contract
-    pub contract_compile_base: Gas,
-    /// Cost of the execution to load and compile contract
-    pub contract_compile_bytes: Gas,
+    /// Base cost of loading a pre-compiled contract
+    pub contract_loading_base: Gas,
+    /// Cost per byte of loading a pre-compiled contract
+    pub contract_loading_bytes: Gas,
 
     /// Base cost for guest memory read
     pub read_memory_base: Gas,
@@ -417,8 +417,8 @@ impl ExtCostsConfig {
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_loading_base: SAFETY_MULTIPLIER * 11815321,
+            contract_loading_bytes: SAFETY_MULTIPLIER * 72250,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
@@ -490,8 +490,8 @@ impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_loading_base: 0,
+            contract_loading_bytes: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
@@ -565,8 +565,8 @@ impl ExtCostsConfig {
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
-    contract_compile_base,
-    contract_compile_bytes,
+    contract_loading_base,
+    contract_loading_bytes,
     read_memory_base,
     read_memory_byte,
     write_memory_base,
@@ -655,8 +655,8 @@ impl ExtCosts {
         use ExtCosts::*;
         match self {
             base => config.base,
-            contract_compile_base => config.contract_compile_base,
-            contract_compile_bytes => config.contract_compile_bytes,
+            contract_loading_base => config.contract_loading_base,
+            contract_loading_bytes => config.contract_loading_bytes,
             read_memory_base => config.read_memory_base,
             read_memory_byte => config.read_memory_byte,
             write_memory_base => config.write_memory_base,
