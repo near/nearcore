@@ -876,10 +876,9 @@ fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
     block_opts
 }
 
-// TODO(#5213) Use ByteSize package to represent sizes.
-fn choose_cache_size(col: DBCol, col_state_cache_size: usize) -> usize {
+fn choose_cache_size(col: DBCol, store_config: &StoreConfig) -> usize {
     match col {
-        DBCol::ColState => col_state_cache_size,
+        DBCol::ColState => store_config.col_state_cache_size,
         _ => 32 * 1024 * 1024,
     }
 }
@@ -888,7 +887,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = choose_cache_size(col, store_config.col_state_cache_size);
+    let cache_size = choose_cache_size(col, &store_config);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
 
     // Note that this function changes a lot of rustdb parameters including:

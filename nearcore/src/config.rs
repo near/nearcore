@@ -346,7 +346,7 @@ pub struct StoreConfig {
     #[serde(default = "default_max_open_files")]
     pub max_open_files: i32,
     /// Cache size for ColState column.
-    /// Default value: 512MB.
+    /// Default value: 512MiB.
     /// Increasing ColState cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
