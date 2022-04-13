@@ -827,6 +827,17 @@ impl NearConfig {
     }
 }
 
+pub fn update_with(
+    store_config: near_store::StoreConfig,
+    config: &Config,
+) -> near_store::StoreConfig {
+    let mut store_config = store_config.clone();
+    store_config.enable_statistics = config.enable_rocksdb_statistics;
+    store_config.max_open_files = config.store.max_open_files;
+    store_config.col_state_cache_size = config.store.col_state_cache_size;
+    store_config
+}
+
 fn add_protocol_account(records: &mut Vec<StateRecord>) {
     let signer = InMemorySigner::from_seed(
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),

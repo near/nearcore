@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tracing::{error, info, trace};
+use crate::config::update_with;
 
 pub mod append_only_map;
 pub mod config;
@@ -376,12 +377,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     }
     let store = create_store_with_config(
         &path,
-        &StoreConfig {
-            read_only: false,
-            enable_statistics: near_config.config.enable_rocksdb_statistics,
-            max_open_files: near_config.config.store.max_open_files,
-            col_state_cache_size: near_config.config.store.col_state_cache_size,
-        },
+        &update_with(StoreConfig::default(), &near_config.config),
     );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
@@ -520,14 +516,6 @@ pub struct RecompressOpts {
     pub keep_partial_chunks: bool,
     pub keep_invalid_chunks: bool,
     pub keep_trie_changes: bool,
-}
-
-fn update_with(store_config: StoreConfig, config: &config::Config) -> StoreConfig {
-    let mut store_config = store_config.clone();
-    store_config.enable_statistics = config.enable_rocksdb_statistics;
-    store_config.max_open_files = config.store.max_open_files;
-    store_config.col_state_cache_size = config.store.col_state_cache_size;
-    store_config
 }
 
 pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {

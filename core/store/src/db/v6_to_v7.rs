@@ -67,6 +67,6 @@ impl RocksDB {
                     })
                     .collect(),
             )
-            .read_write(path, &StoreConfig::default())
+            .open(path, &StoreConfig::default())
     }
 }

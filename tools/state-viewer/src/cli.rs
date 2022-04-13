@@ -10,6 +10,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
 use near_store::{create_store_with_config, Store, StoreConfig};
+use nearcore::config::update_with;
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
@@ -125,12 +126,7 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store = create_store_with_config(
             &get_store_path(home_dir),
-            &StoreConfig {
-                read_only: true,
-                enable_statistics: false,
-                max_open_files: near_config.config.store.max_open_files,
-                col_state_cache_size: near_config.config.store.col_state_cache_size,
-            },
+            &update_with(StoreConfig::read_only(), &near_config.config),
         );
         match self {
             StateViewerSubCommand::Peers => peers(store),
