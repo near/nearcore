@@ -1064,8 +1064,11 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
     }
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
+    // Number of bytes in the final key. Will create 2x that many nodes.
+    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
+    let final_key_len = 1000;
     let mut testbed = ctx.testbed();
-    let cost = trie::read_node_from_db(&mut testbed, warmup_iters, measured_iters);
+    let cost = trie::read_node_from_db(&mut testbed, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_read = Some(cost.clone());
     cost
@@ -1077,8 +1080,11 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     }
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
+    // Number of bytes in the final key. Will create 2x that many nodes.
+    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
+    let final_key_len = 1000;
     let mut testbed = ctx.testbed();
-    let cost = trie::write_node(&mut testbed, warmup_iters, measured_iters);
+    let cost = trie::write_node(&mut testbed, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_write = Some(cost.clone());
     cost

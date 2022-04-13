@@ -1,6 +1,7 @@
 use near_primitives::hash::hash;
 use std::collections::HashMap;
 use std::iter;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_primitives::types::TrieCacheMode;
 use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieStorage};
@@ -10,15 +11,15 @@ use crate::estimator_context::Testbed;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::aggregate_per_block_measurements;
 
+static SINK: AtomicUsize = AtomicUsize::new(0);
+
 pub(crate) fn write_node(
     testbed: &mut Testbed,
     warmup_iters: usize,
     measured_iters: usize,
+    final_key_len: usize,
 ) -> GasCost {
     let tb = testbed.transaction_builder();
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
     // Prepare a long chain in the trie
     let signer = tb.random_account();
     let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
@@ -72,11 +73,9 @@ pub(crate) fn read_node_from_db(
     testbed: &mut Testbed,
     warmup_iters: usize,
     measured_iters: usize,
+    final_key_len: usize,
 ) -> GasCost {
     let tb = testbed.transaction_builder();
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
     // Prepare a long chain in the trie
     let signer = tb.random_account();
     let key = "j".repeat(final_key_len);
@@ -126,12 +125,18 @@ pub(crate) fn read_node_from_chunk_cache(
     measured_iters: usize,
     num_values: usize,
 ) -> GasCost {
+    // Trie nodes are largest when they hold part of a storage key (Extension or
+    // Leaf) and keys can be up to 2kiB. Therefore, this is the
+    let value_len: usize = 2048;
+
+    // Prepare a data buffer that we can read again later to overwrite CPU caches
+    let assumed_max_l3_size = 128 * 1024 * 1024;
+    let dummy_data = testbed.transaction_builder().random_vec(assumed_max_l3_size);
+
     let iters = warmup_iters + measured_iters;
     let results = (0..iters)
         .map(|_| {
             let tb = testbed.transaction_builder();
-
-            let value_len: usize = 2000;
             let signer = tb.random_account();
             let values: Vec<_> = (0..num_values)
                 .map(|_| {
@@ -145,7 +150,7 @@ pub(crate) fn read_node_from_chunk_cache(
             let mut setup_block = Vec::new();
             let mut blocks = vec![];
             for (i, value) in values.iter().cloned().enumerate() {
-                let key = vec![(i / 256) as u8, (i % 256) as u8];
+                let key = i.to_le_bytes().to_vec();
                 setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
             }
             blocks.push(setup_block.clone());
@@ -157,9 +162,14 @@ pub(crate) fn read_node_from_chunk_cache(
             caching_storage.set_mode(TrieCacheMode::CachingChunk);
 
             let results: Vec<_> = (0..2)
-                .map(|_| {
+                .map(|i| {
+                    // Ensure the trie node data is available in CPU caches by
+                    // filling the caches with useless data.
+                    let dummy_count = dummy_data.iter().filter(|n| **n == i).count();
+                    SINK.fetch_add(dummy_count, Ordering::SeqCst);
+
                     let start = GasCost::measure(testbed.config.metric);
-                    let _sum: usize = value_hashes
+                    let dummy_sum: usize = value_hashes
                         .iter()
                         .enumerate()
                         .map(|(_i, key)| {
@@ -173,8 +183,9 @@ pub(crate) fn read_node_from_chunk_cache(
                             }
                         })
                         .sum();
-                    // assert_eq!(sum, num_values * value_len);
-                    (start.elapsed(), HashMap::new())
+                    let cost = start.elapsed();
+                    SINK.fetch_add(dummy_sum, Ordering::SeqCst);
+                    (cost, HashMap::new())
                 })
                 .collect();
 
