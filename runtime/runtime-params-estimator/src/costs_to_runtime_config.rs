@@ -139,6 +139,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         storage_iter_next_key_byte: 0,
         storage_iter_next_value_byte: 0,
         touching_trie_node: get(Cost::TouchingTrieNode)?,
+        read_cached_trie_node: get(Cost::ReadCachedTrieNode)?,
         promise_and_base: get(Cost::PromiseAndBase)?,
         promise_and_per_promise: get(Cost::PromiseAndPerPromise)?,
         promise_return: get(Cost::PromiseReturn)?,
