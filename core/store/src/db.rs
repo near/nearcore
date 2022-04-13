@@ -456,12 +456,12 @@ unsafe impl Sync for RocksDB {}
 /// Options for configuring [`RocksDB`](RocksDB).
 ///
 /// ```rust
-/// use near_store::db::RocksDBOptions;
+/// use near_store::{db::RocksDBOptions, StoreConfig};
 ///
 /// let rocksdb = RocksDBOptions::default()
 ///     .check_free_space_interval(256)
 ///     .free_disk_space_threshold(bytesize::ByteSize::mb(10))
-///     .read_only("/db/path");
+///     .open("/db/path", &StoreConfig::read_only());
 /// ```
 pub struct RocksDBOptions {
     cf_names: Option<Vec<String>>,
@@ -947,7 +947,10 @@ impl RocksDB {
         path: P,
         store_config: &StoreConfig,
     ) -> Result<DbVersion, DBError> {
-        let db = RocksDB::new_read_only(path, &store_config)?;
+        if !store_config.read_only {
+            warn!("consider opening the database in read only mode to get the version");
+        }
+        let db = RocksDB::new(path, &store_config)?;
         db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
             serde_json::from_slice(
                 &result
@@ -957,18 +960,11 @@ impl RocksDB {
         })
     }
 
-    pub fn new_read_only<P: AsRef<std::path::Path>>(
-        path: P,
-        store_config: &StoreConfig,
-    ) -> Result<Self, DBError> {
-        RocksDBOptions::default().read_only(path, &store_config)
-    }
-
     pub fn new<P: AsRef<std::path::Path>>(
         path: P,
         store_config: &StoreConfig,
     ) -> Result<Self, DBError> {
-        RocksDBOptions::default().read_write(path, &store_config)
+        RocksDBOptions::default().open(path, &store_config)
     }
 
     /// Checks if there is enough memory left to perform a write. Not having enough memory left can
@@ -1122,7 +1118,7 @@ mod tests {
     use crate::db::DBCol::ColState;
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol, StoreStatistics};
+    use crate::{create_store, DBCol, StoreStatistics, StoreConfig};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -1149,7 +1145,7 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir).unwrap();
+        let store = RocksDB::new(tmp_dir, &StoreConfig::default()).unwrap();
         store.pre_write_check().unwrap()
     }
 

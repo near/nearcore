@@ -302,6 +302,14 @@ pub struct StoreConfig {
     pub col_state_cache_size: usize,
 }
 
+impl StoreConfig {
+    pub fn read_only() -> StoreConfig {
+        let mut config = StoreConfig::default();
+        config.read_only = true;
+        config
+    }
+}
+
 impl Default for StoreConfig {
     fn default() -> StoreConfig {
         StoreConfig {
