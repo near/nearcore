@@ -1740,12 +1740,12 @@ fn test_init_config_localnet() {
 #[test]
 fn test_config_from_file() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    tmp.as_file().write_all(include_bytes!("../../testdata/mainnet-config.json")).unwrap();
+    tmp.as_file().write_all(include_bytes!("../../testdata/example-config.json")).unwrap();
     let config = Config::from_file(&tmp.into_temp_path()).unwrap();
     // TODO(mina86): We might want to add more checks.  Looking at all values is
     // probably not worth it but there may be some other defaults we want to
     // ensure that they happen.
-    assert_eq!(GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }, config.gc);
+    assert_eq!(GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 1000 }, config.gc);
     assert_eq!(
         vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
         config.telemetry.endpoints

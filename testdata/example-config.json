@@ -126,6 +126,6 @@
     "tracked_accounts": [],
     "tracked_shards": [0],
     "archive": false,
-    "gc_blocks_limit": 2,
+    "gc_blocks_limit": 42,
     "view_client_threads": 4
 }
