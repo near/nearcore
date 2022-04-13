@@ -337,9 +337,19 @@ fn default_enable_rocksdb_statistics() -> bool {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StoreConfig {
     /// Maximum number of store files being opened simultaneously.
+    /// Default value: 512.
+    /// The underlying storage can require simultaneously opening a large number of files.
+    /// Increasing this value helps to prevent the storage constantly closing/opening files it
+    /// needs.
+    /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
+    /// Linux.
     #[serde(default = "default_max_open_files")]
     pub max_open_files: i32,
     /// Cache size for ColState column.
+    /// Default value: 512MB.
+    /// Increasing ColState cache size helps making storage more efficient. On the other hand we
+    /// don't want to increase hugely requirements for running a node so currently we use a small
+    /// default value for it.
     #[serde(default = "default_col_state_cache_size")]
     pub col_state_cache_size: usize,
 }
