@@ -18,7 +18,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -306,10 +306,6 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
-fn default_gc_blocks_limit() -> NumBlocks {
-    2
-}
-
 fn default_view_client_threads() -> usize {
     4
 }
@@ -435,8 +431,9 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
-    #[serde(default = "default_gc_blocks_limit")]
-    pub gc_blocks_limit: NumBlocks,
+    /// Garbage collection configuration.
+    #[serde(default, flatten)]
+    pub gc: GCConfig,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
@@ -478,7 +475,7 @@ impl Default for Config {
             tracked_shards: vec![],
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
-            gc_blocks_limit: default_gc_blocks_limit(),
+            gc: GCConfig::default(),
             epoch_sync_enabled: true,
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
@@ -692,7 +689,7 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 log_summary_style: config.log_summary_style,
-                gc_blocks_limit: config.gc_blocks_limit,
+                gc: config.gc,
                 view_client_threads: config.view_client_threads,
                 epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
