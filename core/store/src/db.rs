@@ -105,13 +105,12 @@ unsafe impl Sync for RocksDB {}
 /// Options for configuring [`RocksDB`](RocksDB).
 ///
 /// ```rust
-/// use std::path::Path;
 /// use near_store::{db::RocksDBOptions, StoreConfig};
 ///
 /// let rocksdb = RocksDBOptions::default()
 ///     .check_free_space_interval(256)
 ///     .free_disk_space_threshold(bytesize::ByteSize::mb(10))
-///     .open(Path::new("/db/path"), &StoreConfig::read_only());
+///     .open("/db/path", &StoreConfig::read_only());
 /// ```
 pub struct RocksDBOptions {
     cf_names: Option<Vec<String>>,
@@ -179,7 +178,8 @@ impl RocksDBOptions {
 
     /// Opens the database either in read only or in read/write mode depending on the read_only
     /// parameter specified in the store_config.
-    pub fn open(self, path: &Path, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+    pub fn open(self, path: impl AsRef<Path>, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+        let path = path.as_ref();
         if store_config.read_only {
             return self.read_only(path, &store_config);
         }
@@ -192,12 +192,7 @@ impl RocksDBOptions {
         let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
         let cf_with_opts =
             DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
-        let db = DB::open_cf_with_opts_for_read_only(
-            &options,
-            AsRef::<Path>::as_ref(path),
-            cf_with_opts,
-            false,
-        )?;
+        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
             .collect();
@@ -232,7 +227,7 @@ impl RocksDBOptions {
                 })
                 .collect()
         });
-        let db = DB::open_cf_descriptors(&options, AsRef::<Path>::as_ref(path), cf_descriptors)?;
+        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
