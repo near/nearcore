@@ -97,7 +97,6 @@ impl RuntimeTestbed {
         transactions: &[SignedTransaction],
         allow_failures: bool,
     ) -> Gas {
-        eprintln!("pr = {}", self.prev_receipts.len());
         let apply_result = self
             .runtime
             .apply(

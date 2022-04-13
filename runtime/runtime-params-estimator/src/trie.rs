@@ -189,10 +189,6 @@ pub(crate) fn read_node_from_chunk_cache(
                 })
                 .collect();
 
-            results.iter().for_each(|(cost, _)| {
-                eprintln!("cost = {:?}", cost);
-            });
-
             results[results.len() - 1].clone()
         })
         .collect::<Vec<_>>();
