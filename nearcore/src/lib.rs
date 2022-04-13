@@ -105,12 +105,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
             path.display()));
     }
 
-    let store_config = StoreConfig {
-        read_only: false,
-        enable_statistics: false,
-        max_open_files: near_config.config.store.max_open_files,
-        col_state_cache_size: near_config.config.store.col_state_cache_size,
-    };
+    let store_config = update_with(StoreConfig::default(), &near_config.config);
     let db = RocksDB::new(&path, &store_config)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
@@ -121,12 +116,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
 }
 
 fn get_store_version_with_config(path: &Path, near_config: &NearConfig) -> u32 {
-    let store_config = StoreConfig {
-        read_only: true,
-        enable_statistics: false,
-        max_open_files: near_config.config.store.max_open_files,
-        col_state_cache_size: near_config.config.store.col_state_cache_size,
-    };
+    let store_config = update_with(StoreConfig::read_only(), &near_config.config);
     get_store_version(&path, &store_config)
 }
 
@@ -532,6 +522,14 @@ pub struct RecompressOpts {
     pub keep_trie_changes: bool,
 }
 
+fn update_with(store_config: StoreConfig, config: &config::Config) -> StoreConfig {
+    let mut store_config = store_config.clone();
+    store_config.enable_statistics = config.enable_rocksdb_statistics;
+    store_config.max_open_files = config.store.max_open_files;
+    store_config.col_state_cache_size = config.store.col_state_cache_size;
+    store_config
+}
+
 pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
     use strum::IntoEnumIterator;
 
@@ -570,12 +568,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let store_config = StoreConfig {
-        read_only: true,
-        enable_statistics: false,
-        max_open_files: config.store.max_open_files,
-        col_state_cache_size: config.store.col_state_cache_size,
-    };
+    let store_config = update_with(StoreConfig::read_only(), &config);
     let db_version = get_store_version(&src_dir, &store_config);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,

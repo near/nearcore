@@ -289,7 +289,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StoreConfig {
     /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
     pub read_only: bool,
