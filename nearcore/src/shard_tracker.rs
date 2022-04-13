@@ -55,7 +55,7 @@ impl ShardTracker {
     ) -> Result<bool, EpochError> {
         match &self.tracked_config {
             TrackedConfig::Accounts(tracked_accounts) => {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let epoch_manager = self.epoch_manager.read().expect(POISONED_LOCK_ERR);
                 let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
                 let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
                     let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
@@ -73,7 +73,7 @@ impl ShardTracker {
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = {
-            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            let epoch_manager = self.epoch_manager.read().expect(POISONED_LOCK_ERR);
             epoch_manager.get_epoch_id_from_prev_block(prev_hash)?
         };
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
@@ -90,7 +90,7 @@ impl ShardTracker {
         // https://github.com/near/nearcore/issues/4936
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let epoch_manager = self.epoch_manager.read().expect(POISONED_LOCK_ERR);
                 epoch_manager
                     .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
                     .unwrap_or(false)
@@ -117,7 +117,7 @@ impl ShardTracker {
     ) -> bool {
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let epoch_manager = self.epoch_manager.read().expect(POISONED_LOCK_ERR);
                 epoch_manager
                     .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
                     .unwrap_or(false)
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_track_accounts() {
         let num_shards = 4;
-        let mut epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap().clone();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker = ShardTracker::new(
@@ -363,7 +363,7 @@ mod tests {
         for i in 1..8 {
             let mut total_tracked_shards = HashSet::new();
             let num_shards = {
-                let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let epoch_manager = epoch_manager.read().expect(POISONED_LOCK_ERR);
                 let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
                 let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
                 for account_id in tracked_accounts.iter() {

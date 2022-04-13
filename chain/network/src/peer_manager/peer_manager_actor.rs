@@ -1,6 +1,6 @@
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
-use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, StopMsg,
     Unregister, ValidateEdgeList,
@@ -11,26 +11,26 @@ use crate::routing::routing_table_actor::{
 };
 use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
 use crate::stats::metrics;
-use crate::stats::metrics::NetworkMetrics;
+use crate::stats::metrics::{NetworkMetrics, PARTIAL_ENCODED_CHUNK_REQUEST_DELAY};
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
     PeersResponse, RoutingTableUpdate,
 };
 use actix::{
-    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use futures::FutureExt;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Edge, InboundTcpConnect, KnownPeerStatus,
-    KnownProducer, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -48,7 +48,6 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -269,7 +268,11 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
+        let peer_store = PeerStore::new(
+            store.clone(),
+            &config.boot_nodes,
+            Blacklist::from_iter(config.blacklist.iter()),
+        )?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
@@ -397,7 +400,7 @@ impl PeerManagerActor {
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
-                warn!(
+                debug!(target: "bandwidth",
                     ?peer_id,
                     bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
                 );
@@ -483,16 +486,6 @@ impl PeerManagerActor {
         near_performance_metrics::actix::run_later(ctx, interval, move |act, ctx| {
             act.broadcast_validated_edges_trigger(ctx, interval);
         });
-    }
-
-    fn is_blacklisted(
-        blacklist: &HashMap<std::net::IpAddr, BlockedPorts>,
-        addr: &SocketAddr,
-    ) -> bool {
-        blacklist.get(&addr.ip()).map_or(false, |blocked_ports| match blocked_ports {
-            BlockedPorts::All => true,
-            BlockedPorts::Some(ports) => ports.contains(&addr.port()),
-        })
     }
 
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -1494,6 +1487,7 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new(|| {
             format!("network request {}", msg.as_ref()).into()
         });
+        metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
                 Self::broadcast_message(
@@ -1597,7 +1591,8 @@ impl PeerManagerActor {
                 self.announce_account(announce_account);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedChunkRequest { target, request } => {
+            NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
+                PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(create_time.0.elapsed().as_secs_f64());
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
@@ -1987,9 +1982,7 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
-        if (msg.peer_info.addr.as_ref())
-            .map_or(true, |addr| Self::is_blacklisted(&self.config.blacklist, addr))
-        {
+        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?msg.peer_info, "Dropping connection from blacklisted peer or unknown address");
             return RegisterPeerResponse::Reject;
         }
@@ -2094,7 +2087,7 @@ impl PeerManagerActor {
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id).collect(),
+            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
         ) {
             error!(target: "network", ?err, "Fail to update peer store");
         };
@@ -2225,7 +2218,7 @@ impl PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
+                if let Err(err) = self.peer_store.add_direct_peer(peer_info) {
                     error!(target: "network", ?err, "Fail to update peer store");
                 }
                 PeerResponse::NoResponse

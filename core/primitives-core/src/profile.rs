@@ -146,7 +146,7 @@ impl fmt::Debug for ProfileData {
                         writeln!(
                             f,
                             "{} -> {} [{}% host]",
-                            ExtCosts::name_of(*e as usize),
+                            e,
                             d,
                             Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
                         )?;
@@ -161,7 +161,7 @@ impl fmt::Debug for ProfileData {
                 Cost::ActionCost { action_cost_kind: a } => {
                     let d = self.get_action_cost(*a);
                     if d != 0 {
-                        writeln!(f, "{} -> {}", ActionCosts::name_of(*a as usize), d)?;
+                        writeln!(f, "{} -> {}", a, d)?;
                     }
                 }
                 _ => {}
@@ -273,7 +273,6 @@ impl Cost {
             Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => 7,
             Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => 8,
             Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => 9,
-            Cost::ActionCost { action_cost_kind: ActionCosts::__count } => unreachable!(),
             Cost::ExtCost { ext_cost_kind: ExtCosts::base } => 10,
             Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_base } => 11,
             Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_bytes } => 12,
@@ -341,7 +340,6 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => 69,
-            Cost::ExtCost { ext_cost_kind: ExtCosts::__count } => unreachable!(),
         }
     }
 }

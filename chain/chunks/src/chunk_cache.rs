@@ -25,8 +25,6 @@ use tracing::warn;
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
 /// A chunk is out of horizon if its height + HEIGHT_HORIZON < largest_seen_height
-// Note: If this number increases, make sure `LONG_TARGET_HEIGHT` in
-// block_sync_archival.py is updated as well.
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 /// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
@@ -176,19 +174,17 @@ impl EncodedChunksCache {
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
         let chunk_hash = chunk_header.chunk_hash();
-        if !self.encoded_chunks.contains_key(&chunk_hash) {
+        self.encoded_chunks.entry(chunk_hash).or_insert_with_key(|chunk_hash| {
             self.height_map
                 .entry(chunk_header.height_created())
-                .or_insert_with(|| HashSet::default())
+                .or_default()
                 .insert(chunk_hash.clone());
             self.incomplete_chunks
                 .entry(chunk_header.prev_block_hash())
                 .or_default()
                 .insert(chunk_hash.clone());
-        }
-        self.encoded_chunks
-            .entry(chunk_hash)
-            .or_insert_with(|| EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone()))
+            EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())
+        })
     }
 
     pub fn height_within_front_horizon(&self, height: BlockHeight) -> bool {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
 use tracing::warn;
 
 use near_chain_configs::GenesisConfig;
@@ -19,9 +19,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{
-    decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
-};
+use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -56,7 +54,7 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
-            gc_col: vec![0; NUM_COLS],
+            gc_col: vec![0; DBCol::COUNT],
             tx_refcount: HashMap::new(),
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
@@ -80,6 +78,7 @@ pub struct StoreValidator {
     inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
+    pub is_archival: bool,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,
@@ -91,6 +90,7 @@ impl StoreValidator {
         config: GenesisConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         store: Store,
+        is_archival: bool,
     ) -> Self {
         StoreValidator {
             me,
@@ -100,6 +100,7 @@ impl StoreValidator {
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
+            is_archival,
             errors: vec![],
             tests: 0,
         }
@@ -113,8 +114,8 @@ impl StoreValidator {
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            if SHOULD_COL_GC[col as usize] && self.inner.gc_col[col as usize] == 0 {
-                if SKIP_COL_GC[col as usize] {
+            if col.is_gc() && self.inner.gc_col[col as usize] == 0 {
+                if col.is_gc_optional() {
                     res.push((
                         to_string(&col) + " (skipping is acceptable)",
                         self.inner.gc_col[col as usize],
@@ -339,6 +340,7 @@ impl StoreValidator {
         }
         Ok(())
     }
+
     pub fn validate(&mut self) {
         self.start_time = Clock::instant();
 
@@ -355,7 +357,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, NUM_COLS);
+                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, DBCol::COUNT);
                     return;
                 }
             }
@@ -420,10 +422,14 @@ mod tests {
             Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
-        let chain =
-            Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
-                .unwrap();
-        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
+        let chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            DoomslugThresholdMode::NoApprovals,
+            true,
+        )
+        .unwrap();
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))
     }
 
     #[test]

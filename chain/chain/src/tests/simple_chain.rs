@@ -27,7 +27,7 @@ fn empty_chain() {
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(hash, CryptoHash::from_str("2VFkBfWwcTqyVJ83zy78n5WUNadwGuJbLc2KEp9SJ8dV").unwrap());
     #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("8UF2TCELQ2sSqorskN5myyC7h1XfgxYm68JHJMKo5n8X").unwrap());
+    assert_eq!(hash, CryptoHash::from_str("8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64").unwrap());
     assert_eq!(count_utc, 1);
 }
 
@@ -46,6 +46,7 @@ fn build_chain() {
         // Instant calls for CryptoHashTimer.
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
     }
 
     let (mut chain, _, signer) = setup();
@@ -59,7 +60,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         prev_hash,
-        CryptoHash::from_str("BkRwcuuVjS86zNvP8DDC9FzsJfWQLV92YyX7NCAz3TNu").unwrap()
+        CryptoHash::from_str("DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC").unwrap()
     );
 
     for i in 0..4 {
@@ -73,7 +74,7 @@ fn build_chain() {
     let count_instant = mock_clock_guard.instant_call_count();
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 8);
+    assert_eq!(count_instant, 12);
     #[cfg(feature = "nightly_protocol")]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
@@ -82,7 +83,7 @@ fn build_chain() {
     #[cfg(not(feature = "nightly_protocol"))]
     assert_eq!(
         chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("8FkFyWKsnAvAEVAwR41GFTY9i9eQnvGCm52FCYR7qEhy").unwrap()
+        CryptoHash::from_str("5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7").unwrap()
     );
 }
 
@@ -116,6 +117,7 @@ fn build_chain_with_orhpans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
+        None,
     );
     assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
     assert_eq!(

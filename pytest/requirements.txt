@@ -15,4 +15,5 @@ scikit-learn
 # to an older version.  Remove the pin once issue is fixed properly.
 scipy==1.7.1
 semver
+toml
 tqdm
