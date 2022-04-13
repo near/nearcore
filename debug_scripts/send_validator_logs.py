@@ -8,13 +8,19 @@ import sys
 import urllib.parse
 
 
-def filter_log_file(log_file: str, start_time: datetime.datetime, end_time: datetime.datetime) -> io.BytesIO:
+def filter_log_file(log_file: str, start_time: datetime.datetime, end_time: datetime.datetime) -> list:
     """
     Filter log file for a time range.
+    start_time: datetime.datetime
+                    start time for logs
+    end_time: datetime.datetime
+                    end time for logs
+    return: list
+                list of log lines
     """
     print(f"Log time range: {start_time} \t {end_time}")
 
-    filtered_logs = io.StringIO()
+    filtered_logs = []
 
     # filter logs for time range
     with open(log_file) as f:
@@ -23,11 +29,11 @@ def filter_log_file(log_file: str, start_time: datetime.datetime, end_time: date
             split_lines = line.split("[0m", 1)[0].replace("\x1b[2m", "")
             dt = datetime.datetime.strptime(split_lines[:-5], "%b %d %H:%M:%S").replace(year=datetime.datetime.now().year)
             if start_time <= dt <= end_time:
-                filtered_logs.write(line)
-    return io.BytesIO(filtered_logs.getvalue().encode())
+                filtered_logs.append(line)
+    return filtered_logs
 
 
-def upload_to_s3(file_obj: io.BytesIO, account: str) -> str:
+def upload_to_s3(file_lines: list, account: str) -> str:
     """
     Upload File like object to S3 bucket near-protocol-validator-logs-public.
     file_obj: io.BytesIO
@@ -37,6 +43,11 @@ def upload_to_s3(file_obj: io.BytesIO, account: str) -> str:
     BUCKET = "near-protocol-validator-logs-public"
     current_time = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     s3_destination = f"{account}/{current_time}.log.gzip"
+    file_string = io.StringIO()
+    for line in file_lines:
+        file_string.write(line)
+
+    file_obj = io.BytesIO(file_string.getvalue().encode())
     gzipped_content = gzip.compress(file_obj.read())
     print(f"uploading compressed file. File size is: {sys.getsizeof(gzipped_content)} Bytes")
     
@@ -59,5 +70,5 @@ if __name__ == '__main__':
     end_timestamp = datetime.datetime.utcnow()
     start_timestamp = end_timestamp - datetime.timedelta(seconds=args.last_seconds)
 
-    filtered_log_file = filter_log_file(log_file=args.log_file, start_time=start_timestamp, end_time=end_timestamp)
-    upload_to_s3(file_obj=filtered_log_file, account=args.account)
+    filtered_log_lines = filter_log_file(log_file=args.log_file, start_time=start_timestamp, end_time=end_timestamp)
+    upload_to_s3(file_lines=filtered_log_lines, account=args.account)
