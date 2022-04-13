@@ -48,7 +48,7 @@ fn merge_refcounted_records_v6(result: &mut Vec<u8>, val: &[u8]) {
 }
 
 fn rocksdb_column_options_v6(col: DBCol) -> Options {
-    let mut opts = rocksdb_column_options(DBCol::ColDbVersion, &StoreConfig::default());
+    let mut opts = rocksdb_column_options(DBCol::ColDbVersion, &StoreConfig::read_write());
 
     if col == DBCol::ColState {
         opts.set_merge_operator("refcount merge", refcount_merge_v6, refcount_merge_v6);
@@ -68,6 +68,6 @@ impl RocksDB {
                     })
                     .collect(),
             )
-            .open(path, &StoreConfig::default())
+            .open(path, &StoreConfig::read_write())
     }
 }

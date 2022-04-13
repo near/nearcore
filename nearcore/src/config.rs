@@ -364,11 +364,11 @@ impl Default for StoreConfig {
 }
 
 fn default_max_open_files() -> i32 {
-    near_store::StoreConfig::default().max_open_files
+    near_store::StoreConfig::read_write().max_open_files
 }
 
 fn default_col_state_cache_size() -> usize {
-    near_store::StoreConfig::default().col_state_cache_size
+    near_store::StoreConfig::read_write().col_state_cache_size
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

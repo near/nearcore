@@ -28,7 +28,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let mut store_config = StoreConfig::default();
+        let mut store_config = StoreConfig::read_write();
         store_config.read_only = read_only;
         let store = create_store_with_config(&get_store_path(&home_dir), &store_config);
 

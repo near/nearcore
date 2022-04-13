@@ -304,14 +304,12 @@ pub struct StoreConfig {
 
 impl StoreConfig {
     pub fn read_only() -> StoreConfig {
-        let mut config = StoreConfig::default();
+        let mut config = StoreConfig::read_write();
         config.read_only = true;
         config
     }
-}
 
-impl Default for StoreConfig {
-    fn default() -> StoreConfig {
+    pub fn read_write() -> StoreConfig {
         StoreConfig {
             read_only: false,
             enable_statistics: false,
@@ -326,7 +324,7 @@ impl Default for StoreConfig {
 }
 
 pub fn create_store(path: &Path) -> Store {
-    create_store_with_config(path, &StoreConfig::default())
+    create_store_with_config(path, &StoreConfig::read_write())
 }
 
 pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {

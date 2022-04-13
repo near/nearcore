@@ -106,7 +106,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
             path.display()));
     }
 
-    let store_config = update_with(StoreConfig::default(), &near_config.config);
+    let store_config = update_with(StoreConfig::read_write(), &near_config.config);
     let db = RocksDB::new(&path, &store_config)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
@@ -377,7 +377,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     }
     let store = create_store_with_config(
         &path,
-        &update_with(StoreConfig::default(), &near_config.config),
+        &update_with(StoreConfig::read_write(), &near_config.config),
     );
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);

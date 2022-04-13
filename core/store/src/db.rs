@@ -1131,7 +1131,7 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir, &StoreConfig::default()).unwrap();
+        let store = RocksDB::new(tmp_dir, &StoreConfig::read_write()).unwrap();
         store.pre_write_check().unwrap()
     }
 
