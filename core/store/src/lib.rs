@@ -311,7 +311,7 @@ impl Default for StoreConfig {
             max_open_files: 512,
             // We used to have the same cache size for all columns 32MB. When some RocksDB
             // inefficiencies were found ColState cache size was increased up to 512MB.
-            // This was done Nov 13 2021.
+            // This was done Nov 13 2021 and we consider increasing the value.
             col_state_cache_size: 512 * 1024 * 1024,
         }
     }
