@@ -28,6 +28,7 @@ use near_primitives::utils::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
+use super::StoreConfig;
 use crate::db::DBCol::{
     ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
     ColPartialChunks, ColStateParts,
@@ -42,7 +43,6 @@ use crate::migrations::v8_to_v9::{
 use crate::trie::{TrieCache, TrieCachingStorage};
 use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
-use super::StoreConfig;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;

@@ -5,7 +5,7 @@ use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
 use crate::db::{col_name, rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
-use crate::{StoreConfig, DBCol};
+use crate::{DBCol, StoreConfig};
 
 fn refcount_merge_v6(
     _new_key: &[u8],

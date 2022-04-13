@@ -322,13 +322,8 @@ pub fn create_store(path: &Path) -> Store {
 }
 
 pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let mut opts = RocksDBOptions::default();
-    if store_config.enable_statistics {
-        opts = opts.enable_statistics();
-    }
-
-    let db = if store_config.read_only { opts.read_only(path, &store_config) } else { opts.read_write(path, &store_config) }
-        .expect("Failed to open the database");
+    let db =
+        RocksDBOptions::default().open(path, &store_config).expect("Failed to open the database");
     Store::new(Arc::new(db))
 }
 

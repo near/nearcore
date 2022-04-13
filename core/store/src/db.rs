@@ -1,3 +1,4 @@
+use super::StoreConfig;
 use crate::db::refcount::merge_refcounted_records;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::version::DbVersion;
@@ -15,7 +16,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
 use strum::{EnumCount, EnumIter};
 use tracing::{debug, error, info, warn};
-use super::StoreConfig;
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -471,7 +471,6 @@ pub struct RocksDBOptions {
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
     warn_treshold: bytesize::ByteSize,
-    enable_statistics: bool,
 }
 
 /// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
@@ -486,7 +485,6 @@ impl Default for RocksDBOptions {
             check_free_space_interval: 256,
             free_space_threshold: bytesize::ByteSize::mb(16),
             warn_treshold: bytesize::ByteSize::mb(256),
-            enable_statistics: false,
         }
     }
 }
@@ -529,12 +527,29 @@ impl RocksDBOptions {
         self
     }
 
+    /// Opens the database either in read only or in read/write mode depending on the read_only
+    /// parameter specified in the store_config.
+    pub fn open<P: AsRef<std::path::Path>>(
+        self,
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<RocksDB, DBError> {
+        if store_config.read_only {
+            return self.read_only(path, &store_config);
+        }
+        self.read_write(path, &store_config)
+    }
+
     /// Opens a read only database.
-    pub fn read_only<P: AsRef<std::path::Path>>(self, path: P, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+    fn read_only<P: AsRef<std::path::Path>>(
+        self,
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
         let options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
-        let cf_with_opts = DBCol::iter()
-            .map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
+        let cf_with_opts =
+            DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         let cfs = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
@@ -552,11 +567,14 @@ impl RocksDBOptions {
     }
 
     /// Opens the database in read/write mode.
-    pub fn read_write<P: AsRef<std::path::Path>>(self, path: P, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+    fn read_write<P: AsRef<std::path::Path>>(
+        self,
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
-        let mut options =
-            self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
-        if self.enable_statistics {
+        let mut options = self.rocksdb_options.unwrap_or_else(|| rocksdb_options(store_config));
+        if store_config.enable_statistics {
             options = enable_statistics(options);
         }
         let cf_names =
@@ -592,11 +610,6 @@ impl RocksDBOptions {
             free_space_threshold: self.free_space_threshold,
             _instance_counter: InstanceCounter::new(),
         })
-    }
-
-    pub fn enable_statistics(mut self) -> Self {
-        self.enable_statistics = true;
-        self
     }
 }
 
@@ -930,7 +943,10 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version<P: AsRef<std::path::Path>>(path: P, store_config: &StoreConfig) -> Result<DbVersion, DBError> {
+    pub fn get_version<P: AsRef<std::path::Path>>(
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<DbVersion, DBError> {
         let db = RocksDB::new_read_only(path, &store_config)?;
         db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
             serde_json::from_slice(
@@ -941,11 +957,17 @@ impl RocksDB {
         })
     }
 
-    pub fn new_read_only<P: AsRef<std::path::Path>>(path: P, store_config: &StoreConfig) -> Result<Self, DBError> {
+    pub fn new_read_only<P: AsRef<std::path::Path>>(
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<Self, DBError> {
         RocksDBOptions::default().read_only(path, &store_config)
     }
 
-    pub fn new<P: AsRef<std::path::Path>>(path: P, store_config: &StoreConfig) -> Result<Self, DBError> {
+    pub fn new<P: AsRef<std::path::Path>>(
+        path: P,
+        store_config: &StoreConfig,
+    ) -> Result<Self, DBError> {
         RocksDBOptions::default().read_write(path, &store_config)
     }
 
