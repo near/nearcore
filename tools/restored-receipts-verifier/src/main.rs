@@ -60,6 +60,7 @@ fn main() -> Result<()> {
         None,
         near_config.client_config.max_gas_burnt_view,
         None,
+        None,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
