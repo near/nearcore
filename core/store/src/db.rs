@@ -14,7 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
 use std::{cmp, fmt};
 use strum::EnumCount;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
@@ -670,7 +670,7 @@ impl InstanceCounter {
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances += 1;
-        debug!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
+        info!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
         cvar.notify_all();
         Self {}
     }
@@ -681,7 +681,7 @@ impl Drop for InstanceCounter {
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances -= 1;
-        debug!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
+        info!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
         cvar.notify_all();
     }
 }
