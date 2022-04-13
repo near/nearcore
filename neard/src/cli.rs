@@ -97,14 +97,14 @@ impl NeardCmd {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
-    #[clap(flatten)]
+    #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
 
@@ -159,8 +159,8 @@ pub(super) enum NeardSubCommand {
     #[clap(name = "unsafe_reset_data", hide = true)]
     UnsafeResetData,
     /// View DB state.
-    #[clap(subcommand, name = "view_state")]
-    StateViewer(StateViewerSubCommand),
+    #[clap(name = "view_state")]
+    StateViewer(StateViewerCommand),
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.

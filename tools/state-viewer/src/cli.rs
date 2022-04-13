@@ -7,7 +7,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{create_store, open_read_only_store, Store};
+use near_store::{create_store_with_config, Store, StoreConfig};
 use nearcore::{get_store_path, load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -74,15 +74,12 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_path = get_store_path(home_dir);
-        let store_config = StoreConfig {
-            read_only: !readwrite,
-            .. StoreConfig::default()
-        };
-        let store = create_store_with_config(&store_path, &store_config);
+        let store_config = StoreConfig { read_only: !readwrite, ..StoreConfig::default() };
+        let store = create_store_with_config(&store_path, store_config);
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
