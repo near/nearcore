@@ -1,9 +1,9 @@
 use crate::types::Gas;
 
-use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use strum::{Display, EnumCount};
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
@@ -84,6 +84,15 @@ pub struct VMLimitConfig {
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
+    /// If present, stores the secondary stack limit as implemented by wasmer2.
+    ///
+    /// This limit should never be hit normally.
+    #[serde(default = "wasmer2_stack_limit_default")]
+    pub wasmer2_stack_limit: i32,
+}
+
+fn wasmer2_stack_limit_default() -> i32 {
+    100 * 1024
 }
 
 /// Our original code for limiting WASM stack was buggy. We fixed that, but we
@@ -216,6 +225,7 @@ impl VMLimitConfig {
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
             max_functions_number_per_contract: None,
+            wasmer2_stack_limit: 200 * 1024,
         }
     }
 }
@@ -232,10 +242,10 @@ pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
 
-    /// Base cost of loading and compiling contract
-    pub contract_compile_base: Gas,
-    /// Cost of the execution to load and compile contract
-    pub contract_compile_bytes: Gas,
+    /// Base cost of loading a pre-compiled contract
+    pub contract_loading_base: Gas,
+    /// Cost per byte of loading a pre-compiled contract
+    pub contract_loading_bytes: Gas,
 
     /// Base cost for guest memory read
     pub read_memory_base: Gas,
@@ -345,8 +355,11 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
-    /// Cost per touched trie node
+    /// Cost per reading trie node from DB
     pub touching_trie_node: Gas,
+    /// Cost for reading trie node from memory
+    #[serde(default = "default_read_cached_trie_node")]
+    pub read_cached_trie_node: Gas,
 
     // ###############
     // # Promise API #
@@ -392,6 +405,10 @@ pub struct ExtCostsConfig {
     pub alt_bn128_pairing_check_byte: Gas,
 }
 
+pub fn default_read_cached_trie_node() -> Gas {
+    SAFETY_MULTIPLIER * 760_000_000
+}
+
 // We multiply the actual computed costs by the fixed factor to ensure we
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
@@ -400,8 +417,8 @@ impl ExtCostsConfig {
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_loading_base: SAFETY_MULTIPLIER * 11815321,
+            contract_loading_bytes: SAFETY_MULTIPLIER * 72250,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
@@ -447,6 +464,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
             storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
             touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
+            read_cached_trie_node: default_read_cached_trie_node(),
             promise_and_base: SAFETY_MULTIPLIER * 488337800,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
             promise_return: SAFETY_MULTIPLIER * 186717462,
@@ -472,8 +490,8 @@ impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_loading_base: 0,
+            contract_loading_bytes: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
@@ -518,6 +536,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
             touching_trie_node: 0,
+            read_cached_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
@@ -542,12 +561,12 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
-    contract_compile_base,
-    contract_compile_bytes,
+    contract_loading_base,
+    contract_loading_bytes,
     read_memory_base,
     read_memory_byte,
     write_memory_base,
@@ -592,6 +611,8 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
     promise_return,
@@ -611,13 +632,10 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_byte,
-
-    // NOTE: this should be the last element of the enum.
-    __count,
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,
@@ -630,42 +648,6 @@ pub enum ActionCosts {
     delete_key,
     value_return,
     new_receipt,
-
-    // NOTE: this should be the last element of the enum.
-    __count,
-}
-
-impl fmt::Display for ActionCosts {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", ActionCosts::name_of(*self as usize))
-    }
-}
-
-impl ActionCosts {
-    pub const fn count() -> usize {
-        ActionCosts::__count as usize
-    }
-
-    pub fn name_of(index: usize) -> &'static str {
-        vec![
-            "create_account",
-            "delete_account",
-            "deploy_contract",
-            "function_call",
-            "transfer",
-            "stake",
-            "add_key",
-            "delete_key",
-            "value_return",
-            "new_receipt",
-        ][index]
-    }
-}
-
-impl fmt::Display for ExtCosts {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", ExtCosts::name_of(*self as usize))
-    }
 }
 
 impl ExtCosts {
@@ -673,8 +655,8 @@ impl ExtCosts {
         use ExtCosts::*;
         match self {
             base => config.base,
-            contract_compile_base => config.contract_compile_base,
-            contract_compile_bytes => config.contract_compile_bytes,
+            contract_loading_base => config.contract_loading_base,
+            contract_loading_bytes => config.contract_loading_bytes,
             read_memory_base => config.read_memory_base,
             read_memory_byte => config.read_memory_byte,
             write_memory_base => config.write_memory_base,
@@ -719,6 +701,8 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
+            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+            read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,
@@ -738,83 +722,6 @@ impl ExtCosts {
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
-
-            __count => unreachable!(),
         }
-    }
-
-    pub const fn count() -> usize {
-        ExtCosts::__count as usize
-    }
-
-    pub fn name_of(index: usize) -> &'static str {
-        vec![
-            "base",
-            "contract_compile_base",
-            "contract_compile_bytes",
-            "read_memory_base",
-            "read_memory_byte",
-            "write_memory_base",
-            "write_memory_byte",
-            "read_register_base",
-            "read_register_byte",
-            "write_register_base",
-            "write_register_byte",
-            "utf8_decoding_base",
-            "utf8_decoding_byte",
-            "utf16_decoding_base",
-            "utf16_decoding_byte",
-            "sha256_base",
-            "sha256_byte",
-            "keccak256_base",
-            "keccak256_byte",
-            "keccak512_base",
-            "keccak512_byte",
-            "ripemd160_base",
-            "ripemd160_block",
-            "ecrecover_base",
-            "log_base",
-            "log_byte",
-            "storage_write_base",
-            "storage_write_key_byte",
-            "storage_write_value_byte",
-            "storage_write_evicted_byte",
-            "storage_read_base",
-            "storage_read_key_byte",
-            "storage_read_value_byte",
-            "storage_remove_base",
-            "storage_remove_key_byte",
-            "storage_remove_ret_value_byte",
-            "storage_has_key_base",
-            "storage_has_key_byte",
-            "storage_iter_create_prefix_base",
-            "storage_iter_create_prefix_byte",
-            "storage_iter_create_range_base",
-            "storage_iter_create_from_byte",
-            "storage_iter_create_to_byte",
-            "storage_iter_next_base",
-            "storage_iter_next_key_byte",
-            "storage_iter_next_value_byte",
-            "touching_trie_node",
-            "promise_and_base",
-            "promise_and_per_promise",
-            "promise_return",
-            "validator_stake_base",
-            "validator_total_stake_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_byte",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_sublinear",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_pairing_check_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_pairing_check_byte",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_sum_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_sum_byte",
-        ][index]
     }
 }

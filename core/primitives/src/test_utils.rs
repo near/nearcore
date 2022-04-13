@@ -438,6 +438,7 @@ impl Block {
             signer,
             next_bp_hash,
             block_merkle_root,
+            None,
         )
     }
 }
@@ -494,4 +495,9 @@ impl FinalExecutionStatus {
     pub fn as_success_decoded(self) -> Option<Vec<u8>> {
         self.as_success().and_then(|value| from_base64(&value).ok())
     }
+}
+
+/// Encode array of `u64` to be passed as a smart contract argument.
+pub fn encode(xs: &[u64]) -> Vec<u8> {
+    xs.iter().flat_map(|it| it.to_le_bytes()).collect()
 }

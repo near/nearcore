@@ -12,8 +12,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, Addr, Arbiter, AsyncContext, Context,
+    ContextFutureSpawner, Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
@@ -24,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -388,23 +389,22 @@ impl PeerActor {
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
+        metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+            .with_label_values(&[msg.msg_variant()])
+            .inc();
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                metrics::PEER_BLOCK_RECEIVED_TOTAL.inc();
                 let block_hash = *block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header().height());
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(&block_hash))
             }
-            PeerMessage::Transaction(transaction) => {
-                metrics::PEER_TRANSACTION_RECEIVED_TOTAL.inc();
-                NetworkClientMessages::Transaction {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                }
-            }
+            PeerMessage::Transaction(transaction) => NetworkClientMessages::Transaction {
+                transaction,
+                is_forwarded: false,
+                check_only: false,
+            },
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
@@ -434,7 +434,10 @@ impl PeerActor {
                         NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
                     }
                     RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                        NetworkClientMessages::PartialEncodedChunkResponse(response)
+                        NetworkClientMessages::PartialEncodedChunkResponse(
+                            response,
+                            Clock::instant(),
+                        )
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
@@ -698,6 +701,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
             msg.len() as u64,
         );
+
+        metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+            .with_label_values(&[peer_msg.msg_variant()])
+            .inc();
 
         match (self.peer_status, peer_msg) {
             (_, PeerMessage::HandshakeFailure(peer_info, reason)) => {

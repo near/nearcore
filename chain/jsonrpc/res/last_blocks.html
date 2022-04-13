@@ -58,7 +58,7 @@
             root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/last_blocks",
+                url: "/debug/api/status",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
                     root.html("");

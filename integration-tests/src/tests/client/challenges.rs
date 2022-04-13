@@ -69,6 +69,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
+        None,
     );
     let epoch_id = b1.header().epoch_id().clone();
     let valid_challenge = Challenge::produce(
@@ -369,6 +370,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
+        None,
     );
 
     let challenge_body = {

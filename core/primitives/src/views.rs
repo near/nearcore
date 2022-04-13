@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use crate::block::{Block, BlockHeader};
+use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
@@ -316,7 +316,7 @@ pub struct StatusSyncInfo {
 
 // TODO: add more information to ValidatorInfo
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
     pub is_slashed: bool,
@@ -348,9 +348,63 @@ pub struct DebugBlockStatus {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerInfoView {
+    pub addr: String,
+    pub account_id: Option<AccountId>,
+    pub height: BlockHeight,
+    pub tracked_shards: Vec<ShardId>,
+    pub archival: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkInfoView {
+    pub peer_max_count: u32,
+    pub num_connected_peers: usize,
+    pub connected_peers: Vec<PeerInfoView>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct BlockStatusView {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+}
+
+impl BlockStatusView {
+    pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
+        Self { height: height.clone(), hash: hash.clone() }
+    }
+}
+
+impl From<Tip> for BlockStatusView {
+    fn from(tip: Tip) -> Self {
+        Self { height: tip.height, hash: tip.last_block_hash }
+    }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochInfoView {
+    pub epoch_id: CryptoHash,
+    pub height: BlockHeight,
+    pub first_block_hash: CryptoHash,
+    pub start_time: String,
+    pub validators: Vec<ValidatorInfo>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub last_blocks: Vec<DebugBlockStatus>,
+    pub network_info: NetworkInfoView,
+    pub sync_status: String,
+    pub current_head_status: BlockStatusView,
+    pub current_header_head_status: BlockStatusView,
+    pub orphans: Vec<BlockStatusView>,
+    pub blocks_with_missing_chunks: Vec<BlockStatusView>,
+    pub epoch_info: EpochInfoView,
 }
 
 // TODO: add more information to status.
@@ -374,7 +428,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks.
+    /// Information about last blocks, sync, epoch and chain info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }

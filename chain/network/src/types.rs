@@ -26,7 +26,7 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use strum::AsStaticStr;
@@ -52,6 +52,17 @@ impl deepsize::DeepSizeOf for PeerRequest {
             PeerRequest::UpdatePeerInfo(x) => x.deep_size_of_children(context),
             PeerRequest::ReceivedMessage(x, _) => x.deep_size_of_children(context),
         }
+    }
+}
+
+/// A struct wrapped std::Instant to support the deepsize feature
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrappedInstant(pub Instant);
+
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for WrappedInstant {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
+        0
     }
 }
 
@@ -260,6 +271,7 @@ pub enum NetworkRequests {
     PartialEncodedChunkRequest {
         target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
+        create_time: WrappedInstant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
@@ -327,6 +339,21 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
+impl From<&FullPeerInfo> for PeerInfoView {
+    fn from(full_peer_info: &FullPeerInfo) -> Self {
+        PeerInfoView {
+            addr: match full_peer_info.peer_info.addr {
+                Some(socket_addr) => socket_addr.to_string(),
+                None => "N/A".to_string(),
+            },
+            account_id: full_peer_info.peer_info.account_id.clone(),
+            height: full_peer_info.chain_info.height,
+            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+            archival: full_peer_info.chain_info.archival,
+        }
+    }
+}
+
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
     pub connected_peers: Vec<FullPeerInfo>,
@@ -338,6 +365,20 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub peer_counter: usize,
+}
+
+impl From<NetworkInfo> for NetworkInfoView {
+    fn from(network_info: NetworkInfo) -> Self {
+        NetworkInfoView {
+            peer_max_count: network_info.peer_max_count,
+            num_connected_peers: network_info.num_connected_peers,
+            connected_peers: network_info
+                .connected_peers
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
+        }
+    }
 }
 
 #[derive(Debug, actix::MessageResponse)]
@@ -385,7 +426,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)

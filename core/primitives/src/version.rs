@@ -137,6 +137,9 @@ pub enum ProtocolFeature {
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
+    /// Increase cost per deployed code byte to cover for the compilation steps
+    /// that a deployment triggers. Only affects the action execution cost.
+    IncreaseDeploymentCost,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -165,7 +168,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
@@ -222,6 +225,7 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
+            ProtocolFeature::IncreaseDeploymentCost => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]

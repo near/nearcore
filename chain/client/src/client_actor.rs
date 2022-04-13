@@ -1,9 +1,12 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
 use crate::client::Client;
-use crate::info::{get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper};
+use crate::info::{
+    display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
+};
+use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
-use crate::StatusResponse;
+use crate::{metrics, StatusResponse};
 use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
@@ -11,7 +14,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
@@ -36,6 +39,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
@@ -44,9 +48,9 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::db::DBCol::ColStateParts;
+use near_store::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -97,7 +101,7 @@ pub struct ClientActor {
     state_parts_client_arbiter: Arbiter,
 
     #[cfg(feature = "sandbox")]
-    fastforward_delta: Option<near_primitives::types::BlockHeightDelta>,
+    fastforward_delta: near_primitives::types::BlockHeightDelta,
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
@@ -200,7 +204,7 @@ impl ClientActor {
             state_parts_client_arbiter: state_parts_arbiter,
 
             #[cfg(feature = "sandbox")]
-            fastforward_delta: None,
+            fastforward_delta: 0,
             _shutdown_signal: shutdown_signal,
         })
     }
@@ -251,11 +255,23 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        self.check_triggers(ctx);
+
         let _d = delay_detector::DelayDetector::new(|| {
             format!("NetworkClientMessage {}", msg.as_ref()).into()
         });
-        self.check_triggers(ctx);
+        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg.as_ref()]).inc();
+        let timer = metrics::CLIENT_MESSAGES_PROCESSING_TIME
+            .with_label_values(&[msg.as_ref()])
+            .start_timer();
+        let res = self.handle_client_messages(msg);
+        timer.observe_duration();
+        res
+    }
+}
 
+impl ClientActor {
+    fn handle_client_messages(&mut self, msg: NetworkClientMessages) -> NetworkClientResponses {
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
@@ -324,7 +340,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
+                        for _ in store.iter(near_store::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -340,6 +356,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
+                            self.adv.read().unwrap().is_archival,
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -368,8 +385,21 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         )
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
-                        self.fastforward_delta = Some(delta_height);
+                        if self.fastforward_delta > 0 {
+                            return NetworkClientResponses::SandboxResult(
+                                near_network_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                                    "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string()));
+                        }
+
+                        self.fastforward_delta = delta_height;
                         NetworkClientResponses::NoResponse
+                    }
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus => {
+                        NetworkClientResponses::SandboxResult(
+                            near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(
+                                self.fastforward_delta == 0,
+                            ),
+                        )
                     }
                 };
             }
@@ -438,9 +468,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 let state_response = state_response_info.take_state_response();
 
                 trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                    shard_id,
-                    hash,
-                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+                       shard_id,
+                       hash,
+                       state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
                 // Get the download that matches the shard_id and hash
                 let download = {
@@ -524,11 +554,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     return NetworkClientResponses::NoResponse;
                                 }
                                 if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self
-                                        .client
-                                        .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
-                                    {
+                                    match self.client.chain.set_state_part(
+                                        shard_id,
+                                        hash,
+                                        PartId::new(part_id, num_parts),
+                                        &data,
+                                    ) {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
@@ -567,7 +598,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 );
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+            NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {
@@ -611,7 +643,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
         }
     }
 }
-
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
@@ -643,7 +674,7 @@ impl Handler<Status> for ClientActor {
                 return Err(StatusError::NodeIsSyncing);
             }
         }
-        let validators = self
+        let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
@@ -756,7 +787,46 @@ impl Handler<Status> for ClientActor {
                 last_block_height = block.header().height();
             }
 
-            Some(DetailedDebugStatus { last_blocks: blocks_debug })
+            Some(DetailedDebugStatus {
+                last_blocks: blocks_debug,
+                network_info: self.network_info.clone().into(),
+                sync_status: format!(
+                    "{} ({})",
+                    self.client.sync_status.as_variant_name().to_string(),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        self.client.chain.genesis_block().header().height(),
+                    ),
+                ),
+                current_head_status: head.clone().into(),
+                current_header_head_status: self.client.chain.header_head()?.clone().into(),
+                orphans: self.client.chain.orphans().list_orphans_by_height(),
+                blocks_with_missing_chunks: self
+                    .client
+                    .chain
+                    .blocks_with_missing_chunks
+                    .list_blocks_by_height(),
+                epoch_info: EpochInfoView {
+                    epoch_id: head.epoch_id.0,
+                    height: epoch_start_height,
+                    first_block_hash: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .hash()
+                        .clone(),
+                    start_time: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .timestamp()
+                        .to_rfc3339(),
+                    validators: validators.to_vec(),
+                },
+            })
         } else {
             None
         };
@@ -861,6 +931,84 @@ impl ClientActor {
         }
     }
 
+    /// Process the sandbox fast forward request. If the change in block height is past an epoch,
+    /// we fast forward to just right before the epoch, produce some blocks to get past and into
+    /// a new epoch, then we continue on with the residual amount to fast forward.
+    #[cfg(feature = "sandbox")]
+    fn sandbox_process_fast_forward(
+        &mut self,
+        block_height: BlockHeight,
+    ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
+        let mut delta_height = std::mem::replace(&mut self.fastforward_delta, 0);
+        if delta_height == 0 {
+            return Ok(None);
+        }
+
+        let epoch_length = self.client.config.epoch_length;
+        if epoch_length <= 3 {
+            return Err(Error::Other(
+                "Unsupported: fast_forward with an epoch length of 3 or less".to_string(),
+            ));
+        }
+
+        // Check if we are at epoch boundary. If we are, do not fast forward until new
+        // epoch is here. Decrement the fast_forward count by 1 when a block is produced
+        // during this period of waiting
+        let block_height_wrt_epoch = block_height % epoch_length;
+        if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
+            // wait for doomslug to call into produce block
+            self.fastforward_delta = delta_height;
+            return Ok(None);
+        }
+
+        let delta_height = if block_height_wrt_epoch + delta_height >= epoch_length {
+            // fast forward to just right before epoch boundary to have epoch_manager
+            // handle the epoch_height updates as normal. `- 3` since this is being
+            // done 3 blocks before the epoch ends.
+            let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
+
+            delta_height -= right_before_epoch_update;
+            self.fastforward_delta = delta_height;
+            right_before_epoch_update
+        } else {
+            delta_height
+        };
+
+        self.client.accrued_fastforward_delta += delta_height;
+        let delta_time = self.client.sandbox_delta_time();
+        let new_latest_known = near_chain::types::LatestKnown {
+            height: block_height + delta_height,
+            seen: near_primitives::utils::to_timestamp(Clock::utc() + delta_time),
+        };
+
+        Ok(Some(new_latest_known))
+    }
+
+    fn pre_block_production(&mut self) -> Result<(), Error> {
+        #[cfg(feature = "sandbox")]
+        {
+            let latest_known = self.client.chain.mut_store().get_latest_known()?;
+            if let Some(new_latest_known) =
+                self.sandbox_process_fast_forward(latest_known.height)?
+            {
+                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+                self.client.sandbox_update_tip(new_latest_known.height)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn post_block_production(&mut self) {
+        #[cfg(feature = "sandbox")]
+        if self.fastforward_delta > 0 {
+            // Decrease the delta_height by 1 since we've produced a single block. This
+            // ensures that we advanced the right amount of blocks when fast forwarding
+            // and fast forwarding triggers regular block production in the case of
+            // stepping between epoch boundaries.
+            self.fastforward_delta -= 1;
+        }
+    }
+
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
@@ -871,22 +1019,9 @@ impl ClientActor {
 
         let _ = self.client.check_and_update_doomslug_tip();
 
+        self.pre_block_production()?;
         let head = self.client.chain.head()?;
         let latest_known = self.client.chain.mut_store().get_latest_known()?;
-
-        #[cfg(feature = "sandbox")]
-        let latest_known = if let Some(delta_height) = self.fastforward_delta.take() {
-            let new_latest_known = near_chain::types::LatestKnown {
-                height: latest_known.height + delta_height,
-                seen: near_primitives::utils::to_timestamp(Clock::utc()),
-            };
-
-            self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
-            self.client.sandbox_update_tip(new_latest_known.height)?;
-            new_latest_known
-        } else {
-            latest_known
-        };
 
         assert!(
             head.height <= latest_known.height,
@@ -919,6 +1054,8 @@ impl ClientActor {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", "Block production failed: {}", err);
+                    } else {
+                        self.post_block_production();
                     }
                 }
             }
@@ -945,12 +1082,14 @@ impl ClientActor {
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
+        let timer = metrics::CHECK_TRIGGERS_TIME.start_timer();
         if self.sync_started {
             self.doomslug_timer_next_attempt = self.run_timer(
                 self.client.config.doosmslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, ctx| act.try_doomslug_timer(ctx),
+                "doomslug",
             );
             delay = core::cmp::min(
                 delay,
@@ -966,6 +1105,7 @@ impl ClientActor {
                 self.block_production_next_attempt,
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
+                "block_production",
             );
 
             let _ = self.client.check_head_progress_stalled(
@@ -986,6 +1126,7 @@ impl ClientActor {
             self.log_summary_timer_next_attempt,
             ctx,
             |act, _ctx| act.log_summary(),
+            "log_summary",
         );
         delay = core::cmp::min(
             delay,
@@ -1004,7 +1145,9 @@ impl ClientActor {
                     act.client.shards_mgr.resend_chunk_requests(&header_head)
                 }
             },
+            "resend_chunk_requests",
         );
+        timer.observe_duration();
         core::cmp::min(
             delay,
             self.chunk_request_retry_next_attempt
@@ -1391,6 +1534,7 @@ impl ClientActor {
         next_attempt: DateTime<Utc>,
         ctx: &mut Context<ClientActor>,
         f: F,
+        timer_label: &str,
     ) -> DateTime<Utc>
     where
         F: FnOnce(&mut Self, &mut <Self as Actor>::Context) + 'static,
@@ -1400,7 +1544,10 @@ impl ClientActor {
             return next_attempt;
         }
 
+        let timer =
+            metrics::CLIENT_TRIGGER_TIME_BY_TYPE.with_label_values(&[timer_label]).start_timer();
         f(self, ctx);
+        timer.observe_duration();
 
         return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
     }
@@ -1628,7 +1775,9 @@ impl ClientActor {
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
+            self.client.chain.store().get_store_statistics(),
         );
+        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info().unwrap_or(String::from("Upcoming block info failed.")));
     }
 }
 
@@ -1658,8 +1807,7 @@ impl SyncJobsActor {
             msg.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                part_id,
-                msg.num_parts,
+                PartId::new(part_id, msg.num_parts),
                 &part,
                 &msg.epoch_id,
             )?;
@@ -1784,7 +1932,8 @@ pub fn start_client(
     sender: Option<oneshot::Sender<()>>,
     #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
-    let client_arbiter_handle = Arbiter::current();
+    let client_arbiter = Arbiter::new();
+    let client_arbiter_handle = client_arbiter.handle();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client_config,

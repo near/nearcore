@@ -94,7 +94,9 @@ use near_chain::{
     byzantine_assert, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind,
     RuntimeAdapter,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, WrappedInstant,
+};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::Tip;
 use near_primitives::hash::{hash, CryptoHash};
@@ -656,7 +658,11 @@ impl ShardsManager {
                 };
 
                 self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkRequest { target, request },
+                    NetworkRequests::PartialEncodedChunkRequest {
+                        target,
+                        request,
+                        create_time: WrappedInstant(Clock::instant()),
+                    },
                 ));
             } else {
                 warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
@@ -2266,7 +2272,7 @@ mod test {
             5,
         ));
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-        let mut chain_store = ChainStore::new(create_test_store(), 0);
+        let mut chain_store = ChainStore::new(create_test_store(), 0, true);
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
@@ -2462,7 +2468,7 @@ mod test {
             let mut parts = HashSet::new();
             while let Some(r) = fixture.mock_network.pop() {
                 match r.as_network_requests_ref() {
-                    NetworkRequests::PartialEncodedChunkRequest { target: _, request } => {
+                    NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
                         for part_ord in &request.part_ords {
                             parts.insert(*part_ord);
                         }

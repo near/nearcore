@@ -4,14 +4,13 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.51"
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
-actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix = "0.12.0"
 actix-web = "=4.0.0-beta.6"
 actix-rt = "2"
 byteorder = "1.2"
@@ -26,6 +25,7 @@ rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_ignored = "0.1"
 dirs = "3"
 borsh = "0.9"
 thiserror = "1.0"
@@ -38,6 +38,8 @@ lazy-static-include = "3"
 tempfile = "3"
 indicatif = "0.15.0"
 xz2 = "0.1.6"
+rlimit = "0.7"
+strum = "0.20"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
@@ -61,11 +63,16 @@ near-network-primitives = { path = "../chain/network-primitives" }
 delay-detector = { path = "../tools/delay_detector" }
 
 [dev-dependencies]
+bencher = "0.1.5"
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
+
+[[bench]]
+name = "store"
+harness = false
 
 [features]
 default = ["json_rpc", "rosetta_rpc"]
@@ -80,7 +87,7 @@ test_features = [
   "near-client/test_features",
   "near-network/test_features",
   "near-store/test_features",
-  "near-jsonrpc/test_features",
+  "near-jsonrpc/test_features"
 ]
 expensive_tests = [
   "near-client/expensive_tests",
@@ -124,7 +131,7 @@ protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
 ]
-protocol_feature_chunk_nodes_cache = ["node-runtime/protocol_feature_chunk_nodes_cache"]
+protocol_feature_chunk_nodes_cache = ["near-vm-runner/protocol_feature_chunk_nodes_cache", "node-runtime/protocol_feature_chunk_nodes_cache", "near-primitives/protocol_feature_chunk_nodes_cache"]
 nightly_protocol_features = [
   "nightly_protocol",
   "near-primitives/nightly_protocol_features",
@@ -136,7 +143,7 @@ nightly_protocol_features = [
   "protocol_feature_routing_exchange_algorithm",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_chunk_nodes_cache"
+  "protocol_feature_chunk_nodes_cache",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",

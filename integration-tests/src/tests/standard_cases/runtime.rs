@@ -320,9 +320,23 @@ mod test {
     }
 
     #[test]
-    fn test_chunk_nodes_cache_across_receipts_runtime() {
+    fn test_chunk_nodes_cache_same_common_parent() {
         let node = create_runtime_node();
         let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-        test_chunk_nodes_cache_across_receipts(node, runtime_config);
+        test_chunk_nodes_cache_common_parent(node, runtime_config);
+    }
+
+    #[test]
+    fn test_chunk_nodes_cache_branch_value_runtime() {
+        let node = create_runtime_node();
+        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        test_chunk_nodes_cache_branch_value(node, runtime_config);
+    }
+
+    #[test]
+    fn test_chunk_nodes_cache_mode_runtime() {
+        let node = create_runtime_node();
+        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        test_chunk_nodes_cache_mode(node, runtime_config);
     }
 }
