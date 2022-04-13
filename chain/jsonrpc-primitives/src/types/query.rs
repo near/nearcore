@@ -87,6 +87,9 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
+    /// This can be returned due to the post-processing code:
+    /// https://github.com/near/nearcore/blob/2d7e7f141b387c15cde9a60ed90d64fd0a517c07/chain/jsonrpc/src/lib.rs#L140
+    LegacyError(near_primitives::views::QueryError),
 }
 
 impl RpcQueryRequest {
