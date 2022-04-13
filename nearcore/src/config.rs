@@ -1735,19 +1735,32 @@ fn test_init_config_localnet() {
     );
 }
 
-/// Tests that loading a config.json file works and results in reasonable
-/// default values being applied.
+/// Tests that loading a config.json file works and results in values being
+/// correctly parsed and defaults being applied correctly applied.
 #[test]
 fn test_config_from_file() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    tmp.as_file().write_all(include_bytes!("../../testdata/example-config.json")).unwrap();
-    let config = Config::from_file(&tmp.into_temp_path()).unwrap();
-    // TODO(mina86): We might want to add more checks.  Looking at all values is
-    // probably not worth it but there may be some other defaults we want to
-    // ensure that they happen.
-    assert_eq!(GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 1000 }, config.gc);
-    assert_eq!(
-        vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
-        config.telemetry.endpoints
-    );
+    for (has_gc, data) in [
+        (true, include_bytes!("../../testdata/example-config-gc.json").as_slice()),
+        (false, include_bytes!("../../testdata/example-config-no-gc.json").as_slice()),
+    ] {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.as_file().write_all(data).unwrap();
+
+        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+
+        // TODO(mina86): We might want to add more checks.  Looking at all
+        // values is probably not worth it but there may be some other defaults
+        // we want to ensure that they happen.
+        let want_gc = if has_gc {
+            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420 }
+        } else {
+            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+        };
+        assert_eq!(want_gc, config.gc);
+
+        assert_eq!(
+            vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
+            config.telemetry.endpoints
+        );
+    }
 }
