@@ -3129,7 +3129,7 @@ mod tests {
     use near_primitives::merkle::PartialMerkleTree;
     use strum::IntoEnumIterator;
 
-    use near_chain_configs::GenesisConfig;
+    use near_chain_configs::{GCConfig, GenesisConfig};
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -3401,7 +3401,7 @@ mod tests {
         }
 
         let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie, 100).is_ok());
+        chain.clear_data(trie, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..15 {
@@ -3639,7 +3639,9 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone(), gc_blocks_limit).is_ok());
+            assert!(chain
+                .clear_data(trie.clone(), &GCConfig { gc_blocks_limit, ..GCConfig::default() })
+                .is_ok());
 
             // epoch didn't change so no data is garbage collected.
             for i in 0..1000 {
