@@ -328,12 +328,12 @@ fn default_col_state_cache_size() -> usize {
 }
 
 impl StoreConfig {
-    // This is a value that we've used since 3 Dec 2019.
+    /// This is a value that we've used since 3 Dec 2019.
     pub const DEFAULT_MAX_OPEN_FILES: i32 = 512;
 
-    // We used to have the same cache size for all columns 32MB. When some RocksDB
-    // inefficiencies were found ColState cache size was increased up to 512MB.
-    // This was done Nov 13 2021 and we consider increasing the value.
+    /// We used to have the same cache size for all columns 32MB. When some RocksDB
+    /// inefficiencies were found ColState cache size was increased up to 512MB.
+    /// This was done Nov 13 2021 and we consider increasing the value.
     pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
 
     pub fn read_only() -> StoreConfig {
