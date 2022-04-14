@@ -85,6 +85,7 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
+    #[cfg(feature = "protocol_feature_function_call_weight")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
         method_name_len: u64,
@@ -807,6 +808,7 @@ fn call_promise() {
     }
 }
 
+#[cfg(feature = "protocol_feature_function_call_weight")]
 #[no_mangle]
 fn attach_unspent_gas_but_burn_all_gas() {
     unsafe {
@@ -835,6 +837,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
     }
 }
 
+#[cfg(feature = "protocol_feature_function_call_weight")]
 #[no_mangle]
 fn attach_unspent_gas_but_use_all_gas() {
     unsafe {
@@ -858,8 +861,7 @@ fn attach_unspent_gas_but_use_all_gas() {
             gas_weight,
         );
 
-        let promise_idx =
-            promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+        let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
 
         let gas_fixed = 10u64.pow(14);
         let gas_weight = 0;

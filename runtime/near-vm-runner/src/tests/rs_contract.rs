@@ -1,7 +1,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::test_utils::encode;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
@@ -317,10 +317,14 @@ pub fn test_out_of_memory() {
     })
 }
 
+fn function_call_weight_contract() -> ContractCode {
+    ContractCode::new(near_test_contracts::function_call_weight_rs_contract().to_vec(), None)
+}
+
 #[test]
 fn attach_unspent_gas_but_burn_all_gas() {
     with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
+        let code = function_call_weight_contract();
         let mut external = MockedExternal::new();
         let mut config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
@@ -365,7 +369,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
 #[test]
 fn attach_unspent_gas_but_use_all_gas() {
     with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
+        let code = function_call_weight_contract();
         let mut external = MockedExternal::new();
         let mut config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
