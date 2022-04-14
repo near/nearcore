@@ -55,7 +55,7 @@ impl<CS: ColumnSet> ColumnStore<CS> {
         C: Column,
     {
         let () = AssertHasColumn::<CS, C>::OK;
-        self.raw.get(C::RAW, key)
+        self.raw.get_unchecked(C::RAW, key)
     }
 
     pub fn update(&self) -> ColumnStoreUpdate<CS> {
@@ -158,6 +158,11 @@ impl Default for AtomicColBitSet {
 }
 
 impl AtomicColBitSet {
+    pub(crate) fn contains(&self, col: DBCol) -> bool {
+        let mask = ColBitSet::mask(col);
+        self.repr.load(Ordering::SeqCst) & mask == mask
+    }
+
     pub(crate) fn claim(&self, other: ColBitSet) -> Result<(), ()> {
         loop {
             let repr = self.repr.load(Ordering::SeqCst);

@@ -59,6 +59,10 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        assert!(self.unclaimed_cols.contains(column));
+        self.get_unchecked(column, key)
+    }
+    fn get_unchecked(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         self.storage.get(column, key).map_err(io::Error::from)
     }
 
