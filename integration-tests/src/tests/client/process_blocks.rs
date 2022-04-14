@@ -4698,12 +4698,12 @@ mod chunk_nodes_cache_test {
     /// (Extension) -> (Branch) -> (Extension) -> (Branch) |
     ///                                                    --> (Leaf) -> (Value 2)
     ///
-    /// 2nd run should count 12 regular db reads - for 6 nodes per each value.
-    /// 3nd run should count 8 db and 4 memory reads, which comes from 6 db reads for `Value 1` and only 2 db reads for
-    /// `Value 2`, because first 4 nodes were already put into the chunk cache.
+    /// 2nd run should count 12 regular db reads - for 6 nodes per each value, because protocol is not upgraded yet.
+    /// 3nd run follows the upgraded protocol and it should count 8 db and 4 memory reads, which comes from 6 db reads
+    /// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the chunk cache.
     /// 4nd run should give the same results, because caching must not affect different chunks.
     #[test]
-    fn compare_node_touches() {
+    fn compare_node_counts() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 10;
@@ -4770,9 +4770,11 @@ mod chunk_nodes_cache_test {
                             assert_eq!(cost % touching_trie_node_cost, 0);
                             cost / touching_trie_node_cost
                         },
-                        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
                         mem_reads: {
+                            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
                             let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
+                            #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+                            let cost = 0;
                             assert_eq!(cost % read_cached_trie_node_cost, 0);
                             cost / read_cached_trie_node_cost
                         },
