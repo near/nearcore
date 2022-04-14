@@ -2,9 +2,21 @@
 
 pub use {tracing, tracing_appender, tracing_subscriber};
 
+use once_cell::sync::OnceCell;
 use std::borrow::Cow;
+use std::str::FromStr;
+use tracing_appender::non_blocking::NonBlocking;
 
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::ParseError;
+use tracing_subscriber::fmt::format::{DefaultFields, Format};
+use tracing_subscriber::fmt::Layer;
+use tracing_subscriber::layer::Layered;
+use tracing_subscriber::reload::{Error, Handle};
+use tracing_subscriber::{EnvFilter, Registry};
+
+static ENV_FILTER_RELOAD_HANDLE: OnceCell<
+    Handle<EnvFilter, Layered<Layer<Registry, DefaultFields, Format, NonBlocking>, Registry>>,
+> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
@@ -82,19 +94,53 @@ pub fn default_subscriber(
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+
+    let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
         )
-        .with_env_filter(log_filter)
         .with_writer(writer)
-        .finish();
+        .with_env_filter(log_filter)
+        .with_filter_reloading();
+    let reload_handle = subscriber_builder.reload_handle();
+    ENV_FILTER_RELOAD_HANDLE.set(reload_handle).unwrap();
+
+    let subscriber = subscriber_builder.finish();
     DefaultSubcriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard,
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReloadError {
+    #[error("reload error")]
+    ReloadErrorType { err: Error },
+    #[error("env_filter directive parse error")]
+    ParseErrorType { err: ParseError },
+    #[error("env_filter reload handle is not available")]
+    NoReloadHandlerType,
+}
+
+impl From<ParseError> for ReloadError {
+    fn from(err: ParseError) -> Self {
+        Self::ParseErrorType { err }
+    }
+}
+
+impl From<tracing_subscriber::reload::Error> for ReloadError {
+    fn from(err: Error) -> Self {
+        Self::ReloadErrorType { err }
+    }
+}
+
+pub fn reload_env_filter(env_filter_directives: &str) -> Result<(), ReloadError> {
+    ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandlerType), |reload_handle| {
+        reload_handle.reload(EnvFilter::from_str(env_filter_directives)?)?;
+        Ok(())
+    })
 }
 
 pub struct EnvFilterBuilder<'a> {

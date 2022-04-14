@@ -14,14 +14,14 @@ use tokio::time::{sleep, timeout};
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, fmt, reload};
+use tracing_subscriber::{filter, reload};
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ChangeLogLevel, ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome,
-    GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status,
-    TxStatus, TxStatusError, ViewClientActor,
+    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
+    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
+    TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -29,6 +29,7 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_o11y::reload_env_filter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -1467,45 +1468,33 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
 #[get("/debug/log_level_debug")]
 async fn log_level_debug() -> actix_web::Result<impl actix_web::Responder> {
     println!("log_level_debug");
-    let filter = filter::LevelFilter::DEBUG;
-    let (filter, _reload_handle) = reload::Layer::new(filter);
-
-    tracing_subscriber::registry().with(filter).init();
-    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
-    Ok(HttpResponse::Ok().json("OK"))
+    let result = reload_env_filter("debug")
+        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[get("/debug/log_level_info")]
 async fn log_level_info() -> actix_web::Result<impl actix_web::Responder> {
     println!("log_level_info");
-    let filter = filter::LevelFilter::INFO;
-    let (filter, _reload_handle) = reload::Layer::new(filter);
-
-    tracing_subscriber::registry().with(filter).init();
-    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
-    Ok(HttpResponse::Ok().json("OK"))
+    let result = reload_env_filter("info")
+        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[get("/debug/log_level_warn")]
 async fn log_level_warn() -> actix_web::Result<impl actix_web::Responder> {
     println!("log_level_warn");
-    let filter = filter::LevelFilter::WARN;
-    let (filter, _reload_handle) = reload::Layer::new(filter);
-
-    tracing_subscriber::registry().with(filter).init();
-    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
-    Ok(HttpResponse::Ok().json("OK"))
+    let result = reload_env_filter("warn")
+        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[get("/debug/log_level_error")]
 async fn log_level_error() -> actix_web::Result<impl actix_web::Responder> {
     println!("log_level_error");
-    let filter = filter::LevelFilter::ERROR;
-    let (filter, reload_handle) = reload::Layer::new(filter);
-
-    tracing_subscriber::registry().with(filter).init();
-    reload_handle.modify(|filter| *filter = filter::LevelFilter::ERROR);
-    Ok(HttpResponse::Ok().json("OK"))
+    let result = reload_env_filter("error")
+        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
+    Ok(HttpResponse::Ok().json(result))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
