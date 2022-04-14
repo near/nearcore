@@ -96,6 +96,8 @@ protocol_feature_alt_bn128 = [
 protocol_feature_function_call_weight = [
     "near-vm-logic/protocol_feature_function_call_weight",
 ]
+protocol_feature_chunk_nodes_cache = ["near-vm-logic/protocol_feature_chunk_nodes_cache", "near-primitives/protocol_feature_chunk_nodes_cache"]
+
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = ["near-vm-logic/sandbox"]
 
