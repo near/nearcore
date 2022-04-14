@@ -14,7 +14,7 @@ pub fn connect_at_max_capacity(
     max_num_peers: u32,
     expected_connections: usize,
     extra_nodes: usize,
-) {
+) -> anyhow::Result<()> {
     // Use at most 4 boot nodes
     let total_boot_nodes = min(num_node, 4);
 
@@ -50,25 +50,25 @@ pub fn connect_at_max_capacity(
         runner.push_action(check_expected_connections(node_id, Some(expected_connections), None));
     }
 
-    start_test(runner);
+    start_test(runner)
 }
 
 /// Check that two nodes are able to connect if they only know themselves from boot list.
 #[test]
-fn simple_network() {
-    connect_at_max_capacity(2, 1, 1, 1, 1, 0);
+fn simple_network() -> anyhow::Result<()> {
+    connect_at_max_capacity(2, 1, 1, 1, 1, 0)
 }
 
 /// Start 4 nodes and connect them all with each other.
 /// Create new node, it should be able to connect since max allowed peers is 4.
 #[test]
-fn connect_on_almost_full_network() {
-    connect_at_max_capacity(4, 1, 3, 4, 1, 1);
+fn connect_on_almost_full_network() -> anyhow::Result<()> {
+    connect_at_max_capacity(4, 1, 3, 4, 1, 1)
 }
 
 /// Start 4 nodes and connect them all with each other.
 /// Create new node, it should be able to connect even if max allowed peers is 3.
 #[test]
-fn connect_on_full_network() {
-    connect_at_max_capacity(5, 2, 3, 4, 2, 1);
+fn connect_on_full_network() -> anyhow::Result<()> {
+    connect_at_max_capacity(5, 2, 3, 4, 2, 1)
 }
