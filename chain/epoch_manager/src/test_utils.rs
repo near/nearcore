@@ -277,7 +277,7 @@ pub fn record_block_with_final_block_hash(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
-    epoch_manager
+    let update = epoch_manager
         .record_block_info(
             BlockInfo::new(
                 cur_h,
@@ -294,9 +294,8 @@ pub fn record_block_with_final_block_hash(
             ),
             [0; 32],
         )
-        .unwrap()
-        .commit()
         .unwrap();
+    epoch_manager.col_store.commit(update).unwrap();
 }
 
 pub fn record_block_with_slashes(
@@ -307,7 +306,7 @@ pub fn record_block_with_slashes(
     proposals: Vec<ValidatorStake>,
     slashed: Vec<SlashedValidator>,
 ) {
-    epoch_manager
+    let update = epoch_manager
         .record_block_info(
             BlockInfo::new(
                 cur_h,
@@ -324,9 +323,8 @@ pub fn record_block_with_slashes(
             ),
             [0; 32],
         )
-        .unwrap()
-        .commit()
         .unwrap();
+    epoch_manager.col_store.commit(update).unwrap();
 }
 
 pub fn record_block(
@@ -367,5 +365,6 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+    let update = epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+    epoch_manager.col_store.commit(update).unwrap();
 }

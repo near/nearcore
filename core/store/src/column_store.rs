@@ -116,8 +116,9 @@ macro_rules! define_column_set {
     ($set:ident { $($col:ident),* $(,)?}) => {
         pub enum $set {}
         impl $crate::column_store::ColumnSet for $set {
-            const COLUMNS: $crate::column_store::ColBitSet =
-                $crate::column_store::ColBitSet::new(&[$($col::RAW),*]);
+            const COLUMNS: $crate::column_store::ColBitSet = $crate::column_store::ColBitSet::new(&[
+                $(<$col as $crate::column_store::Column>::RAW),*
+            ]);
         }
     };
 }
