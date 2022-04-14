@@ -142,6 +142,19 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
+fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
+    // have some other file descriptors opened by neard process so we use the value of
+    // 2 * max_open_files to be sure that the binary can correctly run.
+    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
+    let required = 2 * max_open_files as u64;
+    if soft < required {
+        assert!(hard >= required, concat!("Can't run near binary since hard limit for the number ",
+                "of opened files is too small: {} required: {}"), hard, 2 * max_open_files);
+        rlimit::Resource::NOFILE.set(required, hard).unwrap();
+    }
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -184,6 +197,7 @@ impl RocksDBOptions {
         store_config: &StoreConfig,
     ) -> Result<RocksDB, DBError> {
         let path = path.as_ref();
+        ensure_max_open_files_limit(store_config.max_open_files);
         if store_config.read_only {
             return self.read_only(path, &store_config);
         }
@@ -473,18 +487,6 @@ fn set_compression_options(opts: &mut Options) {
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
 }
 
-fn ensure_max_open_files_limit(max_open_files: i32) -> () {
-    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
-    // have some other file descriptors opened by neard process so we use the value of
-    // 2 * max_open_files to be sure that the binary can correctly run.
-    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
-    let required = 2 * max_open_files as u64;
-    if soft < required {
-        assert!(hard >= required, "Can't run near binary since hard limit for the number of opened files is too small: {} required: {}", hard, 2 * max_open_files);
-        rlimit::Resource::NOFILE.set(required, hard).unwrap();
-    }
-}
-
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig) -> Options {
     let mut opts = Options::default();
@@ -493,7 +495,6 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    ensure_max_open_files_limit(store_config.max_open_files);
     opts.set_max_open_files(store_config.max_open_files);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
