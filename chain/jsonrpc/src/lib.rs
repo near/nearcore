@@ -1469,9 +1469,7 @@ struct LogLevelInfo {
 
 #[get("/debug/log_level")]
 async fn log_level(info: web::Query<LogLevelInfo>) -> actix_web::Result<impl actix_web::Responder> {
-    println!("log_level");
     let rust_log = &info.rust_log;
-    println!("log_level, rust_log={}", rust_log);
     let result = reload_env_filter(&rust_log)
         .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
     Ok(HttpResponse::Ok().json(result))
