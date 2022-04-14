@@ -12,9 +12,9 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::{DBCol, DBOp, DBTransaction};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -79,7 +79,7 @@ impl ShardTries {
         self.0.store.clone()
     }
 
-    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut shards = HashMap::new();
         for op in &transaction.ops {

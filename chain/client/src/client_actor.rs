@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::db::DBCol::ColStateParts;
+use near_store::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
+                        for _ in store.iter(near_store::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -802,6 +802,11 @@ impl Handler<Status> for ClientActor {
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
+                blocks_with_missing_chunks: self
+                    .client
+                    .chain
+                    .blocks_with_missing_chunks
+                    .list_blocks_by_height(),
                 epoch_info: EpochInfoView {
                     epoch_id: head.epoch_id.0,
                     height: epoch_start_height,

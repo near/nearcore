@@ -98,8 +98,8 @@
   "wasm_config": {
     "ext_costs": {
       "base": 264768111,
-      "contract_compile_base": 35445963,
-      "contract_compile_bytes": 216750,
+      "contract_loading_base": 35445963,
+      "contract_loading_bytes": 216750,
       "read_memory_base": 2609863200,
       "read_memory_byte": 3801333,
       "write_memory_base": 2803794861,
@@ -183,7 +183,8 @@
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
-      "max_functions_number_per_contract": 10000
+      "max_functions_number_per_contract": 10000,
+      "wasmer2_stack_limit": 204800
     }
   },
   "account_creation_config": {

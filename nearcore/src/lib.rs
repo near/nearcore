@@ -21,7 +21,6 @@ use near_primitives::network::PeerId;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::DBCol;
 use near_store::db::RocksDB;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -29,7 +28,8 @@ use near_store::migrations::{
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
     migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
-use near_store::{create_store, create_store_with_config, Store, StoreConfig};
+use near_store::DBCol;
+use near_store::{create_store, create_store_with_config, Store};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -105,7 +105,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
             path.display()));
     }
 
-    let db = RocksDB::new(path)?;
+    let db = RocksDB::new(&path, &near_config.config.store)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -116,7 +116,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
-    let db_version = get_store_version(path);
+    let db_version = get_store_version(&path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
         std::process::exit(1);
@@ -338,7 +338,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
 
     #[cfg(not(feature = "nightly_protocol"))]
     {
-        let db_version = get_store_version(path);
+        let db_version = get_store_version(&path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
 
@@ -368,13 +368,8 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Stor
     if store_exists {
         apply_store_migrations(&path, near_config);
     }
-    let store = create_store_with_config(
-        &path,
-        StoreConfig {
-            read_only: false,
-            enable_statistics: near_config.config.enable_rocksdb_statistics,
-        },
-    );
+    let store =
+        create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -518,18 +513,18 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     use strum::IntoEnumIterator;
 
     let config_path = home_dir.join(config::CONFIG_FILENAME);
-    let archive = config::Config::from_file(&config_path)
-        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?
-        .archive;
+    let config = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?;
+    let archive = config.archive;
     let mut skip_columns = Vec::new();
     if archive && !opts.keep_partial_chunks {
-        skip_columns.push(near_store::db::DBCol::ColPartialChunks);
+        skip_columns.push(near_store::DBCol::ColPartialChunks);
     }
     if archive && !opts.keep_invalid_chunks {
-        skip_columns.push(near_store::db::DBCol::ColInvalidChunks);
+        skip_columns.push(near_store::DBCol::ColInvalidChunks);
     }
     if archive && !opts.keep_trie_changes {
-        skip_columns.push(near_store::db::DBCol::ColTrieChanges);
+        skip_columns.push(near_store::DBCol::ColTrieChanges);
     }
 
     // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
@@ -552,6 +547,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
+    let store_config = config.store.with_read_only(true);
     let db_version = get_store_version(&src_dir);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
@@ -568,10 +564,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(
-        &src_dir,
-        StoreConfig { read_only: true, enable_statistics: false },
-    );
+    let src_store = create_store_with_config(&src_dir, &store_config);
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
         let tip: Option<near_primitives::block::Tip> =

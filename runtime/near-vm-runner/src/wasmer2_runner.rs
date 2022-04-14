@@ -374,7 +374,9 @@ impl Wasmer2VM {
                         // expected layout. `gas` remains dereferenceable throughout this function
                         // by the virtue of it being contained within `import` which lives for the
                         // entirety of this function.
-                        InstanceConfig::default().with_counter(gas),
+                        InstanceConfig::default()
+                            .with_counter(gas)
+                            .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                     )
                     .map_err(|err| translate_instantiation_error(err, import.vmlogic))?;
                 // SAFETY: being called immediately after instantiation.
@@ -570,8 +572,8 @@ impl crate::runner::VM for Wasmer2VM {
             &mut memory,
             current_protocol_version,
         );
-        // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
+        // TODO: charge this before artifact is loaded
+        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
             let error = VMError::FunctionCallError(FunctionCallError::HostError(
                 near_vm_errors::HostError::GasExceeded,
             ));
