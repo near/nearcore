@@ -27,16 +27,16 @@ use near_primitives::types::EpochId;
 use near_store::test_utils::create_test_store;
 
 #[derive(Default)]
-struct Foobar {
+struct MockClientActor {
     on_view_client_callback:
         Option<Arc<dyn Fn(&NetworkViewClientMessages) -> NetworkViewClientResponses + Send + Sync>>,
 }
 
-impl Actor for Foobar {
+impl Actor for MockClientActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<NetworkViewClientMessages> for Foobar {
+impl Handler<NetworkViewClientMessages> for MockClientActor {
     type Result = NetworkViewClientResponses;
 
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
@@ -55,9 +55,9 @@ impl Handler<NetworkViewClientMessages> for Foobar {
     }
 }
 
-impl Handler<NetworkClientMessages> for Foobar {
+impl Handler<NetworkClientMessages> for MockClientActor {
     type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: NetworkClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         return NetworkClientResponses::NoResponse;
     }
 }
@@ -66,8 +66,8 @@ fn start_mock_client(
     on_view_client_callback: Option<
         Arc<dyn Fn(&NetworkViewClientMessages) -> NetworkViewClientResponses + Send + Sync>,
     >,
-) -> Addr<Foobar> {
-    SyncArbiter::start(5, move || Foobar {
+) -> Addr<MockClientActor> {
+    SyncArbiter::start(5, move || MockClientActor {
         on_view_client_callback: on_view_client_callback.clone(),
     })
 }
@@ -137,8 +137,6 @@ fn repeated_announce_accounts() {
                         let metrics = res.unwrap();
                         let sync_routing_table_sent = metrics
                             .broadcast_messages
-                            .as_ref()
-                            .unwrap()
                             .get_metric_with_label_values(&["SyncRoutingTable"])
                             .unwrap()
                             .get();
