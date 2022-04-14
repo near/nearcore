@@ -1,6 +1,6 @@
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
-use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
+use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, StopMsg,
     Unregister, ValidateEdgeList,
@@ -18,7 +18,7 @@ use crate::types::{
     PeersResponse, RoutingTableUpdate,
 };
 use actix::{
-    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -2231,7 +2231,7 @@ impl PeerManagerActor {
                 PeerResponse::NoResponse
             }
             PeerRequest::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.peer_store.add_trusted_peer(peer_info, TrustLevel::Direct) {
+                if let Err(err) = self.peer_store.add_direct_peer(peer_info) {
                     error!(target: "network", ?err, "Fail to update peer store");
                 }
                 PeerResponse::NoResponse

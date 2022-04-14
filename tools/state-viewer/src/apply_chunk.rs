@@ -13,7 +13,7 @@ use near_primitives::syncing::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
-use near_store::db::DBCol;
+use near_store::DBCol;
 use near_store::Store;
 use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;
@@ -265,7 +265,7 @@ pub(crate) fn apply_tx(
     store: Store,
     tx_hash: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
-    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
@@ -392,7 +392,7 @@ pub(crate) fn apply_receipt(
     store: Store,
     id: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
-    let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+    let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
         Ok(vec![apply_receipt_in_block(runtime, &mut chain_store, &id, outcome.block_hash)?])
@@ -453,7 +453,7 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store,
@@ -530,7 +530,7 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),

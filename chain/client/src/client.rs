@@ -149,7 +149,12 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
-        let chain = Chain::new(runtime_adapter.clone(), &chain_genesis, doomslug_threshold_mode)?;
+        let chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            doomslug_threshold_mode,
+            !config.archive,
+        )?;
         let shards_mgr = ShardsManager::new(
             validator_signer.as_ref().map(|x| x.validator_id().clone()),
             runtime_adapter.clone(),
@@ -1098,12 +1103,11 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             let timer = metrics::GC_TIME.start_timer();
-            let gc_blocks_limit = self.config.gc_blocks_limit;
             let result = if self.config.archive {
-                self.chain.clear_archive_data(gc_blocks_limit)
+                self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
             } else {
                 let tries = self.runtime_adapter.get_tries();
-                self.chain.clear_data(tries, gc_blocks_limit)
+                self.chain.clear_data(tries, &self.config.gc)
             };
             if let Err(err) = result {
                 error!(target: "client", "Can't clear old data, {:?}", err);

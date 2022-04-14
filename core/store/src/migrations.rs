@@ -28,11 +28,7 @@ use near_primitives::utils::{
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{
-    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
-    ColPartialChunks, ColStateParts,
-};
-use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
+use crate::db::{RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
@@ -40,7 +36,11 @@ use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
 use crate::trie::{TrieCache, TrieCachingStorage};
-use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use crate::DBCol::{
+    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
+    ColPartialChunks, ColStateParts,
+};
+use crate::{create_store, DBCol, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
 
 pub mod v6_to_v7;

@@ -80,6 +80,7 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::config::default_read_cached_trie_node;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -179,6 +180,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::ReadCachedTrieNode, read_cached_trie_node),
     (Cost::TouchingTrieNodeRead, touching_trie_node_read),
     (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
@@ -743,7 +745,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = vm_kind.runtime(config.clone()).unwrap().run(
+        let vm_result = vm_kind.runtime(config.clone()).unwrap().run(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
@@ -753,10 +755,9 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             PROTOCOL_VERSION,
             Some(&cache),
         );
-        match (outcome, err) {
-            (Some(it), Some(_)) => it,
-            _ => panic!(),
-        }
+        assert!(vm_result.outcome().is_some());
+        assert!(vm_result.error().is_some());
+        vm_result.outcome().cloned().unwrap()
     };
 
     let warmup_outcome = run();
@@ -1055,6 +1056,10 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let read = touching_trie_node_read(ctx);
     let write = touching_trie_node_write(ctx);
     return std::cmp::max(read, write);
+}
+
+fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
+    GasCost::from_gas(default_read_cached_trie_node().into(), ctx.config.metric)
 }
 
 fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {

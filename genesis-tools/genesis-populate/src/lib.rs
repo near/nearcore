@@ -207,7 +207,8 @@ impl GenesisBuilder {
             )?,
         );
 
-        let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
+        let mut store =
+            ChainStore::new(self.store.clone(), self.genesis.config.genesis_height, true);
         let mut store_update = store.store_update();
 
         store_update.merge(

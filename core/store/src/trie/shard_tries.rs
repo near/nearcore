@@ -1,3 +1,4 @@
+use std::io;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
@@ -11,9 +12,9 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::{DBCol, DBOp, DBTransaction};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -78,7 +79,7 @@ impl ShardTries {
         self.0.store.clone()
     }
 
-    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut shards = HashMap::new();
         for op in &transaction.ops {
@@ -324,18 +325,12 @@ impl WrappedTrieChanges {
         }
     }
 
-    pub fn wrapped_into(
-        &mut self,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.insertions_into(store_update)?;
-        self.state_changes_into(store_update);
+    pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> io::Result<()> {
         store_update.set_ser(
             DBCol::ColTrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
-        )?;
-        Ok(())
+        )
     }
 }
 
