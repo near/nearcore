@@ -142,6 +142,24 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
+fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
+    // have some other file descriptors opened by neard process so we use the value of
+    // max_open_files + some constant to be sure that the binary can correctly run.
+    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
+    let required = max_open_files as u64 + 1025;
+    if soft < required {
+        assert!(
+            hard >= required,
+            "Can't run near binary since hard limit for the number \
+                of opened files is too small: {} required: {}",
+            hard,
+            required
+        );
+        rlimit::Resource::NOFILE.set(required, hard).unwrap();
+    }
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -184,6 +202,7 @@ impl RocksDBOptions {
         store_config: &StoreConfig,
     ) -> Result<RocksDB, DBError> {
         let path = path.as_ref();
+        ensure_max_open_files_limit(store_config.max_open_files);
         if store_config.read_only {
             return self.read_only(path, &store_config);
         }
