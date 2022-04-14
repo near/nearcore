@@ -136,9 +136,9 @@ impl From<tracing_subscriber::reload::Error> for ReloadError {
     }
 }
 
-pub fn reload_env_filter(env_filter_directives: &str) -> Result<(), ReloadError> {
+pub fn reload_env_filter(rust_log: &str) -> Result<(), ReloadError> {
     ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandlerType), |reload_handle| {
-        reload_handle.reload(EnvFilter::from_str(env_filter_directives)?)?;
+        reload_handle.reload(EnvFilter::from_str(rust_log)?)?;
         Ok(())
     })
 }

@@ -12,9 +12,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
 use tracing::info;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, reload};
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
@@ -1465,34 +1462,17 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
 }
 
-#[get("/debug/log_level_debug")]
-async fn log_level_debug() -> actix_web::Result<impl actix_web::Responder> {
-    println!("log_level_debug");
-    let result = reload_env_filter("debug")
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
-    Ok(HttpResponse::Ok().json(result))
+#[derive(Deserialize, Debug)]
+struct LogLevelInfo {
+    rust_log: String,
 }
 
-#[get("/debug/log_level_info")]
-async fn log_level_info() -> actix_web::Result<impl actix_web::Responder> {
-    println!("log_level_info");
-    let result = reload_env_filter("info")
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
-    Ok(HttpResponse::Ok().json(result))
-}
-
-#[get("/debug/log_level_warn")]
-async fn log_level_warn() -> actix_web::Result<impl actix_web::Responder> {
-    println!("log_level_warn");
-    let result = reload_env_filter("warn")
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
-    Ok(HttpResponse::Ok().json(result))
-}
-
-#[get("/debug/log_level_error")]
-async fn log_level_error() -> actix_web::Result<impl actix_web::Responder> {
-    println!("log_level_error");
-    let result = reload_env_filter("error")
+#[get("/debug/log_level")]
+async fn log_level(info: web::Query<LogLevelInfo>) -> actix_web::Result<impl actix_web::Responder> {
+    println!("log_level");
+    let rust_log = &info.rust_log;
+    println!("log_level, rust_log={}", rust_log);
+    let result = reload_env_filter(&rust_log)
         .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
     Ok(HttpResponse::Ok().json(result))
 }
@@ -1563,10 +1543,7 @@ pub fn start_http(
             .service(sync_info_html)
             .service(chain_info_html)
             .service(epoch_info_html)
-            .service(log_level_debug)
-            .service(log_level_info)
-            .service(log_level_warn)
-            .service(log_level_error)
+            .service(log_level)
     })
     .bind(addr)
     .unwrap()
