@@ -1,11 +1,11 @@
 use std::collections::HashSet;
-use std::iter::Iterator;
-use std::sync::{Arc};
 use std::future::Future;
+use std::iter::Iterator;
+use std::sync::Arc;
 use tokio::time;
 
 use actix::{Actor, Addr, AsyncContext};
-use anyhow::{anyhow,bail};
+use anyhow::{anyhow, bail};
 use chrono::DateTime;
 use near_primitives::time::Utc;
 use tracing::debug;
@@ -18,14 +18,14 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, NetworkRecipient, 
+    GetInfo, NetworkRecipient,
 };
 
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::test_utils::SetAdvOptions;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
-use near_network::types::{PeerManagerMessageRequest};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
@@ -38,7 +38,7 @@ use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::pin::Pin;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-pub type ActionFn = Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a,anyhow::Result<bool>>>;
+pub type ActionFn = Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<bool>>>;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -133,7 +133,7 @@ pub enum Action {
 }
 
 pub struct RunningInfo {
-    runner : Runner,
+    runner: Runner,
     nodes: Vec<Option<NodeHandle>>,
     peers_info: Vec<PeerInfo>,
 }
@@ -142,31 +142,49 @@ struct StateMachine {
     actions: Vec<ActionFn>,
 }
 
-async fn check_routing_table(info: &mut RunningInfo, u:usize, expected:Vec<(usize, Vec<usize>)>) -> anyhow::Result<bool> { 
+async fn check_routing_table(
+    info: &mut RunningInfo,
+    u: usize,
+    expected: Vec<(usize, Vec<usize>)>,
+) -> anyhow::Result<bool> {
     let mut expected_rt = vec![];
-    for (target,routes) in expected {
+    for (target, routes) in expected {
         let mut peers = vec![];
         for hop in routes {
             peers.push(info.peers_info[hop].id.clone());
         }
-        expected_rt.push((info.peers_info[target].id.clone(),peers));
+        expected_rt.push((info.peers_info[target].id.clone(), peers));
     }
     let pm = info.get_node(u)?.addr.clone();
-    let resp = pm.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable)).await?;
-    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() { rt } else { bail!("bad response") };
-    return Ok(expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(),expected_rt));
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response")
+    };
+    return Ok(expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt));
 }
 
-async fn check_account_id(info:&mut RunningInfo, source:usize, known_validators:Vec<usize>) -> anyhow::Result<bool> {
+async fn check_account_id(
+    info: &mut RunningInfo,
+    source: usize,
+    known_validators: Vec<usize>,
+) -> anyhow::Result<bool> {
     let mut expected_known = vec![];
     for u in known_validators.clone() {
         expected_known.push(info.peers_info[u].account_id.clone().unwrap());
     }
     let pm = &info.get_node(source)?.addr;
-    let resp = pm.send(PeerManagerMessageRequest::NetworkRequests(
-        NetworkRequests::FetchRoutingTable,
-    )).await?;
-    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() { rt } else { bail!("bad response") };
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response")
+    };
     for v in &expected_known {
         if !rt.account_peers.contains_key(v) {
             return Ok(false);
@@ -175,9 +193,14 @@ async fn check_account_id(info:&mut RunningInfo, source:usize, known_validators:
     return Ok(true);
 }
 
-async fn check_ping_pong(info:&mut RunningInfo, source:usize, pings: Vec<(usize, usize, Option<usize>)>, pongs: Vec<(usize, usize, Option<usize>)>) -> anyhow::Result<bool> {
+async fn check_ping_pong(
+    info: &mut RunningInfo,
+    source: usize,
+    pings: Vec<(usize, usize, Option<usize>)>,
+    pongs: Vec<(usize, usize, Option<usize>)>,
+) -> anyhow::Result<bool> {
     let mut pings_expected = vec![];
-    for (nonce,source,count) in pings {
+    for (nonce, source, count) in pings {
         pings_expected.push((nonce, info.peers_info[source].id.clone(), count));
     }
     let mut pongs_expected = vec![];
@@ -185,19 +208,32 @@ async fn check_ping_pong(info:&mut RunningInfo, source:usize, pings: Vec<(usize,
         pongs_expected.push((nonce, info.peers_info[source].id.clone(), count));
     }
     let pm = &info.get_node(source)?.addr;
-    let resp = pm.send(PeerManagerMessageRequest::NetworkRequests(
-        NetworkRequests::FetchPingPongInfo,
-    )).await?;
-    let (pings,pongs) = if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() { (pings,pongs) } else { bail!("bad response") };
-    if pings.len() != pings_expected.len() { return Ok(false) }
-    for (nonce,source,count) in pings_expected {
-        let ping = if let Some(ping) = pings.get(&nonce) { ping } else { return Ok(false) };
-        if ping.0.source != source || count.map_or(false,|c|c != ping.1) { return Ok(false) }
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchPingPongInfo))
+        .await?;
+    let (pings, pongs) =
+        if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() {
+            (pings, pongs)
+        } else {
+            bail!("bad response")
+        };
+    if pings.len() != pings_expected.len() {
+        return Ok(false);
     }
-    if pongs.len() != pongs_expected.len() { return Ok(false) }
-    for (nonce,source,count) in pongs_expected {
+    for (nonce, source, count) in pings_expected {
+        let ping = if let Some(ping) = pings.get(&nonce) { ping } else { return Ok(false) };
+        if ping.0.source != source || count.map_or(false, |c| c != ping.1) {
+            return Ok(false);
+        }
+    }
+    if pongs.len() != pongs_expected.len() {
+        return Ok(false);
+    }
+    for (nonce, source, count) in pongs_expected {
         let pong = if let Some(pong) = pongs.get(&nonce) { pong } else { return Ok(false) };
-        if pong.0.source != source || count.map_or(false,|c|c != pong.1) { return Ok(false) }
+        if pong.0.source != source || count.map_or(false, |c| c != pong.1) {
+            return Ok(false);
+        }
     }
     Ok(true)
 }
@@ -253,10 +289,14 @@ impl StateMachine {
                 })));
             }
             Action::CheckRoutingTable(u, expected) => {
-                self.actions.push(Box::new(move|info|Box::pin(check_routing_table(info,u,expected.clone()))));
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_routing_table(info, u, expected.clone()))
+                }));
             }
             Action::CheckAccountId(source, known_validators) => {
-                self.actions.push(Box::new(move|info|Box::pin(check_account_id(info,source,known_validators.clone()))));
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_account_id(info, source, known_validators.clone()))
+                }));
             }
             Action::PingTo(source, nonce, target) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
@@ -283,7 +323,9 @@ impl StateMachine {
                 })));
             }
             Action::CheckPingPong(source, pings, pongs) => {
-                self.actions.push(Box::new(move|info|Box::pin(check_ping_pong(info,source,pings.clone(),pongs.clone()))));
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_ping_pong(info, source, pings.clone(), pongs.clone()))
+                }));
             }
         }
     }
@@ -339,12 +381,12 @@ struct NodeHandle {
 
 impl NodeHandle {
     async fn stop(self) -> anyhow::Result<()> {
-        self.send_stop.send(()).map_err(|_|anyhow!("send_failed"))?;
-        tokio::task::spawn_blocking(||self.handle.join().map_err(|_|anyhow!("node panicked"))?).await??;
+        self.send_stop.send(()).map_err(|_| anyhow!("send_failed"))?;
+        tokio::task::spawn_blocking(|| self.handle.join().map_err(|_| anyhow!("node panicked"))?)
+            .await??;
         Ok(())
     }
 }
-
 
 impl Runner {
     pub fn new(num_nodes: usize, num_validators: usize) -> Self {
@@ -516,22 +558,22 @@ impl Runner {
             let account_id = accounts_id[node_id].clone();
             let validators = self.validators.clone().unwrap();
             let genesis_time = self.genesis_time.unwrap();
-            move||actix::System::new().block_on(async move {
-                send_pm.send(setup_network_node(
-                    account_id,
-                    validators,
-                    genesis_time,
-                    network_config,
-                )).map_err(|_|anyhow!("send failed"))?;
-                recv_stop.await?;
-                Ok(())
-            })
+            move || {
+                actix::System::new().block_on(async move {
+                    send_pm
+                        .send(setup_network_node(
+                            account_id,
+                            validators,
+                            genesis_time,
+                            network_config,
+                        ))
+                        .map_err(|_| anyhow!("send failed"))?;
+                    recv_stop.await?;
+                    Ok(())
+                })
+            }
         });
-        Ok(NodeHandle{
-            addr: recv_pm.await?,
-            send_stop: send_stop,
-            handle: handle,
-        })
+        Ok(NodeHandle { addr: recv_pm.await?, send_stop: send_stop, handle: handle })
     }
 
     async fn build(mut self) -> anyhow::Result<RunningInfo> {
@@ -555,10 +597,10 @@ impl Runner {
         self.validators = Some(validators);
 
         let mut nodes = vec![];
-        for (node_id,_) in self.test_config.iter().enumerate() {
+        for (node_id, _) in self.test_config.iter().enumerate() {
             nodes.push(Some(self.setup_node(node_id).await?));
         }
-        Ok(RunningInfo { runner:self, nodes, peers_info })
+        Ok(RunningInfo { runner: self, nodes, peers_info })
     }
 }
 
@@ -570,18 +612,20 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
     let r = tokio::runtime::Runtime::new()?;
     r.block_on(async {
         let mut info = runner.build().await?;
-        let actions = std::mem::replace(&mut info.runner.state_machine.actions,vec![]);
+        let actions = std::mem::replace(&mut info.runner.state_machine.actions, vec![]);
         let actions_count = actions.len();
 
         let timeout = time::Duration::from_secs(15);
         let step = time::Duration::from_millis(10);
         let start = time::Instant::now();
-        for (i,a) in actions.into_iter().enumerate() {
+        for (i, a) in actions.into_iter().enumerate() {
             loop {
-                if time::Instant::elapsed(&start)>=timeout {
-                    bail!("timeout while executing action {}/{}",i,actions_count)
+                if time::Instant::elapsed(&start) >= timeout {
+                    bail!("timeout while executing action {}/{}", i, actions_count)
                 }
-                if a(&mut info).await? { break }
+                if a(&mut info).await? {
+                    break;
+                }
                 time::sleep(step).await;
             }
         }
@@ -589,7 +633,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for i in 0..info.nodes.len() {
             info.stop_node(i).await?;
         }
-        return Ok(())
+        return Ok(());
     })
 }
 
@@ -598,7 +642,7 @@ impl RunningInfo {
         self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
     }
     async fn stop_node(&mut self, node_id: usize) -> anyhow::Result<()> {
-        if let Some(n) = std::mem::replace(&mut self.nodes[node_id],None) {
+        if let Some(n) = std::mem::replace(&mut self.nodes[node_id], None) {
             n.stop().await?;
         }
         Ok(())
@@ -627,25 +671,41 @@ pub fn check_expected_connections(
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
 ) -> ActionFn {
-    Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-        debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
-        let pm = &info.get_node(node_id)?.addr;
-        let res = pm.send(GetInfo{}).await?;
-        if expected_connections_lo.map_or(false,|l| l>res.num_connected_peers) { return Ok(false); }
-        if expected_connections_hi.map_or(false,|h| h<res.num_connected_peers) { return Ok(false); }
-        Ok(true)
-    }))
+    Box::new(move |info: &mut RunningInfo| {
+        Box::pin(async move {
+            debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            let pm = &info.get_node(node_id)?.addr;
+            let res = pm.send(GetInfo {}).await?;
+            if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
+                return Ok(false);
+            }
+            if expected_connections_hi.map_or(false, |h| h < res.num_connected_peers) {
+                return Ok(false);
+            }
+            Ok(true)
+        })
+    })
 }
 
-async fn check_direct_connection_inner(info: &mut RunningInfo, node_id:usize, target_id:usize) -> anyhow::Result<bool> {
+async fn check_direct_connection_inner(
+    info: &mut RunningInfo,
+    node_id: usize,
+    target_id: usize,
+) -> anyhow::Result<bool> {
     let target_peer_id = info.peers_info[target_id].id.clone();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.addr;
-    let resp = pm.send(PeerManagerMessageRequest::NetworkRequests(
-        NetworkRequests::FetchRoutingTable,
-    )).await?;
-    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() { rt } else { bail!("bad response"); };
-    let routes = if let Some(routes) = rt.peer_forwarding.get(&target_peer_id) { routes } else {
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response");
+    };
+    let routes = if let Some(routes) = rt.peer_forwarding.get(&target_peer_id) {
+        routes
+    } else {
         debug!(target: "network", ?target_peer_id, node_id, target_id,
             "runner.rs: check_direct_connection NO ROUTES!",
         );
@@ -659,19 +719,25 @@ async fn check_direct_connection_inner(info: &mut RunningInfo, node_id:usize, ta
 
 /// Check that `node_id` has a direct connection to `target_id`.
 pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
-    Box::new(move|info|Box::pin(check_direct_connection_inner(info,node_id,target_id)))
+    Box::new(move |info| Box::pin(check_direct_connection_inner(info, node_id, target_id)))
 }
 
 /// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
-    Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-        debug!(target: "network", ?node_id, "runner.rs: restart");
-        info.start_node(node_id).await?;
-        Ok(true)
-    }))
+    Box::new(move |info: &mut RunningInfo| {
+        Box::pin(async move {
+            debug!(target: "network", ?node_id, "runner.rs: restart");
+            info.start_node(node_id).await?;
+            Ok(true)
+        })
+    })
 }
 
-async fn ban_peer_inner(info:&mut RunningInfo, target_peer:usize, banned_peer:usize) -> anyhow::Result<bool> {
+async fn ban_peer_inner(
+    info: &mut RunningInfo,
+    target_peer: usize,
+    banned_peer: usize,
+) -> anyhow::Result<bool> {
     debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
     let banned_peer_id = info.peers_info[banned_peer].id.clone();
     let pm = &info.get_node(target_peer)?.addr;
@@ -681,17 +747,17 @@ async fn ban_peer_inner(info:&mut RunningInfo, target_peer:usize, banned_peer:us
 
 /// Ban peer `banned_peer` from perspective of `target_peer`.
 pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
-    Box::new(move|info|Box::pin(ban_peer_inner(info,target_peer,banned_peer)))
+    Box::new(move |info| Box::pin(ban_peer_inner(info, target_peer, banned_peer)))
 }
 
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
 pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
-    Box::new(move |info: &mut RunningInfo|{
+    Box::new(move |info: &mut RunningInfo| {
         let account_id = account_id.clone();
         Box::pin(async move {
             // debug!(target: "network",  ?node_id, ?account_id, "runner.rs: change_account_id");
-            info.change_account_id(node_id,account_id)?;
+            info.change_account_id(node_id, account_id)?;
             Ok(true)
         })
     })
