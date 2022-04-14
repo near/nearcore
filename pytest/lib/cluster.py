@@ -398,7 +398,6 @@ class LocalNode(BaseNode):
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
-                'metrics_addr': f'0.0.0.0:{rpc_port + 1000}',
             },
             'consensus': {
                 'min_num_peers': int(not single_node)

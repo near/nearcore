@@ -3,6 +3,7 @@
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
+use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
@@ -12,7 +13,7 @@ use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMOutcome};
+use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,16 +51,20 @@ fn test_does_not_cache_io_error() {
         let mut cache = FaultingCompiledContractCache::default();
 
         cache.set_read_fault(true);
-        let (outcome, err) =
-            make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(outcome.is_none());
-        assert_matches!(err, Some(VMError::CacheError(near_vm_errors::CacheError::ReadError)));
+        let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
+        assert!(result.outcome().is_none());
+        assert_matches!(
+            result.error(),
+            Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
+        );
 
         cache.set_write_fault(true);
-        let (outcome, err) =
-            make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(outcome.is_none());
-        assert_matches!(err, Some(VMError::CacheError(near_vm_errors::CacheError::WriteError)));
+        let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
+        assert!(result.outcome().is_none());
+        assert_matches!(
+            result.error(),
+            Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))
+        );
     })
 }
 
@@ -69,7 +74,7 @@ fn make_cached_contract_call_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     let config = VMConfig::test();

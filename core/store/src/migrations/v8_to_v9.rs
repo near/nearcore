@@ -13,7 +13,7 @@ pub(crate) fn recompute_col_rc<Iter>(store: &Store, column: DBCol, values: Iter)
 where
     Iter: Iterator<Item = (CryptoHash, Vec<u8>)>,
 {
-    assert!(crate::db::IS_COL_RC[column as usize]);
+    assert!(column.is_rc());
     let mut batch_size = 0;
     let batch_size_limit = 250_000_000;
 

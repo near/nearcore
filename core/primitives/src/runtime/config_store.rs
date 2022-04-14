@@ -22,6 +22,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (50, include_config!("50.json")),
     // max_gas_burnt increased to 300 TGas
     (52, include_config!("52.json")),
+    // Increased deployment costs, increased wasmer2 stack_limit
     (53, include_config!("53.json")),
 ];
 
@@ -117,13 +118,13 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
-            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
-            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
-            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
-            "HFetcNKaC5s8Mj7bQz7jGMF7Rsvtuc3kjZRevWQ334n4",
-            "EP9bv2znwbuBuimUgrSQm48ymHqwbHyUArZcWavSbPce",
-            "Gs3KXwHmXYGghRZvcVNGXVpbJxVF5SDRNMB3f32DiXUF",
+            "2hXgtPjRXXguqqx75DeQDnK5sraZcYsDHiLYG9Sr9gwU",
+            "3Xa58rT59x82PyND9gnWH7omeCrxAVSTkqfx3MnzwpdL",
+            "2JBs8nbWdVL7BENvd9uvptKZs3ne8Mh5uCqBKBCGLV8x",
+            "CnKoRbUSuc1a4fdZ4Y22DKyKR9XnUF4BxMnK52sJVe5x",
+            "74MrXTofUakcQPg19nxwr8bfyVC3zwu5bAdjpAHLMGeP",
+            "G6VtggDxxX1NTBXQCoaubarLjPScQbp3HCZASo3ptgVG",
+            "BuRSqfSqnMC7FMV2PnSSG8HquL67pqHRQLZ1mtfCr9vt",
         ];
         let actual_hashes = CONFIGS
             .iter()
