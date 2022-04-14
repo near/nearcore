@@ -474,7 +474,7 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 fn ensure_max_open_files_limit(max_open_files: i32) -> () {
-    // We’re configuring each RocksDB to use max_open_files file descriptors. In top of that we can
+    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
     // have some other file descriptors opened by neard process so we use the value of
     // 2 * max_open_files to be sure that the binary can correctly run.
     let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
