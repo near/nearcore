@@ -8,7 +8,6 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{VMConfig, VMOutcome};
 use std::mem::size_of;
-use testlib::runtime_utils::arr_u64_to_u8;
 
 use crate::tests::{
     create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
