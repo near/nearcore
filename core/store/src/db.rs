@@ -145,7 +145,7 @@ fn col_name(col: DBCol) -> String {
 fn ensure_max_open_files_limit(max_open_files: i32) -> () {
     // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
     // have some other file descriptors opened by neard process so we use the value of
-    // max_open_files + 1025 to be sure that the binary can correctly run.
+    // max_open_files + some constant to be sure that the binary can correctly run.
     let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
     let required = max_open_files as u64 + 1025;
     if soft < required {
