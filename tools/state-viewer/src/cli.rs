@@ -47,7 +47,7 @@ pub enum StateViewerSubCommand {
     #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
     /// Dump stats for the RocksDB storage.
-    #[clap(alias = "rocksdb_stats")]
+    #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
     Receipts(ReceiptsCmd),
     Chunks(ChunksCmd),
