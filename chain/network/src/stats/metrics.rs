@@ -111,9 +111,12 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
-#[derive(Clone)]
+#[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
+    // received messages
     pub peer_messages: HashMap<String, Option<IntCounter>>,
+    // sent messages (broadcast style)
+    pub broadcast_messages: Option<IntCounterVec>,
 }
 
 impl NetworkMetrics {
@@ -136,6 +139,12 @@ impl NetworkMetrics {
                     })
                 })
                 .collect(),
+            broadcast_messages: try_create_int_counter_vec(
+                "near_broadcast_msg",
+                "Broadcasted messages",
+                &["type"],
+            )
+            .ok(),
         }
     }
 
@@ -160,6 +169,11 @@ impl NetworkMetrics {
     pub fn inc_by(&self, message_name: &str, value: u64) {
         if let Some(counter) = self.peer_messages.get(message_name) {
             inc_counter_by_opt(counter.as_ref(), value);
+        }
+    }
+    pub fn inc_broadcast(&self, message_name: &str) {
+        if let Some(counter) = &self.broadcast_messages {
+            counter.with_label_values(&[message_name]).inc();
         }
     }
 }
