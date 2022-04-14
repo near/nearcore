@@ -670,7 +670,7 @@ impl InstanceCounter {
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances += 1;
-        info!(target: "db", "Created a new RocksDB instance. Current #instances: {}", *num_instances);
+        info!(target: "db", num_instances=%*num_instances, "Created a new RocksDB instance.");
         cvar.notify_all();
         Self {}
     }
@@ -681,7 +681,7 @@ impl Drop for InstanceCounter {
         let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
         let mut num_instances = lock.lock().unwrap();
         *num_instances -= 1;
-        info!(target: "db", "Dropped an instance of RocksDB. Remaining instances: {}", *num_instances);
+        info!(target: "db", num_instances=%*num_instances, "Dropped a RocksDB instance.");
         cvar.notify_all();
     }
 }
