@@ -37,7 +37,7 @@ use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
-use near_primitives::types::{AccountId, ProtocolVersion};
+use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
@@ -351,7 +351,20 @@ impl PeerManagerActor {
         }
     }
 
-    fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
+    fn broadcast_accounts(&mut self, mut accounts: Vec<AnnounceAccount>) {
+        // Filter the accounts again, so that we're sending only the ones that were not added.
+        // without it - if we have multiple 'broadcast_accounts' calls queued up, we'll end up sending a lot of repeated messages.
+        accounts.retain(|announce_account| {
+            match self.routing_table_view.get_announce(&announce_account.account_id) {
+                Some(current_announce_account)
+                    if announce_account.epoch_id == current_announce_account.epoch_id =>
+                {
+                    false
+                }
+                _ => true,
+            }
+        });
+
         if accounts.is_empty() {
             return;
         }
@@ -1720,7 +1733,7 @@ impl PeerManagerActor {
                 let accounts = routing_table_update.accounts;
 
                 // Filter known accounts before validating them.
-                let accounts = accounts
+                let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
                     .into_iter()
                     .filter_map(|announce_account| {
                         if let Some(current_announce_account) =

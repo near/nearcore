@@ -328,12 +328,19 @@ fn default_col_state_cache_size() -> usize {
 }
 
 impl StoreConfig {
-    /// This is a value that we've used since 3 Dec 2019.
-    pub const DEFAULT_MAX_OPEN_FILES: i32 = 512;
+    /// We've used a value of 512 for max_open_files since 3 Dec 2019. As it turned out we were
+    /// hitting that limit and store had to constantly close/reopen the same set of files.
+    /// Running state viewer on a dense set of 500 blocks did almost 200K file opens (having less
+    /// than 7K unique files opened, some files were opened 400+ times).
+    /// Using 10K limit for max_open_files led to performance improvement of ~11%.
+    pub const DEFAULT_MAX_OPEN_FILES: i32 = 10_000;
 
     /// We used to have the same cache size for all columns 32MB. When some RocksDB
     /// inefficiencies were found ColState cache size was increased up to 512MB.
     /// This was done Nov 13 2021 and we consider increasing the value.
+    /// Tests have shown that increase of col_state_cache_size up to 25GB (we've used this big
+    /// value to estimate performance improvement headroom) having max_open_files=10K improved
+    /// performance of state viewer by 60%.
     pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
 
     pub fn read_only() -> StoreConfig {

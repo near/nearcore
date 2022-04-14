@@ -289,17 +289,19 @@ pub unsafe fn ext_validator_stake() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
+/// Write key-value pair into storage.
+/// Input is the byte array where the value is `u64` represented by last 8 bytes and key is represented by the first
+/// `register_len(0) - 8` bytes.
 #[no_mangle]
 pub unsafe fn write_key_value() {
     input(0);
-    if register_len(0) != 2 * size_of::<u64>() as u64 {
-        panic()
-    }
-    let data = [0u8; 2 * size_of::<u64>()];
+    let data_len = register_len(0) as usize;
+    let value_len = size_of::<u64>();
+    let data = vec![0u8; data_len];
     read_register(0, data.as_ptr() as u64);
 
-    let key = &data[0..size_of::<u64>()];
-    let value = &data[size_of::<u64>()..];
+    let key = &data[0..data_len - value_len];
+    let value = &data[data_len - value_len..];
     let result = storage_write(
         key.len() as u64,
         key.as_ptr() as u64,
