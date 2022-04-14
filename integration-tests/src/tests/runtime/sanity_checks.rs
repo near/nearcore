@@ -135,7 +135,7 @@ fn expected_cost_sanity_receipts_statuses() -> Vec<ExecutionStatusView> {
     vec![
         // `sanity_check` calls `promise_return`
         ExecutionStatusView::SuccessReceiptId(
-            "HC9TJbq339AhbLYa6mg7fFrFBA8ivnzoggUHTFo639Hh".parse().unwrap(),
+            "AwDkJs8BbhQMEvsvgPJ4SyvEYbPaiSEQEMf6sUxGTqoL".parse().unwrap(),
         ),
         // `sanity_check_panic`
         ExecutionStatusView::Failure(TxExecutionError::ActionError(ActionError {
