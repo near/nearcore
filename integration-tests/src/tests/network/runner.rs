@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
-use std::sync::Arc;
-use tokio::time;
+#[allow(unused_imports)]
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail};
@@ -37,8 +38,10 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::pin::Pin;
 
+pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-pub type ActionFn = Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<bool>>>;
+pub type ActionFn =
+    Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -114,7 +117,11 @@ pub fn setup_network_node(
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub enum Action {
-    AddEdge(usize, usize, bool),
+    AddEdge {
+        from: usize,
+        to: usize,
+        force: bool,
+    },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
     // Send ping from `source` with `nonce` to `target`
@@ -124,7 +131,7 @@ pub enum Action {
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
-    Wait(time::Duration),
+    Wait(Duration),
     #[allow(dead_code)]
     SetOptions {
         target: usize,
@@ -146,7 +153,7 @@ async fn check_routing_table(
     info: &mut RunningInfo,
     u: usize,
     expected: Vec<(usize, Vec<usize>)>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlFlow> {
     let mut expected_rt = vec![];
     for (target, routes) in expected {
         let mut peers = vec![];
@@ -164,14 +171,17 @@ async fn check_routing_table(
     } else {
         bail!("bad response")
     };
-    return Ok(expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt));
+    if expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt) {
+        return Ok(ControlFlow::Break(()));
+    }
+    Ok(ControlFlow::Continue(()))
 }
 
 async fn check_account_id(
     info: &mut RunningInfo,
     source: usize,
     known_validators: Vec<usize>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlFlow> {
     let mut expected_known = vec![];
     for u in known_validators.clone() {
         expected_known.push(info.peers_info[u].account_id.clone().unwrap());
@@ -187,10 +197,10 @@ async fn check_account_id(
     };
     for v in &expected_known {
         if !rt.account_peers.contains_key(v) {
-            return Ok(false);
+            return Ok(ControlFlow::Continue(()));
         }
     }
-    return Ok(true);
+    Ok(ControlFlow::Break(()))
 }
 
 async fn check_ping_pong(
@@ -198,7 +208,7 @@ async fn check_ping_pong(
     source: usize,
     pings: Vec<(usize, usize, Option<usize>)>,
     pongs: Vec<(usize, usize, Option<usize>)>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlFlow> {
     let mut pings_expected = vec![];
     for (nonce, source, count) in pings {
         pings_expected.push((nonce, info.peers_info[source].id.clone(), count));
@@ -218,24 +228,32 @@ async fn check_ping_pong(
             bail!("bad response")
         };
     if pings.len() != pings_expected.len() {
-        return Ok(false);
+        return Ok(ControlFlow::Continue(()));
     }
     for (nonce, source, count) in pings_expected {
-        let ping = if let Some(ping) = pings.get(&nonce) { ping } else { return Ok(false) };
+        let ping = if let Some(ping) = pings.get(&nonce) {
+            ping
+        } else {
+            return Ok(ControlFlow::Continue(()));
+        };
         if ping.0.source != source || count.map_or(false, |c| c != ping.1) {
-            return Ok(false);
+            return Ok(ControlFlow::Continue(()));
         }
     }
     if pongs.len() != pongs_expected.len() {
-        return Ok(false);
+        return Ok(ControlFlow::Continue(()));
     }
     for (nonce, source, count) in pongs_expected {
-        let pong = if let Some(pong) = pongs.get(&nonce) { pong } else { return Ok(false) };
+        let pong = if let Some(pong) = pongs.get(&nonce) {
+            pong
+        } else {
+            return Ok(ControlFlow::Continue(()));
+        };
         if pong.0.source != source || count.map_or(false, |c| c != pong.1) {
-            return Ok(false);
+            return Ok(ControlFlow::Continue(()));
         }
     }
-    Ok(true)
+    Ok(ControlFlow::Break(()))
 }
 
 impl StateMachine {
@@ -255,8 +273,8 @@ impl StateMachine {
             Action::SetOptions { target, max_num_peers } => {
                 self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    #[allow(unused_variables)]
                     let addr = info.get_node(target)?.addr.clone();
-                    let _ = &addr;
                     #[cfg(feature = "test_features")]
                     addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                         disable_edge_signature_verification: None,
@@ -264,28 +282,28 @@ impl StateMachine {
                         disable_edge_pruning: None,
                         set_max_peers: max_num_peers,
                     })).await?;
-                    Ok(true)
+                    Ok(ControlFlow::Break(()))
                 })));
             }
-            Action::AddEdge(u, v, force) => {
+            Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let pm = info.get_node(u)?.addr.clone();
-                    let peer_info = info.peers_info[v].clone();
+                    let pm = info.get_node(from)?.addr.clone();
+                    let peer_info = info.peers_info[to].clone();
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
                         OutboundTcpConnect { peer_info },
                     )).await?;
                     if !force {
-                        return Ok(true)
+                        return Ok(ControlFlow::Break(()))
                     }
                     let res = pm.send(GetInfo{}).await?;
                     for peer in &res.connected_peers {
                         if peer.peer_info.id==peer_id {
-                            return Ok(true)
+                            return Ok(ControlFlow::Break(()))
                         }
                     }
-                    Ok(false)
+                    Ok(ControlFlow::Continue(()))
                 })));
             }
             Action::CheckRoutingTable(u, expected) => {
@@ -305,21 +323,21 @@ impl StateMachine {
                     info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
                         nonce, target,
                     ))).await?;
-                    Ok(true)
+                    Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.stop_node(source).await?;
-                    Ok(true)
+                    Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    time::sleep(t).await;
-                    Ok(true)
+                    tokio::time::sleep(t).await;
+                    Ok(ControlFlow::Break(()))
                 })));
             }
             Action::CheckPingPong(source, pings, pongs) => {
@@ -337,7 +355,7 @@ struct TestConfig {
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
     outbound_disabled: bool,
-    ban_window: time::Duration,
+    ban_window: Duration,
     ideal_connections: Option<(u32, u32)>,
     minimum_outbound_peers: Option<u32>,
     safe_set_size: Option<u32>,
@@ -352,7 +370,7 @@ impl TestConfig {
             boot_nodes: vec![],
             blacklist: HashSet::new(),
             outbound_disabled: true,
-            ban_window: time::Duration::from_secs(1),
+            ban_window: Duration::from_secs(1),
             ideal_connections: None,
             minimum_outbound_peers: None,
             safe_set_size: None,
@@ -375,14 +393,15 @@ pub struct Runner {
 
 struct NodeHandle {
     addr: Addr<PeerManagerActor>,
-    send_stop: tokio::sync::oneshot::Sender<()>,
+    send_stop: tokio::sync::oneshot::Sender<std::convert::Infallible>,
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
 }
 
 impl NodeHandle {
     async fn stop(self) -> anyhow::Result<()> {
-        self.send_stop.send(()).map_err(|_| anyhow!("send_failed"))?;
-        tokio::task::spawn_blocking(|| self.handle.join().map_err(|_| anyhow!("node panicked"))?)
+        let handle = self.handle;
+        drop(self.send_stop);
+        tokio::task::spawn_blocking(|| handle.join().map_err(|_| anyhow!("node panicked"))?)
             .await??;
         Ok(())
     }
@@ -464,7 +483,7 @@ impl Runner {
     }
 
     /// Set ban window range.
-    pub fn ban_window(mut self, ban_window: time::Duration) -> Self {
+    pub fn ban_window(mut self, ban_window: Duration) -> Self {
         self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
@@ -536,7 +555,7 @@ impl Runner {
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
-        network_config.ttl_account_id_router = time::Duration::from_secs(5);
+        network_config.ttl_account_id_router = Duration::from_secs(5);
         network_config.routed_message_ttl = test_config.routed_message_ttl;
         network_config.blacklist = blacklist;
         network_config.outbound_disabled = test_config.outbound_disabled;
@@ -568,12 +587,14 @@ impl Runner {
                             network_config,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
-                    recv_stop.await?;
+                    // recv_stop is expected to get closed.
+                    recv_stop.await.unwrap_err();
                     Ok(())
                 })
             }
         });
-        Ok(NodeHandle { addr: recv_pm.await?, send_stop: send_stop, handle: handle })
+        let addr = recv_pm.await?;
+        Ok(NodeHandle { addr, send_stop, handle })
     }
 
     async fn build(mut self) -> anyhow::Result<RunningInfo> {
@@ -609,24 +630,29 @@ impl Runner {
 /// start_test will block until test is complete.
 pub fn start_test(runner: Runner) -> anyhow::Result<()> {
     init_test_logger();
-    let r = tokio::runtime::Runtime::new()?;
+    let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     r.block_on(async {
         let mut info = runner.build().await?;
-        let actions = std::mem::replace(&mut info.runner.state_machine.actions, vec![]);
+        let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
-        let timeout = time::Duration::from_secs(15);
-        let step = time::Duration::from_millis(10);
-        let start = time::Instant::now();
+        let timeout = Duration::from_secs(15);
+        let step = Duration::from_millis(10);
+        let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
             loop {
-                if time::Instant::elapsed(&start) >= timeout {
-                    bail!("timeout while executing action {}/{}", i, actions_count)
+                tokio::select! {
+                    done = a(&mut info) => {
+                        match done? {
+                            ControlFlow::Break(_) => { break }
+                            ControlFlow::Continue(_) => {}
+                        }
+                    }
+                    () = tokio::time::sleep_until(start + timeout) => {
+                        bail!("timeout while executing action {i}/{actions_count}");
+                    }
                 }
-                if a(&mut info).await? {
-                    break;
-                }
-                time::sleep(step).await;
+                tokio::time::sleep(step).await;
             }
         }
         // Stop the running nodes.
@@ -642,7 +668,7 @@ impl RunningInfo {
         self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
     }
     async fn stop_node(&mut self, node_id: usize) -> anyhow::Result<()> {
-        if let Some(n) = std::mem::replace(&mut self.nodes[node_id], None) {
+        if let Some(n) = self.nodes[node_id].take() {
             n.stop().await?;
         }
         Ok(())
@@ -677,12 +703,12 @@ pub fn check_expected_connections(
             let pm = &info.get_node(node_id)?.addr;
             let res = pm.send(GetInfo {}).await?;
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
-                return Ok(false);
+                return Ok(ControlFlow::Continue(()));
             }
             if expected_connections_hi.map_or(false, |h| h < res.num_connected_peers) {
-                return Ok(false);
+                return Ok(ControlFlow::Continue(()));
             }
-            Ok(true)
+            Ok(ControlFlow::Break(()))
         })
     })
 }
@@ -691,7 +717,7 @@ async fn check_direct_connection_inner(
     info: &mut RunningInfo,
     node_id: usize,
     target_id: usize,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlFlow> {
     let target_peer_id = info.peers_info[target_id].id.clone();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.addr;
@@ -709,12 +735,15 @@ async fn check_direct_connection_inner(
         debug!(target: "network", ?target_peer_id, node_id, target_id,
             "runner.rs: check_direct_connection NO ROUTES!",
         );
-        return Ok(false);
+        return Ok(ControlFlow::Continue(()));
     };
     debug!(target: "network", ?target_peer_id, ?routes, node_id, target_id,
         "runner.rs: check_direct_connection",
     );
-    Ok(routes.contains(&target_peer_id))
+    if !routes.contains(&target_peer_id) {
+        return Ok(ControlFlow::Continue(()));
+    }
+    Ok(ControlFlow::Break(()))
 }
 
 /// Check that `node_id` has a direct connection to `target_id`.
@@ -728,7 +757,7 @@ pub fn restart(node_id: usize) -> ActionFn {
         Box::pin(async move {
             debug!(target: "network", ?node_id, "runner.rs: restart");
             info.start_node(node_id).await?;
-            Ok(true)
+            Ok(ControlFlow::Break(()))
         })
     })
 }
@@ -737,12 +766,12 @@ async fn ban_peer_inner(
     info: &mut RunningInfo,
     target_peer: usize,
     banned_peer: usize,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlFlow> {
     debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
     let banned_peer_id = info.peers_info[banned_peer].id.clone();
     let pm = &info.get_node(target_peer)?.addr;
     pm.send(BanPeerSignal::new(banned_peer_id)).await?;
-    Ok(true)
+    Ok(ControlFlow::Break(()))
 }
 
 /// Ban peer `banned_peer` from perspective of `target_peer`.
@@ -758,7 +787,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
         Box::pin(async move {
             // debug!(target: "network",  ?node_id, ?account_id, "runner.rs: change_account_id");
             info.change_account_id(node_id, account_id)?;
-            Ok(true)
+            Ok(ControlFlow::Break(()))
         })
     })
 }
@@ -774,7 +803,10 @@ where
         let predicate = predicate.clone();
         Box::pin(async move {
             debug!(target: "network", "runner.rs: wait_for predicate");
-            Ok(predicate())
+            if predicate() {
+                return Ok(ControlFlow::Break(()));
+            }
+            Ok(ControlFlow::Continue(()))
         })
     })
 }

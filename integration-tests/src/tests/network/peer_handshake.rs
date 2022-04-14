@@ -217,7 +217,7 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
 
     // This is needed, because even if outbound is enabled, there is no booting nodes,
     // so A and B doesn't know each other yet.
-    runner.push(Action::AddEdge(0, 1, true));
+    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
 
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
