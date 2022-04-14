@@ -12,13 +12,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
 use tracing::info;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{filter, fmt, reload};
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
-    TxStatusError, ViewClientActor,
+    ChangeLogLevel, ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome,
+    GetGasPrice, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status,
+    TxStatus, TxStatusError, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -1461,6 +1464,50 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
 }
 
+#[get("/debug/log_level_debug")]
+async fn log_level_debug() -> actix_web::Result<impl actix_web::Responder> {
+    println!("log_level_debug");
+    let filter = filter::LevelFilter::DEBUG;
+    let (filter, _reload_handle) = reload::Layer::new(filter);
+
+    tracing_subscriber::registry().with(filter).init();
+    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
+    Ok(HttpResponse::Ok().json("OK"))
+}
+
+#[get("/debug/log_level_info")]
+async fn log_level_info() -> actix_web::Result<impl actix_web::Responder> {
+    println!("log_level_info");
+    let filter = filter::LevelFilter::INFO;
+    let (filter, _reload_handle) = reload::Layer::new(filter);
+
+    tracing_subscriber::registry().with(filter).init();
+    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
+    Ok(HttpResponse::Ok().json("OK"))
+}
+
+#[get("/debug/log_level_warn")]
+async fn log_level_warn() -> actix_web::Result<impl actix_web::Responder> {
+    println!("log_level_warn");
+    let filter = filter::LevelFilter::WARN;
+    let (filter, _reload_handle) = reload::Layer::new(filter);
+
+    tracing_subscriber::registry().with(filter).init();
+    // reload_handle.modify(|filter| *filter = filter::LevelFilter::INFO);
+    Ok(HttpResponse::Ok().json("OK"))
+}
+
+#[get("/debug/log_level_error")]
+async fn log_level_error() -> actix_web::Result<impl actix_web::Responder> {
+    println!("log_level_error");
+    let filter = filter::LevelFilter::ERROR;
+    let (filter, reload_handle) = reload::Layer::new(filter);
+
+    tracing_subscriber::registry().with(filter).init();
+    reload_handle.modify(|filter| *filter = filter::LevelFilter::ERROR);
+    Ok(HttpResponse::Ok().json("OK"))
+}
+
 /// Starts HTTP server(s) listening for RPC requests.
 ///
 /// Starts an HTTP server which handles JSON RPC calls as well as states
@@ -1527,6 +1574,10 @@ pub fn start_http(
             .service(sync_info_html)
             .service(chain_info_html)
             .service(epoch_info_html)
+            .service(log_level_debug)
+            .service(log_level_info)
+            .service(log_level_warn)
+            .service(log_level_error)
     })
     .bind(addr)
     .unwrap()

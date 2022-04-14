@@ -21,8 +21,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView,
+    LogLevelResponse, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
