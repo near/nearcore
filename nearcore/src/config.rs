@@ -326,10 +326,6 @@ fn default_use_checkpoints_for_db_migration() -> bool {
     true
 }
 
-fn default_enable_rocksdb_statistics() -> bool {
-    false
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -453,8 +449,8 @@ pub struct Config {
     /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
-    #[serde(default = "default_enable_rocksdb_statistics")]
-    pub enable_rocksdb_statistics: bool,
+    /// Different parameters to configure/optimize underlying storage.
+    pub store: near_store::StoreConfig,
 }
 
 impl Default for Config {
@@ -483,7 +479,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
-            enable_rocksdb_statistics: false,
+            store: near_store::StoreConfig::read_write(),
         }
     }
 }
