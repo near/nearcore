@@ -473,6 +473,18 @@ fn set_compression_options(opts: &mut Options) {
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
 }
 
+fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+    // We’re configuring each RocksDB to use max_open_files file descriptors. In top of that we can
+    // have some other file descriptors opened by neard process so we use the value of
+    // 2 * max_open_files to be sure that the binary can correctly run.
+    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
+    let required = 2 * max_open_files as u64;
+    if soft < required {
+        assert!(hard >= required, "Can't run near binary since hard limit for the number of opened files is too small: {} required: {}", hard, 2 * max_open_files);
+        rlimit::Resource::NOFILE.set(required, hard).unwrap();
+    }
+}
+
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig) -> Options {
     let mut opts = Options::default();
@@ -481,6 +493,7 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
+    ensure_max_open_files_limit(store_config.max_open_files);
     opts.set_max_open_files(store_config.max_open_files);
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
