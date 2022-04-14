@@ -147,7 +147,7 @@ fn ensure_max_open_files_limit(max_open_files: i32) -> () {
     // have some other file descriptors opened by neard process so we use the value of
     // 2 * max_open_files to be sure that the binary can correctly run.
     let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
-    let required = 2 * max_open_files as u64;
+    let required = max_open_files as u64 + 1025;
     if soft < required {
         assert!(hard >= required, concat!("Can't run near binary since hard limit for the number ",
                 "of opened files is too small: {} required: {}"), hard, 2 * max_open_files);
