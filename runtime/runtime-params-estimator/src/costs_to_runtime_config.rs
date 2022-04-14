@@ -91,8 +91,8 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
 
     let res = ExtCostsConfig {
         base: get(Cost::HostFunctionCall)?,
-        contract_compile_base: 0,
-        contract_compile_bytes: 0,
+        contract_loading_base: 0,
+        contract_loading_bytes: 0,
         read_memory_base: get(Cost::ReadMemoryBase)?,
         read_memory_byte: get(Cost::ReadMemoryByte)?,
         write_memory_base: get(Cost::WriteMemoryBase)?,
@@ -139,6 +139,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         storage_iter_next_key_byte: 0,
         storage_iter_next_value_byte: 0,
         touching_trie_node: get(Cost::TouchingTrieNode)?,
+        read_cached_trie_node: get(Cost::ReadCachedTrieNode)?,
         promise_and_base: get(Cost::PromiseAndBase)?,
         promise_and_per_promise: get(Cost::PromiseAndPerPromise)?,
         promise_return: get(Cost::PromiseReturn)?,
