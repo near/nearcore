@@ -160,9 +160,10 @@ pub(crate) fn read_node_from_chunk_cache(
 
             // Collect keys of the inserted nodes and select a subset for testing.
             let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
-            let sample_value_hashes: Vec<_> =
+            let measured_value_hashes: Vec<_> =
                 all_value_hashes.iter().step_by(data_spread_factor).cloned().collect();
-            assert_eq!(sample_value_hashes.len(), num_values);
+            let unmeasured_value_hashes = &all_value_hashes[0..1];
+            assert_eq!(measured_value_hashes.len(), num_values);
 
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
@@ -174,8 +175,14 @@ pub(crate) fn read_node_from_chunk_cache(
             let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
             SINK.fetch_add(dummy_count, Ordering::SeqCst);
 
+            // Read some nodes from the cache, to warm up caches again. (We only
+            // want the trie node to come from main memory, the data structures
+            // around that are expected to always be in cache)
+            let dummy_sum = read_raw_nodes_from_storage(&caching_storage, unmeasured_value_hashes);
+            SINK.fetch_add(dummy_sum, Ordering::SeqCst);
+
             let start = GasCost::measure(testbed.config.metric);
-            let dummy_sum = read_raw_nodes_from_storage(&caching_storage, &sample_value_hashes);
+            let dummy_sum = read_raw_nodes_from_storage(&caching_storage, &measured_value_hashes);
             let cost = start.elapsed();
             SINK.fetch_add(dummy_sum, Ordering::SeqCst);
 
