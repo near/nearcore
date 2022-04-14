@@ -561,7 +561,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &config.store.with_read_only(true));
+    let src_store = create_store_with_config(&src_dir, &config.store.clone().with_read_only(true));
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
