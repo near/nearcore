@@ -481,7 +481,7 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files);
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);

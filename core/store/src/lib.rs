@@ -308,7 +308,7 @@ pub struct StoreConfig {
     /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
     /// Linux.
     #[serde(default = "default_max_open_files")]
-    pub max_open_files: i32,
+    pub max_open_files: u32,
 
     /// Cache size for ColState column.
     /// Default value: 512MiB.
@@ -319,7 +319,7 @@ pub struct StoreConfig {
     pub col_state_cache_size: usize,
 }
 
-fn default_max_open_files() -> i32 {
+fn default_max_open_files() -> u32 {
     StoreConfig::DEFAULT_MAX_OPEN_FILES
 }
 
@@ -329,7 +329,7 @@ fn default_col_state_cache_size() -> usize {
 
 impl StoreConfig {
     /// This is a value that we've used since 3 Dec 2019.
-    pub const DEFAULT_MAX_OPEN_FILES: i32 = 512;
+    pub const DEFAULT_MAX_OPEN_FILES: u32 = 512;
 
     /// We used to have the same cache size for all columns 32MB. When some RocksDB
     /// inefficiencies were found ColState cache size was increased up to 512MB.
