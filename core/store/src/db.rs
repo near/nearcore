@@ -21,7 +21,7 @@ pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DBError(rocksdb::Error);
+pub struct DBError(String);
 
 impl fmt::Display for DBError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,7 +33,7 @@ impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
-        DBError(err)
+        DBError(err.into_string())
     }
 }
 
@@ -625,7 +625,7 @@ impl RocksDB {
 
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
-        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+        Checkpoint::new(&self.db).map_err(DBError::from)
     }
 
     /// Synchronously flush all Memtables to SST files on disk
