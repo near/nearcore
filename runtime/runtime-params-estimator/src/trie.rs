@@ -124,6 +124,8 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     let percentiles_of_interest = &[0.5, 0.9, 0.99, 0.999];
 
     // Worst-case
+    // - L3 CPU cache is filled with dummy data before measuring
+    let spoil_l3 = true;
     // - Completely cold cache
     let num_warmup_values = 0;
     // - Single node read, no amortization possible
@@ -147,6 +149,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             num_values,
             num_warmup_values,
             data_spread_factor,
+            spoil_l3,
         );
         let mut p_results = percentiles(results, percentiles_of_interest);
         if debug {
@@ -178,6 +181,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 num_values,
                 num_warmup_values,
                 data_spread_factor,
+                spoil_l3,
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
@@ -197,6 +201,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 num_values,
                 num_warmup_values,
                 data_spread_factor,
+                spoil_l3,
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
@@ -217,6 +222,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 num_values,
                 num_warmup_values,
                 data_spread_factor,
+                spoil_l3,
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
@@ -236,6 +242,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 num_values,
                 num_warmup_values,
                 data_spread_factor,
+                spoil_l3,
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
@@ -246,7 +253,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 println!();
             }
         }
-        // Best-case
+        // Almost-best-case
         {
             let num_warmup_values = 1;
             let num_values = 128;
@@ -258,6 +265,31 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 num_values,
                 num_warmup_values,
                 data_spread_factor,
+                spoil_l3,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "2nd Best Case");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+        // Best-case
+        {
+            let spoil_l3 = false;
+            let num_warmup_values = 1;
+            let num_values = 128;
+            let iters = 30; // For estimation speed only, should not affect results
+            let data_spread_factor = 1;
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+                spoil_l3,
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
@@ -276,10 +308,16 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
 fn read_node_from_chunk_cache_ext(
     testbed: &mut Testbed,
     iters: usize,
+    // How many values are read after each other. The higher the number, the
+    // larger the amortization effect is.
     num_values: usize,
+    // Values to read before measurement, to warm up CPU caches with data
+    // structures used in looking up trie nodes
     num_warmup_values: usize,
     // Spread factor to reduce data locality
     data_spread_factor: usize,
+    // Before measuring, completely overwrite L3 CPU cache content
+    spoil_l3: bool,
 ) -> Vec<GasCost> {
     // Trie nodes are largest when they hold part of a storage key (Extension or
     // Leaf) and keys can be up to 2kiB. Therefore, this is about the maximum
@@ -325,8 +363,10 @@ fn read_node_from_chunk_cache_ext(
 
             // Remove trie nodes from CPU caches by filling the caches with useless data.
             // (To measure latency from main memory, not CPU caches)
-            let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
-            SINK.fetch_add(dummy_count, Ordering::SeqCst);
+            if spoil_l3 {
+                let dummy_count = dummy_data.iter().filter(|n| **n == i as u8).count();
+                SINK.fetch_add(dummy_count, Ordering::SeqCst);
+            }
 
             // Read some nodes from the cache, to warm up caches again. (We only
             // want the trie node to come from main memory, the data structures
