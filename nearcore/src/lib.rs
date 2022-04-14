@@ -527,17 +527,15 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(near_store::DBCol::ColTrieChanges);
     }
 
-    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
-    // can open that many by ensuring nofile limit is large enough to give us
-    // some room to spare over 1024 file descriptors.
+    // Make sure we can open at least two databases and have some file
+    // descriptors to spare.
+    let required = 2 * (config.store.max_open_files as u64) + 512;
     let (soft, hard) = rlimit::Resource::NOFILE
         .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
-    // opening two databases and need some descriptors to spare thus 3*512.
-    if soft < 3 * 512 {
+    if soft < required {
         rlimit::Resource::NOFILE
-            .set(3 * 512, hard)
+            .set(required, hard)
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
@@ -547,7 +545,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let store_config = config.store.with_read_only(true);
     let db_version = get_store_version(&src_dir);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
@@ -564,7 +561,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &store_config);
+    let src_store = create_store_with_config(&src_dir, &config.store.with_read_only(true));
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -580,7 +577,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = create_store(&opts.dest_dir);
+    let dst_store = create_store_with_config(&opts.dest_dir, &config.store);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
