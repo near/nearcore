@@ -1,11 +1,12 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
-use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
+use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{VMConfig, VMOutcome};
+use near_vm_logic::{ReceiptMetadata, VMConfig, VMOutcome};
 use std::mem::size_of;
 
 use crate::tests::{
@@ -321,4 +322,94 @@ pub fn test_out_of_memory() {
             }
         );
     })
+}
+
+#[test]
+fn attach_unspent_gas_but_burn_all_gas() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = test_contract();
+        let mut external = MockedExternal::new();
+        let mut config = VMConfig::test();
+        let fees = RuntimeFeesConfig::test();
+        let mut context = create_context(vec![]);
+
+        let prepaid_gas = 100 * 10u64.pow(12);
+        context.prepaid_gas = prepaid_gas;
+        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+
+        let (outcome, err) = runtime
+            .run(
+                &code,
+                "attach_unspent_gas_but_burn_all_gas",
+                &mut external,
+                context,
+                &fees,
+                &[],
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .outcome_error();
+
+        let outcome = outcome.unwrap();
+        let err = err.unwrap();
+        assert!(matches!(
+            err,
+            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasLimitExceeded))
+        ));
+        match &outcome.action_receipts.as_slice() {
+            [(_, ReceiptMetadata { actions, .. })] => match actions.as_slice() {
+                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
+                    assert!(*gas > prepaid_gas / 3);
+                }
+                other => panic!("unexpected actions: {other:?}"),
+            },
+            other => panic!("unexpected receipts: {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn attach_unspent_gas_but_use_all_gas() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = test_contract();
+        let mut external = MockedExternal::new();
+        let mut config = VMConfig::test();
+        let fees = RuntimeFeesConfig::test();
+        let mut context = create_context(vec![]);
+
+        context.prepaid_gas = 100 * 10u64.pow(12);
+        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+
+        let (outcome, err) = runtime
+            .run(
+                &code,
+                "attach_unspent_gas_but_use_all_gas",
+                &mut external,
+                context,
+                &fees,
+                &[],
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .outcome_error();
+
+        let outcome = outcome.unwrap();
+        let err = err.unwrap();
+        assert!(matches!(
+            err,
+            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))
+        ));
+
+        match &outcome.action_receipts.as_slice() {
+            [(_, ReceiptMetadata { actions, .. }), _] => match actions.as_slice() {
+                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
+                    assert_eq!(*gas, 0);
+                }
+                other => panic!("unexpected actions: {other:?}"),
+            },
+            other => panic!("unexpected receipts: {other:?}"),
+        }
+    });
 }
