@@ -8,8 +8,7 @@ use near_primitives::state_part::PartId;
 use num_rational::Rational;
 use tracing::debug;
 
-use near_chain_configs::ProtocolConfig;
-use near_chain_configs::MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain_configs::{MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, ProtocolConfig};
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;

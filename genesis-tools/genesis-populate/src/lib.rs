@@ -65,7 +65,7 @@ impl GenesisBuilder {
             None,
             None,
             None,
-            None,
+            5,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
