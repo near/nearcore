@@ -80,6 +80,7 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::config::default_read_cached_trie_node;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -179,6 +180,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::ReadCachedTrieNode, read_cached_trie_node),
     (Cost::TouchingTrieNodeRead, touching_trie_node_read),
     (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
@@ -1054,6 +1056,10 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let read = touching_trie_node_read(ctx);
     let write = touching_trie_node_write(ctx);
     return std::cmp::max(read, write);
+}
+
+fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
+    GasCost::from_gas(default_read_cached_trie_node().into(), ctx.config.metric)
 }
 
 fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
