@@ -4778,8 +4778,6 @@ mod chunk_nodes_cache_test {
                             assert_eq!(cost % read_cached_trie_node_cost, 0);
                             cost / read_cached_trie_node_cost
                         },
-                        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-                        mem_reads: 0,
                     },
                 }
             })
