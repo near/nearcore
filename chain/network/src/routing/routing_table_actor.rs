@@ -4,7 +4,8 @@ use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
 use actix::{
-    Actor, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running, SyncArbiter, WrapFuture, ActorContext,
+    Actor, ActorContext, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running,
+    SyncArbiter, WrapFuture,
 };
 use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;

@@ -1,5 +1,5 @@
 use crate::private_actix::{StopMsg, ValidateEdgeList};
-use actix::{Actor, Handler, SyncContext, ActorContext};
+use actix::{Actor, ActorContext, Handler, SyncContext};
 use conqueue::{QueueReceiver, QueueSender};
 use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
