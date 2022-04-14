@@ -1330,23 +1330,21 @@ fn get_trie_nodes_count(
     metadata: &ExecutionMetadataView,
     runtime_config: &RuntimeConfig,
 ) -> TrieNodesCount {
-    metadata.gas_profile.clone().unwrap().iter().fold(
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        |mut count, cost| {
-            match cost.cost.as_str() {
-                "TOUCHING_TRIE_NODE" => {
-                    count.db_reads +=
-                        cost.gas_used / runtime_config.wasm_config.ext_costs.touching_trie_node;
-                }
-                "READ_CACHED_TRIE_NODE" => {
-                    count.mem_reads +=
-                        cost.gas_used / runtime_config.wasm_config.ext_costs.read_cached_trie_node;
-                }
-                _ => {}
-            };
-            count
-        },
-    )
+    let mut count = TrieNodesCount { db_reads: 0, mem_reads: 0 };
+    for cost in metadata.gas_profile.unwrap_or_default().iter() {
+        match cost.cost.as_str() {
+            "TOUCHING_TRIE_NODE" => {
+                count.db_reads +=
+                    cost.gas_used / runtime_config.wasm_config.ext_costs.touching_trie_node;
+            }
+            "READ_CACHED_TRIE_NODE" => {
+                count.mem_reads +=
+                    cost.gas_used / runtime_config.wasm_config.ext_costs.read_cached_trie_node;
+            }
+            _ => {}
+        };
+    }
+    count
 }
 
 /// Checks correctness of touching trie node cost for writing value into contract storage.
