@@ -12,6 +12,8 @@
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
 * Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
+* Made max_open_files/col_state_cache_size paramaters configurable [#6607](https://github.com/near/nearcore/pull/6607)
+* Increased max_open_files RocksDB parameter from 512 up to 10K [#6607](https://github.com/near/nearcore/pull/6607)
 
 ## `1.23.0` [13-12-2021]
 
