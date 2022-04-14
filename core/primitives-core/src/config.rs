@@ -242,10 +242,10 @@ pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
 
-    /// Base cost of loading and compiling contract
-    pub contract_compile_base: Gas,
-    /// Cost of the execution to load and compile contract
-    pub contract_compile_bytes: Gas,
+    /// Base cost of loading a pre-compiled contract
+    pub contract_loading_base: Gas,
+    /// Cost per byte of loading a pre-compiled contract
+    pub contract_loading_bytes: Gas,
 
     /// Base cost for guest memory read
     pub read_memory_base: Gas,
@@ -355,8 +355,11 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
-    /// Cost per touched trie node
+    /// Cost per reading trie node from DB
     pub touching_trie_node: Gas,
+    /// Cost for reading trie node from memory
+    #[serde(default = "default_read_cached_trie_node")]
+    pub read_cached_trie_node: Gas,
 
     // ###############
     // # Promise API #
@@ -402,6 +405,10 @@ pub struct ExtCostsConfig {
     pub alt_bn128_pairing_check_byte: Gas,
 }
 
+pub fn default_read_cached_trie_node() -> Gas {
+    SAFETY_MULTIPLIER * 760_000_000
+}
+
 // We multiply the actual computed costs by the fixed factor to ensure we
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
@@ -410,8 +417,8 @@ impl ExtCostsConfig {
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_loading_base: SAFETY_MULTIPLIER * 11815321,
+            contract_loading_bytes: SAFETY_MULTIPLIER * 72250,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
@@ -457,6 +464,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
             storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
             touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
+            read_cached_trie_node: default_read_cached_trie_node(),
             promise_and_base: SAFETY_MULTIPLIER * 488337800,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
             promise_return: SAFETY_MULTIPLIER * 186717462,
@@ -482,8 +490,8 @@ impl ExtCostsConfig {
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_loading_base: 0,
+            contract_loading_bytes: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
@@ -528,6 +536,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
             touching_trie_node: 0,
+            read_cached_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
@@ -556,8 +565,8 @@ impl ExtCostsConfig {
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
-    contract_compile_base,
-    contract_compile_bytes,
+    contract_loading_base,
+    contract_loading_bytes,
     read_memory_base,
     read_memory_byte,
     write_memory_base,
@@ -602,6 +611,8 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
+    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+    read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
     promise_return,
@@ -644,8 +655,8 @@ impl ExtCosts {
         use ExtCosts::*;
         match self {
             base => config.base,
-            contract_compile_base => config.contract_compile_base,
-            contract_compile_bytes => config.contract_compile_bytes,
+            contract_loading_base => config.contract_loading_base,
+            contract_loading_bytes => config.contract_loading_bytes,
             read_memory_base => config.read_memory_base,
             read_memory_byte => config.read_memory_byte,
             write_memory_base => config.write_memory_base,
@@ -690,6 +701,8 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
+            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+            read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,

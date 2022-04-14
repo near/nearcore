@@ -342,8 +342,8 @@ impl crate::runner::VM for Wasmer0VM {
             current_protocol_version,
         );
 
-        // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
+        // TODO: charge this before module is loaded
+        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
             let err = VMError::FunctionCallError(FunctionCallError::HostError(
                 near_vm_errors::HostError::GasExceeded,
             ));
