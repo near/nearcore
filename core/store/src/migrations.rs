@@ -5,17 +5,16 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
-    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
-    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
+    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1, ShardChunk,
+    ShardChunkV1,
 };
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -25,7 +24,6 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{
     create_receipt_id_from_transaction, get_block_shard_id, index_to_bytes,
 };
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
 use crate::db::{RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
@@ -37,8 +35,8 @@ use crate::migrations::v8_to_v9::{
 };
 use crate::trie::{TrieCache, TrieCachingStorage};
 use crate::DBCol::{
-    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
-    ColPartialChunks, ColStateParts,
+    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal,
+    ColStateParts,
 };
 use crate::{create_store, DBCol, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
