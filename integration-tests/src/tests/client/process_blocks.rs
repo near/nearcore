@@ -62,9 +62,9 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_store::db::DBCol::ColStateParts;
 use near_store::get;
 use near_store::test_utils::create_test_store;
+use near_store::DBCol::ColStateParts;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::prelude::StdRng;
@@ -1559,7 +1559,7 @@ fn test_gc_after_state_sync() {
     // mimic what we do in possible_targets
     assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
     let tries = env.clients[1].runtime_adapter.get_tries();
-    assert!(env.clients[1].chain.clear_data(tries, 2).is_ok());
+    env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
 }
 
 #[test]
@@ -2767,12 +2767,12 @@ fn test_execution_metadata() {
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
-        "cost": "CONTRACT_COMPILE_BASE",
-        "gas_used": config.wasm_config.ext_costs.contract_compile_base.to_string()
+        "cost": "CONTRACT_LOADING_BASE",
+        "gas_used": config.wasm_config.ext_costs.contract_loading_base.to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
-        "cost": "CONTRACT_COMPILE_BYTES",
+        "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
       // We spend two wasm instructions (call & drop).
@@ -3457,6 +3457,87 @@ fn test_catchup_no_sharding_change() {
             vec![]
         );
     }
+}
+
+/// Tests if the cost of deployment is higher after the protocol update 53
+#[test]
+fn test_deploy_cost_increased() {
+    let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
+    let old_protocol_version = new_protocol_version - 1;
+
+    let contract_size = 1024 * 1024;
+    let test_contract = near_test_contracts::sized_contract(contract_size);
+
+    // Prepare TestEnv with a contract at the old protocol version.
+    let epoch_length = 5;
+    let mut env = {
+        let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = old_protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                Path::new("../../../.."),
+                create_test_store(),
+                &genesis,
+                TrackedConfig::new_empty(),
+                RuntimeConfigStore::new(None),
+            ))];
+        TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
+    };
+
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let tx = Transaction {
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
+        public_key: signer.public_key(),
+        actions: vec![Action::DeployContract(DeployContractAction { code: test_contract })],
+        nonce: 0,
+        block_hash: CryptoHash::default(),
+    };
+
+    // Run the transaction & get tx outcome in a closure.
+    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
+        let tip = env.clients[0].chain.head().unwrap();
+        let signed_transaction =
+            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
+        let tx_hash = signed_transaction.get_hash();
+        env.clients[0].process_tx(signed_transaction, false, false);
+        for i in 0..epoch_length {
+            env.produce_block(0, tip.height + i + 1);
+        }
+        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
+    };
+
+    let old_outcome = deploy_contract(&mut env, 10);
+
+    // Move to the new protocol version.
+    {
+        let tip = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
+        assert!(res.is_ok());
+        for i in 0..epoch_length {
+            env.produce_block(0, tip.height + i + 2);
+        }
+    }
+
+    let new_outcome = deploy_contract(&mut env, 11);
+
+    assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+    assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+
+    let old_deploy_gas = old_outcome.receipts_outcome[0].outcome.gas_burnt;
+    let new_deploy_gas = new_outcome.receipts_outcome[0].outcome.gas_burnt;
+    assert!(new_deploy_gas > old_deploy_gas);
+    assert_eq!(new_deploy_gas - old_deploy_gas, contract_size as u64 * (64_572_944 - 6_812_999));
 }
 
 mod access_key_nonce_range_tests {
@@ -4552,9 +4633,9 @@ mod contract_precompilation_tests {
 mod chunk_nodes_cache_test {
     use super::*;
     use near_primitives::config::ExtCosts;
+    use near_primitives::test_utils::encode;
     use near_primitives::transaction::ExecutionMetadata;
-    use near_primitives::types::BlockHeightDelta;
-    use testlib::runtime_utils::arr_u64_to_u8;
+    use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
 
     fn process_transaction(
         env: &mut TestEnv,
@@ -4580,13 +4661,13 @@ mod chunk_nodes_cache_test {
             signer,
             vec![
                 Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[0u64, 10u64]),
+                    args: encode(&[0u64, 10u64]),
                     method_name: "write_key_value".to_string(),
                     gas,
                     deposit: 0,
                 }),
                 Action::FunctionCall(FunctionCallAction {
-                    args: arr_u64_to_u8(&[1u64, 20u64]),
+                    args: encode(&[1u64, 20u64]),
                     method_name: "write_key_value".to_string(),
                     gas,
                     deposit: 0,
@@ -4605,7 +4686,7 @@ mod chunk_nodes_cache_test {
         tx_hash
     }
 
-    /// Compare node touches before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
+    /// Compare charged node accesses before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
     /// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
     /// chunk cache, and such cost is charged only once on the first access. This effect doesn't persist across chunks.
     ///
@@ -4617,12 +4698,12 @@ mod chunk_nodes_cache_test {
     /// (Extension) -> (Branch) -> (Extension) -> (Branch) |
     ///                                                    --> (Leaf) -> (Value 2)
     ///
-    /// 2nd run should count 12 nodes - 6 nodes per each value.
-    /// 3nd run should count 8 nodes - 6 for the first value and 2 for the second value, because first 4 nodes were
-    /// already put into the chunk cache.
-    /// 4nd run should also count 8 nodes, because caching must not affect different chunks.
+    /// 2nd run should count 12 regular db reads - for 6 nodes per each value, because protocol is not upgraded yet.
+    /// 3nd run follows the upgraded protocol and it should count 8 db and 4 memory reads, which comes from 6 db reads
+    /// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the chunk cache.
+    /// 4nd run should give the same results, because caching must not affect different chunks.
     #[test]
-    fn compare_node_touches() {
+    fn compare_node_counts() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 10;
@@ -4636,9 +4717,15 @@ mod chunk_nodes_cache_test {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
-        let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
+        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                Path::new("../../../.."),
+                create_test_store(),
+                &genesis,
+                TrackedConfig::new_empty(),
+                RuntimeConfigStore::new(None),
+            ))];
+        let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
         deploy_test_contract(
             &mut env,
@@ -4649,9 +4736,10 @@ mod chunk_nodes_cache_test {
         );
 
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let tx_node_touches: Vec<u64> = (0..4)
+        let tx_node_counts: Vec<TrieNodesCount> = (0..4)
             .map(|i| {
-                let base_cost = RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
+                let touching_trie_node_cost: Gas = 16_101_955_926;
+                let read_cached_trie_node_cost: Gas = 2_280_000_000;
 
                 let tx_hash = if i < 1 {
                     process_transaction(&mut env, &signer, num_blocks, old_protocol_version)
@@ -4674,25 +4762,35 @@ mod chunk_nodes_cache_test {
                 let receipt_execution_outcome =
                     env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
                 let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata.clone();
-                let touching_trie_node_cost = match metadata {
+                match metadata {
                     ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),
-                    ExecutionMetadata::V2(profile_data) => {
-                        profile_data.get_ext_cost(ExtCosts::touching_trie_node)
-                    }
-                };
-
-                touching_trie_node_cost / base_cost
+                    ExecutionMetadata::V2(profile_data) => TrieNodesCount {
+                        db_reads: {
+                            let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
+                            assert_eq!(cost % touching_trie_node_cost, 0);
+                            cost / touching_trie_node_cost
+                        },
+                        mem_reads: {
+                            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
+                            let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
+                            #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
+                            let cost = 0;
+                            assert_eq!(cost % read_cached_trie_node_cost, 0);
+                            cost / read_cached_trie_node_cost
+                        },
+                    },
+                }
             })
             .collect();
 
-        assert_eq!(tx_node_touches[0], 4);
-        assert_eq!(tx_node_touches[1], 12);
+        assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
+        assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
         if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
-            assert_eq!(tx_node_touches[2], 8);
-            assert_eq!(tx_node_touches[3], 8);
+            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
         } else {
-            assert_eq!(tx_node_touches[2], 12);
-            assert_eq!(tx_node_touches[3], 12);
+            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 12, mem_reads: 0 });
         }
     }
 }

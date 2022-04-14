@@ -12,6 +12,9 @@
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
 * Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
+* [NEP205](https://github.com/near/NEPs/issues/205): Configurable start of protocol upgrade voting [#6309](https://github.com/near/nearcore/pull/6309)
+* Make max_open_files and col_state_cache_size parameters configurable [#6584](https://github.com/near/nearcore/pull/6584)
+* Increase default max_open_files RocksDB parameter from 512 to 10k [#6607](https://github.com/near/nearcore/pull/6607)
 
 ## `1.23.0` [13-12-2021]
 

@@ -1,5 +1,6 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::test_utils::encode;
 use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
@@ -14,6 +15,7 @@ use crate::tests::{
     PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 use crate::vm_kind::VMKind;
+use crate::VMResult;
 
 fn test_contract() -> ContractCode {
     let code = if cfg!(feature = "protocol_feature_alt_bn128") {
@@ -24,12 +26,12 @@ fn test_contract() -> ContractCode {
     ContractCode::new(code.to_vec(), None)
 }
 
-fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
-    if let Some(_) = err {
+fn assert_run_result(result: VMResult, expected_value: u64) {
+    if let Some(_) = result.error() {
         panic!("Failed execution");
     }
 
-    if let Some(VMOutcome { return_data, .. }) = outcome {
+    if let Some(VMOutcome { return_data, .. }) = result.outcome() {
         if let ReturnData::Value(value) = return_data {
             let mut arr = [0u8; size_of::<u64>()];
             arr.copy_from_slice(&value);
@@ -49,7 +51,7 @@ pub fn test_read_write() {
         let code = test_contract();
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
+        let context = create_context(encode(&[10u64, 20u64]));
         let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
@@ -67,7 +69,7 @@ pub fn test_read_write() {
         );
         assert_run_result(result, 0);
 
-        let context = create_context(arr_u64_to_u8(&[10u64]));
+        let context = create_context(encode(&[10u64]));
         let result = runtime.run(
             &code,
             "read_value",
@@ -104,7 +106,7 @@ pub fn test_stablized_host_function() {
             LATEST_PROTOCOL_VERSION,
             None,
         );
-        assert_eq!(result.1, None);
+        assert_eq!(result.error(), None);
 
         let result = runtime.run(
             &code,
@@ -116,8 +118,8 @@ pub fn test_stablized_host_function() {
             ProtocolFeature::MathExtension.protocol_version() - 1,
             None,
         );
-        match result.1 {
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
+        match result.error() {
+            Some(&VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
             _ => panic!("should return a link error due to missing import"),
         }
     });
@@ -166,16 +168,9 @@ fn run_test_ext(
     let context = create_context(input.to_vec());
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
-    let (outcome, err) = runtime.run(
-        &code,
-        method,
-        &mut fake_external,
-        context,
-        &fees,
-        &[],
-        LATEST_PROTOCOL_VERSION,
-        None,
-    );
+    let (outcome, err) = runtime
+        .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
+        .outcome_error();
 
     if let Some(outcome) = &outcome {
         assert_eq!(outcome.profile.action_gas(), 0);
@@ -311,9 +306,9 @@ pub fn test_out_of_memory() {
             None,
         );
         assert_eq!(
-            result.1,
+            result.error(),
             match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer2 => Some(VMError::FunctionCallError(
+                VMKind::Wasmer0 | VMKind::Wasmer2 => Some(&VMError::FunctionCallError(
                     FunctionCallError::WasmTrap(WasmTrap::Unreachable)
                 )),
                 VMKind::Wasmtime => unreachable!(),

@@ -74,7 +74,6 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks_in_progress.get_mut(block_hash) {
             block_entry.orphaned_timestamp = Some(timestamp);
         } else {
-            debug_assert!(false);
             error!(target:"blocks_delay_tracker", "block {:?} was orphaned but was not marked received", block_hash);
         }
     }
@@ -83,7 +82,6 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks_in_progress.get_mut(block_hash) {
             block_entry.removed_from_orphan_timestamp = Some(timestamp);
         } else {
-            debug_assert!(false);
             error!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
         }
     }
@@ -92,7 +90,6 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks_in_progress.get_mut(block_hash) {
             block_entry.missing_chunks_timestamp = Some(timestamp);
         } else {
-            debug_assert!(false);
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
         }
     }
@@ -105,7 +102,6 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks_in_progress.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(timestamp);
         } else {
-            debug_assert!(false);
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
         }
     }

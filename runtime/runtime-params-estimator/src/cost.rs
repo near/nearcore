@@ -444,13 +444,19 @@ pub enum Cost {
     StorageIterNextValueByte,
 
     /// Estimates `touching_trie_node` which is charged when smart contracts
-    /// access storage either through `storage_has_key`, `storage_read`, or
-    /// `storage_write`. The fee is paid once for each unique trie node
-    /// accessed.
+    /// access storage either through `storage_has_key`, `storage_read`,
+    /// `storage_write` or `storage_remove`. The fee is paid once for each
+    /// unique trie node accessed.
     ///
     /// Estimation: Take the maximum of estimations for `TouchingTrieNodeRead`
     /// and `TouchingTrieNodeWrite`
     TouchingTrieNode,
+    /// It is similar to `TouchingTrieNode`, but it is charged instead of this
+    /// cost when we can guarantee that trie node is cached in memory, which
+    /// allows us to charge less costs.
+    ///
+    /// TODO (CP-29): implement estimation
+    ReadCachedTrieNode,
     /// Helper estimation for `TouchingTrieNode`
     ///
     /// Estimation: Prepare an account that has many keys stored that are
@@ -465,7 +471,6 @@ pub enum Cost {
     /// the longest key. The gas estimation difference is divided by the
     /// difference of actually touched nodes.
     TouchingTrieNodeWrite,
-    ReadCachedTrieNode,
     /// Estimates `promise_and_base` which is charged for every call to
     /// `promise_and`. This should cover the base cost for creating receipt
     /// dependencies.

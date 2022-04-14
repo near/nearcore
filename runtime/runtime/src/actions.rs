@@ -28,13 +28,13 @@ use near_vm_errors::{
     AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::VMContext;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
-use near_vm_runner::precompile_contract;
+use near_vm_runner::{precompile_contract, VMResult};
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -49,7 +49,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
         Ok(Some(code)) => code,
@@ -57,13 +57,12 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return (None, Some(VMError::FunctionCallError(error)));
+            return VMResult::NotRun(VMError::FunctionCallError(error));
         }
         Err(e) => {
-            return (
-                None,
-                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
-            );
+            return VMResult::NotRun(VMError::ExternalError(AnyError::new(
+                ExternalError::StorageError(e),
+            )));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -168,7 +167,8 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    );
+    )
+    .outcome_error();
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
             FunctionCallError::Nondeterministic(msg) => {

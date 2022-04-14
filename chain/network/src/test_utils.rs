@@ -411,7 +411,6 @@ impl PeerManagerAdapter for NetworkRecipient {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
-#[cfg(feature = "test_features")]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,

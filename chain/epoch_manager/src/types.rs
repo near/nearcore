@@ -44,7 +44,24 @@ impl EpochInfoAggregator {
         }
     }
 
-    pub fn update(
+    /// Aggregates data from a block which directly precede the first block this
+    /// aggregator has statistic on.
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through G are blocks ordered in increasing height and arrows denote
+    /// ‘is parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     ┌─ block_info
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I
+    ///         │←── self ─→│
+    /// ```
+    ///
+    /// Note that there is no method which allows adding information about G,
+    /// H or I blocks into the aggregator.  The expected usage is to create
+    /// a new aggregator starting from I, add H and G into it (using this
+    /// method) and then [merge][`Self::merge`] it into `self`.
+    pub fn update_tail(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
@@ -105,18 +122,18 @@ impl EpochInfoAggregator {
 
     /// Merges information from `other` aggregator into `self`.
     ///
-    /// The `other` aggregator must hold statistics from blocks which
-    /// **proceed** the ones this aggregator has.  Both aggregators have to be
-    /// for the same epoch (the function panics if they aren’t).
+    /// The `other` aggregator must hold statistics from blocks which **follow**
+    /// the ones this aggregator has.  Both aggregators have to be for the same
+    /// epoch (the function panics if they aren’t).
     ///
     /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height and B is start of
-    /// a new epoch):
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
     ///
     /// ```text
-    ///       /---- self -----\   /-- other --\
-    /// A → | B → C → D → E → F → G → H → I → J
-    ///     | new epoch
+    ///     │←─── self ────→│   │←─ other ─→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
     /// ```
     ///
     /// Once the method finishes `self` will hold statistics for blocks from
@@ -139,13 +156,13 @@ impl EpochInfoAggregator {
     /// for the same epoch (the function panics if they aren’t).
     ///
     /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height and B is start of
-    /// a new epoch):
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
     ///
     /// ```text
-    ///       /---- other ----\   /-- self ---\
-    /// A → | B → C → D → E → F → G → H → I → J
-    ///     | new epoch
+    ///     │←─── other ───→│   │←─ self ──→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
     /// ```
     ///
     /// Once the method finishes `self` will hold statistics for blocks from
@@ -172,7 +189,8 @@ impl EpochInfoAggregator {
 
     /// Merges block and shard trackers from `other` into `self`.
     ///
-    /// See [`merge`] and [`merge_prefix`] method for description of merging.
+    /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
+    /// merging.
     fn merge_common(&mut self, other: &EpochInfoAggregator) {
         assert_eq!(self.epoch_id, other.epoch_id);
 
