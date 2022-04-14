@@ -1,3 +1,4 @@
+use column_store::AtomicColBitSet;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -38,6 +39,7 @@ pub use crate::trie::{
     TrieChanges, WrappedTrieChanges,
 };
 
+pub mod column_store;
 mod columns;
 pub mod db;
 pub mod migrations;
@@ -47,11 +49,13 @@ mod trie;
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
+    unclaimed_cols: AtomicColBitSet,
 }
 
 impl Store {
     pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
-        Store { storage }
+        let unclaimed_cols = AtomicColBitSet::default();
+        Store { storage, unclaimed_cols }
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {

@@ -55,6 +55,7 @@ pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 
+#[derive(Default)]
 pub(crate) struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }

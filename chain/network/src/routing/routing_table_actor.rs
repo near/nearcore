@@ -13,12 +13,24 @@ use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
-use near_store::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
-use near_store::{Store, StoreUpdate};
+use near_store::column_store::{ColumnStore, ColumnStoreUpdate};
+use near_store::{define_column_set, define_columns, Store};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
+
+define_columns![ColLastComponentNonce: u64, ColComponentEdges: Vec<Edge>, ColPeerComponent: u64];
+define_column_set! {
+    RoutingTableColumns {
+        ColLastComponentNonce,
+        ColComponentEdges,
+        ColPeerComponent,
+    }
+}
+
+type RoutingTableStore = ColumnStore<RoutingTableColumns>;
+type RoutingTableStoreUpdate = ColumnStoreUpdate<RoutingTableColumns>;
 
 /// `Prune` enum is to specify how often should we prune edges.
 #[derive(Debug, Eq, PartialEq)]
@@ -66,7 +78,7 @@ pub struct RoutingTableActor {
     /// ColComponentEdges     -> Mapping from `component_nonce` to list of edges
     /// ColPeerComponent      -> Mapping from `peer_id` to last component nonce if there
     ///                          exists one it belongs to.
-    store: Store,
+    store: RoutingTableStore,
     /// First component nonce id that hasn't been used. Used for creating new components.
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
@@ -82,10 +94,9 @@ pub struct RoutingTableActor {
 
 impl RoutingTableActor {
     pub fn new(my_peer_id: PeerId, store: Store) -> Self {
-        let component_nonce = store
-            .get_ser::<u64>(ColLastComponentNonce, &[])
-            .unwrap_or(None)
-            .map_or(0, |nonce| nonce + 1);
+        let store = RoutingTableStore::split(&store);
+        let component_nonce =
+            store.get::<ColLastComponentNonce>(&[]).unwrap_or(None).map_or(0, |nonce| nonce + 1);
         let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
@@ -213,7 +224,7 @@ impl RoutingTableActor {
 
         // Get the "row" (a.k.a nonce) at which we've stored a given peer in the past (when we pruned it).
         if let Ok(component_nonce) = self.component_nonce_from_peer(other_peer_id) {
-            let mut update = self.store.store_update();
+            let mut update = self.store.update();
 
             // Load all edges that were persisted in database in the cell - and add them to the current graph.
             if let Ok(edges) = self.get_and_remove_component_edges(component_nonce, &mut update) {
@@ -232,8 +243,7 @@ impl RoutingTableActor {
                                 // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
-                                update.delete(
-                                    ColPeerComponent,
+                                update.delete::<ColPeerComponent>(
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
                             }
@@ -243,7 +253,7 @@ impl RoutingTableActor {
                 }
             }
 
-            if let Err(e) = update.commit() {
+            if let Err(e) = self.store.commit(update) {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
@@ -324,13 +334,12 @@ impl RoutingTableActor {
 
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
-        let mut update = self.store.store_update();
+        let mut update = self.store.update();
 
         // Sets mapping from `peer_id` to `component nonce` in DB. This is later used to find
         // component that the edge belonged to.
         for peer_id in peers_to_remove.iter() {
-            let _ = update.set_ser(
-                ColPeerComponent,
+            update.set::<ColPeerComponent>(
                 peer_id.try_to_vec().unwrap().as_ref(),
                 &self.next_available_component_nonce,
             );
@@ -346,17 +355,16 @@ impl RoutingTableActor {
             .cloned()
             .collect();
 
-        let _ = update.set_ser(
-            ColComponentEdges,
+        update.set::<ColComponentEdges>(
             &index_to_bytes(self.next_available_component_nonce),
             &edges_to_remove,
         );
 
         self.next_available_component_nonce += 1;
         // Stores next available nonce.
-        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
+        update.set::<ColLastComponentNonce>(&[], &self.next_available_component_nonce);
 
-        if let Err(e) = update.commit() {
+        if let Err(e) = self.store.commit(update) {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
         }
         edges_to_remove
@@ -369,7 +377,8 @@ impl RoutingTableActor {
 
     /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
     fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
-        match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
+        let key = peer_id.try_to_vec().unwrap();
+        match self.store.get::<ColPeerComponent>(&key) {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
         }
@@ -379,16 +388,16 @@ impl RoutingTableActor {
     fn get_and_remove_component_edges(
         &self,
         component_nonce: u64,
-        update: &mut StoreUpdate,
+        update: &mut RoutingTableStoreUpdate,
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(component_nonce);
 
-        let res = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+        let res = match self.store.get::<ColComponentEdges>(enc_nonce.as_ref()) {
             Ok(Some(edges)) => Ok(edges),
             _ => Err(()),
         };
 
-        update.delete(ColComponentEdges, enc_nonce.as_ref());
+        update.delete::<ColComponentEdges>(enc_nonce.as_ref());
 
         res
     }

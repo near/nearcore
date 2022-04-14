@@ -8,7 +8,7 @@ use near_crypto::Signature;
 use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
-use near_store::test_utils::create_test_store;
+use near_store::test_utils::{create_test_store, reopen_test_store};
 use near_store::{ColComponentEdges, ColPeerComponent, Store};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -240,7 +240,8 @@ fn load_component_nonce_on_start() {
     test.add_edge(0, 1, 2);
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
-    let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
+    let store = reopen_test_store(&test.store);
+    let routing_table = RoutingTableActor::new(random_peer_id(), store);
     assert_eq!(routing_table.next_available_component_nonce, 2);
 
     System::current().stop();
@@ -262,7 +263,8 @@ fn load_component_nonce_2_on_start() {
         vec![(0, vec![(0, 1, false)]), (1, vec![(0, 2, false)])],
         vec![(1, 0), (2, 1)],
     );
-    let routing_table = RoutingTableActor::new(random_peer_id(), test.store.clone());
+    let store = reopen_test_store(&test.store);
+    let routing_table = RoutingTableActor::new(random_peer_id(), store);
     assert_eq!(routing_table.next_available_component_nonce, 3);
 
     System::current().stop();

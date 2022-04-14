@@ -19,6 +19,11 @@ pub fn create_test_store() -> Store {
     Store::new(db)
 }
 
+pub fn reopen_test_store(store: &Store) -> Store {
+    let db = Arc::clone(&store.storage);
+    Store::new(db)
+}
+
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
     create_tries_complex(0, 1)
