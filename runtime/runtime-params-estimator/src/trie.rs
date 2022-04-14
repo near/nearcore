@@ -8,7 +8,7 @@ use near_vm_logic::ExtCosts;
 
 use crate::estimator_context::Testbed;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
-use crate::utils::{aggregate_per_block_measurements, is_high_variance};
+use crate::utils::{aggregate_per_block_measurements, percentiles};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
 
@@ -118,12 +118,169 @@ pub(crate) fn read_node_from_db(
     cost
 }
 
-pub(crate) fn read_node_from_chunk_cache(
+pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
+    let debug = true;
+    let iters = 200;
+    let percentiles_of_interest = &[0.5, 0.9, 0.99, 0.999];
+
+    // Worst-case
+    // - Completely cold cache
+    let num_warmup_values = 0;
+    // - Single node read, no amortization possible
+    let num_values = 1;
+    // - Data is spread in main memory
+    let data_spread_factor = 11;
+
+    // For the base case, worst-case assumption is slightly relaxed
+    let base_case = {
+        // Reading a different node before the measurement loads data structure
+        // into cache. It would be difficult for an attacker to avoid this
+        // consistently, so the base case assumes this is in cache.
+        let num_warmup_values = 1;
+        // Some amortization should also be allowed, or how would an attacker
+        // actually abuse undercharged costs?
+        let num_values = 16;
+
+        let results = read_node_from_chunk_cache_ext(
+            testbed,
+            iters,
+            num_values,
+            num_warmup_values,
+            data_spread_factor,
+        );
+        let mut p_results = percentiles(results, percentiles_of_interest);
+        if debug {
+            println!(
+                "{:<16}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
+                "",
+                percentiles_of_interest[0],
+                percentiles_of_interest[1],
+                percentiles_of_interest[2],
+                percentiles_of_interest[3]
+            );
+            print!("{:<16}", "Base Case");
+            for cost in p_results.iter() {
+                print!("{:>8} ", cost.to_gas() / 1_000_000);
+            }
+            println!();
+        }
+        p_results.pop();
+        // Take the 99th percentile measured
+        p_results.pop().unwrap()
+    };
+
+    if debug {
+        // Worst-case
+        {
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "Worst Case");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+        // Worst-case, but warmed up
+        {
+            let num_warmup_values = 1;
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "Warmed-up");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+        // Worst-case, but amortized
+        {
+            let num_values = 128;
+            let iters = 30; // For estimation speed only, should not affect results
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "Amortized");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+        // Worst-case, but data locality
+        {
+            let data_spread_factor = 1;
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "Good Locality");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+        // Best-case
+        {
+            let num_warmup_values = 1;
+            let num_values = 128;
+            let iters = 30; // For estimation speed only, should not affect results
+            let data_spread_factor = 1;
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<16}", "Best Case");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
+    }
+
+    base_case
+}
+
+fn read_node_from_chunk_cache_ext(
     testbed: &mut Testbed,
-    warmup_iters: usize,
-    measured_iters: usize,
+    iters: usize,
     num_values: usize,
-) -> GasCost {
+    num_warmup_values: usize,
+    // Spread factor to reduce data locality
+    data_spread_factor: usize,
+) -> Vec<GasCost> {
     // Trie nodes are largest when they hold part of a storage key (Extension or
     // Leaf) and keys can be up to 2kiB. Therefore, this is about the maximum
     // size possible.
@@ -133,11 +290,7 @@ pub(crate) fn read_node_from_chunk_cache(
     let assumed_max_l3_size = 128 * 1024 * 1024;
     let dummy_data = testbed.transaction_builder().random_vec(assumed_max_l3_size);
 
-    // Spread factor to reduce data locality
-    let data_spread_factor = 11;
-
-    let iters = warmup_iters + measured_iters;
-    let results = (0..iters)
+    (0..iters)
         .map(|i| {
             let tb = testbed.transaction_builder();
             let signer = tb.random_account();
@@ -162,7 +315,7 @@ pub(crate) fn read_node_from_chunk_cache(
             let all_value_hashes: Vec<_> = values.iter().map(|value| hash(value)).collect();
             let measured_value_hashes: Vec<_> =
                 all_value_hashes.iter().step_by(data_spread_factor).cloned().collect();
-            let unmeasured_value_hashes = &all_value_hashes[0..1];
+            let unmeasured_value_hashes = &all_value_hashes[0..num_warmup_values];
             assert_eq!(measured_value_hashes.len(), num_values);
 
             // Create a new cache and load nodes into it as preparation.
@@ -188,26 +341,7 @@ pub(crate) fn read_node_from_chunk_cache(
 
             cost / num_values as u64
         })
-        .skip(warmup_iters)
-        .collect::<Vec<_>>();
-    // DEBUG
-    for (i, cost) in results.iter().enumerate() {
-        println!("{i} {}", cost.to_gas() / 1_000_000);
-    }
-    // /DEBUG
-
-    assert_eq!(measured_iters, results.len());
-    let mut total_cost = GasCost::zero(testbed.config.metric);
-    let mut block_costs = Vec::new();
-    for gas_cost in results {
-        block_costs.push(gas_cost.to_gas() as f64);
-        total_cost += gas_cost;
-    }
-    let mut per_node_cost = total_cost / measured_iters as u64;
-    if is_high_variance(&block_costs) {
-        per_node_cost.set_uncertain("HIGH-VARIANCE");
-    }
-    per_node_cost
+        .collect()
 }
 
 /// Read trie nodes directly from a `TrieCachingStorage`, without the runtime.

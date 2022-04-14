@@ -95,7 +95,7 @@ use num_rational::Ratio;
 use rand::Rng;
 use serde_json::json;
 use utils::{
-    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
+    aggregate_per_block_measurements, average_cost, fn_cost, fn_cost_count, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
     transaction_cost, transaction_cost_ext,
 };
@@ -1091,11 +1091,14 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
 
 fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let warmup_iters = ctx.config.warmup_iters_per_block;
-    let measured_iters = ctx.config.iter_per_block;
+    let iters = ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
 
-    let num_values = 1;
-    trie::read_node_from_chunk_cache(&mut testbed, warmup_iters, measured_iters, num_values)
+    let results = (0..(warmup_iters + iters))
+        .map(|_| trie::read_node_from_chunk_cache(&mut testbed))
+        .skip(warmup_iters)
+        .collect::<Vec<_>>();
+    average_cost(ctx.config, &results)
 }
 
 fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
