@@ -149,8 +149,13 @@ fn ensure_max_open_files_limit(max_open_files: i32) -> () {
     let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
     let required = max_open_files as u64 + 1025;
     if soft < required {
-        assert!(hard >= required, "Can't run near binary since hard limit for the number \
-                of opened files is too small: {} required: {}", hard, required);
+        assert!(
+            hard >= required,
+            "Can't run near binary since hard limit for the number \
+                of opened files is too small: {} required: {}",
+            hard,
+            required
+        );
         rlimit::Resource::NOFILE.set(required, hard).unwrap();
     }
 }
