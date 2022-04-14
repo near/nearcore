@@ -1,5 +1,6 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::test_utils::encode;
 use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
@@ -43,21 +44,13 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
     }
 }
 
-fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-    let mut res = vec![];
-    for el in value {
-        res.extend_from_slice(&el.to_le_bytes());
-    }
-    res
-}
-
 #[test]
 pub fn test_read_write() {
     with_vm_variants(|vm_kind: VMKind| {
         let code = test_contract();
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
+        let context = create_context(encode(&[10u64, 20u64]));
         let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
@@ -75,7 +68,7 @@ pub fn test_read_write() {
         );
         assert_run_result(result, 0);
 
-        let context = create_context(arr_u64_to_u8(&[10u64]));
+        let context = create_context(encode(&[10u64]));
         let result = runtime.run(
             &code,
             "read_value",
