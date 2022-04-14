@@ -5,7 +5,8 @@ use rocksdb::{ColumnFamilyDescriptor, MergeOperands, Options};
 use strum::IntoEnumIterator;
 
 use crate::db::{col_name, rocksdb_column_options, DBError, RocksDB, RocksDBOptions};
-use crate::DBCol;
+use crate::{DBCol, StoreConfig};
+use std::path::Path;
 
 fn refcount_merge_v6(
     _new_key: &[u8],
@@ -47,7 +48,7 @@ fn merge_refcounted_records_v6(result: &mut Vec<u8>, val: &[u8]) {
 }
 
 fn rocksdb_column_options_v6(col: DBCol) -> Options {
-    let mut opts = rocksdb_column_options(DBCol::ColDbVersion);
+    let mut opts = rocksdb_column_options(DBCol::ColDbVersion, &StoreConfig::read_write());
 
     if col == DBCol::ColState {
         opts.set_merge_operator("refcount merge", refcount_merge_v6, refcount_merge_v6);
@@ -57,7 +58,7 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
 }
 
 impl RocksDB {
-    pub(crate) fn new_v6<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DBError> {
+    pub(crate) fn new_v6(path: &Path) -> Result<Self, DBError> {
         RocksDBOptions::default()
             .cf_names(DBCol::iter().map(|col| col_name(col)).collect())
             .cf_descriptors(
@@ -67,6 +68,6 @@ impl RocksDB {
                     })
                     .collect(),
             )
-            .read_write(path)
+            .open(path, &StoreConfig::read_write())
     }
 }
