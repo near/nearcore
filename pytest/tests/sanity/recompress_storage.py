@@ -5,7 +5,7 @@ The test starts a cluster of four nodes, submits a few transactions onto the
 network.  The same transactions as the ones used in rpc_tx_status.py test.
 
 Once that’s done, each node is stopped and its storage processed via the
-‘recompress_storage’ command.  ‘view_state apply_range’ is then executed to
+‘recompress-storage’ command.  ‘view-state apply-range’ is then executed to
 verify that the database has not been corrupted.
 
 Finally, all the nodes are restarted and again a few transactions are sent to
@@ -63,12 +63,12 @@ class RosettaTestCase(unittest.TestCase):
             node.kill(gentle=True)
 
             node_dir = pathlib.Path(node.node_dir)
-            self._call(node, 'recompress_storage',
+            self._call(node, 'recompress-storage',
                        '--output-dir=' + str(node_dir / 'data-new'))
             (node_dir / 'data').rename(node_dir / 'data-old')
             (node_dir / 'data-new').rename(node_dir / 'data')
 
-            cmd = self._call(node, 'view_state', 'apply_range',
+            cmd = self._call(node, 'view-state', 'apply-range',
                              '--start-index=0', '--verbose-output')
 
         # Restart all nodes with the new database
