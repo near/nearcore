@@ -21,6 +21,7 @@ use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
+use anyhow::bail;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use futures::FutureExt;
 use near_network_primitives::types::{
@@ -48,7 +49,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -149,6 +150,28 @@ impl AdvHelper {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct WhitelistNode {
+    id: PeerId,
+    addr: SocketAddr,
+    account_id: Option<AccountId>,
+}
+
+impl TryFrom<&PeerInfo> for WhitelistNode {
+    type Error = anyhow::Error;
+    fn try_from(pi: &PeerInfo) -> anyhow::Result<Self> {
+        Ok(Self {
+            id: pi.id.clone(),
+            addr: if let Some(addr) = pi.addr {
+                addr.clone()
+            } else {
+                bail!("addess is missing");
+            },
+            account_id: pi.account_id.clone(),
+        })
+    }
+}
+
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     /// Networking configuration.
@@ -188,6 +211,9 @@ pub struct PeerManagerActor {
     peer_counter: Arc<AtomicUsize>,
     /// Used for testing, for disabling features.
     adv_helper: AdvHelper,
+    /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
+    /// reached.
+    whitelist_nodes: Vec<WhitelistNode>,
 }
 
 impl Actor for PeerManagerActor {
@@ -268,12 +294,13 @@ impl PeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         let peer_store = PeerStore::new(
             store.clone(),
             &config.boot_nodes,
             Blacklist::from_iter(config.blacklist.iter()),
-        )?;
+        )
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
@@ -281,6 +308,14 @@ impl PeerManagerActor {
         let routing_table = RoutingTableView::new(store);
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
+
+        let whitelist_nodes = {
+            let mut v = vec![];
+            for wn in &config.whitelist_nodes {
+                v.push(wn.try_into()?);
+            }
+            v
+        };
 
         Ok(Self {
             my_peer_id,
@@ -299,6 +334,7 @@ impl PeerManagerActor {
             txns_since_last_block,
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
+            whitelist_nodes,
         })
     }
 
@@ -895,20 +931,11 @@ impl PeerManagerActor {
     /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
     /// been reached. This predicate should be evaluated AFTER the Handshake.
     fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
-        for x in &self.config.whitelist_nodes {
-            if x.id != peer_info.id {
-                continue;
-            }
-            debug_assert!(x.addr.is_some(), "addr for whitelisted nodes is requred!");
-            if x.addr.is_some() && x.addr != peer_info.addr {
-                continue;
-            }
-            if x.account_id.is_some() && x.account_id != peer_info.account_id {
-                continue;
-            }
-            return true;
-        }
-        return false;
+        self.whitelist_nodes
+            .iter()
+            .filter(|wn| wn.id == peer_info.id)
+            .filter(|wn| Some(wn.addr) == peer_info.addr)
+            .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
     /// is_ip_whitelisted checks whether the IP address of an inbound
@@ -917,13 +944,7 @@ impl PeerManagerActor {
     /// the port of an inbound TCP connection is assigned at random.
     /// This predicate should be evaluated BEFORE the Handshake.
     fn is_ip_whitelisted(&self, ip: &IpAddr) -> bool {
-        for x in &self.config.whitelist_nodes {
-            debug_assert!(x.addr.is_some(), "addr for whitelisted nodes is requred!");
-            if x.addr.map(|a| a.ip() == *ip).unwrap_or(false) {
-                return true;
-            }
-        }
-        return false;
+        self.whitelist_nodes.iter().any(|wn| wn.addr.ip() == *ip)
     }
 
     /// Returns single random peer with close to the highest height
@@ -1116,52 +1137,40 @@ impl PeerManagerActor {
             ideal_connections_hi = self.config.ideal_connections_hi,
             "Trying to stop an active connection.",
         );
+        let filter_peers = |predicate: &dyn Fn(&ConnectedPeer) -> bool| {
+            self.connected_peers
+                .iter()
+                .filter_map(|(id, peer)| predicate(peer).then(|| id))
+                .collect::<Vec<_>>()
+        };
 
         // Build safe set
         let mut safe_set = HashSet::new();
 
-        // Add whitelisted nodes to the safe set.
-        let whitelisted_peers: Vec<_> = self
-            .connected_peers
-            .iter()
-            .filter(|(_, p)| self.is_peer_whitelisted(&p.full_peer_info.peer_info))
-            .collect();
-        for (id, _) in &whitelisted_peers {
-            safe_set.insert(id.clone());
-        }
-
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        let whitelisted_peers =
+            filter_peers(&|p| self.is_peer_whitelisted(&p.full_peer_info.peer_info));
         if self.connected_peers.len() - whitelisted_peers.len()
             <= self.config.ideal_connections_hi as usize
         {
             return;
         }
+        // Add whitelisted nodes to the safe set.
+        safe_set.extend(whitelisted_peers.into_iter().cloned());
 
         // If there is not enough outbound peers, add them to the safe set.
-        let outbound_peers: Vec<_> = self
-            .connected_peers
-            .iter()
-            .filter(|(_, p)| p.peer_type == PeerType::Outbound)
-            .collect();
+        let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
         if outbound_peers.len() + self.outgoing_peers.len()
             <= self.config.minimum_outbound_peers as usize
         {
-            for (id, _) in outbound_peers {
-                safe_set.insert(id);
-            }
+            safe_set.extend(outbound_peers.into_iter().cloned());
         }
 
         // If there is not enough archival peers, add them to the safe set.
-        let archival_peers: Vec<_> = self
-            .connected_peers
-            .iter()
-            .filter(|(_, p)| p.full_peer_info.chain_info.archival)
-            .collect();
-        if self.config.archive
-            && archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize
-        {
-            for (id, _) in archival_peers {
-                safe_set.insert(id);
+        if self.config.archive {
+            let archival_peers = filter_peers(&|p| p.full_peer_info.chain_info.archival);
+            if archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
+                safe_set.extend(archival_peers.into_iter().cloned());
             }
         }
 
@@ -1181,7 +1190,7 @@ impl PeerManagerActor {
             if safe_set.len() >= set_limit {
                 break;
             }
-            safe_set.insert(id);
+            safe_set.insert(id.clone());
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.

@@ -720,12 +720,16 @@ impl NearConfig {
                 },
                 whitelist_nodes: (|| -> Vec<_> {
                     let w = &config.network.whitelist_nodes;
-                    if w.is_empty() { return vec![]; }
+                    if w.is_empty() {
+                        return vec![];
+                    }
                     let mut peers = vec![];
                     for peer in w.split(',') {
-                        let peer : PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
+                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
                         if peer.addr.is_none() {
-                            panic!("whitelist_nodes are required to specify both PeerId and IP:port")
+                            panic!(
+                                "whitelist_nodes are required to specify both PeerId and IP:port"
+                            )
                         }
                         peers.push(peer);
                     }

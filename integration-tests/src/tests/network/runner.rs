@@ -382,7 +382,7 @@ impl TestConfig {
     }
 
     fn addr(&self) -> SocketAddr {
-        let ip = Ipv4Addr::new(127, 0, 0, 1);
+        let ip = Ipv4Addr::LOCALHOST;
         SocketAddr::V4(SocketAddrV4::new(ip, self.port))
     }
 
