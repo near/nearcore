@@ -2125,37 +2125,35 @@ impl<'a> ChainStoreUpdate<'a> {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, we delete the state that's the result of applying this block
                     for shard_uid in shard_uids_to_gc {
-                        self.store()
-                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                            .map(|trie_changes: TrieChanges| {
-                                tries.revert_insertions(
-                                    &trie_changes,
-                                    shard_uid,
-                                    &mut store_update,
-                                );
-                                self.gc_col(
-                                    ColTrieChanges,
-                                    &get_block_shard_uid(&block_hash, &shard_uid),
-                                );
-                                self.inc_gc_col_state();
-                            })
-                            .unwrap_or(());
+                        let trie_changes = self.store().get_ser(
+                            ColTrieChanges,
+                            &get_block_shard_uid(&block_hash, &shard_uid),
+                        )?;
+                        if let Some(trie_changes) = trie_changes {
+                            tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
+                            self.gc_col(
+                                ColTrieChanges,
+                                &get_block_shard_uid(&block_hash, &shard_uid),
+                            );
+                            self.inc_gc_col_state();
+                        }
                     }
                 }
                 GCMode::Canonical(tries) => {
                     // If the block is on canonical chain, we delete the state that's before applying this block
                     for shard_uid in shard_uids_to_gc {
-                        self.store()
-                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                            .map(|trie_changes: TrieChanges| {
-                                tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
-                                self.gc_col(
-                                    ColTrieChanges,
-                                    &get_block_shard_uid(&block_hash, &shard_uid),
-                                );
-                                self.inc_gc_col_state();
-                            })
-                            .unwrap_or(());
+                        let trie_changes = self.store().get_ser(
+                            ColTrieChanges,
+                            &get_block_shard_uid(&block_hash, &shard_uid),
+                        )?;
+                        if let Some(trie_changes) = trie_changes {
+                            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
+                            self.gc_col(
+                                ColTrieChanges,
+                                &get_block_shard_uid(&block_hash, &shard_uid),
+                            );
+                            self.inc_gc_col_state();
+                        }
                     }
                     // Set `block_hash` on previous one
                     block_hash = *self.get_block_header(&block_hash)?.prev_hash();
