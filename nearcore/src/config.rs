@@ -208,6 +208,9 @@ pub struct Network {
     pub boot_nodes: String,
     /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
     /// the whitelist are accepted even if the limit of the inbound connection has been reached.
+    /// For each whitelisted node specifying both PeerId and IP:port is required:
+    /// Example:
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
     pub whitelist_nodes: String,
     /// Maximum number of active peers. Hard limit.
     #[serde(default = "default_max_num_peers")]

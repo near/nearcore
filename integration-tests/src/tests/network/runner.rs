@@ -4,11 +4,10 @@ use std::iter::Iterator;
 #[allow(unused_imports)]
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
 
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail};
-use chrono::DateTime;
-use near_primitives::time::Utc;
 use tracing::debug;
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -18,7 +17,7 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
     GetInfo, NetworkRecipient,
 };
 
@@ -47,7 +46,7 @@ pub type ActionFn =
 pub fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
-    genesis_time: DateTime<Utc>,
+    chain_genesis : ChainGenesis,
     config: NetworkConfig,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
@@ -62,8 +61,6 @@ pub fn setup_network_node(
         account_id.as_ref(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.time = genesis_time;
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
@@ -142,7 +139,6 @@ pub enum Action {
 pub struct RunningInfo {
     runner: Runner,
     nodes: Vec<Option<NodeHandle>>,
-    peers_info: Vec<PeerInfo>,
 }
 
 struct StateMachine {
@@ -158,9 +154,9 @@ async fn check_routing_table(
     for (target, routes) in expected {
         let mut peers = vec![];
         for hop in routes {
-            peers.push(info.peers_info[hop].id.clone());
+            peers.push(info.runner.test_config[hop].peer_id());
         }
-        expected_rt.push((info.peers_info[target].id.clone(), peers));
+        expected_rt.push((info.runner.test_config[target].peer_id(), peers));
     }
     let pm = info.get_node(u)?.addr.clone();
     let resp = pm
@@ -184,7 +180,7 @@ async fn check_account_id(
 ) -> anyhow::Result<ControlFlow> {
     let mut expected_known = vec![];
     for u in known_validators.clone() {
-        expected_known.push(info.peers_info[u].account_id.clone().unwrap());
+        expected_known.push(info.runner.test_config[u].account_id.clone());
     }
     let pm = &info.get_node(source)?.addr;
     let resp = pm
@@ -211,11 +207,11 @@ async fn check_ping_pong(
 ) -> anyhow::Result<ControlFlow> {
     let mut pings_expected = vec![];
     for (nonce, source, count) in pings {
-        pings_expected.push((nonce, info.peers_info[source].id.clone(), count));
+        pings_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
     }
     let mut pongs_expected = vec![];
     for (nonce, source, count) in pongs {
-        pongs_expected.push((nonce, info.peers_info[source].id.clone(), count));
+        pongs_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
     }
     let pm = &info.get_node(source)?.addr;
     let resp = pm
@@ -289,7 +285,7 @@ impl StateMachine {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.addr.clone();
-                    let peer_info = info.peers_info[to].clone();
+                    let peer_info = info.runner.test_config[to].peer_info();
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
                         OutboundTcpConnect { peer_info },
@@ -319,7 +315,7 @@ impl StateMachine {
             Action::PingTo(source, nonce, target) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let target = info.peers_info[target].id.clone();
+                    let target = info.runner.test_config[target].peer_id();
                     info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
                         nonce, target,
                     ))).await?;
@@ -354,41 +350,57 @@ struct TestConfig {
     routed_message_ttl: u8,
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
+    whitelist: HashSet<usize>,
     outbound_disabled: bool,
     ban_window: Duration,
     ideal_connections: Option<(u32, u32)>,
     minimum_outbound_peers: Option<u32>,
     safe_set_size: Option<u32>,
     archive: bool,
+
+    account_id: AccountId,
+    port: u16,
 }
 
 impl TestConfig {
-    fn new() -> Self {
+    fn new(id:usize) -> Self {
         Self {
             max_num_peers: 100,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             boot_nodes: vec![],
             blacklist: HashSet::new(),
+            whitelist: HashSet::new(),
             outbound_disabled: true,
             ban_window: Duration::from_secs(1),
             ideal_connections: None,
             minimum_outbound_peers: None,
             safe_set_size: None,
             archive: false,
+
+            account_id: format!("test{}", id).parse().unwrap(),
+            port: open_port(),
         }
+    }
+
+    fn addr(&self) -> SocketAddr {
+        let ip = Ipv4Addr::new(127,0,0,1);
+        SocketAddr::V4(SocketAddrV4::new(ip,self.port))
+    }
+
+    fn peer_id(&self) -> PeerId {
+        peer_id_from_seed(&self.account_id)
+    }
+
+    fn peer_info(&self) -> PeerInfo {
+        PeerInfo::new(self.peer_id(), self.addr())
     }
 }
 
 pub struct Runner {
-    num_nodes: usize,
-    num_validators: usize,
     test_config: Vec<TestConfig>,
     state_machine: StateMachine,
-
-    accounts_id: Option<Vec<AccountId>>,
-    ports: Option<Vec<u16>>,
-    validators: Option<Vec<AccountId>>,
-    genesis_time: Option<DateTime<Utc>>,
+    validators: Vec<AccountId>,
+    chain_genesis: ChainGenesis, 
 }
 
 struct NodeHandle {
@@ -409,15 +421,13 @@ impl NodeHandle {
 
 impl Runner {
     pub fn new(num_nodes: usize, num_validators: usize) -> Self {
+        let test_config : Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
+        let validators = test_config[0..num_validators].iter().map(|c|c.account_id.clone()).collect();
         Self {
-            num_nodes,
-            num_validators,
-            test_config: (0..num_nodes).map(|_| TestConfig::new()).collect(),
+            test_config,
+            validators, 
             state_machine: StateMachine::new(),
-            accounts_id: None,
-            ports: None,
-            validators: None,
-            genesis_time: None,
+            chain_genesis: ChainGenesis::test(),
         }
     }
 
@@ -433,6 +443,14 @@ impl Runner {
     ///
     pub fn add_to_blacklist(mut self, u: usize, v: Option<usize>) -> Self {
         self.test_config[u].blacklist.insert(v);
+        self
+    }
+
+    /// Add node `v` to the whitelist of node `u`.
+    /// If passed `v` an entry of the following form is added to the whitelist:
+    ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V
+    pub fn add_to_whitelist(mut self, u: usize, v: usize) -> Self {
+        self.test_config[u].whitelist.insert(v);
         self
     }
 
@@ -526,64 +544,53 @@ impl Runner {
     }
 
     async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
-        let accounts_id = self.accounts_id.as_ref().unwrap();
-        let ports = self.ports.as_ref().unwrap();
-        let test_config = &self.test_config[node_id];
+        let config = &self.test_config[node_id];
 
-        let boot_nodes = convert_boot_nodes(
-            test_config
-                .boot_nodes
-                .iter()
-                .map(|ix| (accounts_id[*ix].as_ref(), ports[*ix]))
-                .collect(),
-        );
-
-        let blacklist = test_config
+        let boot_nodes = config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
+        let blacklist = config
             .blacklist
             .iter()
             .map(|x| {
                 if let Some(x) = x {
-                    format!("127.0.0.1:{}", ports[*x])
+                    self.test_config[*x].addr().to_string()
                 } else {
                     "127.0.0.1".to_string()
                 }
             })
             .collect();
+        let whitelist = config.whitelist.iter().map(|ix|self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id]);
-
-        network_config.ban_window = test_config.ban_window;
-        network_config.max_num_peers = test_config.max_num_peers;
+        let mut network_config = NetworkConfig::from_seed(&config.account_id, config.port);
+        network_config.ban_window = config.ban_window;
+        network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = Duration::from_secs(5);
-        network_config.routed_message_ttl = test_config.routed_message_ttl;
+        network_config.routed_message_ttl = config.routed_message_ttl;
         network_config.blacklist = blacklist;
-        network_config.outbound_disabled = test_config.outbound_disabled;
+        network_config.whitelist_nodes = whitelist;
+        network_config.outbound_disabled = config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
-        network_config.archive = test_config.archive;
+        network_config.archive = config.archive;
 
-        network_config.ideal_connections_lo =
-            test_config.ideal_connections.map_or(network_config.ideal_connections_lo, |(lo, _)| lo);
-        network_config.ideal_connections_hi =
-            test_config.ideal_connections.map_or(network_config.ideal_connections_hi, |(_, hi)| hi);
-        network_config.safe_set_size =
-            test_config.safe_set_size.unwrap_or(network_config.safe_set_size);
-        network_config.minimum_outbound_peers =
-            test_config.minimum_outbound_peers.unwrap_or(network_config.minimum_outbound_peers);
+        config.ideal_connections.map(|(lo,hi)|{
+            network_config.ideal_connections_lo = lo;
+            network_config.ideal_connections_hi = hi;
+        });
+        config.safe_set_size.map(|sss|{ network_config.safe_set_size = sss; });
+        config.minimum_outbound_peers.map(|mop|{ network_config.minimum_outbound_peers = mop; });
 
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({
-            let account_id = accounts_id[node_id].clone();
-            let validators = self.validators.clone().unwrap();
-            let genesis_time = self.genesis_time.unwrap();
+            let account_id = config.account_id.clone();
+            let validators = self.validators.clone();
+            let chain_genesis = self.chain_genesis.clone();
             move || {
                 actix::System::new().block_on(async move {
                     send_pm
                         .send(setup_network_node(
                             account_id,
                             validators,
-                            genesis_time,
+                            chain_genesis,
                             network_config,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
@@ -597,31 +604,12 @@ impl Runner {
         Ok(NodeHandle { addr, send_stop, handle })
     }
 
-    async fn build(mut self) -> anyhow::Result<RunningInfo> {
-        let accounts_id: Vec<_> = (0..self.num_nodes)
-            .map(|ix| format!("test{}", ix).parse::<AccountId>().unwrap())
-            .collect();
-        let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
-
-        let validators: Vec<_> = accounts_id.iter().cloned().take(self.num_validators).collect();
-
-        let mut peers_info =
-            convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
-
-        for (validator, peer_info) in validators.iter().zip(peers_info.iter_mut()) {
-            peer_info.account_id = Some(validator.clone());
-        }
-
-        self.genesis_time = Some(Utc::now());
-        self.accounts_id = Some(accounts_id);
-        self.ports = Some(ports);
-        self.validators = Some(validators);
-
+    async fn build(self) -> anyhow::Result<RunningInfo> {
         let mut nodes = vec![];
-        for (node_id, _) in self.test_config.iter().enumerate() {
+        for node_id in 0..self.test_config.len() {
             nodes.push(Some(self.setup_node(node_id).await?));
         }
-        Ok(RunningInfo { runner: self, nodes, peers_info })
+        Ok(RunningInfo{runner: self, nodes})
     }
 }
 
@@ -640,6 +628,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
+            debug!("[starting action {i}]");
             loop {
                 tokio::select! {
                     done = a(&mut info) => {
@@ -679,14 +668,28 @@ impl RunningInfo {
         self.nodes[node_id] = Some(self.runner.setup_node(node_id).await?);
         Ok(())
     }
-    fn change_account_id(&mut self, node_id: usize, account_id: AccountId) -> anyhow::Result<()> {
-        self.runner.accounts_id.as_mut().unwrap()[node_id] = account_id.clone();
-        self.peers_info[node_id].id = peer_id_from_seed(account_id.as_ref());
-        if self.peers_info[node_id].account_id.is_some() {
-            self.peers_info[node_id].account_id = Some(account_id);
-        }
-        Ok(())
+    fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
+        self.runner.test_config[node_id].account_id = account_id.clone();
     }
+}
+
+pub fn assert_expected_peers(
+    node_id: usize,
+    peers: Vec<usize>,
+) -> ActionFn {
+    Box::new(move |info: &mut RunningInfo| {
+        let peers = peers.clone(); 
+        Box::pin(async move {
+            let pm = &info.get_node(node_id)?.addr;
+            let network_info = pm.send(GetInfo {}).await?;
+            let got : HashSet<_> = network_info.connected_peers.into_iter().map(|i|i.peer_info.id).collect();
+            let want : HashSet<_> = peers.iter().map(|i|info.runner.test_config[*i].peer_id()).collect();
+            if got!=want {
+                bail!("node {node_id} has peers {got:?}, want {want:?}");
+            }
+            return Ok(ControlFlow::Break(()))
+        })
+    })
 }
 
 /// Check that the number of connections of `node_id` is in the range:
@@ -718,7 +721,7 @@ async fn check_direct_connection_inner(
     node_id: usize,
     target_id: usize,
 ) -> anyhow::Result<ControlFlow> {
-    let target_peer_id = info.peers_info[target_id].id.clone();
+    let target_peer_id = info.runner.test_config[target_id].peer_id();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.addr;
     let resp = pm
@@ -768,7 +771,7 @@ async fn ban_peer_inner(
     banned_peer: usize,
 ) -> anyhow::Result<ControlFlow> {
     debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
-    let banned_peer_id = info.peers_info[banned_peer].id.clone();
+    let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
     let pm = &info.get_node(target_peer)?.addr;
     pm.send(BanPeerSignal::new(banned_peer_id)).await?;
     Ok(ControlFlow::Break(()))
@@ -785,8 +788,7 @@ pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let account_id = account_id.clone();
         Box::pin(async move {
-            // debug!(target: "network",  ?node_id, ?account_id, "runner.rs: change_account_id");
-            info.change_account_id(node_id, account_id)?;
+            info.change_account_id(node_id, account_id);
             Ok(ControlFlow::Break(()))
         })
     })
