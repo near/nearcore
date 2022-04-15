@@ -92,13 +92,18 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     runner.push(Action::AddEdge{from:2,to:0,force:true});
     // Try to establish an extra non-whitelisted connection.
     runner.push(Action::AddEdge{from:3,to:1,force:false});
+    runner.push(Action::AddEdge{from:3,to:2,force:false});
     // Establish an extra whitelisted connection.
     runner.push(Action::AddEdge{from:3,to:0,force:true});
     // Wait for the topology to stabilize.
+    // - 3 shouldn't be able to establish a connection to 1,2
+    // - 1 shouldn't drop connections to 0,2,3, even though the
+    //   connection limit is 2, since 0<->3 connection doesn't
+    //   count towards this limit.
     runner.push(Action::Wait(Duration::from_millis(200)));
     runner.push_action(assert_expected_peers(0,vec![1,2,3]));
     runner.push_action(assert_expected_peers(1,vec![0,2]));
-    runner.push_action(assert_expected_peers(2,vec![1,2]));
+    runner.push_action(assert_expected_peers(2,vec![0,1]));
     runner.push_action(assert_expected_peers(3,vec![0]));
     start_test(runner)
 }

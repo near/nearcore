@@ -1093,90 +1093,63 @@ impl PeerManagerActor {
         });
     }
 
-    /// Select one peer and send signal to stop connection to it gracefully.
-    /// Selection process:
-    ///     Create a safe set of peers, and among the remaining peers select one at random.
-    ///     If the number of outbound connections is less or equal than minimum_outbound_connections,
-    ///         add all outbound connections to the safe set.
-    ///     While the length of the safe set is less than safe_set_size:
-    ///         Among all the peers we have received a message within the last peer_recent_time_window,
-    ///             find the one we connected earlier and add it to the safe set.
-    ///         else break
-    fn try_stop_active_connection(&self) {
+    /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
+    /// If so, constructs a safe set of peers and selects one random peer outside of that set
+    /// and sends signal to stop connection to it gracefully.
+    ///     
+    /// Safe set contruction process:
+    /// 1. Add all whitelisted peers to the safe set.
+    /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
+    ///    add all outbound connections to the safe set.
+    /// 3. Find all peers who sent us a message within the last peer_recent_time_window,
+    ///    and add them one by one to the safe_set (starting from earliest connection time)
+    ///    until safe set has safe_set_size elements.
+    fn maybe_stop_active_connection(&self) {
         debug!(target: "network",
             connected_peers_len = self.connected_peers.len(),
             ideal_connections_hi = self.config.ideal_connections_hi,
             "Trying to stop an active connection.",
         );
-
+        
         // Build safe set
         let mut safe_set = HashSet::new();
 
-        if (self.connected_peers.values())
-            .filter(|connected_peer| connected_peer.peer_type == PeerType::Outbound)
-            .count()
-            + self.outgoing_peers.len()
-            <= self.config.minimum_outbound_peers as usize
-        {
-            for (peer, active) in self.connected_peers.iter() {
-                if active.peer_type == PeerType::Outbound {
-                    safe_set.insert(peer);
-                }
-            }
+        // Add whitelisted nodes to the safe set.
+        let whitelisted_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|self.is_peer_whitelisted(&p.full_peer_info.peer_info)).collect();
+        for (id,_) in &whitelisted_peers { safe_set.insert(id.clone()); }
+        
+        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        if self.connected_peers.len()-whitelisted_peers.len() <= self.config.ideal_connections_hi as usize { return; }
+
+        // If there is not enough outbound peers, add them to the safe set.
+        let outbound_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|p.peer_type == PeerType::Outbound).collect();
+        if outbound_peers.len() + self.outgoing_peers.len() <= self.config.minimum_outbound_peers as usize {
+            for (id,_) in outbound_peers { safe_set.insert(id); }
         }
 
-        if self.config.archive
-            && (self.connected_peers.values())
-                .filter(|connected_peer| connected_peer.full_peer_info.chain_info.archival)
-                .count()
-                <= self.config.archival_peer_connections_lower_bound as usize
-        {
-            for (peer, active) in self.connected_peers.iter() {
-                if active.full_peer_info.chain_info.archival {
-                    safe_set.insert(peer);
-                }
-            }
+        // If there is not enough archival peers, add them to the safe set.
+        let archival_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|p.full_peer_info.chain_info.archival).collect();
+        if self.config.archive && archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
+            for (id,_) in archival_peers { safe_set.insert(id); }
         }
 
-        // Find all recent connections
-        let mut recent_connections = (self.connected_peers.iter())
-            .filter_map(|(peer_id, active)| {
-                if active.last_time_received_message.elapsed() < self.config.peer_recent_time_window
-                {
-                    Some((peer_id.clone(), active.connection_established_time))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // Sort by established time
-        recent_connections.sort_by(|(_, established_time_a), (_, established_time_b)| {
-            established_time_a.cmp(established_time_b)
-        });
-
-        // Take remaining peers
-        for (peer_id, _) in recent_connections
-            .iter()
-            .take((self.config.safe_set_size as usize).saturating_sub(safe_set.len()))
-        {
-            safe_set.insert(peer_id);
+        // Find all recently active peers.
+        let mut active_peers : Vec<_> = self.connected_peers.iter()
+           .filter(|(_,p)|p.last_time_received_message.elapsed() < self.config.peer_recent_time_window).collect();
+        // Sort by established time.
+        active_peers.sort_by_key(|(_,p)|p.connection_established_time);
+        // Saturate safe set with recently active peers.
+        let set_limit = self.config.safe_set_size as usize;
+        for (id,_) in active_peers {
+            if safe_set.len()>=set_limit { break }
+            safe_set.insert(id);
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = self.connected_peers.keys().filter_map(|peer_id| {
-            if safe_set.contains(peer_id) {
-                None
-            } else {
-                Some(peer_id)
-            }
-        });
-
-        if let Some(peer_id) = candidates.choose(&mut rand::thread_rng()) {
-            if let Some(connected_peer) = self.connected_peers.get(peer_id) {
-                debug!(target: "network", ?peer_id, "Stop active connection");
-                connected_peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
-            }
+        let candidates = self.connected_peers.iter().filter(|(id,_)|!safe_set.contains(id));
+        if let Some((id,p)) = candidates.choose(&mut rand::thread_rng()) {
+            debug!(target: "network", ?id, "Stop active connection");
+            p.addr.do_send(PeerManagerRequest::UnregisterPeer);
         }
     }
 
@@ -1240,9 +1213,7 @@ impl PeerManagerActor {
         }
 
         // If there are too many active connections try to remove some connections
-        if self.connected_peers.len() > self.config.ideal_connections_hi as usize {
-            self.try_stop_active_connection();
-        }
+        self.maybe_stop_active_connection();
 
         if let Err(err) = self.peer_store.remove_expired(&self.config) {
             error!(target: "network", ?err, "Failed to remove expired peers");
