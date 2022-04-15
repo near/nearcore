@@ -78,32 +78,32 @@ fn connect_on_full_network() -> anyhow::Result<()> {
 fn connect_whitelisted() -> anyhow::Result<()> {
     let nodes = 4;
     let validators = 2;
-    let mut runner = Runner::new(nodes,validators)
+    let mut runner = Runner::new(nodes, validators)
         .enable_outbound()
         .safe_set_size(0)
         .minimum_outbound_peers(0)
         .max_num_peers(2)
-        .ideal_connections(2,2)
+        .ideal_connections(2, 2)
         // 3 is whitelisted by 0.
-        .add_to_whitelist(0,3);
+        .add_to_whitelist(0, 3);
     // Fill completely the capacity of the first 3 nodes.
-    runner.push(Action::AddEdge{from:0,to:1,force:true});
-    runner.push(Action::AddEdge{from:1,to:2,force:true});
-    runner.push(Action::AddEdge{from:2,to:0,force:true});
+    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
+    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
+    runner.push(Action::AddEdge { from: 2, to: 0, force: true });
     // Try to establish an extra non-whitelisted connection.
-    runner.push(Action::AddEdge{from:3,to:1,force:false});
-    runner.push(Action::AddEdge{from:3,to:2,force:false});
+    runner.push(Action::AddEdge { from: 3, to: 1, force: false });
+    runner.push(Action::AddEdge { from: 3, to: 2, force: false });
     // Establish an extra whitelisted connection.
-    runner.push(Action::AddEdge{from:3,to:0,force:true});
+    runner.push(Action::AddEdge { from: 3, to: 0, force: true });
     // Wait for the topology to stabilize.
     // - 3 shouldn't be able to establish a connection to 1,2
     // - 1 shouldn't drop connections to 0,2,3, even though the
     //   connection limit is 2, since 0<->3 connection doesn't
     //   count towards this limit.
     runner.push(Action::Wait(Duration::from_millis(200)));
-    runner.push_action(assert_expected_peers(0,vec![1,2,3]));
-    runner.push_action(assert_expected_peers(1,vec![0,2]));
-    runner.push_action(assert_expected_peers(2,vec![0,1]));
-    runner.push_action(assert_expected_peers(3,vec![0]));
+    runner.push_action(assert_expected_peers(0, vec![1, 2, 3]));
+    runner.push_action(assert_expected_peers(1, vec![0, 2]));
+    runner.push_action(assert_expected_peers(2, vec![0, 1]));
+    runner.push_action(assert_expected_peers(3, vec![0]));
     start_test(runner)
 }

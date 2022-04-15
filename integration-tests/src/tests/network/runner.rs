@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 #[allow(unused_imports)]
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
 
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail};
@@ -17,8 +17,7 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, NetworkRecipient,
+    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
 
 use near_network::routing::start_routing_table_actor;
@@ -46,7 +45,7 @@ pub type ActionFn =
 pub fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
-    chain_genesis : ChainGenesis,
+    chain_genesis: ChainGenesis,
     config: NetworkConfig,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
@@ -363,7 +362,7 @@ struct TestConfig {
 }
 
 impl TestConfig {
-    fn new(id:usize) -> Self {
+    fn new(id: usize) -> Self {
         Self {
             max_num_peers: 100,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
@@ -383,8 +382,8 @@ impl TestConfig {
     }
 
     fn addr(&self) -> SocketAddr {
-        let ip = Ipv4Addr::new(127,0,0,1);
-        SocketAddr::V4(SocketAddrV4::new(ip,self.port))
+        let ip = Ipv4Addr::new(127, 0, 0, 1);
+        SocketAddr::V4(SocketAddrV4::new(ip, self.port))
     }
 
     fn peer_id(&self) -> PeerId {
@@ -400,7 +399,7 @@ pub struct Runner {
     test_config: Vec<TestConfig>,
     state_machine: StateMachine,
     validators: Vec<AccountId>,
-    chain_genesis: ChainGenesis, 
+    chain_genesis: ChainGenesis,
 }
 
 struct NodeHandle {
@@ -421,11 +420,12 @@ impl NodeHandle {
 
 impl Runner {
     pub fn new(num_nodes: usize, num_validators: usize) -> Self {
-        let test_config : Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
-        let validators = test_config[0..num_validators].iter().map(|c|c.account_id.clone()).collect();
+        let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
+        let validators =
+            test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
         Self {
             test_config,
-            validators, 
+            validators,
             state_machine: StateMachine::new(),
             chain_genesis: ChainGenesis::test(),
         }
@@ -546,7 +546,8 @@ impl Runner {
     async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
         let config = &self.test_config[node_id];
 
-        let boot_nodes = config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
+        let boot_nodes =
+            config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
         let blacklist = config
             .blacklist
             .iter()
@@ -558,7 +559,8 @@ impl Runner {
                 }
             })
             .collect();
-        let whitelist = config.whitelist.iter().map(|ix|self.test_config[*ix].peer_info()).collect();
+        let whitelist =
+            config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
         let mut network_config = NetworkConfig::from_seed(&config.account_id, config.port);
         network_config.ban_window = config.ban_window;
@@ -571,12 +573,16 @@ impl Runner {
         network_config.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
 
-        config.ideal_connections.map(|(lo,hi)|{
+        config.ideal_connections.map(|(lo, hi)| {
             network_config.ideal_connections_lo = lo;
             network_config.ideal_connections_hi = hi;
         });
-        config.safe_set_size.map(|sss|{ network_config.safe_set_size = sss; });
-        config.minimum_outbound_peers.map(|mop|{ network_config.minimum_outbound_peers = mop; });
+        config.safe_set_size.map(|sss| {
+            network_config.safe_set_size = sss;
+        });
+        config.minimum_outbound_peers.map(|mop| {
+            network_config.minimum_outbound_peers = mop;
+        });
 
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
@@ -609,7 +615,7 @@ impl Runner {
         for node_id in 0..self.test_config.len() {
             nodes.push(Some(self.setup_node(node_id).await?));
         }
-        Ok(RunningInfo{runner: self, nodes})
+        Ok(RunningInfo { runner: self, nodes })
     }
 }
 
@@ -673,21 +679,20 @@ impl RunningInfo {
     }
 }
 
-pub fn assert_expected_peers(
-    node_id: usize,
-    peers: Vec<usize>,
-) -> ActionFn {
+pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
-        let peers = peers.clone(); 
+        let peers = peers.clone();
         Box::pin(async move {
             let pm = &info.get_node(node_id)?.addr;
             let network_info = pm.send(GetInfo {}).await?;
-            let got : HashSet<_> = network_info.connected_peers.into_iter().map(|i|i.peer_info.id).collect();
-            let want : HashSet<_> = peers.iter().map(|i|info.runner.test_config[*i].peer_id()).collect();
-            if got!=want {
+            let got: HashSet<_> =
+                network_info.connected_peers.into_iter().map(|i| i.peer_info.id).collect();
+            let want: HashSet<_> =
+                peers.iter().map(|i| info.runner.test_config[*i].peer_id()).collect();
+            if got != want {
                 bail!("node {node_id} has peers {got:?}, want {want:?}");
             }
-            return Ok(ControlFlow::Break(()))
+            return Ok(ControlFlow::Break(()));
         })
     })
 }

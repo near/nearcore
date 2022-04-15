@@ -48,7 +48,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -896,10 +896,16 @@ impl PeerManagerActor {
     /// been reached. This predicate should be evaluated AFTER the Handshake.
     fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
         for x in &self.config.whitelist_nodes {
-            if x.id != peer_info.id { continue }
-            debug_assert!(x.addr.is_some(),"addr for whitelisted nodes is requred!");
-            if x.addr.is_some() && x.addr != peer_info.addr { continue }
-            if x.account_id.is_some() && x.account_id != peer_info.account_id { continue }
+            if x.id != peer_info.id {
+                continue;
+            }
+            debug_assert!(x.addr.is_some(), "addr for whitelisted nodes is requred!");
+            if x.addr.is_some() && x.addr != peer_info.addr {
+                continue;
+            }
+            if x.account_id.is_some() && x.account_id != peer_info.account_id {
+                continue;
+            }
             return true;
         }
         return false;
@@ -910,10 +916,10 @@ impl PeerManagerActor {
     /// are required to have IP:port specified. We consider only IPs since
     /// the port of an inbound TCP connection is assigned at random.
     /// This predicate should be evaluated BEFORE the Handshake.
-    fn is_ip_whitelisted(&self, ip:&IpAddr) -> bool {
+    fn is_ip_whitelisted(&self, ip: &IpAddr) -> bool {
         for x in &self.config.whitelist_nodes {
-            debug_assert!(x.addr.is_some(),"addr for whitelisted nodes is requred!");
-            if x.addr.map(|a|a.ip()==*ip).unwrap_or(false) {
+            debug_assert!(x.addr.is_some(), "addr for whitelisted nodes is requred!");
+            if x.addr.map(|a| a.ip() == *ip).unwrap_or(false) {
                 return true;
             }
         }
@@ -1110,44 +1116,77 @@ impl PeerManagerActor {
             ideal_connections_hi = self.config.ideal_connections_hi,
             "Trying to stop an active connection.",
         );
-        
+
         // Build safe set
         let mut safe_set = HashSet::new();
 
         // Add whitelisted nodes to the safe set.
-        let whitelisted_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|self.is_peer_whitelisted(&p.full_peer_info.peer_info)).collect();
-        for (id,_) in &whitelisted_peers { safe_set.insert(id.clone()); }
-        
+        let whitelisted_peers: Vec<_> = self
+            .connected_peers
+            .iter()
+            .filter(|(_, p)| self.is_peer_whitelisted(&p.full_peer_info.peer_info))
+            .collect();
+        for (id, _) in &whitelisted_peers {
+            safe_set.insert(id.clone());
+        }
+
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
-        if self.connected_peers.len()-whitelisted_peers.len() <= self.config.ideal_connections_hi as usize { return; }
+        if self.connected_peers.len() - whitelisted_peers.len()
+            <= self.config.ideal_connections_hi as usize
+        {
+            return;
+        }
 
         // If there is not enough outbound peers, add them to the safe set.
-        let outbound_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|p.peer_type == PeerType::Outbound).collect();
-        if outbound_peers.len() + self.outgoing_peers.len() <= self.config.minimum_outbound_peers as usize {
-            for (id,_) in outbound_peers { safe_set.insert(id); }
+        let outbound_peers: Vec<_> = self
+            .connected_peers
+            .iter()
+            .filter(|(_, p)| p.peer_type == PeerType::Outbound)
+            .collect();
+        if outbound_peers.len() + self.outgoing_peers.len()
+            <= self.config.minimum_outbound_peers as usize
+        {
+            for (id, _) in outbound_peers {
+                safe_set.insert(id);
+            }
         }
 
         // If there is not enough archival peers, add them to the safe set.
-        let archival_peers : Vec<_> = self.connected_peers.iter().filter(|(_,p)|p.full_peer_info.chain_info.archival).collect();
-        if self.config.archive && archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
-            for (id,_) in archival_peers { safe_set.insert(id); }
+        let archival_peers: Vec<_> = self
+            .connected_peers
+            .iter()
+            .filter(|(_, p)| p.full_peer_info.chain_info.archival)
+            .collect();
+        if self.config.archive
+            && archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize
+        {
+            for (id, _) in archival_peers {
+                safe_set.insert(id);
+            }
         }
 
         // Find all recently active peers.
-        let mut active_peers : Vec<_> = self.connected_peers.iter()
-           .filter(|(_,p)|p.last_time_received_message.elapsed() < self.config.peer_recent_time_window).collect();
+        let mut active_peers: Vec<_> = self
+            .connected_peers
+            .iter()
+            .filter(|(_, p)| {
+                p.last_time_received_message.elapsed() < self.config.peer_recent_time_window
+            })
+            .collect();
         // Sort by established time.
-        active_peers.sort_by_key(|(_,p)|p.connection_established_time);
+        active_peers.sort_by_key(|(_, p)| p.connection_established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.config.safe_set_size as usize;
-        for (id,_) in active_peers {
-            if safe_set.len()>=set_limit { break }
+        for (id, _) in active_peers {
+            if safe_set.len() >= set_limit {
+                break;
+            }
             safe_set.insert(id);
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = self.connected_peers.iter().filter(|(id,_)|!safe_set.contains(id));
-        if let Some((id,p)) = candidates.choose(&mut rand::thread_rng()) {
+        let candidates = self.connected_peers.iter().filter(|(id, _)| !safe_set.contains(id));
+        if let Some((id, p)) = candidates.choose(&mut rand::thread_rng()) {
             debug!(target: "network", ?id, "Stop active connection");
             p.addr.do_send(PeerManagerRequest::UnregisterPeer);
         }
@@ -1921,7 +1960,13 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
-        if self.is_inbound_allowed() || msg.stream.peer_addr().map(|addr|self.is_ip_whitelisted(&addr.ip())).unwrap_or(false) {
+        if self.is_inbound_allowed()
+            || msg
+                .stream
+                .peer_addr()
+                .map(|addr| self.is_ip_whitelisted(&addr.ip()))
+                .unwrap_or(false)
+        {
             self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
@@ -2021,7 +2066,10 @@ impl PeerManagerActor {
             }
         }
 
-        if msg.peer_type == PeerType::Inbound && !self.is_inbound_allowed() && !self.is_peer_whitelisted(&msg.peer_info) {
+        if msg.peer_type == PeerType::Inbound
+            && !self.is_inbound_allowed()
+            && !self.is_peer_whitelisted(&msg.peer_info)
+        {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network",
                 connected_peers = self.connected_peers.len(), outgoing_peers = self.outgoing_peers.len(),
