@@ -17,6 +17,34 @@ pub enum LogSummaryStyle {
     Colored,
 }
 
+/// Configuration for garbage collection.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GCConfig {
+    /// Maximum number of blocks to garbage collect at every garbage collection
+    /// call.
+    #[serde(default = "default_gc_blocks_limit")]
+    pub gc_blocks_limit: NumBlocks,
+
+    /// Maximum number of height to go through at each garbage collection step
+    /// when cleaning forks during garbage collection.
+    #[serde(default = "default_gc_fork_clean_step")]
+    pub gc_fork_clean_step: u64,
+}
+
+impl Default for GCConfig {
+    fn default() -> Self {
+        Self { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+    }
+}
+
+fn default_gc_blocks_limit() -> NumBlocks {
+    GCConfig::default().gc_blocks_limit
+}
+
+fn default_gc_fork_clean_step() -> u64 {
+    GCConfig::default().gc_fork_clean_step
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     /// Version of the binary.
@@ -81,8 +109,8 @@ pub struct ClientConfig {
     pub doosmslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
-    /// Number of blocks to garbage collect at every gc call.
-    pub gc_blocks_limit: NumBlocks,
+    /// Garbage collection configuration.
+    pub gc: GCConfig,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -149,7 +177,7 @@ impl ClientConfig {
             ),
             doosmslug_step_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
-            gc_blocks_limit: 100,
+            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,

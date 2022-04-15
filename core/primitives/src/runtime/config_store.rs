@@ -118,13 +118,13 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
-            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
-            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
-            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
-            "HFetcNKaC5s8Mj7bQz7jGMF7Rsvtuc3kjZRevWQ334n4",
-            "EP9bv2znwbuBuimUgrSQm48ymHqwbHyUArZcWavSbPce",
-            "3i1T4Gg7JR8SgBDBQxeRUQ4FCgtjKvthC9LQ685zk7Qa",
+            "2hXgtPjRXXguqqx75DeQDnK5sraZcYsDHiLYG9Sr9gwU",
+            "3Xa58rT59x82PyND9gnWH7omeCrxAVSTkqfx3MnzwpdL",
+            "2JBs8nbWdVL7BENvd9uvptKZs3ne8Mh5uCqBKBCGLV8x",
+            "CnKoRbUSuc1a4fdZ4Y22DKyKR9XnUF4BxMnK52sJVe5x",
+            "74MrXTofUakcQPg19nxwr8bfyVC3zwu5bAdjpAHLMGeP",
+            "G6VtggDxxX1NTBXQCoaubarLjPScQbp3HCZASo3ptgVG",
+            "BuRSqfSqnMC7FMV2PnSSG8HquL67pqHRQLZ1mtfCr9vt",
         ];
         let actual_hashes = CONFIGS
             .iter()
