@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA, Genesis};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -65,7 +65,7 @@ impl GenesisBuilder {
             None,
             None,
             None,
-            5,
+            DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
