@@ -171,7 +171,8 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 
-def load_test_contract(filename: str = 'test_contract_rs.wasm') -> bytearray:
+def load_test_contract(
+        filename: str = 'base_test_contract_rs.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package.
 
     This is just a convenience function around load_binary_file which loads

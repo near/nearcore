@@ -182,7 +182,7 @@ fn prepare_env_with_congestion(
         "test0".parse().unwrap(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract_base_protocol().to_vec(),
+            code: near_test_contracts::base_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
     );
@@ -4730,7 +4730,7 @@ mod chunk_nodes_cache_test {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            near_test_contracts::rs_contract(),
+            near_test_contracts::base_rs_contract(),
             num_blocks,
             1,
         );

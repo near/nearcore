@@ -294,7 +294,7 @@ pub fn test_out_of_memory() {
 }
 
 fn function_call_weight_contract() -> ContractCode {
-    ContractCode::new(near_test_contracts::function_call_weight_rs_contract().to_vec(), None)
+    ContractCode::new(near_test_contracts::rs_contract().to_vec(), None)
 }
 
 #[test]

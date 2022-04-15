@@ -85,7 +85,7 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
-    #[cfg(feature = "protocol_feature_function_call_weight")]
+    #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
         method_name_len: u64,
@@ -161,7 +161,7 @@ extern "C" {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(not(feature = "base_protocol"))]
+    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
@@ -783,7 +783,7 @@ fn call_promise() {
     }
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
+#[cfg(feature = "latest_protocol")]
 #[no_mangle]
 fn attach_unspent_gas_but_burn_all_gas() {
     unsafe {
@@ -812,7 +812,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
     }
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
+#[cfg(feature = "latest_protocol")]
 #[no_mangle]
 fn attach_unspent_gas_but_use_all_gas() {
     unsafe {
@@ -853,7 +853,7 @@ fn attach_unspent_gas_but_use_all_gas() {
     }
 }
 
-#[cfg(not(feature = "base_protocol"))]
+#[cfg(feature = "latest_protocol")]
 #[no_mangle]
 fn do_ripemd() {
     let data = b"tesdsst";
