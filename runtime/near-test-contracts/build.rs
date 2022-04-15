@@ -25,6 +25,11 @@ fn try_main() -> Result<(), Error> {
         &["--features", "base_protocol"],
         "test_contract_rs_base_protocol",
     )?;
+    build_contract(
+        "./test-contract-rs",
+        &["--features", "protocol_feature_function_call_weight"],
+        "test_contract_rs_function_call_weight",
+    )?;
     Ok(())
 }
 

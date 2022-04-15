@@ -41,6 +41,11 @@ pub fn rs_contract_base_protocol() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("test_contract_rs_base_protocol.wasm")).as_slice()
 }
 
+pub fn function_call_weight_rs_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("test_contract_rs_function_call_weight.wasm")).as_slice()
+}
+
 pub fn nightly_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()

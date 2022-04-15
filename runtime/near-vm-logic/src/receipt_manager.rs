@@ -12,7 +12,6 @@ use near_primitives::types::{Balance, Nonce};
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
-#[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::HostError;
 
@@ -35,12 +34,10 @@ pub struct ReceiptMetadata {
 #[derive(Default, Clone, PartialEq)]
 pub(crate) struct ReceiptManager {
     pub(crate) action_receipts: ActionReceipts,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FunctionCallActionIndex {
     /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
@@ -49,7 +46,6 @@ struct FunctionCallActionIndex {
     action_index: usize,
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 fn get_fuction_call_action_mut(
     action_receipts: &mut ActionReceipts,
     index: FunctionCallActionIndex,
@@ -185,7 +181,6 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -213,40 +208,6 @@ impl ReceiptManager {
             ));
         }
 
-        Ok(())
-    }
-
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `method_name` - a name of the contract method to call
-    /// * `arguments` - a Wasm code to attach
-    /// * `attached_deposit` - amount of tokens to transfer with the call
-    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub(crate) fn append_action_function_call(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        attached_deposit: Balance,
-        prepaid_gas: Gas,
-    ) -> logic::Result<()> {
-        self.append_action(
-            receipt_index,
-            Action::FunctionCall(FunctionCallAction {
-                method_name: String::from_utf8(method_name)
-                    .map_err(|_| HostError::InvalidMethodName)?,
-                args,
-                gas: prepaid_gas,
-                deposit: attached_deposit,
-            }),
-        );
         Ok(())
     }
 
@@ -436,7 +397,6 @@ impl ReceiptManager {
     /// # Returns
     ///
     /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
