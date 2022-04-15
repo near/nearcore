@@ -153,7 +153,6 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     FunctionCallWeight,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
@@ -225,7 +224,7 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost => 53,
+            ProtocolFeature::IncreaseDeploymentCost | ProtocolFeature::FunctionCallWeight => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -236,8 +235,6 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_function_call_weight")]
-            ProtocolFeature::FunctionCallWeight => 127,
             #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             ProtocolFeature::ChunkNodesCache => 128,
         }
