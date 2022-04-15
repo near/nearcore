@@ -36,16 +36,13 @@ pub fn rs_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
 }
 
-pub fn rs_contract_base_protocol() -> &'static [u8] {
+/// Standard test contract which is compatible with the oldest protocol version.
+pub fn base_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_rs_base_protocol.wasm")).as_slice()
+    CONTRACT.get_or_init(|| read_contract("base_test_contract_rs.wasm")).as_slice()
 }
 
-pub fn function_call_weight_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_rs_function_call_weight.wasm")).as_slice()
-}
-
+/// Standard test contract with all latest and nightly protocol features.
 pub fn nightly_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()
@@ -78,7 +75,7 @@ fn smoke_test() {
     assert!(!ts_contract().is_empty());
     assert!(!trivial_contract().is_empty());
     assert!(!fuzzing_contract().is_empty());
-    assert!(!rs_contract_base_protocol().is_empty());
+    assert!(!base_rs_contract().is_empty());
 }
 
 pub fn many_functions_contract(function_count: u32) -> Vec<u8> {
