@@ -621,17 +621,15 @@ pub enum ExtCosts {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_multiexp_byte,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_multiexp_sublinear,
+    alt_bn128_g1_multiexp_element,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_pairing_check_byte,
+    alt_bn128_pairing_check_element,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_sum_byte,
+    alt_bn128_g1_sum_element,
 }
 
 // Type of an action, used in fees logic.
@@ -711,17 +709,15 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte => config.alt_bn128_g1_multiexp_byte,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear => config.alt_bn128_g1_multiexp_sublinear,
+            alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_byte,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte => config.alt_bn128_pairing_check_byte,
+            alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_byte,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
+            alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_byte,
         }
     }
 }
