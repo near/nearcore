@@ -551,7 +551,7 @@ fn setup_test_env_with_cross_contract_txs(
                     account_id.clone(),
                     &signer,
                     vec![Action::DeployContract(DeployContractAction {
-                        code: near_test_contracts::rs_contract().to_vec(),
+                        code: near_test_contracts::base_rs_contract().to_vec(),
                     })],
                     genesis_hash,
                 )

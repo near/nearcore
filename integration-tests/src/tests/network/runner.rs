@@ -1,16 +1,15 @@
 use std::collections::HashSet;
+use std::future::Future;
 use std::iter::Iterator;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+#[allow(unused_imports)]
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
-use chrono::DateTime;
-use futures::{future, FutureExt, TryFutureExt};
-use near_primitives::time::Utc;
+use actix::{Actor, Addr, AsyncContext};
+use anyhow::{anyhow, bail};
 use tracing::debug;
 
-use near_actix_test_utils::run_actix;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
@@ -18,15 +17,14 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, NetworkRecipient, StopSignal, WaitOrTimeoutActor,
+    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
 
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::test_utils::SetAdvOptions;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
@@ -36,18 +34,18 @@ use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use std::pin::Pin;
 
-pub type SharedRunningInfo = Arc<RwLock<RunningInfo>>;
-
-pub type ActionFn = Box<
-    dyn FnMut(SharedRunningInfo, Arc<AtomicBool>, &mut Context<WaitOrTimeoutActor>, Addr<Runner>),
->;
+pub type ControlFlow = std::ops::ControlFlow<()>;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+pub type ActionFn =
+    Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
-    genesis_time: DateTime<Utc>,
+    chain_genesis: ChainGenesis,
     config: NetworkConfig,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
@@ -62,8 +60,6 @@ pub fn setup_network_node(
         account_id.as_ref(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.time = genesis_time;
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
@@ -117,7 +113,11 @@ pub fn setup_network_node(
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub enum Action {
-    AddEdge(usize, usize),
+    AddEdge {
+        from: usize,
+        to: usize,
+        force: bool,
+    },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
     // Send ping from `source` with `nonce` to `target`
@@ -127,22 +127,128 @@ pub enum Action {
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
-    Wait(usize),
-    #[cfg(feature = "test_features")]
+    Wait(Duration),
+    #[allow(dead_code)]
     SetOptions {
         target: usize,
         max_num_peers: Option<u64>,
     },
 }
 
-#[derive(Clone)]
 pub struct RunningInfo {
-    pm_addr: Vec<Addr<PeerManagerActor>>,
-    peers_info: Vec<PeerInfo>,
+    runner: Runner,
+    nodes: Vec<Option<NodeHandle>>,
 }
 
 struct StateMachine {
     actions: Vec<ActionFn>,
+}
+
+async fn check_routing_table(
+    info: &mut RunningInfo,
+    u: usize,
+    expected: Vec<(usize, Vec<usize>)>,
+) -> anyhow::Result<ControlFlow> {
+    let mut expected_rt = vec![];
+    for (target, routes) in expected {
+        let mut peers = vec![];
+        for hop in routes {
+            peers.push(info.runner.test_config[hop].peer_id());
+        }
+        expected_rt.push((info.runner.test_config[target].peer_id(), peers));
+    }
+    let pm = info.get_node(u)?.addr.clone();
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response")
+    };
+    if expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt) {
+        return Ok(ControlFlow::Break(()));
+    }
+    Ok(ControlFlow::Continue(()))
+}
+
+async fn check_account_id(
+    info: &mut RunningInfo,
+    source: usize,
+    known_validators: Vec<usize>,
+) -> anyhow::Result<ControlFlow> {
+    let mut expected_known = vec![];
+    for u in known_validators.clone() {
+        expected_known.push(info.runner.test_config[u].account_id.clone());
+    }
+    let pm = &info.get_node(source)?.addr;
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response")
+    };
+    for v in &expected_known {
+        if !rt.account_peers.contains_key(v) {
+            return Ok(ControlFlow::Continue(()));
+        }
+    }
+    Ok(ControlFlow::Break(()))
+}
+
+async fn check_ping_pong(
+    info: &mut RunningInfo,
+    source: usize,
+    pings: Vec<(usize, usize, Option<usize>)>,
+    pongs: Vec<(usize, usize, Option<usize>)>,
+) -> anyhow::Result<ControlFlow> {
+    let mut pings_expected = vec![];
+    for (nonce, source, count) in pings {
+        pings_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
+    }
+    let mut pongs_expected = vec![];
+    for (nonce, source, count) in pongs {
+        pongs_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
+    }
+    let pm = &info.get_node(source)?.addr;
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchPingPongInfo))
+        .await?;
+    let (pings, pongs) =
+        if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() {
+            (pings, pongs)
+        } else {
+            bail!("bad response")
+        };
+    if pings.len() != pings_expected.len() {
+        return Ok(ControlFlow::Continue(()));
+    }
+    for (nonce, source, count) in pings_expected {
+        let ping = if let Some(ping) = pings.get(&nonce) {
+            ping
+        } else {
+            return Ok(ControlFlow::Continue(()));
+        };
+        if ping.0.source != source || count.map_or(false, |c| c != ping.1) {
+            return Ok(ControlFlow::Continue(()));
+        }
+    }
+    if pongs.len() != pongs_expected.len() {
+        return Ok(ControlFlow::Continue(()));
+    }
+    for (nonce, source, count) in pongs_expected {
+        let pong = if let Some(pong) = pongs.get(&nonce) {
+            pong
+        } else {
+            return Ok(ControlFlow::Continue(()));
+        };
+        if pong.0.source != source || count.map_or(false, |c| c != pong.1) {
+            return Ok(ControlFlow::Continue(()));
+        }
+    }
+    Ok(ControlFlow::Break(()))
 }
 
 impl StateMachine {
@@ -156,296 +262,83 @@ impl StateMachine {
 
     pub fn push(&mut self, action: Action) {
         let num_prev_actions = self.actions.len();
-        let action_clone = action.clone();
-        let can_write_log = Arc::new(AtomicBool::new(true));
+        let action_clone = 0; // action.clone();
         match action {
-            #[cfg(feature = "test_features")]
+            #[allow(unused_variables)]
             Action::SetOptions { target, max_num_peers } => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-                        let addr = info.read().unwrap().pm_addr[target].clone();
-                        actix::spawn(
-                            addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
-                                disable_edge_signature_verification: None,
-                                disable_edge_propagation: None,
-                                disable_edge_pruning: None,
-                                set_max_peers: max_num_peers,
-                            }))
-                            .then(move |res| match res {
-                                Ok(_) => {
-                                    flag.store(true, Ordering::Relaxed);
-                                    future::ready(())
-                                }
-                                Err(e) => {
-                                    panic!("Error setting options. {:?}", e);
-                                }
-                            }),
-                        );
-                    },
-                ));
+                self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
+                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    #[allow(unused_variables)]
+                    let addr = info.get_node(target)?.addr.clone();
+                    #[cfg(feature = "test_features")]
+                    addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
+                        disable_edge_signature_verification: None,
+                        disable_edge_propagation: None,
+                        disable_edge_pruning: None,
+                        set_max_peers: max_num_peers,
+                    })).await?;
+                    Ok(ControlFlow::Break(()))
+                })));
             }
-            Action::AddEdge(u, v) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-
-                        let addr = info.read().unwrap().pm_addr[u].clone();
-                        let peer_info = info.read().unwrap().peers_info[v].clone();
-                        actix::spawn(
-                            addr.send(PeerManagerMessageRequest::OutboundTcpConnect(
-                                OutboundTcpConnect { peer_info },
-                            ))
-                            .then(move |res| match res {
-                                Ok(_) => {
-                                    flag.store(true, Ordering::Relaxed);
-                                    future::ready(())
-                                }
-                                Err(e) => {
-                                    panic!("Error adding edge. {:?}", e);
-                                }
-                            }),
-                        );
-                    },
-                ));
-            }
-            Action::CheckRoutingTable(u, expected) => self.actions.push(Box::new(
-                move |info: SharedRunningInfo,
-                      flag: Arc<AtomicBool>,
-                      _ctx: &mut Context<WaitOrTimeoutActor>,
-                      _runner| {
-                    if can_write_log.swap(false, Ordering::Relaxed) == true {
-                        debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+            Action::AddEdge { from, to, force } => {
+                self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
+                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    let pm = info.get_node(from)?.addr.clone();
+                    let peer_info = info.runner.test_config[to].peer_info();
+                    let peer_id = peer_info.id.clone();
+                    pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
+                        OutboundTcpConnect { peer_info },
+                    )).await?;
+                    if !force {
+                        return Ok(ControlFlow::Break(()))
                     }
-
-                    let expected = expected
-                        .clone()
-                        .into_iter()
-                        .map(|(target, routes)| {
-                            (
-                                info.read().unwrap().peers_info[target].id.clone(),
-                                routes
-                                    .into_iter()
-                                    .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
-                                    .collect(),
-                            )
-                        })
-                        .collect();
-
-                    actix::spawn(
-                        info.read()
-                            .unwrap()
-                            .pm_addr
-                            .get(u)
-                            .unwrap()
-                            .send(PeerManagerMessageRequest::NetworkRequests(
-                                NetworkRequests::FetchRoutingTable,
-                            ))
-                            .map_err(|_| ())
-                            .and_then(move |res: PeerManagerMessageResponse| {
-                                if let NetworkResponses::RoutingTableInfo(routing_table) =
-                                    res.as_network_response()
-                                {
-                                    if expected_routing_tables(
-                                        (*routing_table.peer_forwarding.as_ref()).clone(),
-                                        expected,
-                                    ) {
-                                        flag.store(true, Ordering::Relaxed);
-                                    }
-                                }
-                                future::ok(())
-                            })
-                            .map(drop),
-                    );
-                },
-            )),
-            Action::CheckAccountId(source, known_validators) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    let res = pm.send(GetInfo{}).await?;
+                    for peer in &res.connected_peers {
+                        if peer.peer_info.id==peer_id {
+                            return Ok(ControlFlow::Break(()))
                         }
-
-                        let expected_known: Vec<_> = known_validators
-                            .clone()
-                            .into_iter()
-                            .map(|u| info.read().unwrap().peers_info[u].account_id.clone().unwrap())
-                            .collect();
-
-                        actix::spawn(
-                            info.read()
-                                .unwrap()
-                                .pm_addr
-                                .get(source)
-                                .unwrap()
-                                .send(PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::FetchRoutingTable,
-                                ))
-                                .map_err(|_| ())
-                                .and_then(move |res| {
-                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
-                                        res.as_network_response()
-                                    {
-                                        if expected_known.into_iter().all(|validator| {
-                                            routing_table.account_peers.contains_key(validator.as_ref())
-                                        }) {
-                                            flag.store(true, Ordering::Relaxed);
-                                        }
-                                    }
-                                    future::ok(())
-                                })
-                                .map(drop),
-                        );
-                    },
-                ));
+                    }
+                    Ok(ControlFlow::Continue(()))
+                })));
+            }
+            Action::CheckRoutingTable(u, expected) => {
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_routing_table(info, u, expected.clone()))
+                }));
+            }
+            Action::CheckAccountId(source, known_validators) => {
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_account_id(info, source, known_validators.clone()))
+                }));
             }
             Action::PingTo(source, nonce, target) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-
-                        let target = info.read().unwrap().peers_info[target].id.clone();
-                        let _ = info.read().unwrap().pm_addr[source].do_send(
-                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
-                                nonce, target,
-                            )),
-                        );
-                        flag.store(true, Ordering::Relaxed);
-                    },
-                ));
+                self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
+                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    let target = info.runner.test_config[target].peer_id();
+                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                        nonce, target,
+                    ))).await?;
+                    Ok(ControlFlow::Break(()))
+                })));
             }
             Action::Stop(source) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-
-                        actix::spawn(
-                            info.read()
-                                .unwrap()
-                                .pm_addr
-                                .get(source)
-                                .unwrap()
-                                .send(StopSignal::default())
-                                .map_err(|_| ())
-                                .and_then(move |_| {
-                                    flag.store(true, Ordering::Relaxed);
-                                    future::ok(())
-                                })
-                                .map(drop),
-                        );
-                    },
-                ));
+                self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
+                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    info.stop_node(source).await?;
+                    Ok(ControlFlow::Break(()))
+                })));
             }
-            Action::Wait(time) => {
-                self.actions.push(Box::new(
-                    move |_info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-
-                        ctx.run_later(Duration::from_millis(time as u64), move |_, _| {
-                            flag.store(true, Ordering::Relaxed);
-                        });
-                    },
-                ));
+            Action::Wait(t) => {
+                self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
+                    debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    tokio::time::sleep(t).await;
+                    Ok(ControlFlow::Break(()))
+                })));
             }
             Action::CheckPingPong(source, pings, pongs) => {
-                self.actions.push(Box::new(
-                    move |info: SharedRunningInfo,
-                          flag: Arc<AtomicBool>,
-                          _ctx: &mut Context<WaitOrTimeoutActor>,
-                          _runner| {
-                        if can_write_log.swap(false, Ordering::Relaxed) == true {
-                            debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                        }
-
-                        let pings_expected: Vec<_> = pings
-                            .clone()
-                            .into_iter()
-                            .map(|(nonce, source, count)| {
-                                (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
-                            })
-                            .collect();
-
-                        let pongs_expected: Vec<_> = pongs
-                            .clone()
-                            .into_iter()
-                            .map(|(nonce, source, count)| {
-                                (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
-                            })
-                            .collect();
-                        actix::spawn(
-                            info.read()
-                                .unwrap()
-                                .pm_addr
-                                .get(source)
-                                .unwrap()
-                                .send(PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::FetchPingPongInfo,
-                                ))
-                                .map_err(|_| ())
-                                .and_then(move |res| {
-                                    if let NetworkResponses::PingPongInfo { pings, pongs } =
-                                        res.as_network_response()
-                                    {
-                                        let ping_ok = pings.len() == pings_expected.len()
-                                            && pings_expected.clone().into_iter().all(
-                                                |(nonce, source, count)| {
-                                                    pings.get(&nonce).map_or(false, |ping| {
-                                                        ping.0.source == source
-                                                            && (count.is_none()
-                                                                || count.unwrap() == ping.1)
-                                                    })
-                                                },
-                                            );
-
-                                        let pong_ok = pongs.len() == pongs_expected.len()
-                                            && pongs_expected.clone().into_iter().all(
-                                                |(nonce, source, count)| {
-                                                    pongs.get(&nonce).map_or(false, |pong| {
-                                                        pong.0.source == source
-                                                            && (count.is_none()
-                                                                || count.unwrap() == pong.1)
-                                                    })
-                                                },
-                                            );
-                                        if ping_ok && pong_ok {
-                                            flag.store(true, Ordering::Relaxed);
-                                        }
-                                    }
-
-                                    future::ok(())
-                                })
-                                .map(drop),
-                        );
-                    },
-                ));
+                self.actions.push(Box::new(move |info| {
+                    Box::pin(check_ping_pong(info, source, pings.clone(), pongs.clone()))
+                }));
             }
         }
     }
@@ -456,57 +349,85 @@ struct TestConfig {
     routed_message_ttl: u8,
     boot_nodes: Vec<usize>,
     blacklist: HashSet<Option<usize>>,
+    whitelist: HashSet<usize>,
     outbound_disabled: bool,
     ban_window: Duration,
     ideal_connections: Option<(u32, u32)>,
     minimum_outbound_peers: Option<u32>,
     safe_set_size: Option<u32>,
     archive: bool,
+
+    account_id: AccountId,
+    port: u16,
 }
 
 impl TestConfig {
-    fn new() -> Self {
+    fn new(id: usize) -> Self {
         Self {
             max_num_peers: 100,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             boot_nodes: vec![],
             blacklist: HashSet::new(),
+            whitelist: HashSet::new(),
             outbound_disabled: true,
             ban_window: Duration::from_secs(1),
             ideal_connections: None,
             minimum_outbound_peers: None,
             safe_set_size: None,
             archive: false,
+
+            account_id: format!("test{}", id).parse().unwrap(),
+            port: open_port(),
         }
+    }
+
+    fn addr(&self) -> SocketAddr {
+        let ip = Ipv4Addr::LOCALHOST;
+        SocketAddr::V4(SocketAddrV4::new(ip, self.port))
+    }
+
+    fn peer_id(&self) -> PeerId {
+        peer_id_from_seed(&self.account_id)
+    }
+
+    fn peer_info(&self) -> PeerInfo {
+        PeerInfo::new(self.peer_id(), self.addr())
     }
 }
 
 pub struct Runner {
-    num_nodes: usize,
-    num_validators: usize,
     test_config: Vec<TestConfig>,
-    state_machine: Option<StateMachine>,
+    state_machine: StateMachine,
+    validators: Vec<AccountId>,
+    chain_genesis: ChainGenesis,
+}
 
-    info: Option<Arc<RwLock<RunningInfo>>>,
+struct NodeHandle {
+    addr: Addr<PeerManagerActor>,
+    send_stop: tokio::sync::oneshot::Sender<std::convert::Infallible>,
+    handle: std::thread::JoinHandle<anyhow::Result<()>>,
+}
 
-    accounts_id: Option<Vec<AccountId>>,
-    ports: Option<Vec<u16>>,
-    validators: Option<Vec<AccountId>>,
-    genesis_time: Option<DateTime<Utc>>,
+impl NodeHandle {
+    async fn stop(self) -> anyhow::Result<()> {
+        let handle = self.handle;
+        drop(self.send_stop);
+        tokio::task::spawn_blocking(|| handle.join().map_err(|_| anyhow!("node panicked"))?)
+            .await??;
+        Ok(())
+    }
 }
 
 impl Runner {
     pub fn new(num_nodes: usize, num_validators: usize) -> Self {
+        let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
+        let validators =
+            test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
         Self {
-            num_nodes,
-            num_validators,
-            test_config: (0..num_nodes).map(|_| TestConfig::new()).collect(),
-            state_machine: Some(StateMachine::new()),
-            info: None,
-            accounts_id: None,
-            ports: None,
-            validators: None,
-            genesis_time: None,
+            test_config,
+            validators,
+            state_machine: StateMachine::new(),
+            chain_genesis: ChainGenesis::test(),
         }
     }
 
@@ -522,6 +443,14 @@ impl Runner {
     ///
     pub fn add_to_blacklist(mut self, u: usize, v: Option<usize>) -> Self {
         self.test_config[u].blacklist.insert(v);
+        self
+    }
+
+    /// Add node `v` to the whitelist of node `u`.
+    /// If passed `v` an entry of the following form is added to the whitelist:
+    ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V
+    pub fn add_to_whitelist(mut self, u: usize, v: usize) -> Self {
+        self.test_config[u].whitelist.insert(v);
         self
     }
 
@@ -596,13 +525,13 @@ impl Runner {
     /// Add an action to be executed by the Runner. Actions are executed sequentially.
     /// Each action is executed after the previous action succeed.
     pub fn push(&mut self, action: Action) {
-        self.state_machine.as_mut().unwrap().push(action);
+        self.state_machine.push(action);
     }
 
     /// Add an action to be executed by the Runner. Actions are executed sequentially.
     /// Each action is executed after the previous action succeed.
     pub fn push_action(&mut self, action: ActionFn) {
-        self.state_machine.as_mut().unwrap().push_action(action);
+        self.state_machine.push_action(action);
     }
 
     fn apply_all<F>(&mut self, mut apply: F)
@@ -614,170 +543,158 @@ impl Runner {
         }
     }
 
-    fn setup_node(&self, node_id: usize) -> Addr<PeerManagerActor> {
-        let accounts_id = self.accounts_id.as_ref().unwrap();
-        let ports = self.ports.as_ref().unwrap();
-        let test_config = &self.test_config[node_id];
+    async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
+        let config = &self.test_config[node_id];
 
-        let boot_nodes = convert_boot_nodes(
-            test_config
-                .boot_nodes
-                .iter()
-                .map(|ix| (accounts_id[*ix].as_ref(), ports[*ix]))
-                .collect(),
-        );
-
-        let blacklist = test_config
+        let boot_nodes =
+            config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
+        let blacklist = config
             .blacklist
             .iter()
             .map(|x| {
                 if let Some(x) = x {
-                    format!("127.0.0.1:{}", ports[*x])
+                    self.test_config[*x].addr().to_string()
                 } else {
                     "127.0.0.1".to_string()
                 }
             })
             .collect();
+        let whitelist =
+            config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id]);
-
-        network_config.ban_window = test_config.ban_window;
-        network_config.max_num_peers = test_config.max_num_peers;
+        let mut network_config = NetworkConfig::from_seed(&config.account_id, config.port);
+        network_config.ban_window = config.ban_window;
+        network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = Duration::from_secs(5);
-        network_config.routed_message_ttl = test_config.routed_message_ttl;
+        network_config.routed_message_ttl = config.routed_message_ttl;
         network_config.blacklist = blacklist;
-        network_config.outbound_disabled = test_config.outbound_disabled;
+        network_config.whitelist_nodes = whitelist;
+        network_config.outbound_disabled = config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
-        network_config.archive = test_config.archive;
+        network_config.archive = config.archive;
 
-        network_config.ideal_connections_lo =
-            test_config.ideal_connections.map_or(network_config.ideal_connections_lo, |(lo, _)| lo);
-        network_config.ideal_connections_hi =
-            test_config.ideal_connections.map_or(network_config.ideal_connections_hi, |(_, hi)| hi);
-        network_config.safe_set_size =
-            test_config.safe_set_size.unwrap_or(network_config.safe_set_size);
-        network_config.minimum_outbound_peers =
-            test_config.minimum_outbound_peers.unwrap_or(network_config.minimum_outbound_peers);
+        config.ideal_connections.map(|(lo, hi)| {
+            network_config.ideal_connections_lo = lo;
+            network_config.ideal_connections_hi = hi;
+        });
+        config.safe_set_size.map(|sss| {
+            network_config.safe_set_size = sss;
+        });
+        config.minimum_outbound_peers.map(|mop| {
+            network_config.minimum_outbound_peers = mop;
+        });
 
-        setup_network_node(
-            accounts_id[node_id].clone(),
-            self.validators.clone().unwrap(),
-            self.genesis_time.unwrap(),
-            network_config,
-        )
+        let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
+        let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
+        let handle = std::thread::spawn({
+            let account_id = config.account_id.clone();
+            let validators = self.validators.clone();
+            let chain_genesis = self.chain_genesis.clone();
+            move || {
+                actix::System::new().block_on(async move {
+                    send_pm
+                        .send(setup_network_node(
+                            account_id,
+                            validators,
+                            chain_genesis,
+                            network_config,
+                        ))
+                        .map_err(|_| anyhow!("send failed"))?;
+                    // recv_stop is expected to get closed.
+                    recv_stop.await.unwrap_err();
+                    Ok(())
+                })
+            }
+        });
+        let addr = recv_pm.await?;
+        Ok(NodeHandle { addr, send_stop, handle })
     }
 
-    fn build(&mut self) -> RunningInfo {
-        let accounts_id: Vec<_> = (0..self.num_nodes)
-            .map(|ix| format!("test{}", ix).parse::<AccountId>().unwrap())
-            .collect();
-        let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
-
-        let validators: Vec<_> = accounts_id.iter().cloned().take(self.num_validators).collect();
-
-        let mut peers_info =
-            convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
-
-        for (validator, peer_info) in validators.iter().zip(peers_info.iter_mut()) {
-            peer_info.account_id = Some(validator.clone());
+    async fn build(self) -> anyhow::Result<RunningInfo> {
+        let mut nodes = vec![];
+        for node_id in 0..self.test_config.len() {
+            nodes.push(Some(self.setup_node(node_id).await?));
         }
-
-        self.genesis_time = Some(Utc::now());
-        self.accounts_id = Some(accounts_id);
-        self.ports = Some(ports);
-        self.validators = Some(validators);
-
-        let pm_addr: Vec<_> = self
-            .test_config
-            .iter()
-            .enumerate()
-            .map(|(node_id, _)| self.setup_node(node_id))
-            .collect();
-
-        RunningInfo { pm_addr, peers_info }
+        Ok(RunningInfo { runner: self, nodes })
     }
 }
 
-/// Use to start running the test.
+/// Executes the test.
 /// It will fail if it doesn't solve all actions.
-pub fn start_test(runner: Runner) {
-    run_actix(async {
-        runner.start();
+/// start_test will block until test is complete.
+pub fn start_test(runner: Runner) -> anyhow::Result<()> {
+    init_test_logger();
+    let r = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    r.block_on(async {
+        let mut info = runner.build().await?;
+        let actions = std::mem::take(&mut info.runner.state_machine.actions);
+        let actions_count = actions.len();
+
+        let timeout = Duration::from_secs(15);
+        let step = Duration::from_millis(10);
+        let start = tokio::time::Instant::now();
+        for (i, a) in actions.into_iter().enumerate() {
+            debug!("[starting action {i}]");
+            loop {
+                tokio::select! {
+                    done = a(&mut info) => {
+                        match done? {
+                            ControlFlow::Break(_) => { break }
+                            ControlFlow::Continue(_) => {}
+                        }
+                    }
+                    () = tokio::time::sleep_until(start + timeout) => {
+                        bail!("timeout while executing action {i}/{actions_count}");
+                    }
+                }
+                tokio::time::sleep(step).await;
+            }
+        }
+        // Stop the running nodes.
+        for i in 0..info.nodes.len() {
+            info.stop_node(i).await?;
+        }
+        return Ok(());
     })
 }
 
-impl Actor for Runner {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        let addr = ctx.address();
-
-        init_test_logger();
-
-        let info = self.build();
-
-        let mut pointer = None;
-        let mut flag = Arc::new(AtomicBool::new(true));
-        let mut state_machine = self.state_machine.take().unwrap();
-        self.info = Some(Arc::new(RwLock::new(info)));
-
-        let info = self.info.as_ref().cloned().unwrap();
-
-        let can_write_log = Arc::new(AtomicBool::new(true));
-        WaitOrTimeoutActor::new(
-            Box::new(move |ctx| {
-                if can_write_log.swap(false, Ordering::Relaxed) == true {
-                    debug!(target: "network", "runner.rs: WaitOrTimeoutActor");
-                }
-                if flag.load(Ordering::Relaxed) {
-                    pointer = Some(pointer.map_or(0, |x| x + 1));
-                    flag = Arc::new(AtomicBool::new(false));
-                }
-
-                if pointer.unwrap() == state_machine.actions.len() {
-                    System::current().stop();
-                } else {
-                    let action = state_machine.actions.get_mut(pointer.unwrap()).unwrap();
-                    action(info.clone(), flag.clone(), ctx, addr.clone());
-                }
-            }),
-            1,
-            15000,
-        )
-        .start();
+impl RunningInfo {
+    fn get_node(&self, node_id: usize) -> anyhow::Result<&NodeHandle> {
+        self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
     }
-}
-
-#[derive(Message)]
-#[rtype(result = "()")]
-enum RunnerMessage {
-    StartNode(usize),
-    ChangeAccountId(usize, AccountId),
-}
-
-impl Handler<RunnerMessage> for Runner {
-    type Result = ();
-    fn handle(&mut self, msg: RunnerMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match msg {
-            RunnerMessage::StartNode(node_id) => {
-                let pm = self.setup_node(node_id);
-                let info = self.info.as_ref().cloned().unwrap();
-                let mut write_info = info.write().unwrap();
-                write_info.pm_addr[node_id] = pm;
-            }
-            RunnerMessage::ChangeAccountId(node_id, account_id) => {
-                self.accounts_id.as_mut().unwrap()[node_id] = account_id.clone();
-                let info = self.info.as_ref().cloned().unwrap();
-                let mut write_info = info.write().unwrap();
-
-                write_info.peers_info[node_id].id = peer_id_from_seed(account_id.as_ref());
-                if write_info.peers_info[node_id].account_id.is_some() {
-                    write_info.peers_info[node_id].account_id = Some(account_id);
-                }
-            }
+    async fn stop_node(&mut self, node_id: usize) -> anyhow::Result<()> {
+        if let Some(n) = self.nodes[node_id].take() {
+            n.stop().await?;
         }
+        Ok(())
     }
+
+    async fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
+        self.stop_node(node_id).await?;
+        self.nodes[node_id] = Some(self.runner.setup_node(node_id).await?);
+        Ok(())
+    }
+    fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
+        self.runner.test_config[node_id].account_id = account_id.clone();
+    }
+}
+
+pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
+    Box::new(move |info: &mut RunningInfo| {
+        let peers = peers.clone();
+        Box::pin(async move {
+            let pm = &info.get_node(node_id)?.addr;
+            let network_info = pm.send(GetInfo {}).await?;
+            let got: HashSet<_> =
+                network_info.connected_peers.into_iter().map(|i| i.peer_info.id).collect();
+            let want: HashSet<_> =
+                peers.iter().map(|i| info.runner.test_config[*i].peer_id()).collect();
+            if got != want {
+                bail!("node {node_id} has peers {got:?}, want {want:?}");
+            }
+            return Ok(ControlFlow::Break(()));
+        })
+    })
 }
 
 /// Check that the number of connections of `node_id` is in the range:
@@ -788,209 +705,115 @@ pub fn check_expected_connections(
     expected_connections_lo: Option<usize>,
     expected_connections_hi: Option<usize>,
 ) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              _runner| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+    Box::new(move |info: &mut RunningInfo| {
+        Box::pin(async move {
+            debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            let pm = &info.get_node(node_id)?.addr;
+            let res = pm.send(GetInfo {}).await?;
+            if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
+                return Ok(ControlFlow::Continue(()));
             }
+            if expected_connections_hi.map_or(false, |h| h < res.num_connected_peers) {
+                return Ok(ControlFlow::Continue(()));
+            }
+            Ok(ControlFlow::Break(()))
+        })
+    })
+}
 
-            actix::spawn(
-                info.read()
-                    .unwrap()
-                    .pm_addr
-                    .get(node_id)
-                    .unwrap()
-                    .send(GetInfo {})
-                    .map_err(|_| ())
-                    .and_then(move |res| {
-                        let left = if let Some(expected_connections_lo) = expected_connections_lo {
-                            expected_connections_lo <= res.num_connected_peers
-                        } else {
-                            true
-                        };
-
-                        let right = if let Some(expected_connections_hi) = expected_connections_hi {
-                            res.num_connected_peers <= expected_connections_hi
-                        } else {
-                            true
-                        };
-
-                        if left && right {
-                            flag.store(true, Ordering::Relaxed);
-                        }
-                        future::ok(())
-                    })
-                    .map(drop),
-            );
-        },
-    )
+async fn check_direct_connection_inner(
+    info: &mut RunningInfo,
+    node_id: usize,
+    target_id: usize,
+) -> anyhow::Result<ControlFlow> {
+    let target_peer_id = info.runner.test_config[target_id].peer_id();
+    debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
+    let pm = &info.get_node(node_id)?.addr;
+    let resp = pm
+        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+        .await?;
+    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
+        rt
+    } else {
+        bail!("bad response");
+    };
+    let routes = if let Some(routes) = rt.peer_forwarding.get(&target_peer_id) {
+        routes
+    } else {
+        debug!(target: "network", ?target_peer_id, node_id, target_id,
+            "runner.rs: check_direct_connection NO ROUTES!",
+        );
+        return Ok(ControlFlow::Continue(()));
+    };
+    debug!(target: "network", ?target_peer_id, ?routes, node_id, target_id,
+        "runner.rs: check_direct_connection",
+    );
+    if !routes.contains(&target_peer_id) {
+        return Ok(ControlFlow::Continue(()));
+    }
+    Ok(ControlFlow::Break(()))
 }
 
 /// Check that `node_id` has a direct connection to `target_id`.
 pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    let can_write_log2 = Arc::new(AtomicBool::new(true));
-    let can_write_log3 = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              _runner| {
-            let info = info.read().unwrap();
-            let target_peer_id = info.peers_info[target_id].id.clone();
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
-            }
-            let can_write_log2 = can_write_log2.clone();
-            let can_write_log3 = can_write_log3.clone();
-
-            actix::spawn(
-                info.pm_addr
-                    .get(node_id)
-                    .unwrap()
-                    .send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::FetchRoutingTable,
-                    ))
-                    .map_err(|_| ())
-                    .and_then(move |res| {
-                        if let NetworkResponses::RoutingTableInfo(routing_table) =
-                            res.as_network_response()
-                        {
-                            if let Some(routes) = routing_table.peer_forwarding.get(&target_peer_id)
-                            {
-                                if routes.contains(&target_peer_id) {
-                                    flag.store(true, Ordering::Relaxed);
-                                }
-                                if can_write_log2.swap(false, Ordering::Relaxed) == true {
-                                    debug!(target: "network",
-                                        ?target_peer_id, ?routes, flag = flag.load(Ordering::Relaxed),
-                                        node_id, target_id,
-                                        "runner.rs: check_direct_connection",
-                                    );
-                                }
-                            }
-                            else {
-                                if can_write_log3.swap(false, Ordering::Relaxed) == true {
-                                    debug!(target: "network",
-                                        ?target_peer_id, flag = flag.load(Ordering::Relaxed),
-                                        node_id, target_id,
-                                        "runner.rs: check_direct_connection NO ROUTES!",
-                                    );
-                                }
-                            }
-                        } else {
-                            panic!("IMPOSSIBLE");
-                        }
-                        future::ok(())
-                    })
-                    .map(drop),
-            );
-        },
-    )
+    Box::new(move |info| Box::pin(check_direct_connection_inner(info, node_id, target_id)))
 }
 
 /// Restart a node that was already stopped.
 pub fn restart(node_id: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |_info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", ?node_id, "runner.rs: restart");
-            }
-            actix::spawn(
-                runner
-                    .send(RunnerMessage::StartNode(node_id))
-                    .map_err(|_| ())
-                    .and_then(move |_| {
-                        flag.store(true, Ordering::Relaxed);
-                        future::ok(())
-                    })
-                    .map(drop),
-            );
-        },
-    )
+    Box::new(move |info: &mut RunningInfo| {
+        Box::pin(async move {
+            debug!(target: "network", ?node_id, "runner.rs: restart");
+            info.start_node(node_id).await?;
+            Ok(ControlFlow::Break(()))
+        })
+    })
+}
+
+async fn ban_peer_inner(
+    info: &mut RunningInfo,
+    target_peer: usize,
+    banned_peer: usize,
+) -> anyhow::Result<ControlFlow> {
+    debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
+    let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
+    let pm = &info.get_node(target_peer)?.addr;
+    pm.send(BanPeerSignal::new(banned_peer_id)).await?;
+    Ok(ControlFlow::Break(()))
 }
 
 /// Ban peer `banned_peer` from perspective of `target_peer`.
 pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              _runner| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
-            }
-            let info = info.read().unwrap();
-            let banned_peer_id = info.peers_info[banned_peer].id.clone();
-            actix::spawn(
-                info.pm_addr
-                    .get(target_peer)
-                    .unwrap()
-                    .send(BanPeerSignal::new(banned_peer_id))
-                    .map_err(|_| ())
-                    .and_then(move |_| {
-                        flag.store(true, Ordering::Relaxed);
-                        future::ok(())
-                    })
-                    .map(drop),
-            );
-        },
-    )
+    Box::new(move |info| Box::pin(ban_peer_inner(info, target_peer, banned_peer)))
 }
 
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
 pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |_info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network",  ?node_id, ?account_id, "runner.rs: change_account_id");
-            }
-            actix::spawn(
-                runner
-                    .send(RunnerMessage::ChangeAccountId(node_id, account_id.clone()))
-                    .map_err(|_| ())
-                    .and_then(move |_| {
-                        flag.store(true, Ordering::Relaxed);
-                        future::ok(())
-                    })
-                    .map(drop),
-            );
-        },
-    )
+    Box::new(move |info: &mut RunningInfo| {
+        let account_id = account_id.clone();
+        Box::pin(async move {
+            info.change_account_id(node_id, account_id);
+            Ok(ControlFlow::Break(()))
+        })
+    })
 }
 
 /// Wait for predicate to return True.
-#[cfg(feature = "test_features")]
+#[allow(dead_code)]
 pub fn wait_for<T>(predicate: T) -> ActionFn
 where
     T: 'static + Fn() -> bool,
 {
-    let can_write_log = Arc::new(AtomicBool::new(true));
-    Box::new(
-        move |_info: SharedRunningInfo,
-              flag: Arc<AtomicBool>,
-              _ctx: &mut Context<WaitOrTimeoutActor>,
-              _runner: Addr<Runner>| {
-            if can_write_log.swap(false, Ordering::Relaxed) == true {
-                debug!(target: "network", "runner.rs: wait_for predicate");
-            }
+    let predicate = Arc::new(predicate);
+    Box::new(move |_info: &mut RunningInfo| {
+        let predicate = predicate.clone();
+        Box::pin(async move {
+            debug!(target: "network", "runner.rs: wait_for predicate");
             if predicate() {
-                flag.store(true, Ordering::Relaxed);
+                return Ok(ControlFlow::Break(()));
             }
-        },
-    )
+            Ok(ControlFlow::Continue(()))
+        })
+    })
 }

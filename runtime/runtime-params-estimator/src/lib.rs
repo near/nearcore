@@ -80,6 +80,7 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::config::default_read_cached_trie_node;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -161,7 +162,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpByte, alt_bn128g1_multiexp_byte),
-    (Cost::AltBn128G1MultiexpSublinear, alt_bn128g1_multiexp_sublinear),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
     (Cost::AltBn128G1SumByte, alt_bn128g1_sum_byte),
     (Cost::AltBn128PairingCheckBase, alt_bn128_pairing_check_base),
@@ -179,6 +179,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
+    (Cost::ReadCachedTrieNode, read_cached_trie_node),
     (Cost::TouchingTrieNodeRead, touching_trie_node_read),
     (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
@@ -885,19 +886,8 @@ fn alt_bn128g1_multiexp_byte(ctx: &mut EstimatorContext) -> GasCost {
     return fn_cost(
         ctx,
         "alt_bn128_g1_multiexp_10_1k",
-        ExtCosts::alt_bn128_g1_multiexp_byte,
+        ExtCosts::alt_bn128_g1_multiexp_element,
         964 * 1000,
-    );
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
-}
-fn alt_bn128g1_multiexp_sublinear(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(
-        ctx,
-        "alt_bn128_g1_multiexp_10_1k",
-        ExtCosts::alt_bn128_g1_multiexp_sublinear,
-        743342 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
@@ -911,7 +901,7 @@ fn alt_bn128g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn alt_bn128g1_sum_byte(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_byte, 654 * 1000);
+    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 654 * 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
@@ -932,7 +922,7 @@ fn alt_bn128_pairing_check_byte(ctx: &mut EstimatorContext) -> GasCost {
     return fn_cost(
         ctx,
         "alt_bn128_pairing_check_10_1k",
-        ExtCosts::alt_bn128_pairing_check_byte,
+        ExtCosts::alt_bn128_pairing_check_element,
         1924 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
@@ -1054,6 +1044,10 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let read = touching_trie_node_read(ctx);
     let write = touching_trie_node_write(ctx);
     return std::cmp::max(read, write);
+}
+
+fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
+    GasCost::from_gas(default_read_cached_trie_node().into(), ctx.config.metric)
 }
 
 fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {

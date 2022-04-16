@@ -128,8 +128,8 @@
     "wasm_config": {
       "ext_costs": {
         "base": 264768111,
-        "contract_compile_base": 35445963,
-        "contract_compile_bytes": 216750,
+        "contract_loading_base": 35445963,
+        "contract_loading_bytes": 216750,
         "read_memory_base": 2609863200,
         "read_memory_byte": 3801333,
         "write_memory_base": 2803794861,
