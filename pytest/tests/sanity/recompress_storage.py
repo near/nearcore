@@ -35,7 +35,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'tests'))
 import sanity.rpc_tx_status
 
 
-class RosettaTestCase(unittest.TestCase):
+class RecompressStorageTestCase(unittest.TestCase):
 
     def __init__(self, *args, **kw) -> None:
         super().__init__(*args, **kw)
