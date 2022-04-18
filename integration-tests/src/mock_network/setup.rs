@@ -249,7 +249,9 @@ pub fn setup_mock_network(
                             &state_root,
                             PartId::new(part_id, num_parts),
                         )
-                        .with_context(|| format!("Obtaining state part {} in shard {}", part_id, shard_id))?;
+                        .with_context(|| {
+                            format!("Obtaining state part {} in shard {}", part_id, shard_id)
+                        })?;
                     client_runtime
                         .apply_state_part(
                             shard_id,
@@ -258,7 +260,9 @@ pub fn setup_mock_network(
                             &state_part,
                             &mock_network_runtime.get_epoch_id_from_prev_block(&hash)?,
                         )
-                        .with_context(|| format!("Applying state part {} in shard {}", part_id, shard_id))?;
+                        .with_context(|| {
+                            format!("Applying state part {} in shard {}", part_id, shard_id)
+                        })?;
                     finished_parts_count.fetch_add(1, Ordering::SeqCst);
                     info!(
                         target: "mock_network",
