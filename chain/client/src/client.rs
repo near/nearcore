@@ -61,6 +61,9 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
 // TODO #3488 set 60_000
 pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
+/// number of blocks at the epoch start for which we will log more detailed info
+pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
+
 pub struct Client {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
@@ -1102,7 +1105,7 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
-            let timer = metrics::GC_TIME.start_timer();
+            let now = Clock::instant();
             let result = if self.config.archive {
                 self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
             } else {
@@ -1113,7 +1116,20 @@ impl Client {
                 error!(target: "client", "Can't clear old data, {:?}", err);
                 debug_assert!(false);
             };
-            timer.observe_duration();
+            let gc_time = now.elapsed();
+            metrics::GC_TIME.observe(gc_time.as_secs_f64());
+            // it's safe to unwrap here because block is already accepted
+            if block.header().height()
+                - self.runtime_adapter.get_epoch_start_height(block.hash()).unwrap()
+                < EPOCH_START_INFO_BLOCKS
+            {
+                info!(
+                    "spent {:?} on gc after processing block {:?} at height {}",
+                    gc_time,
+                    block.hash(),
+                    block.header().height()
+                );
+            }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
                 let next_epoch_protocol_version = unwrap_or_return!(self
