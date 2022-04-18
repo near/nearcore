@@ -138,3 +138,6 @@ pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features
 
 # Make sure Docker image can be build and run
 pytest --skip-build --timeout=1h sanity/docker.py
+
+pytest sanity/recompress_storage.py
+pytest sanity/recompress_storage.py --features nightly_protocol,nightly_protocol_features

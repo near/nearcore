@@ -25,7 +25,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -206,6 +206,13 @@ pub struct Network {
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
+    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
+    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
+    /// For each whitelisted node specifying both PeerId and IP:port is required:
+    /// Example:
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
+    #[serde(default)]
+    pub whitelist_nodes: String,
     /// Maximum number of active peers. Hard limit.
     #[serde(default = "default_max_num_peers")]
     pub max_num_peers: u32,
@@ -255,6 +262,7 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
+            whitelist_nodes: "".to_string(),
             max_num_peers: default_max_num_peers(),
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
@@ -711,6 +719,23 @@ impl NearConfig {
                         .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
+                whitelist_nodes: (|| -> Vec<_> {
+                    let w = &config.network.whitelist_nodes;
+                    if w.is_empty() {
+                        return vec![];
+                    }
+                    let mut peers = vec![];
+                    for peer in w.split(',') {
+                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
+                        if peer.addr.is_none() {
+                            panic!(
+                                "whitelist_nodes are required to specify both PeerId and IP:port"
+                            )
+                        }
+                        peers.push(peer);
+                    }
+                    peers
+                }()),
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
