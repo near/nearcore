@@ -252,71 +252,78 @@ impl<'a> AutoXzDecoder<'a> {
 }
 
 #[cfg(test)]
-fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
-    let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
-    let mut out = AutoXzDecoder::new(&path, tokio::fs::File::from_std(file));
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-        async move {
-            for chunk in buffer.chunks(chunk_size) {
-                out.write_all(chunk).await?;
-            }
-            out.finish().await
-        },
-    )?;
-    Ok(std::fs::read(path).unwrap())
-}
+mod tests {
+    use super::*;
 
-/// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
-/// Includes test cases where prefix of a XZ header is present at the beginning
-/// of the stream being written.  That tests the object not being fooled by
-/// partial prefix.
-#[test]
-fn test_auto_xz_decode_plain() {
-    let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
-    // On first iteration we’re testing just a plain text data.  On subsequent
-    // iterations, we’re testing uncompressed data whose first few bytes match
-    // the XZ header.
-    for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
-        for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
-            let buffer = &data[0..len];
-            for chunk_size in 1..11 {
-                let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
-                assert_eq!(got, buffer, "pos={}, len={}, chunk_size={}", pos, len, chunk_size);
+    fn auto_xz_test_write_file(
+        buffer: &[u8],
+        chunk_size: usize,
+    ) -> Result<Vec<u8>, FileDownloadError> {
+        let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
+        let mut out = AutoXzDecoder::new(&path, tokio::fs::File::from_std(file));
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+            async move {
+                for chunk in buffer.chunks(chunk_size) {
+                    out.write_all(chunk).await?;
+                }
+                out.finish().await
+            },
+        )?;
+        Ok(std::fs::read(path).unwrap())
+    }
+
+    /// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
+    /// Includes test cases where prefix of a XZ header is present at the beginning
+    /// of the stream being written.  That tests the object not being fooled by
+    /// partial prefix.
+    #[test]
+    fn test_auto_xz_decode_plain() {
+        let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
+        // On first iteration we’re testing just a plain text data.  On subsequent
+        // iterations, we’re testing uncompressed data whose first few bytes match
+        // the XZ header.
+        for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
+            for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
+                let buffer = &data[0..len];
+                for chunk_size in 1..11 {
+                    let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
+                    assert_eq!(got, buffer, "pos={}, len={}, chunk_size={}", pos, len, chunk_size);
+                }
             }
+            data[pos] = ch;
         }
-        data[pos] = ch;
     }
-}
 
-/// Tests writing XZ stream through [`AutoXzDecoder`].  The stream should be
-/// properly decompressed.
-#[test]
-fn test_auto_xz_decode_compressed() {
-    let buffer = b"\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\
-                   \x02\x00\x21\x01\x1c\x00\x00\x00\x10\xcf\x58\xcc\
-                   \x01\x00\x19\x5a\x61\xc5\xbc\xc3\xb3\xc5\x82\xc4\
-                   \x87\x20\x67\xc4\x99\xc5\x9b\x6c\xc4\x85\x20\x6a\
-                   \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
-                   \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
-                   \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
-    for chunk_size in 1..11 {
-        let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
-        assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
+    /// Tests writing XZ stream through [`AutoXzDecoder`].  The stream should be
+    /// properly decompressed.
+    #[test]
+    fn test_auto_xz_decode_compressed() {
+        let buffer = b"\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\
+                       \x02\x00\x21\x01\x1c\x00\x00\x00\x10\xcf\x58\xcc\
+                       \x01\x00\x19\x5a\x61\xc5\xbc\xc3\xb3\xc5\x82\xc4\
+                       \x87\x20\x67\xc4\x99\xc5\x9b\x6c\xc4\x85\x20\x6a\
+                       \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
+                       \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
+                       \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
+        for chunk_size in 1..11 {
+            let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
+            assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
+        }
     }
-}
 
-/// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
-/// processed starts with a proper XZ header but what follows is an invalid XZ
-/// data.  This should result in [`FileDownloadError::XzDecodeError`].
-#[test]
-fn test_auto_xz_decode_corrupted() {
-    let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
-    for chunk_size in 1..11 {
-        let got = auto_xz_test_write_file(buffer, chunk_size);
-        assert!(
-            matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))),
-            "got {:?}",
-            got
-        );
+    /// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
+    /// processed starts with a proper XZ header but what follows is an invalid XZ
+    /// data.  This should result in [`FileDownloadError::XzDecodeError`].
+    #[test]
+    fn test_auto_xz_decode_corrupted() {
+        let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
+        for chunk_size in 1..11 {
+            let got = auto_xz_test_write_file(buffer, chunk_size);
+            assert!(
+                matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))),
+                "got {:?}",
+                got
+            );
+        }
     }
 }
