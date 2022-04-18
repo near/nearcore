@@ -69,7 +69,6 @@ near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.10"
-portpicker = "0.1.1"
 
 [[bench]]
 name = "store"

@@ -3364,7 +3364,6 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "once_cell",
- "portpicker",
  "primitive-types",
  "prometheus",
  "rand 0.7.3",
@@ -3908,15 +3907,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521fa9638fa597e1dc53e9412a4f9cefb01187ee1f7413076f9e6749e2885ba9"
 dependencies = [
  "plotters-backend",
-]
-
-[[package]]
-name = "portpicker"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
-dependencies = [
- "rand 0.8.4",
 ]
 
 [[package]]
