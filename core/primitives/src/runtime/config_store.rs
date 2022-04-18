@@ -22,7 +22,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (50, include_config!("50.json")),
     // max_gas_burnt increased to 300 TGas
     (52, include_config!("52.json")),
-    // Increased deployment costs, increased wasmer2 stack_limit
+    // Increased deployment costs, increased wasmer2 stack_limit, set read_cached_trie_node cost
     (53, include_config!("53.json")),
 ];
 
