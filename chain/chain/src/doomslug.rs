@@ -578,7 +578,7 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         if has_enough_chunks {
                             if log_block_production_info {
-                                info!("ready to produce block @ {}, have enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
+                                info!("ready to produce block @ {}, has enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
                             }
                             true
                         } else {
@@ -589,9 +589,9 @@ impl Doomslug {
                             let ready = now > when + delay;
                             if log_block_production_info {
                                 if ready {
-                                    info!("ready to produce block @ {}, have enough approvals for {:?}, does not have enough chunks", target_height, now.saturating_duration_since(when));
+                                    info!("ready to produce block @ {}, has enough approvals for {:?}, does not have enough chunks", target_height, now.saturating_duration_since(when));
                                 } else {
-                                    info!("not ready to produce block @ {}, need to wait {:?}, have enough approvals for {:?}", target_height, (when + delay).saturating_duration_since(now), now.saturating_duration_since(when));
+                                    info!("not ready to produce block @ {}, need to wait {:?}, has enough approvals for {:?}", target_height, (when + delay).saturating_duration_since(now), now.saturating_duration_since(when));
                                 }
                             }
                             ready
