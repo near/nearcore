@@ -604,7 +604,6 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
@@ -692,7 +691,6 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
-            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,

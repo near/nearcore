@@ -1460,19 +1460,11 @@ pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: Run
         })
         .collect();
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    let results: Vec<_> = vec![
+    let results = vec![
         TrieNodesCount { db_reads: 6, mem_reads: 0 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-    let results: Vec<_> = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-    ];
-
     check_trie_nodes_count(node, runtime_config, receipts, results);
 }
 
@@ -1494,17 +1486,10 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
         })
         .collect();
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    let results: Vec<_> = vec![
+    let results = vec![
         TrieNodesCount { db_reads: 5, mem_reads: 0 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-    let results: Vec<_> = vec![
-        TrieNodesCount { db_reads: 5, mem_reads: 0 },
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-    ];
-
     check_trie_nodes_count(node, runtime_config, receipts, results);
 }
 
@@ -1535,18 +1520,10 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
     ];
 
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    let results: Vec<_> = vec![
+    let results = vec![
         TrieNodesCount { db_reads: 6, mem_reads: 0 },
         TrieNodesCount { db_reads: 0, mem_reads: 0 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-    let results: Vec<_> = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-    ];
-
     check_trie_nodes_count(node, runtime_config, receipts, results);
 }

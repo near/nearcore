@@ -84,16 +84,11 @@ protocol_feature_access_key_nonce_for_implicit_accounts = [
   "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
   "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
 ]
-protocol_feature_chunk_nodes_cache = [
-  "node-runtime/protocol_feature_chunk_nodes_cache",
-  "near-primitives/protocol_feature_chunk_nodes_cache"
-]
 nightly_protocol_features = [
   "nearcore/nightly_protocol_features",
   "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
-  "protocol_feature_chunk_nodes_cache",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [
