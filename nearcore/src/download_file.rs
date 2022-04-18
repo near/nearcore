@@ -61,6 +61,13 @@ async fn download_file_impl(
         );
         bar
     };
+
+    #[cfg(test)]
+    let bar = {
+        drop(bar);
+        ProgressBar::hidden()
+    };
+
     while let Some(next_chunk_result) = resp.data().await {
         let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
         out.write_all(next_chunk.as_ref()).await?;
