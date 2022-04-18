@@ -124,7 +124,7 @@ mod tests {
             "B8fL27CPSdug9AQXgS77b3n9aWFUFf7WUjJcuRMvjE6C",
             "5SneeY6PB8NktERjNq8Gge68cdEgjELiAbhNsmDv1cqY",
             "EFq13cxe78LdB7bbvYF5s1PYxsDGU1teXYXW2qaJkXwW",
-            "611aXAik5tGfHzKNjLsPEB8NQNdJ2q6JGDQCNcFQN3ra",
+            "FDjYEcjMe6XfFcfm4YgtKDKt1MekGrXEf79JP9Dat3rd",
         ];
         let actual_hashes = CONFIGS
             .iter()
