@@ -26,7 +26,7 @@ use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, set_store_version,
 };
 use near_store::DBCol;
 use near_store::{create_store, create_store_with_config, Store};
@@ -213,9 +213,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
     if db_version <= 9 {
         info!(target: "near", "Migrate DB from version 9 to 10");
-        // version 9 => 10;
-        // populate partial encoded chunks for chunks that exist in storage
-        migrate_9_to_10(path, near_config.client_config.archive);
+        // version 9 => 10: Populate partial encoded chunks for chunks that
+        // exist in storage.
+        //
+        // However, we have since started garbage collecting partial encoded
+        // chunks from so this migration step is no longer needed.  Only update
+        // the version.
+        let store = create_store(path);
+        set_store_version(&store, 10);
     }
     if db_version <= 10 {
         info!(target: "near", "Migrate DB from version 10 to 11");
@@ -527,17 +532,15 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(near_store::DBCol::ColTrieChanges);
     }
 
-    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
-    // can open that many by ensuring nofile limit is large enough to give us
-    // some room to spare over 1024 file descriptors.
+    // Make sure we can open at least two databases and have some file
+    // descriptors to spare.
+    let required = 2 * (config.store.max_open_files as u64) + 512;
     let (soft, hard) = rlimit::Resource::NOFILE
         .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
-    // opening two databases and need some descriptors to spare thus 3*512.
-    if soft < 3 * 512 {
+    if soft < required {
         rlimit::Resource::NOFILE
-            .set(3 * 512, hard)
+            .set(required, hard)
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
@@ -547,7 +550,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let store_config = config.store.with_read_only(true);
     let db_version = get_store_version(&src_dir);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
@@ -564,7 +566,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &store_config);
+    let src_store = create_store_with_config(&src_dir, &config.store.clone().with_read_only(true));
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -580,7 +582,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = create_store(&opts.dest_dir);
+    let dst_store = create_store_with_config(&opts.dest_dir, &config.store);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

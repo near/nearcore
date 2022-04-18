@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 actix = "0.13.0"
+anyhow = "1.0.55"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"

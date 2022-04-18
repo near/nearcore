@@ -5,13 +5,13 @@ pub use crate::tests::network::runner::*;
 /// Turn off two non adjacent nodes, and check other two nodes create
 /// a connection among them.
 #[test]
-fn churn_attack() {
+fn churn_attack() -> anyhow::Result<()> {
     let mut runner = Runner::new(4, 4).enable_outbound().max_num_peers(2);
 
-    runner.push(Action::AddEdge(0, 1));
-    runner.push(Action::AddEdge(2, 3));
-    runner.push(Action::AddEdge(3, 0));
-    runner.push(Action::AddEdge(1, 2));
+    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
+    runner.push(Action::AddEdge { from: 2, to: 3, force: true });
+    runner.push(Action::AddEdge { from: 3, to: 0, force: true });
+    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
     runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (3, vec![3]), (0, vec![1, 3])]));
     runner.push(Action::Stop(1));
@@ -19,5 +19,5 @@ fn churn_attack() {
     runner.push(Action::CheckRoutingTable(0, vec![(2, vec![2])]));
     runner.push(Action::CheckRoutingTable(2, vec![(0, vec![0])]));
 
-    start_test(runner);
+    start_test(runner)
 }

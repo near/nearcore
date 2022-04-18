@@ -85,6 +85,17 @@ extern "C" {
         amount_ptr: u64,
         gas: u64,
     );
+    #[cfg(feature = "latest_protocol")]
+    fn promise_batch_action_function_call_weight(
+        promise_index: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+    );
     fn promise_batch_action_transfer(promise_index: u64, amount_ptr: u64);
     fn promise_batch_action_stake(
         promise_index: u64,
@@ -141,6 +152,7 @@ extern "C" {
     fn storage_iter_prefix(prefix_len: u64, prefix_ptr: u64) -> u64;
     fn storage_iter_range(start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64) -> u64;
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
+    fn gas(ops: u32);
     // #################
     // # Validator API #
     // #################
@@ -149,7 +161,7 @@ extern "C" {
     // ###################
     // # Math Extensions #
     // ###################
-    #[cfg(not(feature = "base_protocol"))]
+    #[cfg(feature = "latest_protocol")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     // #################
     // # alt_bn128 API #
@@ -239,31 +251,6 @@ pub unsafe fn ext_used_gas() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_g1_multiexp() {
-    input(0);
-    alt_bn128_g1_multiexp(u64::MAX, 0, 1);
-    value_return(u64::MAX, 1);
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_g1_sum() {
-    input(0);
-    alt_bn128_g1_sum(u64::MAX, 0, 1);
-    value_return(u64::MAX, 1);
-}
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-#[no_mangle]
-pub unsafe fn ext_alt_bn128_pairing_check() {
-    input(0);
-    let res = alt_bn128_pairing_check(u64::MAX, 0);
-    let byte = [res as u8; 1];
-    value_return(1, byte.as_ptr() as _);
-}
-
 #[no_mangle]
 pub unsafe fn ext_validator_stake() {
     input(0);
@@ -278,17 +265,19 @@ pub unsafe fn ext_validator_stake() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
+/// Write key-value pair into storage.
+/// Input is the byte array where the value is `u64` represented by last 8 bytes and key is represented by the first
+/// `register_len(0) - 8` bytes.
 #[no_mangle]
 pub unsafe fn write_key_value() {
     input(0);
-    if register_len(0) != 2 * size_of::<u64>() as u64 {
-        panic()
-    }
-    let data = [0u8; 2 * size_of::<u64>()];
+    let data_len = register_len(0) as usize;
+    let value_len = size_of::<u64>();
+    let data = vec![0u8; data_len];
     read_register(0, data.as_ptr() as u64);
 
-    let key = &data[0..size_of::<u64>()];
-    let value = &data[size_of::<u64>()..];
+    let key = &data[0..data_len - value_len];
+    let value = &data[data_len - value_len..];
     let result = storage_write(
         key.len() as u64,
         key.as_ptr() as u64,
@@ -794,7 +783,77 @@ fn call_promise() {
     }
 }
 
-#[cfg(not(feature = "base_protocol"))]
+#[cfg(feature = "latest_protocol")]
+#[no_mangle]
+fn attach_unspent_gas_but_burn_all_gas() {
+    unsafe {
+        let account_id = "alice.near";
+        let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+
+        let method_name = "f";
+        let arguments_ptr = 0;
+        let arguments_len = 0;
+        let amount = 1u128;
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        promise_batch_action_function_call_weight(
+            promise_idx,
+            method_name.len() as u64,
+            method_name.as_ptr() as u64,
+            arguments_ptr,
+            arguments_len,
+            &amount as *const u128 as u64,
+            gas_fixed,
+            gas_weight,
+        );
+        loop {
+            gas(10_000);
+        }
+    }
+}
+
+#[cfg(feature = "latest_protocol")]
+#[no_mangle]
+fn attach_unspent_gas_but_use_all_gas() {
+    unsafe {
+        let account_id = "alice.near";
+        let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+
+        let method_name = "f";
+        let arguments_ptr = 0;
+        let arguments_len = 0;
+        let amount = 1u128;
+        let gas_fixed = 0;
+        let gas_weight = 1;
+        promise_batch_action_function_call_weight(
+            promise_idx,
+            method_name.len() as u64,
+            method_name.as_ptr() as u64,
+            arguments_ptr,
+            arguments_len,
+            &amount as *const u128 as u64,
+            gas_fixed,
+            gas_weight,
+        );
+
+        let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+
+        let gas_fixed = 10u64.pow(14);
+        let gas_weight = 0;
+        promise_batch_action_function_call_weight(
+            promise_idx,
+            method_name.len() as u64,
+            method_name.as_ptr() as u64,
+            arguments_ptr,
+            arguments_len,
+            &amount as *const u128 as u64,
+            gas_fixed,
+            gas_weight,
+        );
+    }
+}
+
+#[cfg(feature = "latest_protocol")]
 #[no_mangle]
 fn do_ripemd() {
     let data = b"tesdsst";

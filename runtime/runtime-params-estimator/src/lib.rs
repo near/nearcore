@@ -162,7 +162,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpByte, alt_bn128g1_multiexp_byte),
-    (Cost::AltBn128G1MultiexpSublinear, alt_bn128g1_multiexp_sublinear),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
     (Cost::AltBn128G1SumByte, alt_bn128g1_sum_byte),
     (Cost::AltBn128PairingCheckBase, alt_bn128_pairing_check_base),
@@ -887,19 +886,8 @@ fn alt_bn128g1_multiexp_byte(ctx: &mut EstimatorContext) -> GasCost {
     return fn_cost(
         ctx,
         "alt_bn128_g1_multiexp_10_1k",
-        ExtCosts::alt_bn128_g1_multiexp_byte,
+        ExtCosts::alt_bn128_g1_multiexp_element,
         964 * 1000,
-    );
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
-}
-fn alt_bn128g1_multiexp_sublinear(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(
-        ctx,
-        "alt_bn128_g1_multiexp_10_1k",
-        ExtCosts::alt_bn128_g1_multiexp_sublinear,
-        743342 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
@@ -913,7 +901,7 @@ fn alt_bn128g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 fn alt_bn128g1_sum_byte(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_byte, 654 * 1000);
+    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 654 * 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
@@ -934,7 +922,7 @@ fn alt_bn128_pairing_check_byte(ctx: &mut EstimatorContext) -> GasCost {
     return fn_cost(
         ctx,
         "alt_bn128_pairing_check_10_1k",
-        ExtCosts::alt_bn128_pairing_check_byte,
+        ExtCosts::alt_bn128_pairing_check_element,
         1924 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
