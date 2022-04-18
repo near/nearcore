@@ -149,17 +149,15 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_sum_base: get(Cost::AltBn128G1SumBase)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_sum_byte: get(Cost::AltBn128G1SumByte)?,
+        alt_bn128_g1_sum_element: get(Cost::AltBn128G1SumElement)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_multiexp_base: get(Cost::AltBn128G1MultiexpBase)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_byte: get(Cost::AltBn128G1MultiexpByte)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_sublinear: get(Cost::AltBn128G1MultiexpSublinear)?,
+        alt_bn128_g1_multiexp_element: get(Cost::AltBn128G1MultiexpElement)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_pairing_check_base: get(Cost::AltBn128PairingCheckBase)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_pairing_check_byte: get(Cost::AltBn128PairingCheckByte)?,
+        alt_bn128_pairing_check_element: get(Cost::AltBn128PairingCheckElement)?,
     };
 
     Ok(res)

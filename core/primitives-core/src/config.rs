@@ -387,22 +387,19 @@ pub struct ExtCostsConfig {
     pub alt_bn128_g1_multiexp_base: Gas,
     /// byte cost for multiexp
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_multiexp_byte: Gas,
+    pub alt_bn128_g1_multiexp_element: Gas,
     /// Base cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_g1_sum_base: Gas,
     /// byte cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_sum_byte: Gas,
-    /// sublinear cost for items
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_multiexp_sublinear: Gas,
+    pub alt_bn128_g1_sum_element: Gas,
     /// Base cost for pairing check
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_base: Gas,
     /// Cost for pairing check per byte
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_pairing_check_byte: Gas,
+    pub alt_bn128_pairing_check_element: Gas,
 }
 
 pub fn default_read_cached_trie_node() -> Gas {
@@ -473,17 +470,15 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 1111697487,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1441698,
+            alt_bn128_g1_multiexp_element: SAFETY_MULTIPLIER * 1111697487,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 8858396182,
+            alt_bn128_pairing_check_element: SAFETY_MULTIPLIER * 8858396182,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
+            alt_bn128_g1_sum_element: SAFETY_MULTIPLIER * 25406181,
         }
     }
 
@@ -545,17 +540,15 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: 0,
+            alt_bn128_g1_multiexp_element: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: 0,
+            alt_bn128_pairing_check_element: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: 0,
+            alt_bn128_g1_sum_element: 0,
         }
     }
 }
@@ -709,15 +702,15 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_byte,
+            alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_element,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_byte,
+            alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_element,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_byte,
+            alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_element,
         }
     }
 }

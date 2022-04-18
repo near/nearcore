@@ -150,12 +150,11 @@
       "validator_stake_base": 911834726400,
       "validator_total_stake_base": 911834726400,
       "alt_bn128_g1_multiexp_base": 713006929500,
-      "alt_bn128_g1_multiexp_byte": 3335092461,
-      "alt_bn128_g1_multiexp_sublinear": 4325094,
+      "alt_bn128_g1_multiexp_element": 3335092461,
       "alt_bn128_pairing_check_base": 9685508901000,
-      "alt_bn128_pairing_check_byte": 26575188546,
+      "alt_bn128_pairing_check_element": 26575188546,
       "alt_bn128_g1_sum_base": 3175314375,
-      "alt_bn128_g1_sum_byte": 76218543
+      "alt_bn128_g1_sum_element": 76218543
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
