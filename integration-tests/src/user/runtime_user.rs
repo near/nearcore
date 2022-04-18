@@ -286,8 +286,8 @@ impl User for RuntimeUser {
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), vec![receipt], vec![])?;
+    fn add_receipts(&self, receipts: Vec<Receipt>) -> Result<(), ServerError> {
+        self.apply_all(self.apply_state(), receipts, vec![])?;
         Ok(())
     }
 

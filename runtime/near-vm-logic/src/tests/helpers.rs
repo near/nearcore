@@ -51,7 +51,6 @@ pub fn promise_batch_action_function_call(
     )
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[allow(dead_code)]
 pub fn promise_batch_action_function_call_weight(
     logic: &mut VMLogic<'_>,

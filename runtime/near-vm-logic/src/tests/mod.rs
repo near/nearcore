@@ -1,3 +1,5 @@
+#[cfg(feature = "protocol_feature_alt_bn128")]
+mod alt_bn128;
 mod context;
 mod fixtures;
 mod gas_counter;

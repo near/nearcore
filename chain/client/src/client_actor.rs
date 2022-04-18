@@ -48,9 +48,9 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::db::DBCol::ColStateParts;
+use near_store::DBCol::ColStateParts;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
+                        for _ in store.iter(near_store::DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -356,6 +356,7 @@ impl ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
+                            self.adv.read().unwrap().is_archival,
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -673,7 +674,7 @@ impl Handler<Status> for ClientActor {
                 return Err(StatusError::NodeIsSyncing);
             }
         }
-        let validators = self
+        let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
@@ -798,9 +799,33 @@ impl Handler<Status> for ClientActor {
                         self.client.chain.genesis_block().header().height(),
                     ),
                 ),
-                current_head_status: self.client.chain.head()?.clone().into(),
+                current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
                 orphans: self.client.chain.orphans().list_orphans_by_height(),
+                blocks_with_missing_chunks: self
+                    .client
+                    .chain
+                    .blocks_with_missing_chunks
+                    .list_blocks_by_height(),
+                epoch_info: EpochInfoView {
+                    epoch_id: head.epoch_id.0,
+                    height: epoch_start_height,
+                    first_block_hash: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .hash()
+                        .clone(),
+                    start_time: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .timestamp()
+                        .to_rfc3339(),
+                    validators: validators.to_vec(),
+                },
             })
         } else {
             None

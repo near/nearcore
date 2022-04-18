@@ -3,6 +3,8 @@
 #[derive(Debug, Default, Clone)]
 pub struct Blacklist(std::collections::HashMap<std::net::IpAddr, PortsSet>);
 
+// TODO(CP-34): merge Blacklist with whitelist functionality and replace them with sth
+// like AuthorizationConfig.
 impl Blacklist {
     /// Construct a blacklist from list of addresses.
     ///

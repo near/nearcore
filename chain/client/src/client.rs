@@ -1106,12 +1106,11 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             let now = Clock::instant();
-            let gc_blocks_limit = self.config.gc_blocks_limit;
             let result = if self.config.archive {
-                self.chain.clear_archive_data(gc_blocks_limit)
+                self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
             } else {
                 let tries = self.runtime_adapter.get_tries();
-                self.chain.clear_data(tries, gc_blocks_limit)
+                self.chain.clear_data(tries, &self.config.gc)
             };
             if let Err(err) = result {
                 error!(target: "client", "Can't clear old data, {:?}", err);

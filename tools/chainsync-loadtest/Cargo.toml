@@ -14,7 +14,7 @@ name = "chainsync-loadtest"
 
 [dependencies]
 clap = { version = "3.1.6", features = ["derive"] }
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 parking_lot = "0.11.2"
 openssl-probe = "0.1.4"
 futures = "0.3"
