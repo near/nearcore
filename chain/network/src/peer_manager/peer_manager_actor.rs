@@ -629,7 +629,7 @@ impl PeerManagerActor {
                     Some(throttle_controller),
                 );
                 Self::send_sync(
-                    network_metrics,
+                    self.network_metrics.clone(),
                     peer_type,
                     addr,
                     ctx,
