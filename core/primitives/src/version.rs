@@ -159,7 +159,6 @@ pub enum ProtocolFeature {
     FunctionCallWeight,
     /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
     /// only once per chunk at the first access time.
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     ChunkNodesCache,
 }
 
@@ -230,6 +229,7 @@ impl ProtocolFeature {
             ProtocolFeature::IncreaseDeploymentCost
             | ProtocolFeature::FunctionCallWeight
             | ProtocolFeature::LimitContractLocals => 53,
+            ProtocolFeature::ChunkNodesCache => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -240,8 +240,6 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-            ProtocolFeature::ChunkNodesCache => 128,
         }
     }
 }

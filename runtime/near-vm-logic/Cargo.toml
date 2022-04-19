@@ -44,7 +44,6 @@ protocol_feature_alt_bn128 = [
   "near-primitives-core/protocol_feature_alt_bn128",
   "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_chunk_nodes_cache = ["near-primitives/protocol_feature_chunk_nodes_cache"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
