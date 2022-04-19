@@ -318,7 +318,7 @@ mod tests {
     /// partial prefix.
     #[test]
     fn test_auto_xz_decode_plain() {
-        let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
+        let mut data: [u8; 39] = *b"A quick brown fox jumps over a lazy dog";
         // On first iteration we’re testing just a plain text data.  On subsequent
         // iterations, we’re testing uncompressed data whose first few bytes match
         // the XZ header.
