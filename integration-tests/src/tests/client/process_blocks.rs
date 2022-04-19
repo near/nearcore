@@ -34,8 +34,8 @@ use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
+use near_primitives::errors::{ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -65,6 +65,7 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use near_store::DBCol::ColStateParts;
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::prelude::StdRng;
@@ -3332,13 +3333,14 @@ fn test_validator_stake_host_function() {
     }
 }
 
-// Check that we can't call a contract exceeding functions number limit after upgrade.
-#[test]
-fn test_limit_contract_functions_number_upgrade() {
-    let functions_number_limit: u32 = 10_000;
-
-    let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
+fn verify_contract_limits_upgrade(
+    feature: ProtocolFeature,
+    function_limit: u32,
+    local_limit: u32,
+    expected_prepare_err: PrepareError,
+) {
+    let old_protocol_version = feature.protocol_version() - 1;
+    let new_protocol_version = feature.protocol_version();
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -3361,7 +3363,7 @@ fn test_limit_contract_functions_number_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::many_functions_contract(functions_number_limit + 10),
+            &near_test_contracts::large_contract(function_limit + 1, local_limit + 1),
             epoch_length,
             1,
         );
@@ -3426,10 +3428,38 @@ fn test_limit_contract_functions_number_upgrade() {
     };
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    assert!(matches!(
-        new_outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-    ));
+    let e = match new_outcome.status {
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => e,
+        status => panic!("expected transaction to fail, got {:?}", status),
+    };
+    match e.kind {
+        ActionErrorKind::FunctionCallError(FunctionCallErrorSer::CompilationError(
+            CompilationError::PrepareError(e),
+        )) if e == expected_prepare_err => (),
+        kind => panic!("got unexpected action error kind: {:?}", kind),
+    }
+}
+
+// Check that we can't call a contract exceeding functions number limit after upgrade.
+#[test]
+fn test_function_limit_change() {
+    verify_contract_limits_upgrade(
+        ProtocolFeature::LimitContractFunctionsNumber,
+        100_000,
+        0,
+        PrepareError::TooManyFunctions,
+    );
+}
+
+// Check that we can't call a contract exceeding functions number limit after upgrade.
+#[test]
+fn test_local_limit_change() {
+    verify_contract_limits_upgrade(
+        ProtocolFeature::LimitContractLocals,
+        64,
+        15625,
+        PrepareError::TooManyLocals,
+    );
 }
 
 #[test]

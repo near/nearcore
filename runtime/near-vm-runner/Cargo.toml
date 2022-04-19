@@ -94,7 +94,11 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
 
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol_features = [
+    "near-primitives/nightly_protocol_features",
+    "protocol_feature_chunk_nodes_cache",
+    "protocol_feature_alt_bn128",
+]
 sandbox = ["near-vm-logic/sandbox"]
 
 [package.metadata.cargo-udeps.ignore]
