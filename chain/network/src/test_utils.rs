@@ -1,3 +1,4 @@
+use crate::stats::metrics::NetworkMetrics;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
@@ -184,6 +185,19 @@ impl Handler<GetInfo> for PeerManagerActor {
 
     fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
         self.get_network_info()
+    }
+}
+
+/// `GetMetrics` gets `NetworkMetrics` from `PeerManager`.
+#[derive(Message)]
+#[rtype(result = "Arc<NetworkMetrics>")]
+pub struct GetMetrics {}
+
+impl Handler<GetMetrics> for PeerManagerActor {
+    type Result = Arc<NetworkMetrics>;
+
+    fn handle(&mut self, _msg: GetMetrics, _ctx: &mut Context<Self>) -> Self::Result {
+        self.network_metrics.clone()
     }
 }
 
