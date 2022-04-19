@@ -131,7 +131,7 @@ protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
 ]
-protocol_feature_chunk_nodes_cache = ["near-vm-runner/protocol_feature_chunk_nodes_cache", "near-primitives/protocol_feature_chunk_nodes_cache"]
+protocol_feature_chunk_nodes_cache = ["near-vm-runner/protocol_feature_chunk_nodes_cache", "node-runtime/protocol_feature_chunk_nodes_cache", "near-primitives/protocol_feature_chunk_nodes_cache"]
 nightly_protocol_features = [
   "nightly_protocol",
   "near-primitives/nightly_protocol_features",

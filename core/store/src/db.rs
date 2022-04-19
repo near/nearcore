@@ -21,7 +21,7 @@ pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DBError(rocksdb::Error);
+pub struct DBError(String);
 
 impl fmt::Display for DBError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,7 +33,7 @@ impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
-        DBError(err)
+        DBError(err.into_string())
     }
 }
 
@@ -142,6 +142,24 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
+fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
+    // have some other file descriptors opened by neard process so we use the value of
+    // max_open_files + some constant to be sure that the binary can correctly run.
+    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
+    let required = max_open_files as u64 + 1025;
+    if soft < required {
+        assert!(
+            hard >= required,
+            "Can't run near binary since hard limit for the number \
+                of opened files is too small: {} required: {}",
+            hard,
+            required
+        );
+        rlimit::Resource::NOFILE.set(required, hard).unwrap();
+    }
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -184,6 +202,7 @@ impl RocksDBOptions {
         store_config: &StoreConfig,
     ) -> Result<RocksDB, DBError> {
         let path = path.as_ref();
+        ensure_max_open_files_limit(store_config.max_open_files);
         if store_config.read_only {
             return self.read_only(path, &store_config);
         }
@@ -625,7 +644,7 @@ impl RocksDB {
 
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
-        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+        Checkpoint::new(&self.db).map_err(DBError::from)
     }
 
     /// Synchronously flush all Memtables to SST files on disk

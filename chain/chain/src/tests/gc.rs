@@ -247,15 +247,12 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             // i == gc_height is the only height should be processed here
             if block1.header().height() > gc_height || i == gc_height {
                 let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
-                tries2
-                    .apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2)
-                    .unwrap();
+                tries2.apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2);
                 state_root2 = trie_changes2.new_root;
                 assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                 store_update2.merge(trie_store_update2);
             } else {
-                let (trie_store_update2, new_root2) =
-                    tries2.apply_all(&trie_changes2, shard_uid).unwrap();
+                let (trie_store_update2, new_root2) = tries2.apply_all(&trie_changes2, shard_uid);
                 state_root2 = new_root2;
                 store_update2.merge(trie_store_update2);
             }
