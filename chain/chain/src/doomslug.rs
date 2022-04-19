@@ -8,6 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use tracing::info;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -562,6 +563,7 @@ impl Doomslug {
         now: Instant,
         target_height: BlockHeight,
         has_enough_chunks: bool,
+        log_block_production_info: bool,
     ) -> bool {
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
@@ -575,13 +577,24 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         if has_enough_chunks {
+                            if log_block_production_info {
+                                info!("ready to produce block @ {}, has enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
+                            }
                             true
                         } else {
                             let delay = self.timer.get_delay(
                                 self.timer.height.saturating_sub(self.largest_final_height),
                             ) / 6;
 
-                            now > when + delay
+                            let ready = now > when + delay;
+                            if log_block_production_info {
+                                if ready {
+                                    info!("ready to produce block @ {}, has enough approvals for {:?}, does not have enough chunks", target_height, now.saturating_duration_since(when));
+                                } else {
+                                    info!("not ready to produce block @ {}, need to wait {:?}, has enough approvals for {:?}", target_height, (when + delay).saturating_duration_since(now), now.saturating_duration_since(when));
+                                }
+                            }
+                            ready
                         }
                     }
                 }
