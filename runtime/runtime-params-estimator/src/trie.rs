@@ -120,7 +120,7 @@ pub(crate) fn read_node_from_db(
 
 pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     let debug = testbed.config.debug;
-    let iters = 200;
+    let iters = 201;
     let percentiles_of_interest = &[0.5, 0.9, 0.99, 0.999];
 
     // Worst-case
@@ -134,7 +134,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     let data_spread_factor = 11;
 
     // For the base case, worst-case assumption is slightly relaxed. The base at
-    // the 99th percentile case is used as final estimation.
+    // the 90th percentile case is used as final estimation.
     let base_case = {
         // Reading a different node before the measurement loads data structure
         // into cache. It would be difficult for an attacker to avoid this
@@ -168,8 +168,9 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             }
             println!();
         }
+        // Take the 90th percentile measured.
         p_results.pop();
-        // Take the 99th percentile measured
+        p_results.pop();
         p_results.pop().unwrap()
     };
 
