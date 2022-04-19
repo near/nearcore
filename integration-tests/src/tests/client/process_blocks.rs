@@ -4739,11 +4739,7 @@ mod chunk_nodes_cache_test {
         let epoch_length = 10;
         let num_blocks = 5;
 
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-        let old_protocol_version = PROTOCOL_VERSION - 1;
-
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
@@ -4801,10 +4797,7 @@ mod chunk_nodes_cache_test {
                             cost / touching_trie_node_cost
                         },
                         mem_reads: {
-                            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
                             let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
-                            #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-                            let cost = 0;
                             assert_eq!(cost % read_cached_trie_node_cost, 0);
                             cost / read_cached_trie_node_cost
                         },
@@ -4815,12 +4808,7 @@ mod chunk_nodes_cache_test {
 
         assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
         assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
-        if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
-            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-        } else {
-            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 12, mem_reads: 0 });
-            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 12, mem_reads: 0 });
-        }
+        assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+        assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
     }
 }
