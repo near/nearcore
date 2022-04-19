@@ -2075,6 +2075,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "anyhow",
  "assert_matches",
  "base64 0.11.0",
  "borsh",
@@ -2107,9 +2108,11 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "once_cell",
+ "parking_lot 0.11.2",
  "portpicker",
  "primitive-types",
  "rand 0.7.3",
+ "rayon",
  "regex",
  "serde",
  "serde_json",
@@ -2946,6 +2949,7 @@ name = "near-network"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "anyhow",
  "borsh",
  "bytes",
  "bytesize",
@@ -3181,6 +3185,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "rand 0.7.3",
+ "rlimit",
  "rocksdb",
  "serde",
  "serde_json",
@@ -3211,6 +3216,7 @@ name = "near-test-contracts"
 version = "0.0.0"
 dependencies = [
  "once_cell",
+ "wasm-encoder",
  "wat",
 ]
 
