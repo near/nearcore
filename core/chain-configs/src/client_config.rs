@@ -33,7 +33,7 @@ pub struct GCConfig {
 
 impl Default for GCConfig {
     fn default() -> Self {
-        Self { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+        Self { gc_blocks_limit: 2, gc_fork_clean_step: 100 }
     }
 }
 
