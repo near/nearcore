@@ -6,7 +6,9 @@ use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, TrieCacheMode};
+use near_primitives::types::{
+    AccountId, Balance, EpochId, EpochInfoProvider, TrieCacheMode, TrieNodesCount,
+};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
@@ -172,8 +174,8 @@ impl<'a> External for RuntimeExt<'a> {
         data_id
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
-        self.trie_update.trie.get_touched_nodes_count()
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        self.trie_update.trie.get_trie_nodes_count()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {

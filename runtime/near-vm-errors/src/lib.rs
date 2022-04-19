@@ -150,6 +150,8 @@ pub enum PrepareError {
     Memory,
     /// Contract contains too many functions.
     TooManyFunctions,
+    /// Contract contains too many locals.
+    TooManyLocals,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -219,15 +221,10 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// General errors for ECDSA recover.
     ECRecoverError { msg: String },
-    /// Deserialization error for alt_bn128 functions
+    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// on the curve).
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128DeserializationError { msg: String },
-    /// Serialization error for alt_bn128 functions
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128SerializationError { msg: String },
-    /// Items limit error for alt_bn128_g1_multiexp
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128MaxNumberOfItemsExceeded,
+    AltBn128InvalidInput { msg: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -291,18 +288,17 @@ impl fmt::Display for VMLogicError {
 impl fmt::Display for PrepareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
-        match self {
-            Serialization => write!(f, "Error happened while serializing the module."),
-            Deserialization => write!(f, "Error happened while deserializing the module."),
-            InternalMemoryDeclared => {
-                write!(f, "Internal memory declaration has been found in the module.")
-            }
-            GasInstrumentation => write!(f, "Gas instrumentation failed."),
-            StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
-            Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory."),
-            TooManyFunctions => write!(f, "Too many functions in contract."),
-        }
+        f.write_str(match self {
+            Serialization => "Error happened while serializing the module.",
+            Deserialization => "Error happened while deserializing the module.",
+            InternalMemoryDeclared => "Internal memory declaration has been found in the module.",
+            GasInstrumentation => "Gas instrumentation failed.",
+            StackHeightInstrumentation => "Stack instrumentation failed.",
+            Instantiate => "Error happened during instantiation.",
+            Memory => "Error creating memory.",
+            TooManyFunctions => "Too many functions in contract.",
+            TooManyLocals => "Too many locals declared in the contract.",
+        })
     }
 }
 
@@ -425,11 +421,7 @@ impl std::fmt::Display for HostError {
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            AltBn128MaxNumberOfItemsExceeded => write!(f, "AltBn128 multi exp max items exceeded."),
+            AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
     }

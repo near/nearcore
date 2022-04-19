@@ -12,8 +12,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, Addr, Arbiter, AsyncContext, Context,
+    ContextFutureSpawner, Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
@@ -24,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -96,7 +97,7 @@ pub(crate) struct PeerActor {
     /// Last time an update of received message was sent to PeerManager
     last_time_received_message_update: Instant,
     /// Dynamic Prometheus metrics
-    network_metrics: NetworkMetrics,
+    network_metrics: Arc<NetworkMetrics>,
     /// How many transactions we have received since the last block message
     /// Note: Shared between multiple Peers.
     txns_since_last_block: Arc<AtomicUsize>,
@@ -127,7 +128,7 @@ impl PeerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         partial_edge_info: Option<PartialEdgeInfo>,
-        network_metrics: NetworkMetrics,
+        network_metrics: Arc<NetworkMetrics>,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,

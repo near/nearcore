@@ -13,7 +13,7 @@ description = "This crate hosts NEAR client-related error types"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 chrono = { version = "0.4.4", features = ["serde"] }
 strum = { version = "0.20", features = ["derive"] }
 thiserror = "1.0"

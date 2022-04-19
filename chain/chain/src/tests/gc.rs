@@ -4,6 +4,8 @@ use crate::chain::Chain;
 use crate::test_utils::KeyValueRuntime;
 use crate::types::{ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
+
+use near_chain_configs::GCConfig;
 use near_crypto::KeyType;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
@@ -199,11 +201,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    let clear_data = chain1.clear_data(tries1, 1000);
-    if clear_data.is_err() {
-        println!("clear data failed = {:?}", clear_data);
-        assert!(false);
-    }
+    chain1.clear_data(tries1, &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
 
     let mut chain2 = get_chain(num_shards);
     let tries2 = chain2.runtime_adapter.get_tries();
@@ -249,15 +247,12 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             // i == gc_height is the only height should be processed here
             if block1.header().height() > gc_height || i == gc_height {
                 let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
-                tries2
-                    .apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2)
-                    .unwrap();
+                tries2.apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2);
                 state_root2 = trie_changes2.new_root;
                 assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                 store_update2.merge(trie_store_update2);
             } else {
-                let (trie_store_update2, new_root2) =
-                    tries2.apply_all(&trie_changes2, shard_uid).unwrap();
+                let (trie_store_update2, new_root2) = tries2.apply_all(&trie_changes2, shard_uid);
                 state_root2 = new_root2;
                 store_update2.merge(trie_store_update2);
             }
@@ -665,7 +660,9 @@ fn test_fork_far_away_from_epoch_end() {
     }
 
     // GC execution
-    chain1.clear_data(tries1.clone(), 100).expect("Clear data failed");
+    chain1
+        .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
     // yet - as fork_tail only clears the 'last' 1k blocks.
@@ -704,7 +701,9 @@ fn test_fork_far_away_from_epoch_end() {
             verbose,
         );
     }
-    chain1.clear_data(tries1, 100).expect("Clear data failed");
+    chain1
+        .clear_data(tries1, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .expect("Clear data failed");
     // And now all these blocks should be safely removed.
     for i in 6..50 {
         let (block, _, _) = states1[i as usize].clone();

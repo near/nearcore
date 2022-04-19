@@ -14,7 +14,7 @@ name = "neard"
 
 [dependencies]
 clap = { version = "3.1.6", features = ["derive"] }
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 tracing = "0.1.13"
 openssl-probe = "0.1.2"
 near-rust-allocator-proxy = { version = "0.4", optional = true }

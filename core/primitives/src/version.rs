@@ -140,6 +140,9 @@ pub enum ProtocolFeature {
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
+    /// This feature enforces a global limit on the function local declarations in a WebAssembly
+    /// contract. See <...> for more information.
+    LimitContractLocals,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -153,8 +156,10 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     FunctionCallWeight,
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once per chunk at the first access time.
+    ChunkNodesCache,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -171,7 +176,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 127;
+pub const PROTOCOL_VERSION: ProtocolVersion = 128;
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -221,7 +226,10 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost => 53,
+            ProtocolFeature::IncreaseDeploymentCost
+            | ProtocolFeature::FunctionCallWeight
+            | ProtocolFeature::LimitContractLocals => 53,
+            ProtocolFeature::ChunkNodesCache => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -232,8 +240,6 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_function_call_weight")]
-            ProtocolFeature::FunctionCallWeight => 127,
         }
     }
 }

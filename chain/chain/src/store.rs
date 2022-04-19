@@ -42,15 +42,15 @@ use near_store::{
     ColOutcomeIds, ColOutgoingReceipts, ColPartialChunks, ColProcessedBlockHeights,
     ColReceiptIdToShardId, ColReceipts, ColState, ColStateChanges, ColStateDlInfos,
     ColStateHeaders, ColStateParts, ColTransactionResult, ColTransactions, ColTrieChanges, DBCol,
-    KeyForStateChanges, ShardTries, Store, StoreUpdate, TrieChanges, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC, TAIL_KEY,
+    KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
+    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
-use near_store::db::DBCol::ColStateChangesForSplitStates;
 use near_store::db::StoreStatistics;
+use near_store::DBCol::ColStateChangesForSplitStates;
 #[cfg(feature = "mock_network")]
 use std::sync::Arc;
 
@@ -2125,41 +2125,35 @@ impl<'a> ChainStoreUpdate<'a> {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, we delete the state that's the result of applying this block
                     for shard_uid in shard_uids_to_gc {
-                        self.store()
-                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                            .map(|trie_changes: TrieChanges| {
-                                tries
-                                    .revert_insertions(&trie_changes, shard_uid, &mut store_update)
-                                    .map(|_| {
-                                        self.gc_col(
-                                            ColTrieChanges,
-                                            &get_block_shard_uid(&block_hash, &shard_uid),
-                                        );
-                                        self.inc_gc_col_state();
-                                    })
-                                    .map_err(|err| ErrorKind::Other(err.to_string()))
-                            })
-                            .unwrap_or(Ok(()))?;
+                        let trie_changes = self.store().get_ser(
+                            ColTrieChanges,
+                            &get_block_shard_uid(&block_hash, &shard_uid),
+                        )?;
+                        if let Some(trie_changes) = trie_changes {
+                            tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
+                            self.gc_col(
+                                ColTrieChanges,
+                                &get_block_shard_uid(&block_hash, &shard_uid),
+                            );
+                            self.inc_gc_col_state();
+                        }
                     }
                 }
                 GCMode::Canonical(tries) => {
                     // If the block is on canonical chain, we delete the state that's before applying this block
                     for shard_uid in shard_uids_to_gc {
-                        self.store()
-                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                            .map(|trie_changes: TrieChanges| {
-                                tries
-                                    .apply_deletions(&trie_changes, shard_uid, &mut store_update)
-                                    .map(|_| {
-                                        self.gc_col(
-                                            ColTrieChanges,
-                                            &get_block_shard_uid(&block_hash, &shard_uid),
-                                        );
-                                        self.inc_gc_col_state();
-                                    })
-                                    .map_err(|err| ErrorKind::Other(err.to_string()))
-                            })
-                            .unwrap_or(Ok(()))?;
+                        let trie_changes = self.store().get_ser(
+                            ColTrieChanges,
+                            &get_block_shard_uid(&block_hash, &shard_uid),
+                        )?;
+                        if let Some(trie_changes) = trie_changes {
+                            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
+                            self.gc_col(
+                                ColTrieChanges,
+                                &get_block_shard_uid(&block_hash, &shard_uid),
+                            );
+                            self.inc_gc_col_state();
+                        }
                     }
                     // Set `block_hash` on previous one
                     block_hash = *self.get_block_header(&block_hash)?.prev_hash();
@@ -2374,7 +2368,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
-        assert!(SHOULD_COL_GC[col as usize]);
+        assert!(col.is_gc());
         let mut store_update = self.store().store_update();
         match col {
             DBCol::ColOutgoingReceipts => {
@@ -2827,9 +2821,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(ColBlockOrdinal, &index_to_bytes(*block_ordinal), block_hash)?;
         }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
-            wrapped_trie_changes
-                .insertions_into(&mut store_update)
-                .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
 
             if self.chain_store.save_trie_changes {
@@ -3129,7 +3121,7 @@ mod tests {
     use near_primitives::merkle::PartialMerkleTree;
     use strum::IntoEnumIterator;
 
-    use near_chain_configs::GenesisConfig;
+    use near_chain_configs::{GCConfig, GenesisConfig};
     use near_crypto::KeyType;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -3401,7 +3393,7 @@ mod tests {
         }
 
         let trie = chain.runtime_adapter.get_tries();
-        assert!(chain.clear_data(trie, 100).is_ok());
+        chain.clear_data(trie, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..15 {
@@ -3639,7 +3631,9 @@ mod tests {
 
         for iter in 0..10 {
             println!("ITERATION #{:?}", iter);
-            assert!(chain.clear_data(trie.clone(), gc_blocks_limit).is_ok());
+            assert!(chain
+                .clear_data(trie.clone(), &GCConfig { gc_blocks_limit, ..GCConfig::default() })
+                .is_ok());
 
             // epoch didn't change so no data is garbage collected.
             for i in 0..1000 {
@@ -3664,6 +3658,7 @@ mod tests {
                 genesis.clone(),
                 chain.runtime_adapter.clone(),
                 chain.store().store().clone(),
+                false,
             );
             store_validator.validate();
             println!("errors = {:?}", store_validator.errors);
