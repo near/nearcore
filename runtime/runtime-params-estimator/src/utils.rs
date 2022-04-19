@@ -253,13 +253,13 @@ pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
 }
 
 /// Returns several percentile values from the given vector of costs. For
-/// example, the input 0.9 represents the 90th percentile, which is the smallest
-/// gas cost in the vector for which at least 90% of all values are smaller.
+/// example, the input 0.9 represents the 90th percentile, which is the largest
+/// gas cost in the vector for which no more than 90% of all values are smaller.
 pub(crate) fn percentiles(mut costs: Vec<GasCost>, percentiles: &[f32]) -> Vec<GasCost> {
     costs.sort();
     let mut output = vec![];
     for p in percentiles {
-        let index = (p * (costs.len() - 1) as f32).ceil() as usize;
+        let index = (p * costs.len() as f32).ceil() as usize - 1;
         output.push(costs[index].clone());
     }
     output
@@ -297,6 +297,7 @@ mod test {
     use crate::{config::GasMetric, gas_cost::GasCost};
     use rand::prelude::SliceRandom;
 
+    #[track_caller]
     fn check_percentiles(gas_values: &[u64], p_values: &[f32], expected_gas_results: Vec<u64>) {
         let costs =
             gas_values.iter().map(|n| GasCost::from_gas((*n).into(), GasMetric::Time)).collect();
@@ -310,6 +311,14 @@ mod test {
     fn test_percentiles() {
         let mut one_to_thousand = (1..=1000u64).collect::<Vec<_>>();
         one_to_thousand.shuffle(&mut rand::thread_rng());
-        check_percentiles(&one_to_thousand, &[0.1, 0.5, 0.995], vec![101, 501, 996]);
+        check_percentiles(&one_to_thousand, &[0.1, 0.5, 0.995], vec![100, 500, 995]);
+
+        let mut one_to_ninety_nine = (1..=99u64).collect::<Vec<_>>();
+        one_to_ninety_nine.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_ninety_nine, &[0.1, 0.5, 0.995], vec![10, 50, 99]);
+
+        let mut one_to_one_o_one = (1..=101u64).collect::<Vec<_>>();
+        one_to_one_o_one.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_one_o_one, &[0.1, 0.5, 0.995], vec![11, 51, 101]);
     }
 }

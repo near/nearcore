@@ -120,7 +120,7 @@ pub(crate) fn read_node_from_db(
 
 pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     let debug = testbed.config.debug;
-    let iters = 201;
+    let iters = 200;
     let percentiles_of_interest = &[0.5, 0.9, 0.99, 0.999];
 
     // Worst-case
