@@ -19,8 +19,8 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::index_to_bytes;
-use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
+use near_store::DBCol::ColReceipts;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
 
@@ -109,7 +109,8 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
     } else {
         // archival node. Fix the inconsistencies by re-applying the entire history.
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        // the save_trie_changes argument is false because ColTrieChanges is not needed in archival nodes
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().expect("head must exist");
         let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let mut store_update = store.store_update();
@@ -141,7 +142,7 @@ pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let epoch_config = EpochConfig::from(&near_config.genesis.config);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
@@ -212,7 +213,8 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        // the save_trie_changes argument is false because ColTrieChanges is not needed in archival nodes
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
@@ -274,7 +276,8 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        // the save_trie_changes argument is false because ColTrieChanges is not needed in archival nodes
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -485,7 +488,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().unwrap();
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut count = 0;

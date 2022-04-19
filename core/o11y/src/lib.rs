@@ -9,6 +9,7 @@ use tracing_subscriber::EnvFilter;
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      near=info,\
+     recompress=info,\
      stats=info,\
      telemetry=info,\
      delay_detector=info,\

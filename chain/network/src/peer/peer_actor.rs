@@ -12,8 +12,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, Addr, Arbiter, AsyncContext, Context,
+    ContextFutureSpawner, Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
@@ -24,6 +24,7 @@ use near_network_primitives::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;

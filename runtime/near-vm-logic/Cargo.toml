@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -43,10 +43,6 @@ protocol_feature_alt_bn128 = [
   "bn",
   "near-primitives-core/protocol_feature_alt_bn128",
   "near-vm-errors/protocol_feature_alt_bn128",
-]
-protocol_feature_function_call_weight = [
-  "near-primitives/protocol_feature_function_call_weight",
-  "near-primitives-core/protocol_feature_function_call_weight",
 ]
 
 # Use this feature to enable counting of fees and costs applied.

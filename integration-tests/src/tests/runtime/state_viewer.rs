@@ -126,7 +126,7 @@ fn test_view_state() {
     );
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().0;
-    let (db_changes, new_root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+    let (db_changes, new_root) = tries.apply_all(&trie_changes, shard_uid);
     db_changes.commit().unwrap();
 
     let state_update = tries.new_trie_update(shard_uid, new_root);

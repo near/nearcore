@@ -21,8 +21,7 @@ pub fn create_test_store() -> Store {
 
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
-    let store = create_test_store();
-    ShardTries::new(store, 0, 1)
+    create_tries_complex(0, 1)
 }
 
 pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
@@ -39,7 +38,7 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid);
     assert_eq!(trie.storage.as_caching_storage().unwrap().shard_uid.shard_id, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
-    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
     for (key, value) in deduped {
@@ -84,6 +83,9 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
         .collect()
 }
 
+/// Generates up to max_size random sequence of changes: both insertion and deletions.
+/// Deletions are represented as (key, None).
+/// Keys are randomly constructed from alphabet, and they have max_length size.
 fn gen_changes_helper(
     rng: &mut impl Rng,
     max_size: usize,

@@ -18,14 +18,14 @@ use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -206,6 +206,13 @@ pub struct Network {
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
     pub boot_nodes: String,
+    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
+    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
+    /// For each whitelisted node specifying both PeerId and IP:port is required:
+    /// Example:
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
+    #[serde(default)]
+    pub whitelist_nodes: String,
     /// Maximum number of active peers. Hard limit.
     #[serde(default = "default_max_num_peers")]
     pub max_num_peers: u32,
@@ -255,6 +262,7 @@ impl Default for Network {
             addr: "0.0.0.0:24567".to_string(),
             external_address: "".to_string(),
             boot_nodes: "".to_string(),
+            whitelist_nodes: "".to_string(),
             max_num_peers: default_max_num_peers(),
             minimum_outbound_peers: default_minimum_outbound_connections(),
             ideal_connections_lo: default_ideal_connections_lo(),
@@ -306,10 +314,6 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
-fn default_gc_blocks_limit() -> NumBlocks {
-    2
-}
-
 fn default_view_client_threads() -> usize {
     4
 }
@@ -328,10 +332,6 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
 
 fn default_use_checkpoints_for_db_migration() -> bool {
     true
-}
-
-fn default_enable_rocksdb_statistics() -> bool {
-    false
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -435,8 +435,9 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
-    #[serde(default = "default_gc_blocks_limit")]
-    pub gc_blocks_limit: NumBlocks,
+    /// Garbage collection configuration.
+    #[serde(default, flatten)]
+    pub gc: GCConfig,
     #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
@@ -456,8 +457,8 @@ pub struct Config {
     /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
-    #[serde(default = "default_enable_rocksdb_statistics")]
-    pub enable_rocksdb_statistics: bool,
+    /// Different parameters to configure/optimize underlying storage.
+    pub store: near_store::StoreConfig,
 }
 
 impl Default for Config {
@@ -478,7 +479,7 @@ impl Default for Config {
             tracked_shards: vec![],
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
-            gc_blocks_limit: default_gc_blocks_limit(),
+            gc: GCConfig::default(),
             epoch_sync_enabled: true,
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
@@ -486,7 +487,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
-            enable_rocksdb_statistics: false,
+            store: near_store::StoreConfig::read_write(),
         }
     }
 }
@@ -692,7 +693,7 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 log_summary_style: config.log_summary_style,
-                gc_blocks_limit: config.gc_blocks_limit,
+                gc: config.gc,
                 view_client_threads: config.view_client_threads,
                 epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
@@ -718,6 +719,23 @@ impl NearConfig {
                         .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
+                whitelist_nodes: (|| -> Vec<_> {
+                    let w = &config.network.whitelist_nodes;
+                    if w.is_empty() {
+                        return vec![];
+                    }
+                    let mut peers = vec![];
+                    for peer in w.split(',') {
+                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
+                        if peer.addr.is_none() {
+                            panic!(
+                                "whitelist_nodes are required to specify both PeerId and IP:port"
+                            )
+                        }
+                        peers.push(peer);
+                    }
+                    peers
+                }()),
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
@@ -1736,4 +1754,34 @@ fn test_init_config_localnet() {
         ),
         2
     );
+}
+
+/// Tests that loading a config.json file works and results in values being
+/// correctly parsed and defaults being applied correctly applied.
+#[test]
+fn test_config_from_file() {
+    for (has_gc, data) in [
+        (true, include_bytes!("../../testdata/example-config-gc.json").as_slice()),
+        (false, include_bytes!("../../testdata/example-config-no-gc.json").as_slice()),
+    ] {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.as_file().write_all(data).unwrap();
+
+        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+
+        // TODO(mina86): We might want to add more checks.  Looking at all
+        // values is probably not worth it but there may be some other defaults
+        // we want to ensure that they happen.
+        let want_gc = if has_gc {
+            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420 }
+        } else {
+            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+        };
+        assert_eq!(want_gc, config.gc);
+
+        assert_eq!(
+            vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
+            config.telemetry.endpoints
+        );
+    }
 }

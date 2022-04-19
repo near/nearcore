@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 /// took on avg 6.169248ms op per sec 162 items read 10000
 /// took on avg 1.424615ms op per sec 701 items read 10000
 /// took on avg 1.416562ms op per sec 705 items read 10000
-/// ```  
+/// ```
 fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
     init_integration_logger();
     let home_dir = get_default_home();
@@ -28,13 +28,11 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store = create_store_with_config(
-            &get_store_path(&home_dir),
-            StoreConfig { read_only, enable_statistics: false },
-        );
+        let store_config = StoreConfig::read_write().with_read_only(read_only);
+        let store = create_store_with_config(&get_store_path(&home_dir), &store_config);
 
         let mut chain_store =
-            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
         let runtime = NightshadeRuntime::with_config(
             &home_dir,

@@ -43,6 +43,34 @@
                     $('.js-current-head-height').text(head.height);
                     $('.js-current-header-head-hash').text(header_head.hash);
                     $('.js-current-header-head-height').text(header_head.height);
+
+                    let orphans = data.detailed_debug_status.orphans;
+                    if (orphans.length > 0) {
+                        orphans.forEach((orphan, index) => {
+                            $('.js-tbody-orphans').append($('<tr>')
+                                .append($('<td>').append(orphan.hash))
+                                .append($('<td>').append(orphan.height))
+                            )
+                        });
+                    } else {
+                        $('.js-tbody-orphans').append($('<tr>')
+                            .append($('<td colspan="2">').append("(None)"))
+                        )
+                    }
+
+                    let blocks_with_missing_chunks = data.detailed_debug_status.blocks_with_missing_chunks;
+                    if (blocks_with_missing_chunks.length > 0) {
+                        blocks_with_missing_chunks.forEach((orphan, index) => {
+                            $('.js-tbody-blocks-with-missing-chunks').append($('<tr>')
+                                .append($('<td>').append(orphan.hash))
+                                .append($('<td>').append(orphan.height))
+                            )
+                        });
+                    } else {
+                        $('.js-tbody-blocks-with-missing-chunks').append($('<tr>')
+                            .append($('<td colspan="2">').append("(None)"))
+                        )
+                    }
                 },
                 dataType: "json",
                 error: (errMsg, textStatus, errorThrown) => {
@@ -74,7 +102,7 @@
     </h3>
     <h2>
         <p>
-            Orphan Pool (Under construction)
+            Orphan Pool
         </p>
     </h2>
     <table>
@@ -82,12 +110,12 @@
             <th>Hash</th>
             <th>Height</th>
         </tr></thead>
-        <tbody class="js-tbody-orphan-pool">
+        <tbody class="js-tbody-orphans">
         </tbody>
     </table>
     <h2>
         <p>
-            Missing Chunks Pool (Under construction)
+            Missing Chunks Pool
         </p>
     </h2>
     <table>
@@ -95,7 +123,7 @@
             <th>Hash</th>
             <th>Height</th>
         </tr></thead>
-        <tbody class="js-tbody-missing-chunks-pool">
+        <tbody class="js-tbody-blocks-with-missing-chunks">
         </tbody>
     </table>
 </body>
