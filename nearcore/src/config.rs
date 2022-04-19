@@ -1775,7 +1775,7 @@ fn test_config_from_file() {
         let want_gc = if has_gc {
             GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420 }
         } else {
-            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100 }
         };
         assert_eq!(want_gc, config.gc);
 
