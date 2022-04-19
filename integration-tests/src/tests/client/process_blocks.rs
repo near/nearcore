@@ -4757,6 +4757,7 @@ mod chunk_nodes_cache_test {
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
+                None,
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 

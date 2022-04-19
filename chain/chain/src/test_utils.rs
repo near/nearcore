@@ -8,7 +8,7 @@ use near_primitives::state_part::PartId;
 use num_rational::Rational;
 use tracing::debug;
 
-use near_chain_configs::{MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, ProtocolConfig};
+use near_chain_configs::{DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA, ProtocolConfig};
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
@@ -1043,12 +1043,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .unwrap_or_default()
                 .map(|h| h.height())
                 .unwrap_or_default();
-            block_height.saturating_sub(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+            block_height.saturating_sub(DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
         /*  // TODO: use this version of the code instead - after we fix the block creation
             // issue in multiple tests.
-        // We have to return the first block of the epoch T-MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA.
+        // We have to return the first block of the epoch T-DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA.
         let mut current_header = self.get_block_header(block_hash).unwrap().unwrap();
-        for _ in 0..MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA {
+        for _ in 0..DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA {
             let last_block_of_prev_epoch = current_header.next_epoch_id();
             current_header =
                 self.get_block_header(&last_block_of_prev_epoch.0).unwrap().unwrap();

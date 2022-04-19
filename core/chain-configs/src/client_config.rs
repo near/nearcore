@@ -47,7 +47,7 @@ impl Default for GCConfig {
         Self {
             gc_blocks_limit: 5,
             gc_fork_clean_step: 1000,
-            num_epochs_to_keep_store_data: MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA,
+            num_epochs_to_keep_store_data: DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
         }
     }
 }

@@ -1,6 +1,6 @@
 use clap::{Arg, Command};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA, GenesisValidationMode};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
@@ -60,7 +60,7 @@ fn main() -> Result<()> {
         None,
         near_config.client_config.max_gas_burnt_view,
         None,
-        None,
+        DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
