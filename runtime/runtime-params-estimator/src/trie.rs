@@ -155,14 +155,14 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
         let mut p_results = percentiles(results, percentiles_of_interest);
         if debug {
             println!(
-                "{:<20}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
+                "{:<32}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
                 "",
                 percentiles_of_interest[0],
                 percentiles_of_interest[1],
                 percentiles_of_interest[2],
                 percentiles_of_interest[3]
             );
-            print!("{:<20}", "Base Case");
+            print!("{:<32}", "Base Case");
             for cost in p_results.iter() {
                 print!("{:>8} ", cost.to_gas() / 1_000_000);
             }
@@ -177,6 +177,28 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     // If debug output is enable, run the same estimation using different
     // assumptions and print a table of results.
     if debug {
+        // Base case with better data locality
+        {
+            let num_warmup_values = 1;
+            let num_values = 16;
+            let data_spread_factor = 1;
+            let results = read_node_from_chunk_cache_ext(
+                testbed,
+                iters,
+                num_values,
+                num_warmup_values,
+                data_spread_factor,
+                spoil_l3,
+            );
+            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
+            if debug {
+                print!("{:<32}", "Base Case w data locality");
+                for cost in p_results.iter() {
+                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                }
+                println!();
+            }
+        }
         // Worst-case
         {
             let results = read_node_from_chunk_cache_ext(
@@ -189,7 +211,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<20}", "Worst Case");
+                print!("{:<32}", "Worst Case");
                 for cost in p_results.iter() {
                     print!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
@@ -209,7 +231,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<20}", "Warmed-up");
+                print!("{:<32}", "Warmed-up");
                 for cost in p_results.iter() {
                     print!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
@@ -230,28 +252,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<20}", "Amortized");
-                for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                println!();
-            }
-        }
-        // Worst-case, but warmed up and data locality (data locality on its own has little effect)
-        {
-            let data_spread_factor = 1;
-            let num_warmup_values = 1;
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                print!("{:<20}", "Warmed-up,Locality");
+                print!("{:<32}", "Amortized");
                 for cost in p_results.iter() {
                     print!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
@@ -274,7 +275,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<20}", "2nd Best Case");
+                print!("{:<32}", "Best Case (from memory)");
                 for cost in p_results.iter() {
                     print!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
@@ -298,7 +299,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<20}", "Best Case");
+                print!("{:<32}", "Best Case");
                 for cost in p_results.iter() {
                     print!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
