@@ -39,7 +39,7 @@ pub struct GCConfig {
 
     /// Number of epochs for which we keep store data.
     #[serde(default = "default_num_epochs_to_keep_store_data")]
-    num_epochs_to_keep_store_data: u64,
+    pub num_epochs_to_keep_store_data: u64,
 }
 
 impl Default for GCConfig {

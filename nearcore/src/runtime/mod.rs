@@ -1975,6 +1975,7 @@ mod test {
 
     use num_rational::Rational;
 
+    use near_chain_configs::DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
@@ -2154,6 +2155,7 @@ mod test {
                 None,
                 None,
                 Some(RuntimeConfigStore::free()),
+                DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
