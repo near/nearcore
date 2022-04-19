@@ -526,7 +526,7 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         &LeastSquaresTolerance::default()
             .base_abs_nn_tolerance(negative_base_tolerance)
             .factor_rel_nn_tolerance(rel_factor_tolerance),
-        ctx.config.debug_least_squares,
+        ctx.config.debug,
     );
     per_byte
 }
@@ -584,7 +584,7 @@ fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
         return base_byte_cost;
     }
 
-    let verbose = ctx.config.debug_least_squares;
+    let verbose = ctx.config.debug;
     let base_byte_cost = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
 
     ctx.cached.compile_cost_base_per_byte = Some(base_byte_cost.clone());
