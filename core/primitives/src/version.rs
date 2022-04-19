@@ -140,6 +140,9 @@ pub enum ProtocolFeature {
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
+    /// This feature enforces a global limit on the function local declarations in a WebAssembly
+    /// contract. See <...> for more information.
+    LimitContractLocals,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -224,7 +227,9 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost | ProtocolFeature::FunctionCallWeight => 53,
+            ProtocolFeature::IncreaseDeploymentCost
+            | ProtocolFeature::FunctionCallWeight
+            | ProtocolFeature::LimitContractLocals => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
