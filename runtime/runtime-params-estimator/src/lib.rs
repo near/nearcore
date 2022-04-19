@@ -161,11 +161,11 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
-    (Cost::AltBn128G1MultiexpByte, alt_bn128g1_multiexp_byte),
+    (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
-    (Cost::AltBn128G1SumByte, alt_bn128g1_sum_byte),
+    (Cost::AltBn128G1SumElement, alt_bn128g1_sum_element),
     (Cost::AltBn128PairingCheckBase, alt_bn128_pairing_check_base),
-    (Cost::AltBn128PairingCheckByte, alt_bn128_pairing_check_byte),
+    (Cost::AltBn128PairingCheckElement, alt_bn128_pairing_check_element),
     (Cost::StorageHasKeyBase, storage_has_key_base),
     (Cost::StorageHasKeyByte, storage_has_key_byte),
     (Cost::StorageReadBase, storage_read_base),
@@ -881,13 +881,13 @@ fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128g1_multiexp_byte(ctx: &mut EstimatorContext) -> GasCost {
+fn alt_bn128g1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
         "alt_bn128_g1_multiexp_10_1k",
         ExtCosts::alt_bn128_g1_multiexp_element,
-        964 * 1000,
+        10 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
@@ -899,9 +899,9 @@ fn alt_bn128g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128g1_sum_byte(ctx: &mut EstimatorContext) -> GasCost {
+fn alt_bn128g1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 654 * 1000);
+    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 10 * 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
@@ -917,13 +917,13 @@ fn alt_bn128_pairing_check_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128_pairing_check_byte(ctx: &mut EstimatorContext) -> GasCost {
+fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
         "alt_bn128_pairing_check_10_1k",
         ExtCosts::alt_bn128_pairing_check_element,
-        1924 * 1000,
+        10 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);

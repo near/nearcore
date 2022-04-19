@@ -55,7 +55,7 @@ struct CliArgs {
     /// Compare baseline `costs-file` with a different costs file.
     #[clap(long, requires("costs-file"))]
     compare_to: Option<PathBuf>,
-    /// Only measure the specified metrics, computing a subset of costs.
+    /// Coma-separated lists of a subset of costs to estimate.
     #[clap(long)]
     costs: Option<String>,
     /// Build and run the estimator inside a docker container via QEMU.
