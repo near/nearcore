@@ -12,6 +12,7 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      recompress=info,\
      stats=info,\
      telemetry=info,\
+     db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
      near-rust-allocator-proxy=info,\
