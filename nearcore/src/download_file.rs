@@ -265,34 +265,60 @@ mod tests {
     use hyper::{Body, Request, Response, Server};
     use std::convert::Infallible;
 
-    #[tokio::test]
-    async fn test_file_download() {
+    #[track_caller]
+    async fn check_file_download(payload: &[u8], expected: Result<&[u8], &str>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        async fn handle_request(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
-            let data: [u8; 1024] = [42; 1024];
-            Ok(Response::new(Body::from(data.to_vec())))
-        }
-
+        let payload = Arc::new(payload.to_vec());
         tokio::task::spawn(async move {
-            let make_svc =
-                make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle_request)) });
+            let make_svc = make_service_fn(move |_conn| {
+                let payload = Arc::clone(&payload);
+                let handle_request = move |_: Request<Body>| {
+                    let payload = Arc::clone(&payload);
+                    async move { Ok::<_, Infallible>(Response::new(Body::from(payload.to_vec()))) }
+                };
+                async move { Ok::<_, Infallible>(service_fn(handle_request)) }
+            });
             let server = Server::from_tcp(listener).unwrap().serve(make_svc);
             if let Err(e) = server.await {
                 eprintln!("server error: {}", e);
             }
         });
 
-        let tmp_downloaded_file = tempfile::NamedTempFile::new().unwrap();
-        let tmp_downloaded_file_path = tmp_downloaded_file.path();
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
 
-        download_file(&format!("http://localhost:{}", port), tmp_downloaded_file_path)
+        let res = download_file(&format!("http://localhost:{}", port), tmp_file.path())
             .await
-            .unwrap();
+            .map(|()| std::fs::read(tmp_file.path()).unwrap());
 
-        let downloaded_file_content = std::fs::read(tmp_downloaded_file_path).unwrap();
-        assert_eq!(downloaded_file_content, [42; 1024].to_vec());
+        match (res, expected) {
+            (Ok(res), Ok(expected)) => assert_eq!(&res, expected),
+            (Ok(_), Err(_)) => panic!("expected an error"),
+            (Err(res), Ok(_)) => panic!("unexpected error: {res}"),
+            (Err(res), Err(expected)) => assert_eq!(res.to_string(), expected),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_file_download_plaintext() {
+        let data = &[42; 1024];
+        check_file_download(data, Ok(data)).await;
+
+        let data = b"A quick brown fox jumps over a lazy dog";
+        check_file_download(data, Ok(data)).await;
+
+        let payload = b"\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\
+                        \x02\x00\x21\x01\x1c\x00\x00\x00\x10\xcf\x58\xcc\
+                        \x01\x00\x19\x5a\x61\xc5\xbc\xc3\xb3\xc5\x82\xc4\
+                        \x87\x20\x67\xc4\x99\xc5\x9b\x6c\xc4\x85\x20\x6a\
+                        \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
+                        \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
+                        \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
+        check_file_download(payload, Ok("Zażółć gęślą jaźń".as_bytes())).await;
+
+        let payload = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
+        check_file_download(payload, Err("Failed to decompress XZ stream: lzma data error")).await;
     }
 
     fn auto_xz_test_write_file(
