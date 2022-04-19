@@ -73,7 +73,7 @@ fn start_mock_client(
 }
 
 // This test is trying to see how PeerManager reacts to repeated AnnounceAccounts requests.
-// We want to make sure that we broadcast them only if necessary.
+// We want to make sure that we broadcast them only once.
 #[test]
 fn repeated_announce_accounts() {
     run_actix(async {
@@ -141,7 +141,7 @@ fn repeated_announce_accounts() {
                             .unwrap()
                             .get();
                         if sync_routing_table_sent == 1 {
-                            // Try it couple times - we want to be sure that the didn't hit in the middle of processing.
+                            // Try it couple times - we want to be sure that it didn't hit in the middle of processing.
                             if foo.fetch_add(1, Ordering::SeqCst) > 4 {
                                 System::current().stop();
                             }

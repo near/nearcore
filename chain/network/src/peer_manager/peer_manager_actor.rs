@@ -628,7 +628,15 @@ impl PeerManagerActor {
                     ctx,
                     Some(throttle_controller),
                 );
-                Self::send_sync(peer_type, addr, ctx, target_peer_id, new_edge, Vec::new());
+                Self::send_sync(
+                    network_metrics,
+                    peer_type,
+                    addr,
+                    ctx,
+                    target_peer_id,
+                    new_edge,
+                    Vec::new(),
+                );
             },
             {
                 let network_metrics = self.network_metrics.clone();
