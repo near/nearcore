@@ -27,7 +27,7 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish().unwrap();
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
         // This is hidden by default so we enable it for sandbox node.
         let env_filter = if cfg!(feature = "sandbox") {

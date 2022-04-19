@@ -4,7 +4,6 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 
 use once_cell::sync::OnceCell;
 use std::borrow::Cow;
-use std::str::FromStr;
 use tracing_appender::non_blocking::NonBlocking;
 
 use tracing_subscriber::filter::ParseError;
@@ -83,7 +82,7 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
 /// # Example
 ///
 /// ```rust
-/// let filter = near_o11y::EnvFilterBuilder::from_env().finish();
+/// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
 /// let _subscriber = near_o11y::default_subscriber(filter);
 /// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
 /// ```
@@ -116,33 +115,44 @@ pub fn default_subscriber(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReloadError {
-    #[error("reload error")]
-    ReloadErrorType { err: Error },
-    #[error("env_filter directive parse error")]
-    ParseErrorType { err: ParseError },
+    #[error("Cannot reload env_filter")]
+    Reload(#[source] Error),
+    #[error("Cannot parse env_filter directive")]
+    Parse(#[source] ParseError),
     #[error("env_filter reload handle is not available")]
-    NoReloadHandlerType,
+    NoReloadHandle,
 }
 
-impl From<ParseError> for ReloadError {
-    fn from(err: ParseError) -> Self {
-        Self::ParseErrorType { err }
-    }
-}
-
-impl From<tracing_subscriber::reload::Error> for ReloadError {
-    fn from(err: Error) -> Self {
-        Self::ReloadErrorType { err }
-    }
-}
-
-pub fn reload_env_filter(rust_log: &str) -> Result<(), ReloadError> {
-    ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandlerType), |reload_handle| {
-        reload_handle.reload(EnvFilter::from_str(rust_log)?)?;
+/// Constructs an `EnvFilter` and sets it as the active filter in the default tracing subscriber.
+/// The newly constructed `EnvFilter` provides behavior equivalent to what can be obtained via
+/// setting `RUST_LOG` environment variable and the `--verbose` command-line flag.
+/// `rust_log` is equivalent to setting `RUST_LOG` environment variable.
+/// `verbose` indicates whether `--verbose` command-line flag is present.
+/// `verbose_module` is equivalent to the value of the `--verbose` command-line flag.
+pub fn reload_env_filter(
+    rust_log: &Option<&String>,
+    verbose: bool,
+    verbose_module: &Option<String>,
+) -> Result<(), ReloadError> {
+    ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
+        // Replace Some("") with None.
+        let rust_log = rust_log.as_ref().filter(|rust_log| !rust_log.is_empty());
+        let mut builder = rust_log.map_or_else(
+            || EnvFilterBuilder::from_default(),
+            |rust_log| EnvFilterBuilder::new(rust_log.as_str()),
+        );
+        if verbose {
+            let module = verbose_module.as_ref().map_or(Some(""), |module| Some(module.as_str()));
+            builder = builder.verbose(module);
+        }
+        reload_handle
+            .reload(builder.finish().map_err(ReloadError::Parse)?)
+            .map_err(ReloadError::Reload)?;
         Ok(())
     })
 }
 
+#[derive(Debug)]
 pub struct EnvFilterBuilder<'a> {
     rust_log: Cow<'a, str>,
     verbose: Option<Cow<'a, str>>,
@@ -164,6 +174,13 @@ impl<'a> EnvFilterBuilder<'a> {
         Self { rust_log: rust_log.into(), verbose: None }
     }
 
+    /// Create the `EnvFilter` from the given logging directives or the [`DEFAULT_RUST_LOG`] value if no directives are given
+    ///
+    /// This method will not inspect the environment variable.
+    pub fn from_default() -> Self {
+        Self { rust_log: Cow::Borrowed(DEFAULT_RUST_LOG), verbose: None }
+    }
+
     /// Make the produced [`EnvFilter`] verbose.
     ///
     /// If the `module` string is empty, all targets will log debug output. Otherwise only the
@@ -174,21 +191,21 @@ impl<'a> EnvFilterBuilder<'a> {
     }
 
     /// Construct an [`EnvFilter`] as configured.
-    pub fn finish(self) -> EnvFilter {
-        let mut env_filter = EnvFilter::new(self.rust_log);
+    pub fn finish(self) -> Result<EnvFilter, ParseError> {
+        let mut env_filter = EnvFilter::try_new(self.rust_log)?;
         if let Some(module) = self.verbose {
             env_filter = env_filter
-                .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
-                .add_directive("h2=warn".parse().expect("parse directive"))
-                .add_directive("trust_dns_resolver=warn".parse().expect("parse_directive"))
-                .add_directive("trust_dns_proto=warn".parse().expect("parse_directive"));
+                .add_directive("cranelift_codegen=warn".parse()?)
+                .add_directive("h2=warn".parse()?)
+                .add_directive("trust_dns_resolver=warn".parse()?)
+                .add_directive("trust_dns_proto=warn".parse()?);
             env_filter = if module.is_empty() {
                 env_filter.add_directive(tracing::Level::DEBUG.into())
             } else {
-                let directive = format!("{}=debug", module).parse().expect("parse directive");
+                let directive = format!("{}=debug", module).parse()?;
                 env_filter.add_directive(directive)
             };
         }
-        env_filter
+        Ok(env_filter)
     }
 }
