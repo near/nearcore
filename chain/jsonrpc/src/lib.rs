@@ -26,7 +26,6 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
-use near_o11y::reload_env_filter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -1462,33 +1461,6 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
 }
 
-#[derive(Deserialize, Debug)]
-struct LogLevelInfo {
-    rust_log: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct LogLevelVerboseInfo {
-    rust_log: Option<String>,
-    verbose_module: Option<String>,
-}
-
-#[get("/debug/log_level")]
-async fn log_level(info: web::Query<LogLevelInfo>) -> actix_web::Result<impl actix_web::Responder> {
-    let result = reload_env_filter(&Some(&info.rust_log), false, &None)
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
-    Ok(HttpResponse::Ok().json(result))
-}
-
-#[get("/debug/log_level_verbose")]
-async fn log_level_verbose(
-    info: web::Query<LogLevelVerboseInfo>,
-) -> actix_web::Result<impl actix_web::Responder> {
-    let result = reload_env_filter(&info.rust_log.as_ref(), true, &info.verbose_module)
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
-    Ok(HttpResponse::Ok().json(result))
-}
-
 /// Starts HTTP server(s) listening for RPC requests.
 ///
 /// Starts an HTTP server which handles JSON RPC calls as well as states
@@ -1555,8 +1527,6 @@ pub fn start_http(
             .service(sync_info_html)
             .service(chain_info_html)
             .service(epoch_info_html)
-            .service(log_level)
-            .service(log_level_verbose)
     })
     .bind(addr)
     .unwrap()

@@ -130,7 +130,7 @@ pub enum ReloadError {
 /// `verbose` indicates whether `--verbose` command-line flag is present.
 /// `verbose_module` is equivalent to the value of the `--verbose` command-line flag.
 pub fn reload_env_filter(
-    rust_log: &Option<&String>,
+    rust_log: &Option<String>,
     verbose: bool,
     verbose_module: &Option<String>,
 ) -> Result<(), ReloadError> {
