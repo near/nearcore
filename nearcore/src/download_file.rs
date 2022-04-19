@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum FileDownloadError {
+pub enum FileDownloadError {
     #[error("{0}")]
     HttpError(hyper::Error),
     #[error("Failed to open temporary file")]

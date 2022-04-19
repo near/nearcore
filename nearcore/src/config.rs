@@ -1279,7 +1279,7 @@ pub fn get_config_url(chain_id: &str) -> String {
     )
 }
 
-pub(crate) fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
     let result = run_download_file(url, path);
     if result.is_ok() {
@@ -1288,7 +1288,7 @@ pub(crate) fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloa
     result
 }
 
-pub(crate) fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
     let result = run_download_file(url, path);
     if result.is_ok() {
