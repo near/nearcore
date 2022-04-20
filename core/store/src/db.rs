@@ -562,7 +562,10 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col, &store_config);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config.block_size, cache_size));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(
+        store_config.block_size,
+        cache_size,
+    ));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
