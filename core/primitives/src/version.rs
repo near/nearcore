@@ -1,7 +1,7 @@
 use crate::types::Balance;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -187,6 +187,7 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
 > = Lazy::new(|| {
     let mut schedule = HashMap::new();
     schedule.insert(52, None);
+    schedule.insert(53, Some(ProtocolUpgradeVotingSchedule::from_str("2022-04-25 16:00:00").unwrap()));
     schedule
 });
 
