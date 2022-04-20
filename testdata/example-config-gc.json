@@ -128,5 +128,6 @@
     "archive": false,
     "gc_blocks_limit": 42,
     "gc_fork_clean_step": 420,
+    "gc_num_epochs_to_keep": 24,
     "view_client_threads": 4
 }
