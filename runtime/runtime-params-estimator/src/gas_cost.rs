@@ -173,7 +173,6 @@ impl GasCost {
                 "gas": self.to_gas(),
                 "metric": "time",
                 "time_ns": self.time_ns.to_f64(),
-                "uncertain": self.uncertain.is_some(),
                 "uncertain_reason": self.uncertain.map(|u| u.reason),
             }),
         }

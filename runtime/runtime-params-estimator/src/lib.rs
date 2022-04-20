@@ -53,6 +53,7 @@ mod estimator_context;
 mod gas_cost;
 mod qemu;
 mod rocksdb;
+mod runtime_config_to_costs;
 mod transaction_builder;
 
 pub(crate) mod estimator_params;
@@ -107,6 +108,7 @@ use crate::cost_table::format_gas;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
 use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
+use crate::runtime_config_to_costs::EstimatedParameter;
 use crate::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 
@@ -245,6 +247,7 @@ pub fn run(config: Config) -> CostTable {
                 "name": name,
                 "result": measurement.to_json(),
                 "computed_in": time,
+                "for_parameter": cost.parameter().map(EstimatedParameter::fully_qualified_name)
             });
             println!("{json}");
         }

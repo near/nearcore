@@ -27,6 +27,7 @@ struct EstimatorOutput {
     name: String,
     result: EstimationResult,
     computed_in: Duration,
+    for_parameter: Option<String>,
 }
 #[derive(Deserialize, Debug, PartialEq)]
 struct EstimationResult {
@@ -58,7 +59,7 @@ impl Db {
             let row = EstimationRow {
                 name: estimator_output.name,
                 gas: estimator_output.result.gas,
-                parameter: None, // TODO
+                parameter: estimator_output.for_parameter,
                 wall_clock_time: estimator_output.result.time_ns,
                 icount: estimator_output.result.instructions,
                 io_read: estimator_output.result.io_r_bytes,

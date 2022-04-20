@@ -1,6 +1,12 @@
 use std::fmt;
 use std::str::FromStr;
 
+use near_vm_logic::ExtCosts;
+
+use crate::runtime_config_to_costs::{
+    EstimatedParameter, EstimatorParameter, ReceiptCostKind, ReceiptParameter,
+};
+
 /// Kinds of things we measure in parameter estimator and charge for in runtime.
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
@@ -575,6 +581,326 @@ pub enum Cost {
 impl Cost {
     pub fn all() -> impl Iterator<Item = Cost> {
         (0..(Cost::__Count as u8)).map(Cost::try_from).map(Result::unwrap)
+    }
+
+    pub(crate) fn parameter(self) -> Option<EstimatedParameter> {
+        match self {
+            Cost::ActionReceiptCreation => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::ActionReceiptCreation,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionSirReceiptCreation => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::ActionReceiptCreation,
+                ReceiptCostKind::TotalLocal,
+            )),
+            Cost::DataReceiptCreationBase => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DataReceiptCreationBase,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::DataReceiptCreationPerByte => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DataReceiptCreationByte,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionCreateAccount => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::CreateAccount,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionDeployContractBase => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractBase,
+                ReceiptCostKind::TotalLocal,
+            )),
+            Cost::ActionDeployContractPerByte => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractByte,
+                ReceiptCostKind::TotalLocal,
+            )),
+            Cost::ActionFunctionCallBase => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::FunctionCallBase,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionFunctionCallPerByte => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::FunctionCallByte,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionFunctionCallBaseV2 => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::FunctionCallBase,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionFunctionCallPerByteV2 => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::FunctionCallByte,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionTransfer => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::Transfer,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionStake => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::Stake,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionAddFullAccessKey => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::AddFullAccessKey,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionAddFunctionAccessKeyBase => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::AddFunctionAccessKeyBase,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionAddFunctionAccessKeyPerByte => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::AddFunctionAccessKeyByte,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionDeleteKey => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeleteKey,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::ActionDeleteAccount => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeleteAccount,
+                ReceiptCostKind::TotalRemote,
+            )),
+            Cost::HostFunctionCall => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::base))
+            }
+            Cost::WasmInstruction => Some(EstimatedParameter::WasmInstruction),
+            Cost::ReadMemoryBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::read_memory_base))
+            }
+            Cost::ReadMemoryByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::read_memory_byte))
+            }
+            Cost::WriteMemoryBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::write_memory_base))
+            }
+            Cost::WriteMemoryByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::write_memory_byte))
+            }
+            Cost::ReadRegisterBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::read_register_base))
+            }
+            Cost::ReadRegisterByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::read_register_byte))
+            }
+            Cost::WriteRegisterBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::write_register_base))
+            }
+            Cost::WriteRegisterByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::write_register_byte))
+            }
+            Cost::Utf8DecodingBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::utf8_decoding_base))
+            }
+            Cost::Utf8DecodingByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::utf8_decoding_byte))
+            }
+            Cost::Utf16DecodingBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::utf16_decoding_base))
+            }
+            Cost::Utf16DecodingByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::utf16_decoding_byte))
+            }
+            Cost::LogBase => Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::log_base)),
+            Cost::LogByte => Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::log_byte)),
+            Cost::Sha256Base => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::sha256_base))
+            }
+            Cost::Sha256Byte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::sha256_byte))
+            }
+            Cost::Keccak256Base => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::keccak256_base))
+            }
+            Cost::Keccak256Byte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::keccak256_byte))
+            }
+            Cost::Keccak512Base => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::keccak512_base))
+            }
+            Cost::Keccak512Byte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::keccak512_byte))
+            }
+            Cost::Ripemd160Base => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::ripemd160_base))
+            }
+            Cost::Ripemd160Block => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::ripemd160_block))
+            }
+            Cost::EcrecoverBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::ecrecover_base))
+            }
+            Cost::StorageWriteBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_write_base))
+            }
+            Cost::StorageWriteKeyByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_write_key_byte))
+            }
+            Cost::StorageWriteValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_write_value_byte,
+            )),
+            Cost::StorageWriteEvictedByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_write_evicted_byte,
+            )),
+            Cost::StorageReadBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_read_base))
+            }
+            Cost::StorageReadKeyByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_read_key_byte))
+            }
+            Cost::StorageReadValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_read_value_byte,
+            )),
+            Cost::StorageRemoveBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_remove_base))
+            }
+            Cost::StorageRemoveKeyByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_remove_key_byte,
+            )),
+            Cost::StorageRemoveRetValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_remove_ret_value_byte,
+            )),
+            Cost::StorageHasKeyBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_has_key_base))
+            }
+            Cost::StorageHasKeyByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_has_key_byte))
+            }
+            Cost::StorageIterCreatePrefixBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(
+                    ExtCosts::storage_iter_create_prefix_base,
+                ))
+            }
+            Cost::StorageIterCreatePrefixByte => {
+                Some(EstimatedParameter::ContractRuntimeParameter(
+                    ExtCosts::storage_iter_create_prefix_byte,
+                ))
+            }
+            Cost::StorageIterCreateRangeBase => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_iter_create_range_base,
+            )),
+            Cost::StorageIterCreateFromByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_iter_create_from_byte,
+            )),
+            Cost::StorageIterCreateToByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_iter_create_to_byte,
+            )),
+            Cost::StorageIterNextBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::storage_iter_next_base))
+            }
+            Cost::StorageIterNextKeyByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_iter_next_key_byte,
+            )),
+            Cost::StorageIterNextValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_iter_next_value_byte,
+            )),
+            Cost::TouchingTrieNode => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::touching_trie_node))
+            }
+            Cost::ReadCachedTrieNode => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::read_cached_trie_node))
+            }
+            Cost::TouchingTrieNodeRead => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::touching_trie_node))
+            }
+            Cost::TouchingTrieNodeWrite => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::touching_trie_node))
+            }
+            Cost::PromiseAndBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::promise_and_base))
+            }
+            Cost::PromiseAndPerPromise => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::promise_and_per_promise,
+            )),
+            Cost::PromiseReturn => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::promise_return))
+            }
+            Cost::ValidatorStakeBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::validator_stake_base))
+            }
+            Cost::ValidatorTotalStakeBase => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::validator_total_stake_base,
+            )),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128G1MultiexpBase => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::alt_bn128_g1_multiexp_base,
+            )),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128G1MultiexpElement => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::alt_bn128_g1_multiexp_element,
+            )),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128G1MultiexpSublinear => None,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128PairingCheckBase => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::alt_bn128_pairing_check_base,
+            )),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128PairingCheckElement => {
+                Some(EstimatedParameter::ContractRuntimeParameter(
+                    ExtCosts::alt_bn128_pairing_check_element,
+                ))
+            }
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128G1SumBase => {
+                Some(EstimatedParameter::ContractRuntimeParameter(ExtCosts::alt_bn128_g1_sum_base))
+            }
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Cost::AltBn128G1SumElement => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::alt_bn128_g1_sum_element,
+            )),
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128G1MultiexpBase => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128G1MultiexpElement => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128G1MultiexpSublinear => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128PairingCheckBase => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128PairingCheckElement => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128G1SumBase => None,
+            #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+            Cost::AltBn128G1SumElement => None,
+            Cost::ApplyBlock => None,
+            Cost::ContractCompileBase => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractBase,
+                ReceiptCostKind::Execution,
+            )),
+            Cost::ContractCompileBytes => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractByte,
+                ReceiptCostKind::Execution,
+            )),
+            Cost::ContractCompileBaseV2 => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractBase,
+                ReceiptCostKind::Execution,
+            )),
+            Cost::ContractCompileBytesV2 => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractByte,
+                ReceiptCostKind::Execution,
+            )),
+            Cost::DeployBytes => Some(EstimatedParameter::ReceiptParameter(
+                ReceiptParameter::DeployContractByte,
+                ReceiptCostKind::TotalLocal,
+            )),
+            Cost::GasMeteringBase => None,
+            Cost::GasMeteringOp => None,
+            Cost::RocksDbInsertValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_write_value_byte,
+            )),
+            Cost::RocksDbReadValueByte => Some(EstimatedParameter::ContractRuntimeParameter(
+                ExtCosts::storage_read_value_byte,
+            )),
+            Cost::IoReadByte => {
+                Some(EstimatedParameter::EstimatorInternal(EstimatorParameter::IoReadByte))
+            }
+            Cost::IoWriteByte => {
+                Some(EstimatedParameter::EstimatorInternal(EstimatorParameter::IoWriteByte))
+            }
+            Cost::CpuBenchmarkSha256 => None,
+            Cost::OneCPUInstruction => {
+                Some(EstimatedParameter::EstimatorInternal(EstimatorParameter::GasInInstr))
+            }
+            Cost::OneNanosecond => None,
+            Cost::__Count => panic!(),
+        }
     }
 }
 
