@@ -1,9 +1,13 @@
+use std::iter;
+
+use itertools::Itertools;
 use near_primitives::{
     runtime::fees::{Fee, RuntimeFeesConfig},
     types::Gas,
 };
 use near_vm_logic::ExtCosts;
 use node_runtime::config::RuntimeConfig;
+use strum::IntoEnumIterator;
 
 #[derive(Clone, Copy)]
 pub(crate) enum EstimatedParameter {
@@ -20,33 +24,11 @@ pub(crate) enum EstimatedParameter {
     EstimatorInternal(EstimatorParameter),
 }
 
-/// Receipt costs are always split. The estimations should ideally estimate each
-/// split individually, but it is easier to estimate total cost. This
-/// enumeration marks the choice regarding this estimation strategy.
-#[derive(Clone, Copy)]
-pub(crate) enum ReceiptCostKind {
-    #[allow(unused)]
-    SendLocal,
-    #[allow(unused)]
-    SendRemote,
-    Execution,
-    TotalLocal,
-    TotalRemote,
-}
-
-/// Parameter used internally in the estimator
-#[derive(Clone, Copy)]
-pub(crate) enum EstimatorParameter {
-    IoReadByte,
-    IoWriteByte,
-    GasInInstr,
-}
-
 /// Gas fee parameters that are charged in two parts, once when creating a
 /// receipt and once when executing it. Three parameter values are required, to
 /// differentiate creation cost for local receipts (sender = receiver) and
 /// otherwise.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, strum::EnumIter)]
 pub(crate) enum ReceiptParameter {
     ActionReceiptCreation,
     DataReceiptCreationBase,
@@ -65,8 +47,30 @@ pub(crate) enum ReceiptParameter {
     DeleteAccount,
 }
 
+/// Receipt costs are always split. The estimations should ideally estimate each
+/// split individually, but it is easier to estimate total cost. This
+/// enumeration marks the choice regarding this estimation strategy.
+#[derive(Clone, Copy, strum::EnumIter)]
+pub(crate) enum ReceiptCostKind {
+    #[allow(unused)]
+    SendLocal,
+    #[allow(unused)]
+    SendRemote,
+    Execution,
+    TotalLocal,
+    TotalRemote,
+}
+
+/// Parameter used internally in the estimator
+#[derive(Clone, Copy, strum::EnumIter)]
+pub(crate) enum EstimatorParameter {
+    IoReadByte,
+    IoWriteByte,
+    GasInInstr,
+}
+
 impl EstimatedParameter {
-    fn parameter_value(self, config: &RuntimeConfig) -> Gas {
+    pub(crate) fn parameter_value(self, config: &RuntimeConfig) -> Gas {
         match self {
             EstimatedParameter::ReceiptParameter(receipt_param, kind) => {
                 let fee = receipt_param.fee(&config.transaction_costs);
@@ -97,7 +101,7 @@ impl EstimatedParameter {
     /// Estimations are not perfect. Therefore, we have a safety factor by
     /// default. It can be lifted when we are confident in a specific
     /// estimation.
-    fn safety_multiplier(self) -> u64 {
+    pub fn safety_multiplier(self) -> u64 {
         match self {
             // Receipts are estimated without safety factor
             EstimatedParameter::ReceiptParameter(_, _) => 1,
@@ -124,6 +128,19 @@ impl EstimatedParameter {
                 format!("estimator::{}", param.as_str())
             }
         }
+    }
+
+    pub fn all() -> impl Iterator<Item = EstimatedParameter> {
+        let runtime_params = ExtCosts::iter().map(EstimatedParameter::ContractRuntimeParameter);
+        let internals = EstimatorParameter::iter().map(EstimatedParameter::EstimatorInternal);
+        let receipt_params = ReceiptParameter::iter()
+            .cartesian_product(ReceiptCostKind::iter())
+            .map(|(param, kind)| EstimatedParameter::ReceiptParameter(param, kind));
+
+        iter::once(EstimatedParameter::WasmInstruction)
+            .chain(runtime_params)
+            .chain(internals)
+            .chain(receipt_params)
     }
 }
 

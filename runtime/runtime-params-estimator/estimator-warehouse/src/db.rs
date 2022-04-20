@@ -171,6 +171,13 @@ impl EstimationRow {
 }
 
 impl ParameterRow {
+    pub(crate) fn insert(&self, db: &Db) -> anyhow::Result<()> {
+        db.conn.execute(
+            "INSERT INTO parameter(name,gas,protocol_version) values (?1,?2,?3)",
+            params![self.name, self.gas, self.protocol_version,],
+        )?;
+        Ok(())
+    }
     pub fn count(db: &Db) -> anyhow::Result<u64> {
         let sql = "SELECT COUNT(*) FROM parameter;";
         let count = db.conn.query_row::<u64, _, _>(sql, [], |row| row.get(0))?;

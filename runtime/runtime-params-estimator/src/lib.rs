@@ -83,6 +83,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::default_read_cached_trie_node;
 use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -94,6 +95,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use rand::Rng;
 use serde_json::json;
 use utils::{
@@ -255,6 +257,35 @@ pub fn run(config: Config) -> CostTable {
     eprintln!();
 
     res
+}
+
+pub fn compare_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<()> {
+    let store = RuntimeConfigStore::new(None);
+    let config = store.get_config(PROTOCOL_VERSION);
+    let estimated_config = costs_to_runtime_config(cost_table)?;
+
+    for param in EstimatedParameter::all() {
+        let name = param.fully_qualified_name();
+        let parameter_value = param.parameter_value(config);
+        let estimation = param.parameter_value(&estimated_config);
+        let safety_multiplier = param.safety_multiplier();
+        let undercharging = if parameter_value == 0 {
+            Some(0.0)
+        } else {
+            Ratio::new(estimation * safety_multiplier, parameter_value).to_f64()
+        };
+
+        let json = json!({
+            "parameter": name,
+            "config": parameter_value,
+            "estimation": estimation,
+            "safety_multiplier": safety_multiplier,
+            "undercharging_ratio": undercharging
+        });
+        println!("{json}");
+    }
+
+    Ok(())
 }
 
 fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {

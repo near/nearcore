@@ -3,7 +3,6 @@ use crate::types::Gas;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use strum::{Display, EnumCount};
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
@@ -562,7 +561,19 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    strum::EnumCount,
+    strum::EnumIter,
+    strum::Display,
+)]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
@@ -633,7 +644,9 @@ pub enum ExtCosts {
 }
 
 // Type of an action, used in fees logic.
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, EnumCount, Display)]
+#[derive(
+    Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord, strum::EnumCount, strum::Display,
+)]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
     create_account,

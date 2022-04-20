@@ -6,7 +6,7 @@ use clap::Parser;
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::db::{Db, EstimationRow};
+use crate::db::{Db, EstimationRow, ParameterRow};
 
 /// Additional information required for import
 #[derive(Debug, Parser)]
@@ -29,6 +29,7 @@ struct EstimatorOutput {
     computed_in: Duration,
     for_parameter: Option<String>,
 }
+
 #[derive(Deserialize, Debug, PartialEq)]
 struct EstimationResult {
     gas: f64,
@@ -37,6 +38,16 @@ struct EstimationResult {
     io_r_bytes: Option<f64>,
     io_w_bytes: Option<f64>,
     uncertain_reason: Option<String>,
+}
+
+/// Estimator output with comparison of results to parameter values
+#[derive(Deserialize, Debug, PartialEq)]
+struct ParameterComparisonLine {
+    parameter: String,
+    config: f64,
+    estimation: f64,
+    safety_multiplier: u32,
+    undercharging_ratio: f64,
 }
 
 impl Db {
@@ -66,6 +77,16 @@ impl Db {
                 io_write: estimator_output.result.io_w_bytes,
                 uncertain_reason: estimator_output.result.uncertain_reason,
                 commit_hash: commit_hash.clone(),
+            };
+            row.insert(self)?;
+        } else if let Ok(param_line) = serde_json::from_str::<ParameterComparisonLine>(line) {
+            let protocol_version = *info.protocol_version.as_ref().with_context(|| {
+                "Missing --protocol-version argument while importing estimation data".to_owned()
+            })?;
+            let row = ParameterRow {
+                name: param_line.parameter,
+                gas: param_line.config,
+                protocol_version,
             };
             row.insert(self)?;
         }

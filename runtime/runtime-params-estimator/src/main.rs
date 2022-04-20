@@ -11,7 +11,8 @@ use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::utils::read_resource;
 use runtime_params_estimator::{
-    costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+    compare_to_runtime_config, costs_to_runtime_config, CostTable, QemuCommandBuilder,
+    RocksDBTestConfig,
 };
 use std::env;
 use std::fmt::Write;
@@ -79,6 +80,11 @@ struct CliArgs {
     /// object per estimation.
     #[clap(long)]
     json_output: bool,
+    /// After all estimations, print a comparison to newest runtime
+    /// configuration. Mostly meant to be consumed by estimator warehouse. But
+    /// can also be interesting to see how tight our estimations are.
+    #[clap(long)]
+    compare_to_config: bool,
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
@@ -252,6 +258,10 @@ fn main() -> anyhow::Result<()> {
         start.elapsed(),
         output_path.display()
     );
+
+    if cli_args.compare_to_config {
+        compare_to_runtime_config(&cost_table)?;
+    }
 
     Ok(())
 }
