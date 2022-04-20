@@ -55,10 +55,6 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_chunk_nodes_cache = [
-    "near-vm-runner/protocol_feature_chunk_nodes_cache",
-    "near-primitives/protocol_feature_chunk_nodes_cache",
-]
 sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
