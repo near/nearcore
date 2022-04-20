@@ -28,9 +28,9 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 
 /// Standard test contract which can call various host functions.
 ///
-/// Note: the contract relies on the latest protocol version, and might not work
-/// for tests using an older version. In particular, if a test depends on a
-/// specific protocol version, it should use [`base_rs_contract`].
+/// Note: the contract relies on the latest stable protocol version, and might
+/// not work for tests using an older version. In particular, if a test depends
+/// on a specific protocol version, it should use [`base_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
@@ -46,7 +46,8 @@ pub fn base_rs_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("base_test_contract_rs.wasm")).as_slice()
 }
 
-/// Standard test contract with all latest and nightly protocol features.
+/// Standard test contract which additionally includes all host functions from
+/// the nightly protocol.
 pub fn nightly_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()
