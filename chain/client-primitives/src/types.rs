@@ -169,6 +169,7 @@ impl SyncStatus {
 }
 
 /// Actor message requesting block by id, hash or sync state.
+#[derive(Debug)]
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
