@@ -4849,7 +4849,7 @@ mod lower_storage_key_limit_test {
             deploy_test_contract(
                 &mut env,
                 "test0".parse().unwrap(),
-                near_test_contracts::rs_contract(),
+                near_test_contracts::base_rs_contract(),
                 epoch_length.clone(),
                 1,
             );
