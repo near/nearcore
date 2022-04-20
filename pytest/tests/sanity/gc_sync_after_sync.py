@@ -82,7 +82,8 @@ blocks_count = 0
 for height in range(node1_height - 10, node1_height):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
-    assert block0 == block1
+    assert block0 == block1, "fresh block at height: %d, block0: %s, block1: %s" % (
+        height, str(block0), str(block1))
     if 'result' in block0:
         blocks_count += 1
 assert blocks_count > 0
@@ -93,7 +94,8 @@ blocks_count = 0
 for height in range(1, 30):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
-    assert block0 == block1
+    assert block0 == block1, "old block at height: %d, block0: %s, block1: %s" % (
+        height, str(block0), str(block1))
     if 'result' in block0:
         blocks_count += 1
 assert blocks_count == 0
