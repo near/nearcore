@@ -199,6 +199,11 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
+    (Cost::PromiseAndBase, promise_and_base),
+    (Cost::PromiseAndPerPromise, promise_and_per_promise),
+    (Cost::PromiseReturn, promise_return),
+    (Cost::ValidatorStakeBase, validator_stake_base),
+    (Cost::ValidatorTotalStakeBase, validator_total_stake_base),
 ];
 
 // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
@@ -1276,4 +1281,25 @@ fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
     eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
     GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
+}
+
+fn promise_and_base(ctx: &mut EstimatorContext) -> GasCost {
+    // TODO
+    GasCost::from_gas(Ratio::new(1465013400, 3), ctx.config.metric)
+}
+fn promise_and_per_promise(ctx: &mut EstimatorContext) -> GasCost {
+    // TODO
+    GasCost::from_gas(Ratio::new(5452176, 3), ctx.config.metric)
+}
+fn promise_return(ctx: &mut EstimatorContext) -> GasCost {
+    // TODO
+    GasCost::from_gas(Ratio::new(560152386, 3), ctx.config.metric)
+}
+fn validator_stake_base(ctx: &mut EstimatorContext) -> GasCost {
+    // TODO
+    GasCost::from_gas(Ratio::new(911834726400u64, 3), ctx.config.metric)
+}
+fn validator_total_stake_base(ctx: &mut EstimatorContext) -> GasCost {
+    // TODO
+    GasCost::from_gas(Ratio::new(911834726400u64, 3), ctx.config.metric)
 }
