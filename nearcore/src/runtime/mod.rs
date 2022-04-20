@@ -13,7 +13,10 @@ use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{
+    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    MIN_GC_NUM_EPOCHS_TO_KEEP,
+};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::EpochManager;
 use near_pool::types::PoolIterator;
@@ -231,7 +234,7 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            gc_num_epochs_to_keep.unwrap_or(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            gc_num_epochs_to_keep.unwrap_or(DEFAULT_GC_NUM_EPOCHS_TO_KEEP),
         )
     }
 
