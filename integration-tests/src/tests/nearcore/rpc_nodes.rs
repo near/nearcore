@@ -44,29 +44,25 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    loop {
-                        let block_view = view_client.send(GetBlock::latest()).await.unwrap();
-                        if let Err(err) = block_view {
-                            println!("Failed to get the latest block: {:?}", err);
-                            sleep(std::time::Duration::from_millis(500)).await;
-                            continue;
-                        }
-                        let block_view = block_view.unwrap();
-                        if block_view.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
-                            let block_hash = block_view.header.hash;
-                            let invalid_res =
-                                client.validators(Some(BlockId::Hash(block_hash))).await;
-                            assert!(invalid_res.is_err());
-                            let res = client.validators(None).await.unwrap();
+                    let block_view = view_client.send(GetBlock::latest()).await.unwrap();
+                    if let Err(err) = block_view {
+                        println!("Failed to get the latest block: {:?}", err);
+                        return;
+                    }
+                    let block_view = block_view.unwrap();
+                    if block_view.header.height > 1 {
+                        let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
+                        let block_hash = block_view.header.hash;
+                        let invalid_res = client.validators(Some(BlockId::Hash(block_hash))).await;
+                        assert!(invalid_res.is_err());
+                        let res = client.validators(None).await.unwrap();
 
-                            assert_eq!(res.current_validators.len(), 1);
-                            assert!(res
-                                .current_validators
-                                .iter()
-                                .any(|r| r.account_id.as_ref() == "near.0"));
-                            System::current().stop();
-                        }
+                        assert_eq!(res.current_validators.len(), 1);
+                        assert!(res
+                            .current_validators
+                            .iter()
+                            .any(|r| r.account_id.as_ref() == "near.0"));
+                        System::current().stop();
                     }
                 });
             }),
