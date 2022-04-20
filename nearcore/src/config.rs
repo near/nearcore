@@ -1441,10 +1441,12 @@ fn test_init_config_localnet() {
 /// correctly parsed and defaults being applied correctly applied.
 #[test]
 fn test_config_from_file() {
-    for (has_gc, data) in [
-        (true, include_bytes!("../../testdata/example-config-gc.json").as_slice()),
-        (false, include_bytes!("../../testdata/example-config-no-gc.json").as_slice()),
-    ] {
+    lazy_static_include::lazy_static_include_bytes! {
+        EXAMPLE_CONFIG_GC => "res/example-config-gc.json",
+        EXAMPLE_CONFIG_NO_GC => "res/example-config-no-gc.json",
+    };
+
+    for (has_gc, data) in [(true, &EXAMPLE_CONFIG_GC[..]), (false, &EXAMPLE_CONFIG_NO_GC[..])] {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(data).unwrap();
 
