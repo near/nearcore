@@ -142,21 +142,37 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
-fn ensure_max_open_files_limit(max_open_files: u32) -> () {
-    // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
-    // have some other file descriptors opened by neard process so we use the value of
-    // max_open_files + some constant to be sure that the binary can correctly run.
-    let (soft, hard) = rlimit::Resource::NOFILE.get().unwrap();
-    let required = max_open_files as u64 + 1025;
-    if soft < required {
-        assert!(
-            hard >= required,
-            "Can't run near binary since hard limit for the number \
-                of opened files is too small: {} required: {}",
-            hard,
-            required
-        );
-        rlimit::Resource::NOFILE.set(required, hard).unwrap();
+/// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
+/// of file descriptors.
+///
+/// A RocksDB instance can keep up to the configured `max_open_files` number of
+/// file descriptors.  In addition, we need handful more for other processing
+/// (such as network sockets to name just one example).  If NOFILE is too small
+/// opening files may start failing which would prevent us from operating
+/// correctly.
+///
+/// To avoid such failures, this method ensures that NOFILE limit is large
+/// enough to accommodate `max_open_file` plus another 1000 file descriptors.
+/// If current limit is too low, it will attempt to set it to a higher value.
+///
+/// Returns error if NOFILE limit could not be read or set.  In practice the
+/// only thing that can happen is hard limit being too low such that soft limit
+/// cannot be increased to required value.
+fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
+    let required = max_open_files as u64 + 1000;
+    let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
+        DBError(format!("Unable to get limit for the number of open files (NOFILE): {err}"))
+    })?;
+    if required <= soft {
+        Ok(())
+    } else {
+        rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
+            DBError(format!(
+                "Unable to set limit for the number of open files (NOFILE) to \
+                 {required} (for configured max_open_files={max_open_files}): \
+                 {err}"
+            ))
+        })
     }
 }
 
@@ -201,12 +217,12 @@ impl RocksDBOptions {
         path: impl AsRef<Path>,
         store_config: &StoreConfig,
     ) -> Result<RocksDB, DBError> {
-        let path = path.as_ref();
-        ensure_max_open_files_limit(store_config.max_open_files);
+        ensure_max_open_files_limit(store_config.max_open_files)?;
         if store_config.read_only {
-            return self.read_only(path, &store_config);
+            self.read_only(path.as_ref(), store_config)
+        } else {
+            self.read_write(path.as_ref(), store_config)
         }
-        self.read_write(path, &store_config)
     }
 
     /// Opens a read only database.
