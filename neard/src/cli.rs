@@ -1,19 +1,15 @@
-use actix::{Actor, Arbiter, Context};
+use crate::log_config_watcher::{spawn_log_config_watcher, LogConfigWatcher};
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, reload_env_filter, EnvFilterBuilder};
+use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
-use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
-use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
@@ -417,12 +413,7 @@ impl RunCmd {
         let log_config_watcher =
             LogConfigWatcher::new(home_dir, near_config.config.log_config.clone());
         sys.block_on(async move {
-            let log_config_arbiter = Arbiter::new();
-            let log_config_arbiter_handle = log_config_arbiter.handle();
-            let _log_config_addr =
-                LogConfigActor::start_in_arbiter(&log_config_arbiter_handle, move |_ctx| {
-                    LogConfigActor { watcher: log_config_watcher }
-                });
+            spawn_log_config_watcher(log_config_watcher);
 
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
@@ -522,103 +513,6 @@ impl RecompressStorageSubCommand {
         if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
             error!("{}", err);
             std::process::exit(1);
-        }
-    }
-}
-
-struct LogConfigWatcher {
-    _watcher: RecommendedWatcher,
-    pub watched_path: Option<PathBuf>,
-    pub rx: Receiver<DebouncedEvent>,
-}
-
-impl LogConfigWatcher {
-    pub fn new(home_dir: &Path, log_config: Option<PathBuf>) -> Self {
-        let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
-        let mut watched_path = None;
-        if let Some(ref log_config) = log_config {
-            info!(target: "neard", home_dir=home_dir.to_string_lossy().as_ref(), log_config=log_config.to_string_lossy().as_ref(), "Watching log config changes.");
-            watcher.watch(home_dir, RecursiveMode::NonRecursive).unwrap();
-            watched_path = Some(home_dir.join(log_config));
-        } else {
-            info!(target: "neard", "Not watching any files for log config changes.");
-        }
-        Self { _watcher: watcher, watched_path, rx }
-    }
-
-    fn write_event(&mut self, path: PathBuf) {
-        if Some(&path) != self.watched_path.as_ref() {
-            return;
-        }
-        match std::fs::read_to_string(&path) {
-            Ok(log_config_str) => match serde_json::from_str::<LogConfig>(&log_config_str) {
-                Ok(log_config) => {
-                    info!(target: "neard", "Changing env_filter to {:?}", log_config);
-                    if let Err(err) = reload_env_filter(
-                        &log_config.rust_log,
-                        log_config.verbose_module.is_some(),
-                        &log_config.verbose_module,
-                    ) {
-                        warn!(target: "neard", "Failed to reload env_filter: {:?}", err);
-                    }
-                }
-                Err(err) => {
-                    warn!(target: "neard", "Failed to parse log config file {}: {:?}",path.display(),err);
-                }
-            },
-            Err(err) => {
-                warn!(target: "neard", "Failed to read log config file {}: {:?}",path.display(),err);
-            }
-        };
-    }
-
-    fn remove_event(&mut self, path: PathBuf) {
-        if Some(&path) != self.watched_path.as_ref() {
-            return;
-        }
-        info!(target: "neard", "Resetting env_filter");
-        if let Err(err) = reload_env_filter(&None, false, &None) {
-            warn!(target: "neard", "Failed to reload env_filter: {:?}", err);
-        }
-    }
-
-    pub fn update(&mut self, event: DebouncedEvent) {
-        match event {
-            DebouncedEvent::NoticeWrite(path) => self.write_event(path),
-            DebouncedEvent::NoticeRemove(path) => self.remove_event(path),
-            DebouncedEvent::Create(path) => self.write_event(path),
-            DebouncedEvent::Write(path) => self.write_event(path),
-            DebouncedEvent::Remove(path) => self.remove_event(path),
-            DebouncedEvent::Rename(path, _) => self.remove_event(path),
-            _ => {}
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct LogConfig {
-    pub rust_log: Option<String>,
-    pub verbose_module: Option<String>,
-}
-
-struct LogConfigActor {
-    watcher: LogConfigWatcher,
-}
-
-impl Actor for LogConfigActor {
-    type Context = Context<Self>;
-
-    fn started(&mut self, _ctx: &mut Self::Context) {
-        loop {
-            match self.watcher.rx.recv() {
-                Ok(event) => {
-                    self.watcher.update(event);
-                }
-                Err(e) => {
-                    error!(target: "neard", "watch error: {:?}", e)
-                }
-            }
         }
     }
 }

@@ -1,4 +1,5 @@
 mod cli;
+mod log_config_watcher;
 
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 
