@@ -211,8 +211,7 @@ impl NightshadeRuntime {
             shard_tracker,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
-            gc_num_epochs_to_keep: gc_num_epochs_to_keep
-                .max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         }
     }
 
