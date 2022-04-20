@@ -1455,11 +1455,15 @@ fn test_config_from_file() {
         // we want to ensure that they happen.
         let want_gc = if has_gc {
             GCConfig {
-                gc_blocks_limit: 42, gc_fork_clean_step: 420, num_epochs_to_keep_store_data: 5
+                gc_blocks_limit: 42,
+                gc_fork_clean_step: 420,
+                num_epochs_to_keep_store_data: 5,
             }
         } else {
             GCConfig {
-                gc_blocks_limit: 2, gc_fork_clean_step: 1000, num_epochs_to_keep_store_data: 5
+                gc_blocks_limit: 2,
+                gc_fork_clean_step: 1000,
+                num_epochs_to_keep_store_data: 5,
             }
         };
         assert_eq!(want_gc, config.gc);

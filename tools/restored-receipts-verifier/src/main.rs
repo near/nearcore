@@ -1,6 +1,6 @@
 use clap::{Arg, Command};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use near_chain_configs::{DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA, GenesisValidationMode};
+use near_chain_configs::{GenesisValidationMode, DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;

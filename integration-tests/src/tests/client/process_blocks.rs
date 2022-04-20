@@ -16,7 +16,7 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
 };
-use near_chain_configs::{ClientConfig, DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA, Genesis};
+use near_chain_configs::{ClientConfig, Genesis, DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,

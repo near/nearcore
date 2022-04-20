@@ -13,7 +13,7 @@ use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig, MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, ProtocolConfig};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::EpochManager;
 use near_pool::types::PoolIterator;
@@ -211,9 +211,8 @@ impl NightshadeRuntime {
             shard_tracker,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
-            num_epochs_to_keep_store_data: num_epochs_to_keep_store_data.max(
-                MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA,
-            ),
+            num_epochs_to_keep_store_data: num_epochs_to_keep_store_data
+                .max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
         }
     }
 
