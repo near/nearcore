@@ -317,6 +317,13 @@ pub struct StoreConfig {
     /// default value for it.
     #[serde(default = "default_col_state_cache_size")]
     pub col_state_cache_size: usize,
+
+    /// Block size used internally in RocksDB.
+    /// Default value: 16KiB.
+    /// We're still experimented with this parameter and it seems decreasing its value can improve
+    /// the performance of the storage
+    #[serde(default = "default_block_size")]
+    pub block_size: usize,
 }
 
 fn default_max_open_files() -> u32 {
@@ -325,6 +332,10 @@ fn default_max_open_files() -> u32 {
 
 fn default_col_state_cache_size() -> usize {
     StoreConfig::DEFAULT_COL_STATE_CACHE_SIZE
+}
+
+fn default_block_size() -> usize {
+    StoreConfig::DEFAULT_BLOCK_SIZE
 }
 
 impl StoreConfig {
@@ -343,6 +354,10 @@ impl StoreConfig {
     /// performance of state viewer by 60%.
     pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
 
+    /// Earlier this value was taken from the openethereum default parameter and we use it since
+    /// then.
+    pub const DEFAULT_BLOCK_SIZE: usize = 16 * bytesize::KIB as usize;
+
     pub fn read_only() -> StoreConfig {
         StoreConfig::read_write().with_read_only(true)
     }
@@ -353,6 +368,7 @@ impl StoreConfig {
             enable_statistics: false,
             max_open_files: default_max_open_files(),
             col_state_cache_size: default_col_state_cache_size(),
+            block_size: default_block_size(),
         }
     }
 
