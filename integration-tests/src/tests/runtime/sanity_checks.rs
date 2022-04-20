@@ -6,7 +6,9 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{CostGasUsed, ExecutionStatusView, FinalExecutionStatus};
+use near_primitives::views::{
+    CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
+};
 use near_vm_errors::FunctionCallErrorSer;
 use nearcore::config::GenesisExt;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
@@ -86,17 +88,32 @@ fn test_cost_sanity() {
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
+    assert_receipts_status(
+        "sanity_check",
+        res.receipts_outcome.clone(),
+        expected_cost_sanity_receipts_statuses(),
+    );
+    assert_gas_profiles(
+        "sanity_check",
+        res.receipts_outcome.clone(),
+        expected_cost_sanity_gas_profiles(),
+    );
+}
 
+fn assert_receipts_status(
+    method_name: &str,
+    receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
+    expected_statuses: Vec<ExecutionStatusView>,
+) {
     let actual_statuses: Vec<ExecutionStatusView> =
-        res.receipts_outcome.iter().map(|outcome| outcome.outcome.status.clone()).collect();
-    let expected_statuses = expected_cost_sanity_receipts_statuses();
+        receipts_outcome.iter().map(|outcome| outcome.outcome.status.clone()).collect();
     let mut diff_count = 0;
     for i in 0..std::cmp::max(actual_statuses.len(), expected_statuses.len()) {
         let actual = actual_statuses.get(i);
         let expected = expected_statuses.get(i);
         if actual != expected {
             diff_count += 1;
-            println!("receipts[{}] has unexpected status:", i);
+            println!("{}: receipts[{}] has unexpected status:", method_name, i);
             println!("\t+ {:?}", actual);
             println!("\t- {:?}", expected);
         }
@@ -104,12 +121,16 @@ fn test_cost_sanity() {
     if diff_count > 0 {
         panic!("encountered {} receipt(s) with unexptected status", diff_count);
     }
+}
 
-    let actual_gas_profiles = res
-        .receipts_outcome
+fn assert_gas_profiles(
+    method_name: &str,
+    receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
+    expected_gas_profiles: Vec<Vec<CostGasUsed>>,
+) {
+    let actual_gas_profiles = receipts_outcome
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap());
-    let expected_gas_profiles = expected_cost_sanity_gas_profiles();
     assert_eq!(actual_gas_profiles.len(), expected_gas_profiles.len());
     let mut diff_count = 0;
     for (i, (actual_vec, expected_vec)) in
@@ -120,7 +141,7 @@ fn test_cost_sanity() {
             let expected_cost = expected_vec.get(j);
             if actual_cost != expected_cost {
                 diff_count += 1;
-                println!("unexpected cost at receipts[{}] gas_profile[{}]:", i, j);
+                println!("{}: unexpected cost at receipts[{}] gas_profile[{}]:", method_name, i, j);
                 println!("\t+ {:?}", actual_cost);
                 println!("\t- {:?}", expected_cost);
             }
