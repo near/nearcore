@@ -46,5 +46,5 @@ fn main() {
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
 
-    NeardCmd::parse_and_run()
+    NeardCmd::parse_and_run().unwrap()
 }

@@ -1475,7 +1475,7 @@ struct LogLevelVerboseInfo {
 
 #[get("/debug/log_level")]
 async fn log_level(info: web::Query<LogLevelInfo>) -> actix_web::Result<impl actix_web::Responder> {
-    let result = reload_env_filter(&Some(&info.rust_log), false, &None)
+    let result = reload_env_filter(Some(&info.rust_log), None)
         .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
     Ok(HttpResponse::Ok().json(result))
 }
@@ -1484,8 +1484,11 @@ async fn log_level(info: web::Query<LogLevelInfo>) -> actix_web::Result<impl act
 async fn log_level_verbose(
     info: web::Query<LogLevelVerboseInfo>,
 ) -> actix_web::Result<impl actix_web::Responder> {
-    let result = reload_env_filter(&info.rust_log.as_ref(), true, &info.verbose_module)
-        .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
+    let result = reload_env_filter(
+        info.rust_log.as_deref(),
+        info.verbose_module.as_deref().map_or(Some(""), |x| Some(x)),
+    )
+    .map_or_else(|err| format!("Failed to set env filter: {}", err), |_| "OK".to_string());
     Ok(HttpResponse::Ok().json(result))
 }
 

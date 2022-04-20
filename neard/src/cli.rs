@@ -1,6 +1,7 @@
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
+use near_o11y::tracing_subscriber::filter::ParseError;
 use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
@@ -23,11 +24,18 @@ pub(super) struct NeardCmd {
     subcmd: NeardSubCommand,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum RunError {
+    #[error("Invalid EnvFilter directives provided")]
+    EnvFilter(#[source] ParseError),
+}
+
 impl NeardCmd {
-    pub(super) fn parse_and_run() {
+    pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
         let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish().unwrap();
+        let env_filter =
+            EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
         // This is hidden by default so we enable it for sandbox node.
         let env_filter = if cfg!(feature = "sandbox") {
@@ -93,7 +101,8 @@ impl NeardCmd {
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
             }
-        }
+        };
+        Ok(())
     }
 }
 

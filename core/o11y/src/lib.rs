@@ -113,7 +113,7 @@ pub fn default_subscriber(
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error, Debug)]
 pub enum ReloadError {
     #[error("Cannot reload env_filter")]
     Reload(#[source] Error),
@@ -130,20 +130,18 @@ pub enum ReloadError {
 /// `verbose` indicates whether `--verbose` command-line flag is present.
 /// `verbose_module` is equivalent to the value of the `--verbose` command-line flag.
 pub fn reload_env_filter(
-    rust_log: &Option<&String>,
-    verbose: bool,
-    verbose_module: &Option<String>,
+    rust_log: Option<&str>,
+    verbose_module: Option<&str>,
 ) -> Result<(), ReloadError> {
     ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
         // Replace Some("") with None.
         let rust_log = rust_log.as_ref().filter(|rust_log| !rust_log.is_empty());
         let mut builder = rust_log.map_or_else(
-            || EnvFilterBuilder::from_default(),
-            |rust_log| EnvFilterBuilder::new(rust_log.as_str()),
+            || EnvFilterBuilder::default(),
+            |&rust_log| EnvFilterBuilder::new(rust_log),
         );
-        if verbose {
-            let module = verbose_module.as_ref().map_or(Some(""), |module| Some(module.as_str()));
-            builder = builder.verbose(module);
+        if let Some(module) = verbose_module {
+            builder = builder.verbose(Some(module));
         }
         reload_handle
             .reload(builder.finish().map_err(ReloadError::Parse)?)
@@ -174,13 +172,6 @@ impl<'a> EnvFilterBuilder<'a> {
         Self { rust_log: rust_log.into(), verbose: None }
     }
 
-    /// Create the `EnvFilter` from the given logging directives or the [`DEFAULT_RUST_LOG`] value if no directives are given
-    ///
-    /// This method will not inspect the environment variable.
-    pub fn from_default() -> Self {
-        Self { rust_log: Cow::Borrowed(DEFAULT_RUST_LOG), verbose: None }
-    }
-
     /// Make the produced [`EnvFilter`] verbose.
     ///
     /// If the `module` string is empty, all targets will log debug output. Otherwise only the
@@ -195,10 +186,10 @@ impl<'a> EnvFilterBuilder<'a> {
         let mut env_filter = EnvFilter::try_new(self.rust_log)?;
         if let Some(module) = self.verbose {
             env_filter = env_filter
-                .add_directive("cranelift_codegen=warn".parse()?)
-                .add_directive("h2=warn".parse()?)
-                .add_directive("trust_dns_resolver=warn".parse()?)
-                .add_directive("trust_dns_proto=warn".parse()?);
+                .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
+                .add_directive("h2=warn".parse().expect("parse directive"))
+                .add_directive("trust_dns_resolver=warn".parse().expect("parse directive"))
+                .add_directive("trust_dns_proto=warn".parse().expect("parse directive"));
             env_filter = if module.is_empty() {
                 env_filter.add_directive(tracing::Level::DEBUG.into())
             } else {
@@ -207,5 +198,14 @@ impl<'a> EnvFilterBuilder<'a> {
             };
         }
         Ok(env_filter)
+    }
+}
+
+impl<'a> Default for EnvFilterBuilder<'a> {
+    /// Create the `EnvFilter` from the given logging directives or the [`DEFAULT_RUST_LOG`] value if no directives are given
+    ///
+    /// This method will not inspect the `RUST_LOG` environment variable.
+    fn default() -> Self {
+        Self { rust_log: Cow::Borrowed(DEFAULT_RUST_LOG), verbose: None }
     }
 }
