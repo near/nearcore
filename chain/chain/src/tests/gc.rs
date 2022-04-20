@@ -637,7 +637,6 @@ fn test_fork_far_away_from_epoch_end() {
     ];
 
     let num_shards = 1;
-    // We pick the epoch length that is greater than 1k (GC_FORK_CLEAN_STEP)
     let mut chain1 = get_chain_with_epoch_length_and_num_shards(epoch_length, num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
@@ -665,10 +664,7 @@ fn test_fork_far_away_from_epoch_end() {
     chain1
         .clear_data(
             tries1.clone(),
-            &GCConfig {
-                gc_blocks_limit: 100,
-                gc_fork_clean_step: fork_clean_step,
-            },
+            &GCConfig { gc_blocks_limit: 100, gc_fork_clean_step: fork_clean_step },
         )
         .expect("Clear data failed");
 
