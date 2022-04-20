@@ -18,6 +18,7 @@
 * Safe DB migrations using RocksDB checkpoints [#6282](https://github.com/near/nearcore/pull/6282)
 * [NEP205](https://github.com/near/NEPs/issues/205): Configurable start of protocol upgrade voting [#6309](https://github.com/near/nearcore/pull/6309)
 * Make max_open_files and col_state_cache_size parameters configurable [#6584](https://github.com/near/nearcore/pull/6584)
+* Make RocksDB block_size configurable [#6631](https://github.com/near/nearcore/pull/6631)
 * Increase default max_open_files RocksDB parameter from 512 to 10k [#6607](https://github.com/near/nearcore/pull/6607)
 * Use kebab-case names for neard subcommands to make them consistent with flag names.  snake_case names are still valid for existing subcommands but kebab-case will be used for new commands.
 
