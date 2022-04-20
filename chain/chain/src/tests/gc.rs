@@ -668,7 +668,6 @@ fn test_fork_far_away_from_epoch_end() {
             &GCConfig {
                 gc_blocks_limit: 100,
                 gc_fork_clean_step: fork_clean_step,
-                ..GCConfig::default()
             },
         )
         .expect("Clear data failed");
