@@ -160,7 +160,7 @@ impl ShardTries {
             let trie = self.get_trie_for_shard(shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that
             let trie_changes = trie.update(&state_roots[&shard_uid], changes.into_iter())?;
-            let (update, state_root) = self.apply_all(&trie_changes, shard_uid)?;
+            let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             store_update.merge(update);
         }
@@ -203,7 +203,7 @@ impl ShardTries {
         let mut merged_store_update = StoreUpdate::new_with_tries(self.clone());
         for (shard_uid, update) in updates {
             let (trie_changes, _) = update.finalize()?;
-            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid)?;
+            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             merged_store_update.merge(store_update);
         }
@@ -533,7 +533,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
 
             assert_eq!(
@@ -669,7 +669,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
             state_root
         };
@@ -772,7 +772,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, state_changes) = trie_update.finalize().unwrap();
             let (store_update, new_state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
             state_root = new_state_root;
 
@@ -790,8 +790,7 @@ mod tests {
             split_state_roots = trie_changes
                 .iter()
                 .map(|(shard_uid, trie_changes)| {
-                    let (state_update, state_root) =
-                        tries.apply_all(trie_changes, *shard_uid).unwrap();
+                    let (state_update, state_root) = tries.apply_all(trie_changes, *shard_uid);
                     state_update.commit().unwrap();
                     (*shard_uid, state_root)
                 })

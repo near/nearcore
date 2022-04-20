@@ -317,7 +317,8 @@
         "StackHeightInstrumentation",
         "Instantiate",
         "Memory",
-        "TooManyFunctions"
+        "TooManyFunctions",
+        "TooManyLocals"
       ],
       "props": {}
     },
@@ -353,6 +354,11 @@
     },
     "TooManyFunctions": {
       "name": "TooManyFunctions",
+      "subtypes": [],
+      "props": {}
+    },
+    "TooManyLocals": {
+      "name": "TooManyLocals",
       "subtypes": [],
       "props": {}
     },

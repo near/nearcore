@@ -239,7 +239,6 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_key_byte },
         Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_value_byte },
         Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node },
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::read_cached_trie_node },
         Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_per_promise },
@@ -326,7 +325,6 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => 60,
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => 61,
             Cost::WasmInstruction => 62,
-            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::read_cached_trie_node } => 63,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => 64,

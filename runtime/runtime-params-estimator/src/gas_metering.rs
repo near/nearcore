@@ -35,9 +35,9 @@ pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
 
     let tolerance = LeastSquaresTolerance::default().factor_rel_nn_tolerance(0.001);
     let (cost1_base, cost1_op) =
-        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug);
     let (cost2_base, cost2_op) =
-        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug);
 
     let cost_base = std::cmp::max(cost1_base, cost2_base);
     let cost_op = std::cmp::max(cost1_op, cost2_op);

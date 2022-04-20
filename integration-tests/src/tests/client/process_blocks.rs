@@ -34,8 +34,8 @@ use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
+use near_primitives::errors::{ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -65,6 +65,7 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use near_store::DBCol::ColStateParts;
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::prelude::StdRng;
@@ -3332,13 +3333,14 @@ fn test_validator_stake_host_function() {
     }
 }
 
-// Check that we can't call a contract exceeding functions number limit after upgrade.
-#[test]
-fn test_limit_contract_functions_number_upgrade() {
-    let functions_number_limit: u32 = 10_000;
-
-    let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
+fn verify_contract_limits_upgrade(
+    feature: ProtocolFeature,
+    function_limit: u32,
+    local_limit: u32,
+    expected_prepare_err: PrepareError,
+) {
+    let old_protocol_version = feature.protocol_version() - 1;
+    let new_protocol_version = feature.protocol_version();
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -3361,7 +3363,7 @@ fn test_limit_contract_functions_number_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::many_functions_contract(functions_number_limit + 10),
+            &near_test_contracts::large_contract(function_limit + 1, local_limit + 1),
             epoch_length,
             1,
         );
@@ -3426,10 +3428,38 @@ fn test_limit_contract_functions_number_upgrade() {
     };
 
     assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    assert!(matches!(
-        new_outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-    ));
+    let e = match new_outcome.status {
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => e,
+        status => panic!("expected transaction to fail, got {:?}", status),
+    };
+    match e.kind {
+        ActionErrorKind::FunctionCallError(FunctionCallErrorSer::CompilationError(
+            CompilationError::PrepareError(e),
+        )) if e == expected_prepare_err => (),
+        kind => panic!("got unexpected action error kind: {:?}", kind),
+    }
+}
+
+// Check that we can't call a contract exceeding functions number limit after upgrade.
+#[test]
+fn test_function_limit_change() {
+    verify_contract_limits_upgrade(
+        ProtocolFeature::LimitContractFunctionsNumber,
+        100_000,
+        0,
+        PrepareError::TooManyFunctions,
+    );
+}
+
+// Check that we can't call a contract exceeding functions number limit after upgrade.
+#[test]
+fn test_local_limit_change() {
+    verify_contract_limits_upgrade(
+        ProtocolFeature::LimitContractLocals,
+        64,
+        15625,
+        PrepareError::TooManyLocals,
+    );
 }
 
 #[test]
@@ -4709,11 +4739,7 @@ mod chunk_nodes_cache_test {
         let epoch_length = 10;
         let num_blocks = 5;
 
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
-        #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-        let old_protocol_version = PROTOCOL_VERSION - 1;
-
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
@@ -4771,10 +4797,7 @@ mod chunk_nodes_cache_test {
                             cost / touching_trie_node_cost
                         },
                         mem_reads: {
-                            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
                             let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
-                            #[cfg(not(feature = "protocol_feature_chunk_nodes_cache"))]
-                            let cost = 0;
                             assert_eq!(cost % read_cached_trie_node_cost, 0);
                             cost / read_cached_trie_node_cost
                         },
@@ -4785,12 +4808,168 @@ mod chunk_nodes_cache_test {
 
         assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
         assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
-        if cfg!(feature = "protocol_feature_chunk_nodes_cache") {
-            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-        } else {
-            assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 12, mem_reads: 0 });
-            assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+        assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+        assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+    }
+}
+
+mod lower_storage_key_limit_test {
+    use super::*;
+
+    /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
+    #[test]
+    fn protocol_upgrade() {
+        let old_protocol_version =
+            near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
+        let new_protocol_version = old_protocol_version + 1;
+        let new_storage_key_limit = 2usize.pow(11); // 2 KB
+        let args: Vec<u8> = vec![1u8; new_storage_key_limit + 1]
+            .into_iter()
+            .chain(near_primitives::test_utils::encode(&[10u64]).into_iter())
+            .collect();
+        let epoch_length: BlockHeight = 5;
+
+        // Prepare TestEnv with a contract at the old protocol version.
+        let mut env = {
+            let mut genesis =
+                Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+            genesis.config.epoch_length = epoch_length;
+            genesis.config.protocol_version = old_protocol_version;
+            let chain_genesis = ChainGenesis::from(&genesis);
+            let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+                vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                    Path::new("."),
+                    create_test_store(),
+                    &genesis,
+                    TrackedConfig::AllShards,
+                    RuntimeConfigStore::new(None),
+                )) as Arc<dyn RuntimeAdapter>];
+            let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
+
+            deploy_test_contract(
+                &mut env,
+                "test0".parse().unwrap(),
+                near_test_contracts::rs_contract(),
+                epoch_length.clone(),
+                1,
+            );
+            env
+        };
+
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let tx = Transaction {
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
+            public_key: signer.public_key(),
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "write_key_value".to_string(),
+                args,
+                gas: 10u64.pow(14),
+                deposit: 0,
+            })],
+
+            nonce: 0,
+            block_hash: CryptoHash::default(),
+        };
+
+        // Run transaction writing storage key exceeding the limit. Check that execution succeeds.
+        {
+            let tip = env.clients[0].chain.head().unwrap();
+            let signed_tx = Transaction {
+                nonce: tip.height + 1,
+                block_hash: tip.last_block_hash,
+                ..tx.clone()
+            }
+            .sign(&signer);
+            let tx_hash = signed_tx.get_hash().clone();
+            env.clients[0].process_tx(signed_tx, false, false);
+            for i in 0..epoch_length {
+                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+            }
+            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+        }
+
+        // Move to the new protocol version.
+        {
+            let tip = env.clients[0].chain.head().unwrap();
+            let epoch_id = env.clients[0]
+                .runtime_adapter
+                .get_epoch_id_from_prev_block(&tip.last_block_hash)
+                .unwrap();
+            let block_producer = env.clients[0]
+                .runtime_adapter
+                .get_block_producer(&epoch_id, tip.height + 1)
+                .unwrap();
+            let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+            let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
+            assert!(res.is_ok());
+
+            for i in 1..epoch_length {
+                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+            }
+        }
+
+        // Re-run the transaction, check that execution fails.
+        {
+            let tip = env.clients[0].chain.head().unwrap();
+            let signed_tx = Transaction {
+                nonce: tip.height + 1,
+                block_hash: tip.last_block_hash,
+                ..tx.clone()
+            }
+            .sign(&signer);
+            let tx_hash = signed_tx.get_hash().clone();
+            env.clients[0].process_tx(signed_tx, false, false);
+            for i in 0..epoch_length {
+                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+            }
+            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            assert!(matches!(
+                final_result.status,
+                FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
+            ));
+        }
+
+        // Run transaction where storage key exactly fits the new limit, check that execution succeeds.
+        {
+            let args: Vec<u8> = vec![1u8; new_storage_key_limit]
+                .into_iter()
+                .chain(near_primitives::test_utils::encode(&[20u64]).into_iter())
+                .collect();
+            let tx = Transaction {
+                signer_id: "test0".parse().unwrap(),
+                receiver_id: "test0".parse().unwrap(),
+                public_key: signer.public_key(),
+                actions: vec![Action::FunctionCall(FunctionCallAction {
+                    method_name: "write_key_value".to_string(),
+                    args,
+                    gas: 10u64.pow(14),
+                    deposit: 0,
+                })],
+
+                nonce: 0,
+                block_hash: CryptoHash::default(),
+            };
+            let tip = env.clients[0].chain.head().unwrap();
+            let signed_tx = Transaction {
+                nonce: tip.height + 1,
+                block_hash: tip.last_block_hash,
+                ..tx.clone()
+            }
+            .sign(&signer);
+            let tx_hash = signed_tx.get_hash().clone();
+            env.clients[0].process_tx(signed_tx, false, false);
+            for i in 0..epoch_length {
+                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+            }
+            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
         }
     }
 }

@@ -142,7 +142,7 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
-fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+fn ensure_max_open_files_limit(max_open_files: u32) -> () {
     // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
     // have some other file descriptors opened by neard process so we use the value of
     // max_open_files + some constant to be sure that the binary can correctly run.
@@ -500,7 +500,7 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files);
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);

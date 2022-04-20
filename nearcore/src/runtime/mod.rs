@@ -1731,8 +1731,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let (store_update, _) =
-            tries.apply_all(&trie_changes, shard_uid).expect("TrieChanges::into never fails");
+        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -2035,7 +2034,7 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
-            result.trie_changes.insertions_into(&mut store_update).unwrap();
+            result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
             (result.new_root, result.validator_proposals, result.outgoing_receipts)

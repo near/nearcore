@@ -1,8 +1,8 @@
 use crate::types::PeerMessage;
 use near_metrics::{
-    inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
-    IntGauge,
+    do_create_int_counter_vec, inc_counter_by_opt, inc_counter_opt, try_create_histogram,
+    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge, Histogram,
+    IntCounter, IntCounterVec, IntGauge,
 };
 use near_network_primitives::types::RoutedMessageBody;
 use once_cell::sync::Lazy;
@@ -111,9 +111,12 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
-#[derive(Clone)]
+#[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
+    // received messages
     pub peer_messages: HashMap<String, Option<IntCounter>>,
+    // sent messages (broadcast style)
+    pub broadcast_messages: IntCounterVec,
 }
 
 impl NetworkMetrics {
@@ -136,6 +139,11 @@ impl NetworkMetrics {
                     })
                 })
                 .collect(),
+            broadcast_messages: do_create_int_counter_vec(
+                "near_broadcast_msg",
+                "Broadcasted messages",
+                &["type"],
+            ),
         }
     }
 
@@ -161,5 +169,8 @@ impl NetworkMetrics {
         if let Some(counter) = self.peer_messages.get(message_name) {
             inc_counter_by_opt(counter.as_ref(), value);
         }
+    }
+    pub fn inc_broadcast(&self, message_name: &str) {
+        self.broadcast_messages.with_label_values(&[message_name]).inc();
     }
 }

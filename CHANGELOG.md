@@ -13,6 +13,7 @@
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
 * Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
+* Safe DB migrations using RocksDB checkpoints [#6282](https://github.com/near/nearcore/pull/6282)
 * [NEP205](https://github.com/near/NEPs/issues/205): Configurable start of protocol upgrade voting [#6309](https://github.com/near/nearcore/pull/6309)
 * Make max_open_files and col_state_cache_size parameters configurable [#6584](https://github.com/near/nearcore/pull/6584)
 * Make RocksDB block_size configurable [#6631](https://github.com/near/nearcore/pull/6631)

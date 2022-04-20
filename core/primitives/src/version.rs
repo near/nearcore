@@ -140,6 +140,15 @@ pub enum ProtocolFeature {
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
+    FunctionCallWeight,
+    /// This feature enforces a global limit on the function local declarations in a WebAssembly
+    /// contract. See <...> for more information.
+    LimitContractLocals,
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once per chunk at the first access time.
+    ChunkNodesCache,
+    /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
+    LowerStorageKeyLimit,
 
     // nightly features
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -153,11 +162,6 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    FunctionCallWeight,
-    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
-    /// only once per chunk at the first access time.
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-    ChunkNodesCache,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -224,7 +228,11 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
-            ProtocolFeature::IncreaseDeploymentCost | ProtocolFeature::FunctionCallWeight => 53,
+            ProtocolFeature::IncreaseDeploymentCost
+            | ProtocolFeature::FunctionCallWeight
+            | ProtocolFeature::LimitContractLocals
+            | ProtocolFeature::ChunkNodesCache
+            | ProtocolFeature::LowerStorageKeyLimit => 53,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -235,8 +243,6 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
-            ProtocolFeature::ChunkNodesCache => 128,
         }
     }
 }

@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use once_cell::sync::OnceCell;
-use std::fmt::Write;
 use std::path::Path;
 
 /// Trivial contact with a do-nothing main function.
@@ -78,25 +77,41 @@ fn smoke_test() {
     assert!(!base_rs_contract().is_empty());
 }
 
-pub fn many_functions_contract(function_count: u32) -> Vec<u8> {
-    let mut functions = String::new();
-    for i in 0..function_count {
-        writeln!(
-            &mut functions,
-            "(func
-                i32.const {}
-                drop
-                return)",
-            i
-        )
-        .unwrap();
-    }
+/// Construct a contract with many entitites.
+///
+/// Currently supports constructing contracts that contain a specified number of functions with the
+/// specified number of locals each.
+///
+/// Exports a function called `main` that does nothing.
+pub fn large_contract(functions: u32, locals: u32) -> Vec<u8> {
+    use wasm_encoder::{
+        CodeSection, Export, ExportSection, Function, FunctionSection, Instruction, Module,
+        TypeSection, ValType,
+    };
+    // Won't generate a valid WASM without functions.
+    assert!(functions >= 1, "must specify at least 1 function to be generated");
+    let mut module = Module::new();
+    let mut type_section = TypeSection::new();
+    type_section.function([], []);
+    module.section(&type_section);
 
-    let code = format!(
-        r#"(module
-            (export "main" (func 0))
-            {})"#,
-        functions
-    );
-    wat::parse_str(code).unwrap()
+    let mut functions_section = FunctionSection::new();
+    for _ in 0..functions {
+        functions_section.function(0);
+    }
+    module.section(&functions_section);
+
+    let mut exports_section = ExportSection::new();
+    exports_section.export("main", Export::Function(0));
+    module.section(&exports_section);
+
+    let mut code_section = CodeSection::new();
+    for _ in 0..functions {
+        let mut f = Function::new([(locals, ValType::I64)]);
+        f.instruction(&Instruction::End);
+        code_section.function(&f);
+    }
+    module.section(&code_section);
+
+    module.finish()
 }

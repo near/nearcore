@@ -8,7 +8,7 @@ use pwasm_utils::parity_wasm::elements::{self, External, MemorySection};
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
-    // wasmer singlepass compiler most likely requires multi_value return values to be disabled.
+    // wasmer singlepass compiler requires multi_value return values to be disabled.
     multi_value: false,
     bulk_memory: false,
     module_linking: false,
@@ -20,6 +20,60 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     exceptions: false,
     memory64: false,
 };
+
+/// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
+///
+/// This function will return the number of functions defined globally in the provided WebAssembly
+/// module as well as the number of locals declared by all functions. If either counter overflows,
+/// `None` is returned in its place.
+fn wasmparser_decode(
+    code: &[u8],
+) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
+    use wasmparser::ValidPayload;
+    let mut validator = wasmparser::Validator::new();
+    validator.wasm_features(WASM_FEATURES);
+    let mut function_count = Some(0u64);
+    let mut local_count = Some(0u64);
+    for payload in wasmparser::Parser::new(0).parse_all(code) {
+        match validator.payload(&payload?)? {
+            ValidPayload::Ok => (),
+            ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
+            ValidPayload::Func(mut validator, body) => {
+                validator.validate(&body)?;
+                function_count = function_count.and_then(|f| f.checked_add(1));
+                // Count the global number of local variables.
+                let mut local_reader = body.get_locals_reader()?;
+                for _ in 0..local_reader.get_count() {
+                    let (count, _type) = local_reader.read()?;
+                    local_count = local_count.and_then(|l| l.checked_add(count.into()));
+                }
+            }
+        }
+    }
+    Ok((function_count, local_count))
+}
+
+fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
+    let (function_count, local_count) =
+        wasmparser_decode(code).map_err(|_| PrepareError::Deserialization)?;
+    // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
+    // of this check is important. In the past we first validated the entire module and only then
+    // verified that the limit is not exceeded. While it would be more efficient to check for this
+    // before validating the function bodies, it would change the results for malformed WebAssembly
+    // modules.
+    if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
+        if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
+            return Err(PrepareError::TooManyFunctions);
+        }
+    }
+    // Similarly, do the same for the number of locals.
+    if let Some(max_locals) = config.limit_config.max_locals_per_contract {
+        if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
+            return Err(PrepareError::TooManyLocals);
+        }
+    }
+    Ok(())
+}
 
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
@@ -33,11 +87,7 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
-    wasmparser::Validator::new()
-        .wasm_features(WASM_FEATURES)
-        .validate_all(original_code)
-        .map_err(|_| PrepareError::Deserialization)?;
-
+    validate_contract(original_code, config)?;
     match config.limit_config.stack_limiter_version {
         // Support for old protocol versions, where we incorrectly didn't
         // account for many locals of the same type.
@@ -45,7 +95,6 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
-            .validate_functions_number()?
             .standardize_mem()
             .ensure_no_internal_memory()?
             .inject_gas_metering()?
@@ -184,18 +233,6 @@ impl<'a> ContractModule<'a> {
         Ok(Self { module, config })
     }
 
-    fn validate_functions_number(self) -> Result<Self, PrepareError> {
-        if let Some(max_functions_number) =
-            self.config.limit_config.max_functions_number_per_contract
-        {
-            let functions_number = self.module.functions_space() as u64;
-            if functions_number > max_functions_number {
-                return Err(PrepareError::TooManyFunctions);
-            }
-        }
-        Ok(self)
-    }
-
     fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
         elements::serialize(self.module).map_err(|_| PrepareError::Serialization)
     }
@@ -214,7 +251,6 @@ mod pwasm_12 {
         config: &VMConfig,
     ) -> Result<Vec<u8>, PrepareError> {
         ContractModule::init(original_code, config)?
-            .validate_functions_number()?
             .standardize_mem()
             .ensure_no_internal_memory()?
             .inject_gas_metering()?
@@ -352,18 +388,6 @@ mod pwasm_12 {
                 return Err(PrepareError::Memory);
             };
             Ok(Self { module, config })
-        }
-
-        fn validate_functions_number(self) -> Result<Self, PrepareError> {
-            if let Some(max_functions_number) =
-                self.config.limit_config.max_functions_number_per_contract
-            {
-                let functions_number = self.module.functions_space() as u64;
-                if functions_number > max_functions_number {
-                    return Err(PrepareError::TooManyFunctions);
-                }
-            }
-            Ok(self)
         }
 
         fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
