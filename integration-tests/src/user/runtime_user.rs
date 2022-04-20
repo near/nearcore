@@ -120,7 +120,6 @@ impl RuntimeUser {
             client
                 .tries
                 .apply_all(&apply_result.trie_changes, ShardUId::single_shard())
-                .unwrap()
                 .0
                 .commit()
                 .unwrap();

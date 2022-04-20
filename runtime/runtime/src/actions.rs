@@ -103,7 +103,7 @@ pub(crate) fn execute_function_call(
     // charge only for trie nodes touched during function calls.
     // TODO (#5920): Consider using RAII for switching the state back
     let protocol_version = runtime_ext.protocol_version();
-    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
     let result = near_vm_runner::run(
@@ -117,7 +117,7 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
-    if checked_feature!("protocol_feature_chunk_nodes_cache", ChunkNodesCache, protocol_version) {
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
 

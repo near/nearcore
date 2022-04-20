@@ -144,6 +144,7 @@
       "storage_iter_next_key_byte": 0,
       "storage_iter_next_value_byte": 0,
       "touching_trie_node": 16101955926,
+      "read_cached_trie_node": 2280000000,
       "promise_and_base": 1465013400,
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
@@ -178,12 +179,13 @@
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
-      "max_length_storage_key": 4194304,
+      "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
-      "wasmer2_stack_limit": 204800
+      "wasmer2_stack_limit": 204800,
+      "max_locals_per_contract": 1000000
     }
   },
   "account_creation_config": {
