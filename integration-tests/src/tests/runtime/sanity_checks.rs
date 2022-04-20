@@ -68,7 +68,12 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
 /// This test intends to catch accidental configuration changes, see #4961.
 #[test]
 fn test_cost_sanity() {
-    let node = setup_runtime_node_with_contract(near_test_contracts::rs_contract());
+    let test_contract = if cfg!(feature = "nightly_protocol") {
+        near_test_contracts::nightly_rs_contract()
+    } else {
+        near_test_contracts::rs_contract()
+    };
+    let node = setup_runtime_node_with_contract(test_contract);
     let data = serde_json::json!({
         "contract_code": to_base64(near_test_contracts::trivial_contract()),
         "method_name": "main",
@@ -214,7 +219,7 @@ macro_rules! generate_gas_profile {
 
 /// Returns the expected gas profile of `test-contract-rs` method `noop`.
 fn new_noop_gas_profile() -> Vec<CostGasUsed> {
-    if cfg!(nightly_protocol) {
+    if cfg!(feature = "nightly_protocol") {
         generate_gas_profile!(
             ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
             ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20485042500)
@@ -228,7 +233,7 @@ fn new_noop_gas_profile() -> Vec<CostGasUsed> {
 }
 
 fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
-    if cfg!(nightly_protocol) {
+    if cfg!(feature = "nightly_protocol") {
         vec![
             generate_gas_profile!(
                 ("ACTION_COST", "ADD_KEY", 101765125000),
