@@ -63,6 +63,7 @@ impl Scenario {
                 &genesis,
                 TrackedConfig::new_empty(),
                 runtime_config_store,
+                None,
             ))])
             .build();
 
