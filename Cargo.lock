@@ -3534,6 +3534,7 @@ dependencies = [
  "serde_json",
  "shell-escape",
  "state-viewer",
+ "thiserror",
  "tikv-jemallocator",
  "tokio",
  "tracing",

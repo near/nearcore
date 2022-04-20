@@ -52,9 +52,8 @@ impl LogConfigWatcher {
                 Ok(log_config) => {
                     println!("Changing env_filter to {:?}", log_config);
                     if let Err(err) = reload_env_filter(
-                        &log_config.rust_log,
-                        log_config.verbose_module.is_some(),
-                        &log_config.verbose_module,
+                        log_config.rust_log.as_deref(),
+                        log_config.verbose_module.as_deref(),
                     ) {
                         println!("Failed to reload env_filter: {:?}", err);
                     }
@@ -77,7 +76,7 @@ impl LogConfigWatcher {
             return;
         }
         println!("Resetting env_filter to RUST_LOG env variable.");
-        if let Err(err) = reload_env_filter(&None, false, &None) {
+        if let Err(err) = reload_env_filter(None, None) {
             println!("Failed to reload env_filter: {:?}", err);
         }
     }
