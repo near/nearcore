@@ -4851,6 +4851,7 @@ mod lower_storage_key_limit_test {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::new(None),
+                    None,
                 )) as Arc<dyn RuntimeAdapter>];
             let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
