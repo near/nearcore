@@ -4897,22 +4897,21 @@ mod lower_storage_key_limit_test {
         // Move to the new protocol version.
         {
             let tip = env.clients[0].chain.head().unwrap();
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&tip.last_block_hash)
-                .unwrap();
-            let block_producer = env.clients[0]
-                .runtime_adapter
-                .get_block_producer(&epoch_id, tip.height + 1)
-                .unwrap();
-            let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-            let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-            assert!(res.is_ok());
+            let mut last_block_hash = tip.last_block_hash;
+            for i in 0..2 * epoch_length {
+                let height = tip.height + i + 1;
+                let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
 
-            for i in 1..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
+                let epoch_id = env.clients[0]
+                    .runtime_adapter
+                    .get_epoch_id_from_prev_block(&last_block_hash)
+                    .unwrap();
+                let block_producer =
+                    env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
+                set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+
+                last_block_hash = *block.header().hash();
+                env.process_block(0, block, Provenance::PRODUCED);
             }
         }
 
