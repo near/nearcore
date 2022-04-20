@@ -50,19 +50,25 @@ struct ParameterComparisonLine {
     undercharging_ratio: f64,
 }
 
+/// Special import line to provide protocol version on-the-fly
+#[derive(Deserialize)]
+struct VersionLine {
+    version: u32,
+}
+
 impl Db {
     pub(crate) fn import_json_lines(
         &self,
-        info: &ImportConfig,
+        mut info: ImportConfig,
         input: impl BufRead,
     ) -> anyhow::Result<()> {
         for line in input.lines() {
-            self.import(info, &line?)?;
+            self.import(&mut info, &line?)?;
         }
         Ok(())
     }
 
-    fn import(&self, info: &ImportConfig, line: &str) -> anyhow::Result<()> {
+    fn import(&self, info: &mut ImportConfig, line: &str) -> anyhow::Result<()> {
         if let Ok(estimator_output) = serde_json::from_str::<EstimatorOutput>(line) {
             let commit_hash = info.commit_hash.as_ref().with_context(|| {
                 "Missing --commit-hash argument while importing estimation data".to_owned()
@@ -89,6 +95,8 @@ impl Db {
                 protocol_version,
             };
             row.insert(self)?;
+        } else if let Ok(param_line) = serde_json::from_str::<VersionLine>(line) {
+            info.protocol_version = Some(param_line.version);
         }
         Ok(())
     }

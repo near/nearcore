@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
             run_estimation(&db, &config)?;
         }
         SubCommand::Import(config) => {
-            db.import_json_lines(&config, io::stdin().lock())?;
+            db.import_json_lines(config, io::stdin().lock())?;
         }
         SubCommand::Check(config) => {
             check(&db, &config)?;

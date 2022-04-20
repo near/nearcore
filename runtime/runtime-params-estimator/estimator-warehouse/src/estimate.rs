@@ -72,10 +72,10 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
 
         let estimation_output =
             cmd!(sh,
-                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} {maybe_drop_cache...} --metric time"
+                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --compare-to-config --home {estimator_home} {maybe_drop_cache...} --metric time"
             ).read()?;
         db.import_json_lines(
-            &ImportConfig { commit_hash: Some(commit_hash.clone()), protocol_version: None },
+            ImportConfig { commit_hash: Some(commit_hash.clone()), protocol_version: None },
             estimation_output.as_bytes(),
         )?;
     }
@@ -84,10 +84,10 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     {
         let estimation_output =
             cmd!(sh,
-                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --docker --full"
+                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --compare-to-config --home {estimator_home} --metric icount --docker --full"
             ).read()?;
         db.import_json_lines(
-            &ImportConfig { commit_hash: Some(commit_hash), protocol_version: None },
+            ImportConfig { commit_hash: Some(commit_hash), protocol_version: None },
             estimation_output.as_bytes(),
         )?;
     }

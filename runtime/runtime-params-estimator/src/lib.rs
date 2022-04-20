@@ -269,6 +269,11 @@ pub fn compare_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<()> {
     let config = store.get_config(PROTOCOL_VERSION);
     let estimated_config = costs_to_runtime_config(cost_table)?;
 
+    let version_json = json!({
+        "version": PROTOCOL_VERSION,
+    });
+    println!("{version_json}");
+
     for param in EstimatedParameter::all() {
         let name = param.fully_qualified_name();
         let parameter_value = param.parameter_value(config);
