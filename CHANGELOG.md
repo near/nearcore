@@ -1,13 +1,15 @@
 # Changelog
 
 ## [unreleased]
-* increasing max_gas_burnt from 200TGas to 300Tgas, allowing larger transactions.
-* increasing `action_creation_config.deploy_contract_cost_per_byte.execution`
 
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions [#5482](https://github.com/near/nearcore/pull/5482)
-* Include `promise_batch_action_function_call_weight` host function on the runtime. [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
+* Include `promise_batch_action_function_call_weight` host function on the runtime [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
+* Increase deployment cost [#6397](https://github.com/near/nearcore/pull/6397)
+* Limit the number of locals per contract to 1_000_000
+* Ensure caching all nodes in the chunk for which touching trie node cost was charged, reduce cost of future reads in a chunk [#6628](https://github.com/near/nearcore/pull/6628)
+* Lower storage key limit to 2 KiB
 
 ### Non-protocol Changes
 
