@@ -4,7 +4,6 @@ mod network;
 mod runtime;
 mod standard_cases;
 mod test_catchup;
-mod test_download_file;
 mod test_errors;
 mod test_overflows;
 mod test_simple;

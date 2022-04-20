@@ -39,6 +39,7 @@ use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
+mod download_file;
 mod metrics;
 pub mod migrations;
 mod runtime;
