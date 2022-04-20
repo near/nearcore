@@ -19,10 +19,10 @@ pub enum LogSummaryStyle {
 }
 
 /// Minimum number of epochs for which we keep store data
-pub const MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 3;
+pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
 /// Default number of epochs for which we keep store data
-pub const DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
+pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -38,8 +38,8 @@ pub struct GCConfig {
     pub gc_fork_clean_step: u64,
 
     /// Number of epochs for which we keep store data.
-    #[serde(default = "default_num_epochs_to_keep_store_data")]
-    pub num_epochs_to_keep_store_data: u64,
+    #[serde(default = "default_gc_num_epochs_to_keep")]
+    pub gc_num_epochs_to_keep: u64,
 }
 
 impl Default for GCConfig {
@@ -47,7 +47,7 @@ impl Default for GCConfig {
         Self {
             gc_blocks_limit: 5,
             gc_fork_clean_step: 1000,
-            num_epochs_to_keep_store_data: DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
+            gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         }
     }
 }
@@ -60,13 +60,13 @@ fn default_gc_fork_clean_step() -> u64 {
     GCConfig::default().gc_fork_clean_step
 }
 
-fn default_num_epochs_to_keep_store_data() -> u64 {
-    GCConfig::default().num_epochs_to_keep_store_data()
+fn default_gc_num_epochs_to_keep() -> u64 {
+    GCConfig::default().gc_num_epochs_to_keep()
 }
 
 impl GCConfig {
-    pub fn num_epochs_to_keep_store_data(&self) -> u64 {
-        max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA, self.num_epochs_to_keep_store_data)
+    pub fn gc_num_epochs_to_keep(&self) -> u64 {
+        max(MIN_GC_NUM_EPOCHS_TO_KEEP, self.gc_num_epochs_to_keep)
     }
 }
 

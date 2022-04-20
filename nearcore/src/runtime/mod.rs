@@ -13,7 +13,7 @@ use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
-use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::EpochManager;
 use near_pool::types::PoolIterator;
@@ -140,7 +140,7 @@ pub struct NightshadeRuntime {
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
-    num_epochs_to_keep_store_data: u64,
+    gc_num_epochs_to_keep: u64,
 }
 
 impl NightshadeRuntime {
@@ -159,7 +159,7 @@ impl NightshadeRuntime {
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
             None,
-            config.config.gc.num_epochs_to_keep_store_data(),
+            config.config.gc.gc_num_epochs_to_keep(),
         )
     }
 
@@ -171,7 +171,7 @@ impl NightshadeRuntime {
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
-        num_epochs_to_keep_store_data: u64,
+        gc_num_epochs_to_keep: u64,
     ) -> Self {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -211,8 +211,8 @@ impl NightshadeRuntime {
             shard_tracker,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
-            num_epochs_to_keep_store_data: num_epochs_to_keep_store_data
-                .max(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
+            gc_num_epochs_to_keep: gc_num_epochs_to_keep
+                .max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         }
     }
 
@@ -222,7 +222,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-        num_epochs_to_keep_store_data: Option<u64>,
+        gc_num_epochs_to_keep: Option<u64>,
     ) -> Self {
         Self::new(
             home_dir,
@@ -232,7 +232,7 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            num_epochs_to_keep_store_data.unwrap_or(MIN_NUM_EPOCHS_TO_KEEP_STORE_DATA),
+            gc_num_epochs_to_keep.unwrap_or(MIN_GC_NUM_EPOCHS_TO_KEEP),
         )
     }
 
@@ -1232,7 +1232,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             // maintain pointers to avoid cloning.
             let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             let mut epoch_start_height = *epoch_first_block_info.height();
-            for _ in 0..self.num_epochs_to_keep_store_data - 1 {
+            for _ in 0..self.gc_num_epochs_to_keep - 1 {
                 let epoch_first_block =
                     *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
@@ -1976,7 +1976,7 @@ mod test {
 
     use num_rational::Rational;
 
-    use near_chain_configs::DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA;
+    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
@@ -2156,7 +2156,7 @@ mod test {
                 None,
                 None,
                 Some(RuntimeConfigStore::free()),
-                DEFAULT_NUM_EPOCHS_TO_KEEP_STORE_DATA,
+                DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
