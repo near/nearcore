@@ -8,7 +8,7 @@
 * Include `promise_batch_action_function_call_weight` host function on the runtime [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
 * Increase deployment cost [#6397](https://github.com/near/nearcore/pull/6397)
 * Limit the number of locals per contract to 1_000_000
-* Ensure caching all nodes in the chunk for which touching trie node cost was charged, reduce cost for the following accesses in a chunk [#6628](https://github.com/near/nearcore/pull/6628)
+* Ensure caching all nodes in the chunk for which touching trie node cost was charged, reduce cost of future reads in a chunk [#6628](https://github.com/near/nearcore/pull/6628)
 * Lower storage key limit to 2 KiB
 
 ### Non-protocol Changes
