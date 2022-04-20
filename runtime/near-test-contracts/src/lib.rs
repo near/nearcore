@@ -36,7 +36,8 @@ pub fn rs_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
 }
 
-/// Standard test contract which is compatible with the oldest protocol version.
+/// Standard test contract which is compatible any protocol version, including
+/// the oldest one.
 ///
 /// This is useful for tests that use a specific protocol version rather then
 /// just the latest one. In particular, protocol upgrade tests should use this
