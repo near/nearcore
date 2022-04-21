@@ -11,7 +11,6 @@ repository = "https://github.com/near/nearcore"
 description = "A fork of the lighthouse_metrics crate used to implement prometheus"
 
 [dependencies]
-lazy_static = "1.4"
 prometheus = "0.11"
 tracing = "0.1.13"
 
