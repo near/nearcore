@@ -624,13 +624,20 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let db = RocksDB::new(path, &StoreConfig::read_only())?;
-        db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
-            serde_json::from_slice(
-                &result
-                    .expect("Failed to find version in first column. Database must be corrupted."),
-            )
-            .expect("Failed to parse version. Database must be corrupted.")
+        let value = RocksDB::new(path, &StoreConfig::read_only())?
+            .get(DBCol::ColDbVersion, VERSION_KEY)?
+            .ok_or_else(|| {
+                DBError(
+                    "Failed to read database version; \
+                     it’s not a neard database or database is corrupted."
+                        .into(),
+                )
+            })?;
+        serde_json::from_slice(&value).map_err(|_err| {
+            DBError(format!(
+                "Failed to parse database version: {value:?}; \
+                 it’s not a neard database or database is corrupted."
+            ))
         })
     }
 
