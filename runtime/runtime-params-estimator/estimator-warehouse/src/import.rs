@@ -146,7 +146,7 @@ mod test {
             commit_hash: Some("53a3ccf3ef07".to_owned()),
             protocol_version: Some(0),
         };
-        assert_import(input, &info, &expected, Metric::Time);
+        assert_import(input, info, &expected, Metric::Time);
     }
     #[test]
     fn test_import_icount() {
@@ -182,23 +182,20 @@ mod test {
             commit_hash: Some("53a3ccf3ef07".to_owned()),
             protocol_version: Some(0),
         };
-        assert_import(input, &info, &expected, Metric::ICount);
+        assert_import(input, info, &expected, Metric::ICount);
     }
     #[track_caller]
     fn assert_import(
         input: &str,
-        info: &ImportConfig,
+        info: ImportConfig,
         expected_output: &[EstimationRow],
         metric: Metric,
     ) {
         let db = Db::test();
+        let commit = info.commit_hash.clone().unwrap();
         db.import_json_lines(info, input.as_bytes()).unwrap();
-        let output = EstimationRow::select_by_commit_and_metric(
-            &db,
-            info.commit_hash.as_ref().unwrap(),
-            metric,
-        )
-        .unwrap();
+        let output =
+            EstimationRow::select_by_commit_and_metric(&db, commit.as_ref(), metric).unwrap();
         assert_eq!(expected_output, output);
     }
 
