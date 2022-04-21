@@ -1,4 +1,4 @@
-use crate::log_config_watcher::{spawn_log_config_watcher, LogConfigWatcher};
+use crate::log_config_watcher::spawn_log_config_watcher;
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
@@ -419,14 +419,20 @@ impl RunCmd {
 
         let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
-        let log_config_watcher =
-            LogConfigWatcher::new(home_dir, near_config.config.log_config.clone());
         sys.block_on(async move {
-            spawn_log_config_watcher(log_config_watcher);
+            let watched_path = if let Some(ref log_config) = &near_config.config.log_config {
+                Some(home_dir.join(log_config))
+            } else {
+                None
+            };
 
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
+
+            if cfg!(unix) {
+                spawn_log_config_watcher(watched_path);
+            }
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};

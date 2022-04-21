@@ -135,7 +135,7 @@ pub fn reload_env_filter(
 ) -> Result<(), ReloadError> {
     ENV_FILTER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
         let mut builder = rust_log.map_or_else(
-            || EnvFilterBuilder::default(),
+            || EnvFilterBuilder::from_env(),
             |rust_log| EnvFilterBuilder::new(rust_log),
         );
         if let Some(module) = verbose_module {
@@ -196,14 +196,5 @@ impl<'a> EnvFilterBuilder<'a> {
             };
         }
         Ok(env_filter)
-    }
-}
-
-impl<'a> Default for EnvFilterBuilder<'a> {
-    /// Create the `EnvFilter` from the given logging directives or the [`DEFAULT_RUST_LOG`] value if no directives are given
-    ///
-    /// This method will not inspect the `RUST_LOG` environment variable.
-    fn default() -> Self {
-        Self { rust_log: Cow::Borrowed(DEFAULT_RUST_LOG), verbose: None }
     }
 }
