@@ -16,6 +16,14 @@ pub static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+pub static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_received_by_type_bytes",
+        "Total data received from peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
 pub static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_peer_message_received_total",
@@ -126,19 +134,11 @@ impl NetworkMetrics {
                 .iter()
                 .filter(|&name| *name != "Routed")
                 .chain(RoutedMessageBody::VARIANTS.iter())
-                .flat_map(|name: &&str| {
-                    [
-                        NetworkMetrics::peer_message_total_rx,
-                        NetworkMetrics::peer_message_bytes_rx,
-                        NetworkMetrics::peer_message_dropped,
-                    ]
-                    .into_iter()
-                    .filter_map(|method| {
-                        let counter_name = method(name);
-                        try_create_int_counter(&counter_name, &counter_name)
-                            .ok()
-                            .map(|counter| (counter_name, counter))
-                    })
+                .filter_map(|name: &&str| {
+                    let counter_name = Self::peer_message_dropped(name);
+                    try_create_int_counter(&counter_name, &counter_name)
+                        .ok()
+                        .map(|counter| (counter_name, counter))
                 })
                 .collect(),
             broadcast_messages: do_create_int_counter_vec(
@@ -147,14 +147,6 @@ impl NetworkMetrics {
                 &["type"],
             ),
         }
-    }
-
-    pub fn peer_message_total_rx(message_name: &str) -> String {
-        format!("near_{}_total", message_name.to_lowercase())
-    }
-
-    pub fn peer_message_bytes_rx(message_name: &str) -> String {
-        format!("near_{}_bytes", message_name.to_lowercase())
     }
 
     pub fn peer_message_dropped(message_name: &str) -> String {
@@ -167,11 +159,6 @@ impl NetworkMetrics {
         }
     }
 
-    pub fn inc_by(&self, message_name: &str, value: u64) {
-        if let Some(counter) = self.peer_messages.get(message_name) {
-            counter.inc_by(value);
-        }
-    }
     pub fn inc_broadcast(&self, message_name: &str) {
         self.broadcast_messages.with_label_values(&[message_name]).inc();
     }
