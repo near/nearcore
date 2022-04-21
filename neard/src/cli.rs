@@ -419,19 +419,17 @@ impl RunCmd {
         let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
-            let watched_path = if let Some(ref log_config) = &near_config.config.log_config {
-                Some(home_dir.join(log_config))
-            } else {
-                None
-            };
+            // `SIGHUP` lets user inform the process that the logging config has changed and
+            // EnvFilter needs to be reinitialized.
+            if cfg!(unix) {
+                if let Some(ref log_config) = &near_config.config.log_config {
+                    spawn_log_config_watcher(home_dir.join(log_config));
+                };
+            }
 
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
-
-            if cfg!(unix) {
-                spawn_log_config_watcher(watched_path);
-            }
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
