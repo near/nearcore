@@ -89,6 +89,9 @@ pub struct VMLimitConfig {
     /// This limit should never be hit normally.
     #[serde(default = "wasmer2_stack_limit_default")]
     pub wasmer2_stack_limit: i32,
+    /// If present, stores max number of locals declared globally in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_locals_per_contract: Option<u64>,
 }
 
 fn wasmer2_stack_limit_default() -> i32 {
@@ -182,6 +185,7 @@ impl VMConfig {
 
 impl VMLimitConfig {
     pub fn test() -> Self {
+        let max_contract_size = 4 * 2u64.pow(20);
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
 
@@ -215,7 +219,7 @@ impl VMLimitConfig {
             max_length_method_name: 256,            // basic safety limit
             max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
-            max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+            max_contract_size,                      // 4 Mib,
             max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
@@ -224,8 +228,12 @@ impl VMLimitConfig {
             max_promises_per_function_call_action: 1024,
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
-            max_functions_number_per_contract: None,
+            max_functions_number_per_contract: Some(10000),
             wasmer2_stack_limit: 200 * 1024,
+            // To utilize a local in an useful way, at least two `local.*` instructions are
+            // necessary (they only take constant operands indicating the local to access), which
+            // is 4 bytes worth of code for each local.
+            max_locals_per_contract: Some(max_contract_size / 4),
         }
     }
 }
@@ -604,7 +612,6 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
-    #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
     read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
@@ -692,7 +699,6 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
-            #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
             read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,

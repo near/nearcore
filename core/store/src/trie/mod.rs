@@ -783,7 +783,7 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
         let trie_changes = trie.update(root, other_delete_changes.drain(..)).unwrap();
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), Ok(None));

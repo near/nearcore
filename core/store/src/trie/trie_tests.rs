@@ -229,7 +229,7 @@ mod caching_storage_tests {
                 rc: 1,
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().unwrap();
         tries.get_store()
     }

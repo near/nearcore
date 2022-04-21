@@ -47,12 +47,12 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 # wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.2.0", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.2.0", optional = true }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.2.0", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.2.0", optional = true, features = ["compiler"] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.2.0", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.2.0", optional = true }
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.2.2", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.2.2", optional = true }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.2.2", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.2.2", optional = true, features = ["compiler"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.2.2", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.2.2", optional = true }
 
 
 [dev-dependencies]
@@ -93,9 +93,11 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
-protocol_feature_chunk_nodes_cache = ["near-vm-logic/protocol_feature_chunk_nodes_cache", "near-primitives/protocol_feature_chunk_nodes_cache"]
 
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol_features = [
+    "near-primitives/nightly_protocol_features",
+    "protocol_feature_alt_bn128",
+]
 sandbox = ["near-vm-logic/sandbox"]
 
 [package.metadata.cargo-udeps.ignore]

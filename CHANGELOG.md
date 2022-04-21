@@ -1,20 +1,24 @@
 # Changelog
 
 ## [unreleased]
-* increasing max_gas_burnt from 200TGas to 300Tgas, allowing larger transactions.
-* increasing `action_creation_config.deploy_contract_cost_per_byte.execution`
 
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions [#5482](https://github.com/near/nearcore/pull/5482)
-* Include `promise_batch_action_function_call_weight` host function on the runtime. [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
+* Include `promise_batch_action_function_call_weight` host function on the runtime [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
+* Increase deployment cost [#6397](https://github.com/near/nearcore/pull/6397)
+* Limit the number of locals per contract to 1_000_000
+* Ensure caching all nodes in the chunk for which touching trie node cost was charged, reduce cost of future reads in a chunk [#6628](https://github.com/near/nearcore/pull/6628)
+* Lower storage key limit to 2 KiB
 
 ### Non-protocol Changes
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
 * Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
+* Safe DB migrations using RocksDB checkpoints [#6282](https://github.com/near/nearcore/pull/6282)
 * [NEP205](https://github.com/near/NEPs/issues/205): Configurable start of protocol upgrade voting [#6309](https://github.com/near/nearcore/pull/6309)
 * Make max_open_files and col_state_cache_size parameters configurable [#6584](https://github.com/near/nearcore/pull/6584)
+* Make RocksDB block_size configurable [#6631](https://github.com/near/nearcore/pull/6631)
 * Increase default max_open_files RocksDB parameter from 512 to 10k [#6607](https://github.com/near/nearcore/pull/6607)
 * Use kebab-case names for neard subcommands to make them consistent with flag names.  snake_case names are still valid for existing subcommands but kebab-case will be used for new commands.
 

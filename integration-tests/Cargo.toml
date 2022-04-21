@@ -21,7 +21,6 @@ chrono = { version = "0.4.4", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive"] }
 futures = "0.3"
 hex = "0.4"
-hyper = { version = "0.14", features = ["full"] }
 once_cell = "1.5"
 parking_lot = "0.11.2"
 primitive-types = "0.10.1"
@@ -63,7 +62,6 @@ near-logger-utils = { path = "../test-utils/logger" }
 [dev-dependencies]
 assert_matches = "1.3"
 near-logger-utils = { path = "../test-utils/logger" }
-portpicker = "0.1.1"
 
 [features]
 performance_stats = [
@@ -85,16 +83,11 @@ protocol_feature_access_key_nonce_for_implicit_accounts = [
   "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
   "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
 ]
-protocol_feature_chunk_nodes_cache = [
-  "node-runtime/protocol_feature_chunk_nodes_cache",
-  "near-primitives/protocol_feature_chunk_nodes_cache"
-]
 nightly_protocol_features = [
   "nearcore/nightly_protocol_features",
   "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
-  "protocol_feature_chunk_nodes_cache",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [

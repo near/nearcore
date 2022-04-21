@@ -150,6 +150,8 @@ pub enum PrepareError {
     Memory,
     /// Contract contains too many functions.
     TooManyFunctions,
+    /// Contract contains too many locals.
+    TooManyLocals,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -286,18 +288,17 @@ impl fmt::Display for VMLogicError {
 impl fmt::Display for PrepareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
-        match self {
-            Serialization => write!(f, "Error happened while serializing the module."),
-            Deserialization => write!(f, "Error happened while deserializing the module."),
-            InternalMemoryDeclared => {
-                write!(f, "Internal memory declaration has been found in the module.")
-            }
-            GasInstrumentation => write!(f, "Gas instrumentation failed."),
-            StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
-            Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory."),
-            TooManyFunctions => write!(f, "Too many functions in contract."),
-        }
+        f.write_str(match self {
+            Serialization => "Error happened while serializing the module.",
+            Deserialization => "Error happened while deserializing the module.",
+            InternalMemoryDeclared => "Internal memory declaration has been found in the module.",
+            GasInstrumentation => "Gas instrumentation failed.",
+            StackHeightInstrumentation => "Stack instrumentation failed.",
+            Instantiate => "Error happened during instantiation.",
+            Memory => "Error creating memory.",
+            TooManyFunctions => "Too many functions in contract.",
+            TooManyLocals => "Too many locals declared in the contract.",
+        })
     }
 }
 

@@ -142,7 +142,7 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
-fn ensure_max_open_files_limit(max_open_files: i32) -> () {
+fn ensure_max_open_files_limit(max_open_files: u32) -> () {
     // We’re configuring each RocksDB to use max_open_files file descriptors. On top of that we can
     // have some other file descriptors opened by neard process so we use the value of
     // max_open_files + some constant to be sure that the binary can correctly run.
@@ -500,7 +500,7 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files);
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
@@ -539,9 +539,9 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
+fn rocksdb_block_based_options(block_size: usize, cache_size: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(16 * bytesize::KIB as usize);
+    block_opts.set_block_size(block_size);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
@@ -562,7 +562,10 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col, &store_config);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(
+        store_config.block_size,
+        cache_size,
+    ));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
