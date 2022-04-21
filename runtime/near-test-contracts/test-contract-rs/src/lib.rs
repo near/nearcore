@@ -920,7 +920,7 @@ pub unsafe fn sanity_check() {
     let balance = [0u8; size_of::<u128>()];
     account_balance(balance.as_ptr() as u64);
     attached_deposit(balance.as_ptr() as u64);
-    let gas = prepaid_gas() - used_gas();
+    let available_gas = prepaid_gas() - used_gas();
 
     // ############
     // # Math API #
@@ -938,7 +938,7 @@ pub unsafe fn sanity_check() {
     let method_name_panic = b"sanity_check_panic";
     let args_panic = b"";
     let amount_zero = 0u128;
-    let gas_per_promise = gas / 50;
+    let gas_per_promise = available_gas / 50;
     assert_eq!(
         promise_create(
             account_id.len() as u64,
@@ -1044,6 +1044,17 @@ pub unsafe fn sanity_check() {
         args_deployed_contract.as_ptr() as u64,
         &amount_zero as *const u128 as *const u64 as u64,
         gas_per_promise,
+    );
+    #[cfg(feature = "latest_protocol")]
+    promise_batch_action_function_call_weight(
+        batch_promise_idx,
+        method_deployed_contract.len() as u64,
+        method_deployed_contract.as_ptr() as u64,
+        args_deployed_contract.len() as u64,
+        args_deployed_contract.as_ptr() as u64,
+        &amount_zero as *const u128 as *const u64 as u64,
+        0,
+        1,
     );
     promise_batch_action_add_key_with_full_access(
         batch_promise_idx,
@@ -1166,6 +1177,8 @@ pub unsafe fn sanity_check() {
     assert_eq!(storage_remove(key.len() as u64, key.as_ptr() as u64, 1), 1);
 
     // Note: Deprecated functions storage_iter_* are skipped.
+
+    gas(1);
 
     // #################
     // # Validator API #
