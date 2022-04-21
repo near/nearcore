@@ -115,7 +115,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
 
 /// Function checks current version of the database and applies migrations to the database.
 fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
-    let db_version = get_store_version(&path);
+    let db_version = get_store_version(&path)?;
     if db_version == near_primitives::version::DB_VERSION {
         return Ok(());
     }
@@ -332,7 +332,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
 
     #[cfg(not(feature = "nightly_protocol"))]
     {
-        let db_version = get_store_version(&path);
+        let db_version = get_store_version(&path)?;
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
 
@@ -542,7 +542,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let db_version = get_store_version(&src_dir);
+    let db_version = get_store_version(&src_dir)?;
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
         "{}: expected DB version {} but got {}",

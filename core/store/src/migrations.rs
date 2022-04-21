@@ -26,7 +26,7 @@ use near_primitives::utils::{
 };
 use near_primitives::version::DbVersion;
 
-use crate::db::{RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
+use crate::db::{DBError, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
@@ -44,8 +44,8 @@ use std::path::Path;
 pub mod v6_to_v7;
 pub mod v8_to_v9;
 
-pub fn get_store_version(path: &Path) -> DbVersion {
-    RocksDB::get_version(path).expect("Failed to open the database")
+pub fn get_store_version(path: &Path) -> Result<DbVersion, DBError> {
+    RocksDB::get_version(path)
 }
 
 fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
