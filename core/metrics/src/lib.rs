@@ -54,11 +54,16 @@
 //!         RUN_COUNT.inc();
 //!         let timer = RUN_TIME.start_timer();
 //!         for j in 0..10 {
-//!             current_value.set(j);
+//!             CURRENT_VALUE.set(j);
 //!             println!("Howdy partner");
 //!         }
 //!         timer.observe_duration();
 //!     }
+//!
+//!     assert_eq!(100, RUN_COUNT.get());
+//!     assert_eq!(9, CURRENT_VALUE.get());
+//!     assert_eq!(100, RUN_TIME.get_sample_count());
+//!     assert!(0.0 < RUN_TIME.get_sample_sum());
 //! }
 //! ```
 
