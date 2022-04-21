@@ -3306,6 +3306,7 @@ dependencies = [
  "base64 0.13.0",
  "clap 3.1.6",
  "hex",
+ "lazy-static-include",
  "near-primitives",
  "near-primitives-core",
  "near-test-contracts",
