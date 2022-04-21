@@ -157,11 +157,11 @@ impl InfoHelper {
 
         info!(
             target: "stats", "{}{}{}{}{}",
-            paint(ansi_term::Colour::Yellow, sync_status_log),
-            paint(ansi_term::Colour::White, validator_info_log),
-            paint(ansi_term::Colour::Cyan, network_info_log),
-            paint(ansi_term::Colour::Green, blocks_info_log),
-            paint(ansi_term::Colour::Blue, machine_info_log),
+            paint(ansi_term::Colour::Yellow, sync_status_log.clone()),
+            paint(ansi_term::Colour::White, validator_info_log.clone()),
+            paint(ansi_term::Colour::Cyan, network_info_log.clone()),
+            paint(ansi_term::Colour::Green, blocks_info_log.clone()),
+            paint(ansi_term::Colour::Blue, machine_info_log.clone()),
         );
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
