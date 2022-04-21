@@ -27,21 +27,21 @@
 //! use near_metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
-//! pub static ref RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+//! pub static RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {
 //!     try_create_int_counter(
 //!         "runs_total",
 //!         "Total number of runs",
 //!     )
 //!     .unwrap()
 //! };
-//! pub static ref CURRENT_VALUE: Lazy<IntGauge> = Lazy::new(|| {
+//! pub static CURRENT_VALUE: Lazy<IntGauge> = Lazy::new(|| {
 //!     try_create_int_gauge(
 //!         "current_value",
 //!         "The current value",
 //!     )
 //!     .unwrap()
 //! };
-//! pub static ref RUN_TIME: Lazy<Histogram> = Lazy::new(|| {
+//! pub static RUN_TIME: Lazy<Histogram> = Lazy::new(|| {
 //!     try_create_histogram(
 //!         "run_seconds",
 //!         "Time taken (measured to high precision)",
@@ -57,7 +57,7 @@
 //!             current_value.set(j);
 //!             println!("Howdy partner");
 //!         }
-//!         timer.obsorve_duration();
+//!         timer.observe_duration();
 //!     }
 //! }
 //! ```

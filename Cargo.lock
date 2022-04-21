@@ -2938,6 +2938,7 @@ name = "near-metrics"
 version = "0.0.0"
 dependencies = [
  "lazy_static",
+ "once_cell",
  "prometheus",
  "tracing",
 ]
