@@ -363,6 +363,11 @@ def poll_blocks(node: cluster.LocalNode,
     while time.monotonic() < end:
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
+            if __target:
+                msg = f'{latest}  (waiting for #{__target})')
+            else:
+                msg = str(latest)
+            logger.info(msg)
             yield latest
             previous = latest.height
             if start_height == -1:
@@ -423,7 +428,6 @@ def wait_for_blocks(node: cluster.LocalNode,
     if timeout is None:
         timeout = max(10, count * 5)
     for latest in poll_blocks(node, timeout=timeout, __target=target, **kw):
-        logger.info(f'{latest}  (waiting for #{target})')
         if latest.height >= target:
             return latest
 
