@@ -905,8 +905,10 @@ pub unsafe fn sanity_check() {
     let account_public_key = vec![0u8; register_len(1) as usize];
     read_register(1, account_public_key.as_ptr() as u64);
 
-    // input() already called when reading the input of the contract call
     signer_account_id(1);
+    predecessor_account_id(1);
+
+    // input() already called when reading the input of the contract call
     let _ = block_index();
     let _ = block_timestamp();
     let _ = epoch_height();
@@ -1172,6 +1174,52 @@ pub unsafe fn sanity_check() {
     let validator_id = input_args["validator_id"].as_str().unwrap().as_bytes();
     validator_stake(validator_id.len() as u64, validator_id.as_ptr() as u64, stake.as_ptr() as u64);
     validator_total_stake(stake.as_ptr() as u64);
+
+    // ###################
+    // # Math Extensions #
+    // ###################
+    #[cfg(feature = "latest_protocol")]
+    {
+        let buffer = [65u8; 10];
+        ripemd160(buffer.len() as u64, buffer.as_ptr() as u64, 1);
+    }
+
+    // #################
+    // # alt_bn128 API #
+    // #################
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    {
+        let buffer: [u8; 96] = [
+            16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,
+            8, 45, 14, 153, 125, 217, 227, 87, 238, 238, 31, 138, 226, 8, 238, 185, 12, 155, 93,
+            126, 144, 248, 200, 177, 46, 245, 40, 162, 169, 80, 150, 211, 157, 13, 10, 36, 44, 232,
+            173, 32, 32, 115, 123, 2, 9, 47, 190, 148, 181, 91, 69, 6, 83, 40, 65, 222, 251, 70,
+            81, 73, 60, 142, 130, 217, 176, 20, 69, 75, 40, 167, 41, 180, 244, 5, 142, 215, 135,
+            35,
+        ];
+        alt_bn128_g1_multiexp(buffer.len() as u64, buffer.as_ptr() as u64, 1);
+        let buffer: [u8; 65] = [
+            0, 11, 49, 94, 29, 152, 111, 116, 138, 248, 2, 184, 8, 159, 80, 169, 45, 149, 48, 32,
+            49, 37, 6, 133, 105, 171, 194, 120, 44, 195, 17, 180, 35, 137, 154, 4, 192, 211, 244,
+            93, 200, 2, 44, 0, 64, 26, 108, 139, 147, 88, 235, 242, 23, 253, 52, 110, 236, 67, 99,
+            176, 2, 186, 198, 228, 25,
+        ];
+        alt_bn128_g1_sum(buffer.len() as u64, buffer.as_ptr() as u64, 1);
+        let buffer: [u8; 192] = [
+            80, 12, 4, 181, 61, 254, 153, 52, 127, 228, 174, 24, 144, 95, 235, 26, 197, 188, 219,
+            91, 4, 47, 98, 98, 202, 199, 94, 67, 211, 223, 197, 21, 65, 221, 184, 75, 69, 202, 13,
+            56, 6, 233, 217, 146, 159, 141, 116, 208, 81, 224, 146, 124, 150, 114, 218, 196, 192,
+            233, 253, 31, 130, 152, 144, 29, 34, 54, 229, 82, 80, 13, 200, 53, 254, 193, 250, 1,
+            205, 60, 38, 172, 237, 29, 18, 82, 187, 98, 113, 152, 184, 251, 223, 42, 104, 148, 253,
+            25, 79, 39, 165, 18, 195, 165, 215, 155, 168, 251, 250, 2, 215, 214, 193, 172, 187, 84,
+            54, 168, 27, 100, 161, 155, 144, 95, 199, 238, 88, 238, 202, 46, 247, 97, 33, 56, 78,
+            174, 171, 15, 245, 5, 121, 144, 88, 81, 102, 133, 118, 222, 81, 214, 74, 169, 27, 91,
+            27, 23, 80, 55, 43, 97, 101, 24, 168, 29, 75, 136, 229, 2, 55, 77, 60, 200, 227, 210,
+            172, 194, 232, 45, 151, 46, 248, 206, 193, 250, 145, 84, 78, 176, 74, 210, 0, 106, 168,
+            30,
+        ];
+        alt_bn128_pairing_check(buffer.len() as u64, buffer.as_ptr() as u64);
+    }
 }
 
 /// Callback for a promise created in `sanity_check`. It calls host functions
