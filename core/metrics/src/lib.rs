@@ -33,21 +33,21 @@
 //!         "Total number of runs",
 //!     )
 //!     .unwrap()
-//! };
+//! });
 //! pub static CURRENT_VALUE: Lazy<IntGauge> = Lazy::new(|| {
 //!     try_create_int_gauge(
 //!         "current_value",
 //!         "The current value",
 //!     )
 //!     .unwrap()
-//! };
+//! });
 //! pub static RUN_TIME: Lazy<Histogram> = Lazy::new(|| {
 //!     try_create_histogram(
 //!         "run_seconds",
 //!         "Time taken (measured to high precision)",
 //!     )
 //!     .unwrap()
-//! };
+//! });
 //!
 //! fn main() {
 //!     for i in 0..100 {
