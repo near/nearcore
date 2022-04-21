@@ -39,6 +39,7 @@ use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
+mod download_file;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -94,16 +95,14 @@ const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
 
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.
-fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
+fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result<PathBuf> {
     let checkpoint_path = db_checkpoint_path(path, near_config);
-    if checkpoint_path.exists() {
-        return Err(anyhow::anyhow!(
+    anyhow::ensure!(!checkpoint_path.exists(),
             "Detected an existing database migration snapshot: '{}'.\n\
              Probably a database migration got interrupted and your database is corrupted.\n\
              Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
-            checkpoint_path.display(),
-            path.display()));
-    }
+                    checkpoint_path.display(),
+                    path.display());
 
     let db = RocksDB::new(&path, &near_config.config.store)?;
     let checkpoint = db.checkpoint()?;
@@ -115,39 +114,29 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
-    let db_version = get_store_version(&path);
-    if db_version > near_primitives::version::DB_VERSION {
-        error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
-        std::process::exit(1);
-    }
-
+fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
+    let db_version = get_store_version(&path)?;
     if db_version == near_primitives::version::DB_VERSION {
-        return;
+        return Ok(());
     }
+    anyhow::ensure!(
+        db_version < near_primitives::version::DB_VERSION,
+        "DB version {db_version} is created by a newer version of neard, \
+         please update neard"
+    );
 
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        match create_db_checkpoint(path, near_config) {
-            Ok(checkpoint_path) => {
-                info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
-                Some(checkpoint_path)
-            }
-            Err(err) => {
-                panic!(
-                    "Failed to create a database migration snapshot:\n\
-                     {}\n\
-                     Please consider fixing this issue and retrying.\n\
-                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
-                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
-                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                     \t\"use_db_migration_snapshot\": false,\n\
-                     ",
-                    err
-                );
-            }
-        }
+        let checkpoint_path = create_db_checkpoint(path, near_config).context(
+            "Failed to create a database migration snapshot.\n\
+             You can change the location of the snapshot by adjusting `config.json`:\n\
+             \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+             Alternatively, you can disable database migration snapshots in `config.json`:\n\
+             \t\"use_db_migration_snapshot\": false,",
+        )?;
+        info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
+        Some(checkpoint_path)
     } else {
         None
     };
@@ -343,7 +332,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
 
     #[cfg(not(feature = "nightly_protocol"))]
     {
-        let db_version = get_store_version(&path);
+        let db_version = get_store_version(&path)?;
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
 
@@ -356,6 +345,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
             }
             Err(err) => {
                 error!(
+                    target: "near",
                     "Failed to delete the database migration snapshot at '{}'.\n\
                     \tError: {:#?}.\n\
                     \n\
@@ -365,20 +355,22 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
             }
         }
     }
+
+    Ok(())
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
+fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
-        apply_store_migrations(&path, near_config);
+        apply_store_migrations(&path, near_config)?;
     }
     let store =
         create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
-    store
+    Ok(store)
 }
 
 pub struct NearNode {
@@ -388,7 +380,7 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
     start_with_config_and_synchronization(home_dir, config, None)
 }
 
@@ -398,8 +390,8 @@ pub fn start_with_config_and_synchronization(
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
-) -> Result<NearNode, anyhow::Error> {
-    let store = init_and_migrate_store(home_dir, &config);
+) -> anyhow::Result<NearNode> {
+    let store = init_and_migrate_store(home_dir, &config)?;
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
@@ -550,7 +542,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let db_version = get_store_version(&src_dir);
+    let db_version = get_store_version(&src_dir)?;
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
         "{}: expected DB version {} but got {}",

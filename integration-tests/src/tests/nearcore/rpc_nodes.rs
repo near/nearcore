@@ -44,7 +44,12 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    let block_view = view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+                    let block_view = view_client.send(GetBlock::latest()).await.unwrap();
+                    if let Err(err) = block_view {
+                        println!("Failed to get the latest block: {:?}", err);
+                        return;
+                    }
+                    let block_view = block_view.unwrap();
                     if block_view.header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
                         let block_hash = block_view.header.hash;

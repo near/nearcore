@@ -2083,7 +2083,6 @@ dependencies = [
  "clap 3.1.6",
  "futures",
  "hex",
- "hyper",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -2109,7 +2108,6 @@ dependencies = [
  "node-runtime",
  "once_cell",
  "parking_lot 0.11.2",
- "portpicker",
  "primitive-types",
  "rand 0.7.3",
  "rayon",
@@ -2873,7 +2871,6 @@ dependencies = [
  "awc",
  "base64 0.13.0",
  "bs58",
- "lazy_static",
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
@@ -2939,7 +2936,7 @@ dependencies = [
 name = "near-metrics"
 version = "0.0.0"
 dependencies = [
- "lazy_static",
+ "once_cell",
  "prometheus",
  "tracing",
 ]
@@ -3116,7 +3113,6 @@ dependencies = [
  "futures",
  "hex",
  "insta",
- "lazy_static",
  "near-account-id",
  "near-chain-configs",
  "near-client",
@@ -3310,6 +3306,7 @@ dependencies = [
  "base64 0.13.0",
  "clap 3.1.6",
  "hex",
+ "lazy-static-include",
  "near-primitives",
  "near-primitives-core",
  "near-test-contracts",
@@ -3909,15 +3906,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521fa9638fa597e1dc53e9412a4f9cefb01187ee1f7413076f9e6749e2885ba9"
 dependencies = [
  "plotters-backend",
-]
-
-[[package]]
-name = "portpicker"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
-dependencies = [
- "rand 0.8.4",
 ]
 
 [[package]]
