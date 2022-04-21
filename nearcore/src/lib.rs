@@ -121,19 +121,17 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     }
     anyhow::ensure!(
         db_version < near_primitives::version::DB_VERSION,
-        "DB version {db_version} is created by a newer version of \
-                     neard, please update neard or delete data"
+        "DB version {db_version} is created by a newer version of neard, \
+         please update neard"
     );
 
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
         let checkpoint_path = create_db_checkpoint(path, near_config)
-            .map_err(|err| anyhow::anyhow!(
-                "Failed to create a database migration snapshot:\n\
-                 {err}\n\
-                 Please consider fixing this issue and retrying.\n\
-                 You can change the location of database migration snapshots by adjusting `config.json`:\n\
+            .with_context(|| format!(
+                "Failed to create a database migration snapshot.\n\
+                 You can change the location of the snapshot by adjusting `config.json`:\n\
                  \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
                  Alternatively, you can disable database migration snapshots in `config.json`:\n\
                  \t\"use_db_migration_snapshot\": false,\n"))?;
@@ -382,7 +380,7 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
     start_with_config_and_synchronization(home_dir, config, None)
 }
 
@@ -392,7 +390,7 @@ pub fn start_with_config_and_synchronization(
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
-) -> Result<NearNode, anyhow::Error> {
+) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
