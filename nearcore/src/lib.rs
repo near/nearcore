@@ -26,7 +26,7 @@ use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
     migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, set_store_version,
 };
 use near_store::DBCol;
 use near_store::{create_store, create_store_with_config, Store};
@@ -39,6 +39,7 @@ use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
+mod download_file;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -94,16 +95,14 @@ const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
 
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.
-fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
+fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result<PathBuf> {
     let checkpoint_path = db_checkpoint_path(path, near_config);
-    if checkpoint_path.exists() {
-        return Err(anyhow::anyhow!(
+    anyhow::ensure!(!checkpoint_path.exists(),
             "Detected an existing database migration snapshot: '{}'.\n\
              Probably a database migration got interrupted and your database is corrupted.\n\
              Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
-            checkpoint_path.display(),
-            path.display()));
-    }
+                    checkpoint_path.display(),
+                    path.display());
 
     let db = RocksDB::new(&path, &near_config.config.store)?;
     let checkpoint = db.checkpoint()?;
@@ -115,39 +114,29 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
+fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
     let db_version = get_store_version(&path);
-    if db_version > near_primitives::version::DB_VERSION {
-        error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
-        std::process::exit(1);
-    }
-
     if db_version == near_primitives::version::DB_VERSION {
-        return;
+        return Ok(());
     }
+    anyhow::ensure!(
+        db_version < near_primitives::version::DB_VERSION,
+        "DB version {db_version} is created by a newer version of neard, \
+         please update neard"
+    );
 
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        match create_db_checkpoint(path, near_config) {
-            Ok(checkpoint_path) => {
-                info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
-                Some(checkpoint_path)
-            }
-            Err(err) => {
-                panic!(
-                    "Failed to create a database migration snapshot:\n\
-                     {}\n\
-                     Please consider fixing this issue and retrying.\n\
-                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
-                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
-                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                     \t\"use_db_migration_snapshot\": false,\n\
-                     ",
-                    err
-                );
-            }
-        }
+        let checkpoint_path = create_db_checkpoint(path, near_config).context(
+            "Failed to create a database migration snapshot.\n\
+             You can change the location of the snapshot by adjusting `config.json`:\n\
+             \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+             Alternatively, you can disable database migration snapshots in `config.json`:\n\
+             \t\"use_db_migration_snapshot\": false,",
+        )?;
+        info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
+        Some(checkpoint_path)
     } else {
         None
     };
@@ -213,9 +202,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     }
     if db_version <= 9 {
         info!(target: "near", "Migrate DB from version 9 to 10");
-        // version 9 => 10;
-        // populate partial encoded chunks for chunks that exist in storage
-        migrate_9_to_10(path, near_config.client_config.archive);
+        // version 9 => 10: Populate partial encoded chunks for chunks that
+        // exist in storage.
+        //
+        // However, we have since started garbage collecting partial encoded
+        // chunks from so this migration step is no longer needed.  Only update
+        // the version.
+        let store = create_store(path);
+        set_store_version(&store, 10);
     }
     if db_version <= 10 {
         info!(target: "near", "Migrate DB from version 10 to 11");
@@ -351,6 +345,7 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
             }
             Err(err) => {
                 error!(
+                    target: "near",
                     "Failed to delete the database migration snapshot at '{}'.\n\
                     \tError: {:#?}.\n\
                     \n\
@@ -360,20 +355,22 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
             }
         }
     }
+
+    Ok(())
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
+fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let path = get_store_path(home_dir);
     let store_exists = store_path_exists(&path);
     if store_exists {
-        apply_store_migrations(&path, near_config);
+        apply_store_migrations(&path, near_config)?;
     }
     let store =
         create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
-    store
+    Ok(store)
 }
 
 pub struct NearNode {
@@ -383,7 +380,7 @@ pub struct NearNode {
     pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
     start_with_config_and_synchronization(home_dir, config, None)
 }
 
@@ -393,8 +390,8 @@ pub fn start_with_config_and_synchronization(
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
-) -> Result<NearNode, anyhow::Error> {
-    let store = init_and_migrate_store(home_dir, &config);
+) -> anyhow::Result<NearNode> {
+    let store = init_and_migrate_store(home_dir, &config)?;
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
@@ -527,17 +524,15 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(near_store::DBCol::ColTrieChanges);
     }
 
-    // We’re configuring each RocksDB to use 512 file descriptors.  Make sure we
-    // can open that many by ensuring nofile limit is large enough to give us
-    // some room to spare over 1024 file descriptors.
+    // Make sure we can open at least two databases and have some file
+    // descriptors to spare.
+    let required = 2 * (config.store.max_open_files as u64) + 512;
     let (soft, hard) = rlimit::Resource::NOFILE
         .get()
         .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    // We’re configuring RocksDB to use max file descriptor limit of 512.  We’re
-    // opening two databases and need some descriptors to spare thus 3*512.
-    if soft < 3 * 512 {
+    if soft < required {
         rlimit::Resource::NOFILE
-            .set(3 * 512, hard)
+            .set(required, hard)
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
@@ -547,7 +542,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
-    let store_config = config.store.with_read_only(true);
     let db_version = get_store_version(&src_dir);
     anyhow::ensure!(
         db_version == near_primitives::version::DB_VERSION,
@@ -564,7 +558,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &store_config);
+    let src_store = create_store_with_config(&src_dir, &config.store.clone().with_read_only(true));
 
     let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -580,7 +574,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = create_store(&opts.dest_dir);
+    let dst_store = create_store_with_config(&opts.dest_dir, &config.store);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

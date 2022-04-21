@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -98,8 +98,14 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
+    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // charge only for trie nodes touched during function calls.
+    // TODO (#5920): Consider using RAII for switching the state back
+    let protocol_version = runtime_ext.protocol_version();
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    }
     let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
@@ -111,7 +117,10 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
     result
 }
 
@@ -222,25 +231,6 @@ pub(crate) fn action_function_call(
         None => true,
     };
     if let Some(outcome) = outcome {
-        let new_receipts: Vec<_> = outcome
-            .action_receipts
-            .into_iter()
-            .map(|(receiver_id, receipt)| Receipt {
-                predecessor_id: account_id.clone(),
-                receiver_id,
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: action_receipt.signer_id.clone(),
-                    signer_public_key: action_receipt.signer_public_key.clone(),
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                }),
-            })
-            .collect();
         result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
         result.gas_burnt_for_function_call =
             safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
@@ -252,6 +242,26 @@ pub(crate) fn action_function_call(
         result.logs.extend(outcome.logs.into_iter());
         result.profile.merge(&outcome.profile);
         if execution_succeeded {
+            let new_receipts: Vec<_> = outcome
+                .action_receipts
+                .into_iter()
+                .map(|(receiver_id, receipt)| Receipt {
+                    predecessor_id: account_id.clone(),
+                    receiver_id,
+                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                    // "Generating receipt IDs" section
+                    receipt_id: CryptoHash::default(),
+                    receipt: ReceiptEnum::Action(ActionReceipt {
+                        signer_id: action_receipt.signer_id.clone(),
+                        signer_public_key: action_receipt.signer_public_key.clone(),
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: receipt.output_data_receivers,
+                        input_data_ids: receipt.input_data_ids,
+                        actions: receipt.actions,
+                    }),
+                })
+                .collect();
+
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
             result.result = Ok(outcome.return_data);

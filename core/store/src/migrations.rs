@@ -5,17 +5,16 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::KeyType;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
-    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
-    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
+    EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1, ShardChunk,
+    ShardChunkV1,
 };
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -25,7 +24,6 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{
     create_receipt_id_from_transaction, get_block_shard_id, index_to_bytes,
 };
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
 use crate::db::{RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
@@ -37,8 +35,8 @@ use crate::migrations::v8_to_v9::{
 };
 use crate::trie::{TrieCache, TrieCachingStorage};
 use crate::DBCol::{
-    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
-    ColPartialChunks, ColStateParts,
+    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal,
+    ColStateParts,
 };
 use crate::{create_store, DBCol, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 use std::path::Path;
@@ -163,99 +161,6 @@ pub fn migrate_8_to_9(path: &Path) {
     repair_col_transactions(&store);
     repair_col_receipt_id_to_shard_id(&store);
     set_store_version(&store, 9);
-}
-
-pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
-    let store = create_store(path);
-    let protocol_version = 38; // protocol_version at the time this migration was written
-    if is_archival {
-        // Hard code the number of parts there. These numbers are only used for this migration.
-        let num_total_parts = 100;
-        let num_data_parts = (num_total_parts - 1) / 3;
-        let num_parity_parts = num_total_parts - num_data_parts;
-        let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
-        let signer =
-            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
-        let mut store_update = store.store_update();
-        let batch_size_limit = 10_000_000;
-        let mut batch_size = 0;
-        for (key, value) in store.iter_without_rc_logic(ColChunks) {
-            if let Ok(Some(partial_chunk)) =
-                store.get_ser::<PartialEncodedChunkV1>(ColPartialChunks, &key)
-            {
-                if partial_chunk.parts.len() == num_total_parts {
-                    continue;
-                }
-            }
-            batch_size += key.len() + value.len() + 8;
-            let chunk: ShardChunkV1 = BorshDeserialize::try_from_slice(&value)
-                .expect("Borsh deserialization should not fail");
-            let ShardChunkV1 { chunk_hash, header, transactions, receipts } = chunk;
-            let proposals = header
-                .inner
-                .validator_proposals
-                .iter()
-                .map(|v| ValidatorStake::V1(v.clone()))
-                .collect();
-            let (encoded_chunk, merkle_paths) = EncodedShardChunk::new(
-                header.inner.prev_block_hash,
-                header.inner.prev_state_root,
-                header.inner.outcome_root,
-                header.inner.height_created,
-                header.inner.shard_id,
-                &mut rs,
-                header.inner.gas_used,
-                header.inner.gas_limit,
-                header.inner.balance_burnt,
-                header.inner.tx_root,
-                proposals,
-                transactions,
-                &receipts,
-                header.inner.outgoing_receipts_root,
-                &signer,
-                protocol_version,
-            )
-            .expect("create encoded chunk should not fail");
-            let mut encoded_chunk = match encoded_chunk {
-                EncodedShardChunk::V1(chunk) => chunk,
-                EncodedShardChunk::V2(_) => panic!("Should not have created EncodedShardChunkV2"),
-            };
-            encoded_chunk.header = header;
-            let outgoing_receipt_hashes =
-                vec![hash(&ReceiptList(0, &receipts).try_to_vec().unwrap())];
-            let (_, outgoing_receipt_proof) = merklize(&outgoing_receipt_hashes);
-
-            let partial_encoded_chunk = EncodedShardChunk::V1(encoded_chunk)
-                .create_partial_encoded_chunk(
-                    (0..num_total_parts as u64).collect(),
-                    vec![ReceiptProof(
-                        receipts,
-                        ShardProof {
-                            from_shard_id: 0,
-                            to_shard_id: 0,
-                            proof: outgoing_receipt_proof[0].clone(),
-                        },
-                    )],
-                    &merkle_paths,
-                );
-            let partial_encoded_chunk = match partial_encoded_chunk {
-                PartialEncodedChunk::V1(chunk) => chunk,
-                PartialEncodedChunk::V2(_) => {
-                    panic!("Should not have created PartialEncodedChunkV2")
-                }
-            };
-            store_update
-                .set_ser(ColPartialChunks, chunk_hash.as_ref(), &partial_encoded_chunk)
-                .expect("storage update should not fail");
-            if batch_size > batch_size_limit {
-                store_update.commit().expect("storage update should not fail");
-                store_update = store.store_update();
-                batch_size = 0;
-            }
-        }
-        store_update.commit().expect("storage update should not fail");
-    }
-    set_store_version(&store, 10);
 }
 
 pub fn migrate_10_to_11(path: &Path) {

@@ -94,8 +94,7 @@ impl GenesisStateApplier {
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
-        let (store_update, new_state_root) =
-            tries.apply_all(&trie_changes, shard_uid).expect("Failed to apply genesis chunk");
+        let (store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().expect("Store update failed on genesis initialization");
         *current_state_root = new_state_root;
     }

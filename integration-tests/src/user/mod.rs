@@ -50,7 +50,7 @@ pub trait User {
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError>;
+    fn add_receipts(&self, receipts: Vec<Receipt>) -> Result<(), ServerError>;
 
     fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
         self.get_access_key(account_id, &self.signer().public_key())
@@ -266,7 +266,10 @@ pub trait AsyncUser: Send + Sync {
         transaction: SignedTransaction,
     ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
-    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), ServerError>>;
+    fn add_receipts(
+        &self,
+        receipts: &[Receipt],
+    ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
     fn get_account_nonce(
         &self,

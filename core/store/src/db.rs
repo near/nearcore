@@ -21,7 +21,7 @@ pub(crate) mod refcount;
 pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DBError(rocksdb::Error);
+pub struct DBError(String);
 
 impl fmt::Display for DBError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,7 +33,7 @@ impl std::error::Error for DBError {}
 
 impl From<rocksdb::Error> for DBError {
     fn from(err: rocksdb::Error) -> Self {
-        DBError(err)
+        DBError(err.into_string())
     }
 }
 
@@ -142,6 +142,40 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
+/// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
+/// of file descriptors.
+///
+/// A RocksDB instance can keep up to the configured `max_open_files` number of
+/// file descriptors.  In addition, we need handful more for other processing
+/// (such as network sockets to name just one example).  If NOFILE is too small
+/// opening files may start failing which would prevent us from operating
+/// correctly.
+///
+/// To avoid such failures, this method ensures that NOFILE limit is large
+/// enough to accommodate `max_open_file` plus another 1000 file descriptors.
+/// If current limit is too low, it will attempt to set it to a higher value.
+///
+/// Returns error if NOFILE limit could not be read or set.  In practice the
+/// only thing that can happen is hard limit being too low such that soft limit
+/// cannot be increased to required value.
+fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
+    let required = max_open_files as u64 + 1000;
+    let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
+        DBError(format!("Unable to get limit for the number of open files (NOFILE): {err}"))
+    })?;
+    if required <= soft {
+        Ok(())
+    } else {
+        rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
+            DBError(format!(
+                "Unable to set limit for the number of open files (NOFILE) to \
+                 {required} (for configured max_open_files={max_open_files}): \
+                 {err}"
+            ))
+        })
+    }
+}
+
 impl RocksDBOptions {
     /// Once the disk space is below the `free_disk_space_warn_threshold`, RocksDB will emit an warning message every [`interval`](RocksDBOptions::check_free_space_interval) write.
     pub fn free_disk_space_warn_threshold(mut self, warn_treshold: bytesize::ByteSize) -> Self {
@@ -183,11 +217,12 @@ impl RocksDBOptions {
         path: impl AsRef<Path>,
         store_config: &StoreConfig,
     ) -> Result<RocksDB, DBError> {
-        let path = path.as_ref();
+        ensure_max_open_files_limit(store_config.max_open_files)?;
         if store_config.read_only {
-            return self.read_only(path, &store_config);
+            self.read_only(path.as_ref(), store_config)
+        } else {
+            self.read_write(path.as_ref(), store_config)
         }
-        self.read_write(path, &store_config)
     }
 
     /// Opens a read only database.
@@ -481,7 +516,7 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.create_if_missing(true);
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files);
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
@@ -520,9 +555,9 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options(cache_size: usize) -> BlockBasedOptions {
+fn rocksdb_block_based_options(block_size: usize, cache_size: usize) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(16 * bytesize::KIB as usize);
+    block_opts.set_block_size(block_size);
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size).unwrap());
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
@@ -543,7 +578,10 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
     let cache_size = choose_cache_size(col, &store_config);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(cache_size));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(
+        store_config.block_size,
+        cache_size,
+    ));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
@@ -625,7 +663,7 @@ impl RocksDB {
 
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
-        Checkpoint::new(&self.db).map_err(|err| DBError(err))
+        Checkpoint::new(&self.db).map_err(DBError::from)
     }
 
     /// Synchronously flush all Memtables to SST files on disk

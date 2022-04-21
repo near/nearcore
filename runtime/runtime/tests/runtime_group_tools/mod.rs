@@ -129,7 +129,7 @@ impl StandaloneRuntime {
             .unwrap();
 
         let (store_update, root) =
-            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

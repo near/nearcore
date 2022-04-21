@@ -106,9 +106,6 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
-/// Number of epochs for which we keep store data
-pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
-
 /// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
 /// When it is called through process_block, it is possible that the shard state for the next epoch
 /// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.

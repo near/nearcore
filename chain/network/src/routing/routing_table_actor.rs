@@ -4,8 +4,8 @@ use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
 use actix::{
-    Actor, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running, SyncArbiter,
-    System, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running,
+    SyncArbiter, WrapFuture,
 };
 use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
@@ -411,9 +411,9 @@ impl Actor for RoutingTableActor {
 
 impl Handler<StopMsg> for RoutingTableActor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
         self.edge_validator_pool.do_send(StopMsg {});
-        System::current().stop();
+        ctx.stop();
     }
 }
 

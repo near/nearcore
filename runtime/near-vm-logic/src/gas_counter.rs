@@ -1,6 +1,5 @@
 use crate::{HostError, VMLogicError};
 use near_primitives::types::TrieNodesCount;
-#[cfg(feature = "protocol_feature_chunk_nodes_cache")]
 use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::runtime::fees::Fee;
@@ -274,7 +273,6 @@ impl GasCounter {
 
     pub fn add_trie_fees(&mut self, count: TrieNodesCount) -> Result<()> {
         self.pay_per(touching_trie_node, count.db_reads)?;
-        #[cfg(feature = "protocol_feature_chunk_nodes_cache")]
         self.pay_per(read_cached_trie_node, count.mem_reads)?;
         Ok(())
     }

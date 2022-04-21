@@ -1,12 +1,9 @@
+use crate::receipt_manager::ReceiptMetadata;
 use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::Gas;
 use crate::{VMConfig, VMLogic};
-
-#[cfg(feature = "protocol_feature_function_call_weight")]
-use crate::receipt_manager::ReceiptMetadata;
-#[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives::transaction::{Action, FunctionCallAction};
 
 #[test]
@@ -107,7 +104,6 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[track_caller]
 fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
     match receipt.actions[0] {
@@ -120,7 +116,6 @@ fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
     }
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[track_caller]
 fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     let gas_limit = 10_000_000_000;
@@ -161,7 +156,6 @@ fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
 fn function_call_weight_basic_cases_test() {
     // Following tests input are in the format (static gas, gas weight, expected gas)
@@ -208,7 +202,6 @@ fn function_call_weight_basic_cases_test() {
     function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
 fn function_call_no_weight_refund() {
     let gas_limit = 10u64.pow(14);
