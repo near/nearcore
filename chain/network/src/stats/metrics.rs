@@ -1,8 +1,8 @@
 use crate::types::PeerMessage;
 use near_metrics::{
-    do_create_int_counter_vec, inc_counter_by_opt, inc_counter_opt, try_create_histogram,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge, Histogram,
-    IntCounter, IntCounterVec, IntGauge,
+    do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
+    IntGauge,
 };
 use near_network_primitives::types::RoutedMessageBody;
 use once_cell::sync::Lazy;
@@ -114,7 +114,7 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
 #[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
     // received messages
-    pub peer_messages: HashMap<String, Option<IntCounter>>,
+    peer_messages: HashMap<String, IntCounter>,
     // sent messages (broadcast style)
     pub broadcast_messages: IntCounterVec,
 }
@@ -132,10 +132,12 @@ impl NetworkMetrics {
                         NetworkMetrics::peer_message_bytes_rx,
                         NetworkMetrics::peer_message_dropped,
                     ]
-                    .map(|method| {
+                    .into_iter()
+                    .filter_map(|method| {
                         let counter_name = method(name);
-                        let counter = try_create_int_counter(&counter_name, &counter_name).ok();
-                        (counter_name, counter)
+                        try_create_int_counter(&counter_name, &counter_name)
+                            .ok()
+                            .map(|counter| (counter_name, counter))
                     })
                 })
                 .collect(),
@@ -161,13 +163,13 @@ impl NetworkMetrics {
 
     pub fn inc(&self, message_name: &str) {
         if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_opt(counter.as_ref());
+            counter.inc();
         }
     }
 
     pub fn inc_by(&self, message_name: &str, value: u64) {
         if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_by_opt(counter.as_ref(), value);
+            counter.inc_by(value);
         }
     }
     pub fn inc_broadcast(&self, message_name: &str) {

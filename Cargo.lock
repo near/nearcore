@@ -2936,6 +2936,7 @@ dependencies = [
 name = "near-metrics"
 version = "0.0.0"
 dependencies = [
+ "once_cell",
  "prometheus",
  "tracing",
 ]
