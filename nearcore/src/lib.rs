@@ -128,13 +128,15 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(path, near_config)
-            .with_context(|| format!(
+        let checkpoint_path = create_db_checkpoint(path, near_config).with_context(|| {
+            format!(
                 "Failed to create a database migration snapshot.\n\
                  You can change the location of the snapshot by adjusting `config.json`:\n\
                  \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
                  Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                 \t\"use_db_migration_snapshot\": false,\n"))?;
+                 \t\"use_db_migration_snapshot\": false,"
+            )
+        })?;
         info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
         Some(checkpoint_path)
     } else {
