@@ -877,7 +877,6 @@ impl PeerManagerActor {
             }
         };
 
-        let network_metrics = self.network_metrics.clone();
         let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
 
         // Start every peer actor on separate thread.
@@ -914,7 +913,6 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 partial_edge_info,
-                network_metrics,
                 txns_since_last_block,
                 peer_counter,
                 rate_limiter,
@@ -1144,7 +1142,7 @@ impl PeerManagerActor {
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
-    ///     
+    ///
     /// Safe set contruction process:
     /// 1. Add all whitelisted peers to the safe set.
     /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
