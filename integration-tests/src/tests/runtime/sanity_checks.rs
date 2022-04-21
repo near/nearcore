@@ -222,12 +222,12 @@ fn new_noop_gas_profile() -> Vec<CostGasUsed> {
     if cfg!(feature = "nightly_protocol") {
         generate_gas_profile!(
             ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-            ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750)
+            ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750)
         )
     } else {
         generate_gas_profile!(
             ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-            ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750)
+            ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750)
         )
     }
 }
@@ -253,7 +253,7 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
                 ("WASM_HOST_COST", "ALT_BN128_PAIRING_CHECK_ELEMENT", 26575188546),
                 ("WASM_HOST_COST", "BASE", 17209927215),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750),
                 ("WASM_HOST_COST", "LOG_BASE", 7086626100),
                 ("WASM_HOST_COST", "LOG_BYTE", 131987910),
                 ("WASM_HOST_COST", "PROMISE_AND_BASE", 1465013400),
@@ -296,14 +296,14 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 264768111),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750),
                 ("WASM_HOST_COST", "WASM_INSTRUCTION", 822756)
             ),
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 264768111),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750),
                 ("WASM_HOST_COST", "READ_MEMORY_BASE", 2609863200),
                 ("WASM_HOST_COST", "READ_MEMORY_BYTE", 11403999),
                 ("WASM_HOST_COST", "UTF8_DECODING_BASE", 3111779061),
@@ -331,13 +331,13 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750)
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750)
             ),
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 529536222),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20693772750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20704176750),
                 ("WASM_HOST_COST", "WASM_INSTRUCTION", 18923388),
                 ("WASM_HOST_COST", "WRITE_REGISTER_BASE", 2865522486)
             ),
@@ -358,7 +358,7 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
                 ("ACTION_COST", "TRANSFER", 230246125000),
                 ("WASM_HOST_COST", "BASE", 17209927215),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750),
                 ("WASM_HOST_COST", "LOG_BASE", 7086626100),
                 ("WASM_HOST_COST", "LOG_BYTE", 131987910),
                 ("WASM_HOST_COST", "PROMISE_AND_BASE", 1465013400),
@@ -401,14 +401,14 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 264768111),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750),
                 ("WASM_HOST_COST", "WASM_INSTRUCTION", 822756)
             ),
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 264768111),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750),
                 ("WASM_HOST_COST", "READ_MEMORY_BASE", 2609863200),
                 ("WASM_HOST_COST", "READ_MEMORY_BYTE", 11403999),
                 ("WASM_HOST_COST", "UTF8_DECODING_BASE", 3111779061),
@@ -436,13 +436,13 @@ fn expected_cost_sanity_gas_profiles() -> Vec<Vec<CostGasUsed>> {
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750)
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750)
             ),
             generate_gas_profile!(),
             generate_gas_profile!(
                 ("WASM_HOST_COST", "BASE", 529536222),
                 ("WASM_HOST_COST", "CONTRACT_LOADING_BASE", 35445963),
-                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20506500750),
+                ("WASM_HOST_COST", "CONTRACT_LOADING_BYTES", 20516904750),
                 ("WASM_HOST_COST", "WASM_INSTRUCTION", 18923388),
                 ("WASM_HOST_COST", "WRITE_REGISTER_BASE", 2865522486)
             ),
