@@ -364,7 +364,7 @@ def poll_blocks(node: cluster.LocalNode,
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
             if __target:
-                msg = f'{latest}  (waiting for #{__target})')
+                msg = f'{latest}  (waiting for #{__target})'
             else:
                 msg = str(latest)
             logger.info(msg)
