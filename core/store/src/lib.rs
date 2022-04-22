@@ -81,11 +81,17 @@ impl Store {
         self.storage.iter(column)
     }
 
-    pub fn iter_without_rc_logic<'a>(
+    /// Fetches raw key/value pairs from the database.
+    ///
+    /// Practically, this means that for rc columns rc is included in the value.
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn iter_raw_bytes<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter_without_rc_logic(column)
+        self.storage.iter_raw_bytes(column)
     }
 
     pub fn iter_prefix<'a>(
@@ -109,7 +115,7 @@ impl Store {
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        for (key, value) in self.storage.iter_without_rc_logic(column) {
+        for (key, value) in self.storage.iter_raw_bytes(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -189,6 +195,16 @@ impl StoreUpdate {
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
+    }
+
+    /// Modify raw value stored in the database, without doing any sanity checks
+    /// for ref counts.
+    ///
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {

@@ -299,7 +299,7 @@ pub(crate) trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
@@ -324,7 +324,7 @@ impl Database for RocksDB {
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
 
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -434,11 +434,11 @@ impl Database for TestDB {
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let iterator = self.iter_without_rc_logic(col);
+        let iterator = self.iter_raw_bytes(col);
         RocksDB::iter_with_rc_logic(col, iterator)
     }
 
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
