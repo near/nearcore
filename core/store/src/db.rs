@@ -82,6 +82,10 @@ impl DBTransaction {
     pub(crate) fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
     }
+
+    pub(crate) fn merge(&mut self, other: DBTransaction) {
+        self.ops.extend(other.ops)
+    }
 }
 
 pub struct RocksDB {
