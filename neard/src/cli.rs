@@ -418,24 +418,31 @@ impl RunCmd {
         let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
         sys.block_on(async move {
-            // `SIGHUP` lets user inform the process that the logging config has changed and
-            // EnvFilter needs to be reinitialized.
-            if cfg!(unix) {
-                spawn_log_config_watcher(home_dir.join("log_config.json"));
-            }
-
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
-                let mut sigint = signal(SignalKind::interrupt()).unwrap();
-                let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                futures::select! {
-                    _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "ClientActor died",
+
+                let log_config_watcher = LogConfigWatcher { watched_path: home_dir.join("log_config.json") };
+
+                let mut rx = rx.fuse();
+                loop {
+                    println!("loop");
+                    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                    let mut sighup = signal(SignalKind::hangup()).unwrap();
+                    let sig = futures::select! {
+                        _ = sigint.recv().fuse()  => "SIGINT",
+                        _ = sigterm.recv().fuse() => "SIGTERM",
+                        _ = sighup.recv().fuse() => {
+                            log_config_watcher.update();
+                            continue;
+                        },
+                        _ = rx => "ClientActor died",
+                    };
+                    break sig;
                 }
             } else {
                 // TODO(#6372): Support graceful shutdown on windows.
