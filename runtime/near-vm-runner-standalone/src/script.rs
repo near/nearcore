@@ -250,6 +250,10 @@ fn profile_data_is_per_outcome() {
 #[cfg(feature = "no_cache")]
 #[test]
 fn test_evm_slow_deserialize_repro() {
+    lazy_static_include::lazy_static_include_bytes! {
+        ZOMBIE_OWNERSHIP_BIN => "../near-test-contracts/res/ZombieOwnership.bin",
+    };
+
     fn evm_slow_deserialize_repro(vm_kind: VMKind) {
         println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
         tracing_span_tree::span_tree().enable();
@@ -262,10 +266,7 @@ fn test_evm_slow_deserialize_repro() {
         let contract =
             script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
 
-        let input =
-            hex::decode(&include_bytes!("../../near-test-contracts/res/ZombieOwnership.bin"))
-                .unwrap();
-
+        let input = hex::decode(&ZOMBIE_OWNERSHIP_BIN[..]).unwrap();
         script.step(contract, "deploy_code").input(input).repeat(3);
         let res = script.run();
         assert_eq!(res.outcomes[0].error(), None);

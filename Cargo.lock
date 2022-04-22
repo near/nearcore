@@ -2872,7 +2872,6 @@ dependencies = [
  "awc",
  "base64 0.13.0",
  "bs58",
- "lazy_static",
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
@@ -2938,7 +2937,7 @@ dependencies = [
 name = "near-metrics"
 version = "0.0.0"
 dependencies = [
- "lazy_static",
+ "once_cell",
  "prometheus",
  "tracing",
 ]
@@ -3115,7 +3114,6 @@ dependencies = [
  "futures",
  "hex",
  "insta",
- "lazy_static",
  "near-account-id",
  "near-chain-configs",
  "near-client",
@@ -3309,6 +3307,7 @@ dependencies = [
  "base64 0.13.0",
  "clap 3.1.6",
  "hex",
+ "lazy-static-include",
  "near-primitives",
  "near-primitives-core",
  "near-test-contracts",
