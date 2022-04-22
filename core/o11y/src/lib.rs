@@ -117,15 +117,16 @@ pub fn default_subscriber(
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum ReloadError {
-    #[error("cannot reload env_filter")]
+    #[error("could not set the new log filter")]
     Reload(#[source] Error),
-    #[error("cannot parse env_filter directive")]
+    #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
     #[error("env_filter reload handle is not available")]
     NoReloadHandle,
 }
 
 /// Constructs an `EnvFilter` and sets it as the active filter in the default tracing subscriber.
+///
 /// The newly constructed `EnvFilter` provides behavior equivalent to what can be obtained via
 /// setting `RUST_LOG` environment variable and the `--verbose` command-line flag.
 /// `rust_log` is equivalent to setting `RUST_LOG` environment variable.
