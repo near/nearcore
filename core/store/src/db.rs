@@ -18,7 +18,6 @@ use strum::EnumCount;
 use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
-pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(String);
