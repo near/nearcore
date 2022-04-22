@@ -386,7 +386,6 @@ impl Database for RocksDB {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::UpdateRefcount { col, key, value } => unsafe {
-                    assert!(col.is_rc());
                     batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {

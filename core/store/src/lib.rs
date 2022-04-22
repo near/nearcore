@@ -176,12 +176,13 @@ impl StoreUpdate {
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
-        log_assert!(column.is_rc());
+        assert!(column.is_rc());
         let value = encode_value_with_rc(value, rc_delta);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        assert!(!column.is_rc());
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
@@ -191,7 +192,6 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        log_assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
