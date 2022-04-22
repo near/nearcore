@@ -14,6 +14,7 @@ name = "neard"
 
 [dependencies]
 actix = "0.13.0"
+async-stream = "0.3"
 clap = { version = "3.1.6", features = ["derive"] }
 futures = "0.3"
 near-rust-allocator-proxy = { version = "0.4", optional = true }
@@ -25,6 +26,7 @@ shell-escape = "0.1.5"
 thiserror = "1"
 tikv-jemallocator = { version = "0.4.0", optional = true }
 tokio = "1.16.1"
+tokio-stream = "0.1.8"
 tracing = "0.1.13"
 
 nearcore = { path = "../nearcore" }

@@ -1,6 +1,7 @@
-use crate::log_config_watcher::spawn_log_config_watcher;
+use crate::log_config_watcher::LogConfigWatcher;
 use clap::{Args, Parser};
 use futures::future::FutureExt;
+use futures::pin_mut;
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -11,6 +12,8 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
+use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -423,33 +426,13 @@ impl RunCmd {
                     .expect("start_with_config");
 
             let sig = if cfg!(unix) {
-                use tokio::signal::unix::{signal, SignalKind};
-
-                let log_config_watcher = LogConfigWatcher { watched_path: home_dir.join("log_config.json") };
-
-                let mut rx = rx.fuse();
-                loop {
-                    println!("loop");
-                    let mut sigint = signal(SignalKind::interrupt()).unwrap();
-                    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                    let mut sighup = signal(SignalKind::hangup()).unwrap();
-                    let sig = futures::select! {
-                        _ = sigint.recv().fuse()  => "SIGINT",
-                        _ = sigterm.recv().fuse() => "SIGTERM",
-                        _ = sighup.recv().fuse() => {
-                            log_config_watcher.update();
-                            continue;
-                        },
-                        _ = rx => "ClientActor died",
-                    };
-                    break sig;
-                }
+                signal_handlers(home_dir, rx).await
             } else {
                 // TODO(#6372): Support graceful shutdown on windows.
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got '{}', stopping...", sig);
+            error!(target: "neard", "Got '{}', stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -460,6 +443,47 @@ impl RunCmd {
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
+    }
+}
+
+async fn signal_handlers(home_dir: &Path, rx_crash: Receiver<()>) -> &str {
+    use tokio::signal::unix::{signal, SignalKind};
+    let rx_int = async_stream::stream! {
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+            sigint.recv().await;
+            yield "SIGINT";
+    };
+    let rx_hup = async_stream::stream! {
+        let mut sighup = signal(SignalKind::hangup()).unwrap();
+        loop {
+            sighup.recv().await;
+            yield "SIGHUP";
+        }
+    };
+    let rx_term = async_stream::stream! {
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+            sigterm.recv().await;
+            yield "SIGTERM";
+    };
+    let rx_crash = async_stream::stream! {
+        let _ = rx_crash.fuse().await;
+        yield "Client died";
+    };
+    pin_mut!(rx_int);
+    pin_mut!(rx_hup);
+    pin_mut!(rx_term);
+    pin_mut!(rx_crash);
+
+    let watched_path = home_dir.join("log_config.json");
+    let log_config_watcher = LogConfigWatcher { watched_path };
+    let mut rx = rx_int.merge(rx_hup).merge(rx_term).merge(rx_crash);
+    loop {
+        let sig = rx.next().await.unwrap();
+        if sig == "SIGHUP" {
+            log_config_watcher.update();
+        } else {
+            return sig;
+        }
     }
 }
 
