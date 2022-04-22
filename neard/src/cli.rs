@@ -2,8 +2,7 @@ use crate::log_config_watcher::spawn_log_config_watcher;
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::tracing_subscriber::filter::ParseError;
-use near_o11y::{default_subscriber, EnvFilterBuilder};
+use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -104,7 +103,7 @@ impl NeardCmd {
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum RunError {
     #[error("invalid logging directives provided")]
-    EnvFilter(#[source] ParseError),
+    EnvFilter(#[source] BuildEnvFilterError),
 }
 
 #[derive(Parser)]

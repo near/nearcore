@@ -115,11 +115,12 @@ pub fn default_subscriber(
 }
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum ReloadError {
     #[error("cannot reload env_filter")]
     Reload(#[source] Error),
     #[error("cannot parse env_filter directive")]
-    Parse(#[source] ParseError),
+    Parse(#[source] BuildEnvFilterError),
     #[error("env_filter reload handle is not available")]
     NoReloadHandle,
 }
@@ -147,6 +148,13 @@ pub fn reload_env_filter(
             .map_err(ReloadError::Reload)?;
         Ok(())
     })
+}
+
+#[non_exhaustive]
+#[derive(thiserror::Error, Debug)]
+pub enum BuildEnvFilterError {
+    #[error("could not create a log filter for {1}")]
+    CreateEnvFilter(#[source] ParseError, String),
 }
 
 #[derive(Debug)]
@@ -181,8 +189,9 @@ impl<'a> EnvFilterBuilder<'a> {
     }
 
     /// Construct an [`EnvFilter`] as configured.
-    pub fn finish(self) -> Result<EnvFilter, ParseError> {
-        let mut env_filter = EnvFilter::try_new(self.rust_log)?;
+    pub fn finish(self) -> Result<EnvFilter, BuildEnvFilterError> {
+        let mut env_filter = EnvFilter::try_new(self.rust_log.clone())
+            .map_err(|err| BuildEnvFilterError::CreateEnvFilter(err, self.rust_log.to_string()))?;
         if let Some(module) = self.verbose {
             env_filter = env_filter
                 .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
@@ -192,7 +201,12 @@ impl<'a> EnvFilterBuilder<'a> {
             env_filter = if module.is_empty() {
                 env_filter.add_directive(tracing::Level::DEBUG.into())
             } else {
-                let directive = format!("{}=debug", module).parse()?;
+                let directive = format!("{}=debug", module).parse().map_err(|err| {
+                    BuildEnvFilterError::CreateEnvFilter(
+                        err,
+                        format!("{}=debug", module).to_string(),
+                    )
+                })?;
                 env_filter.add_directive(directive)
             };
         }
