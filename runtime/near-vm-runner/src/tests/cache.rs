@@ -53,7 +53,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(result.outcome().is_none());
+        assert_eq!(result.outcome().used_gas, 0);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
@@ -61,7 +61,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(result.outcome().is_none());
+        assert_eq!(result.outcome().used_gas, 0);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))

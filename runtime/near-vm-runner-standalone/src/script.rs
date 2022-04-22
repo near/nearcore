@@ -216,10 +216,10 @@ fn vm_script_smoke_test() {
 
     assert_eq!(res.outcomes.len(), 4);
 
-    let logs = &res.outcomes[0].outcome().unwrap().logs;
+    let logs = &res.outcomes[0].outcome().logs;
     assert_eq!(logs, &vec!["hello".to_string()]);
 
-    let ret = res.outcomes.last().unwrap().outcome().unwrap().return_data.clone();
+    let ret = res.outcomes.last().unwrap().outcome().return_data.clone();
 
     let expected = ReturnData::Value(4950u64.to_le_bytes().to_vec());
     assert_eq!(ret, expected);
@@ -238,12 +238,11 @@ fn profile_data_is_per_outcome() {
     let res = script.run();
     assert_eq!(res.outcomes.len(), 4);
     assert_eq!(
-        res.outcomes[1].outcome().unwrap().profile.host_gas(),
-        res.outcomes[2].outcome().unwrap().profile.host_gas()
+        res.outcomes[1].outcome().profile.host_gas(),
+        res.outcomes[2].outcome().profile.host_gas()
     );
     assert!(
-        res.outcomes[1].outcome().unwrap().profile.host_gas()
-            > res.outcomes[3].outcome().unwrap().profile.host_gas()
+        res.outcomes[1].outcome().profile.host_gas() > res.outcomes[3].outcome().profile.host_gas()
     );
 }
 

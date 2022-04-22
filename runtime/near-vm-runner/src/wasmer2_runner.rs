@@ -442,7 +442,7 @@ impl Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return VMResult::NotRun(e);
+            return VMResult::nop_outcome(e);
         }
         let status = self.run_method(artifact, import, method_name);
         match status {
@@ -528,13 +528,13 @@ impl crate::runner::VM for Wasmer2VM {
             let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ));
-            return VMResult::NotRun(error);
+            return VMResult::nop_outcome(error);
         }
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
-            Err(err) => return VMResult::NotRun(err),
+            Err(err) => return VMResult::nop_outcome(err),
         };
 
         let mut memory = Wasmer2Memory::new(
@@ -570,7 +570,7 @@ impl crate::runner::VM for Wasmer2VM {
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
             // TODO: This should return an outcome to account for loading cost
-            return VMResult::NotRun(e);
+            return VMResult::nop_outcome(e);
         }
         match self.run_method(&artifact, import, method_name) {
             Ok(()) => VMResult::ok(logic),
