@@ -455,6 +455,12 @@ pub(super) struct LocalnetCmd {
     /// Number of validators to initialize the localnet with.
     #[clap(long = "v", default_value = "4")]
     validators: NumSeats,
+    // Whether to create fixed shards accounts (that are tied to a given shard).
+    #[clap(long)]
+    fixed_shards: bool,
+    // Archival nodes
+    #[clap(long)]
+    archival_nodes: bool,
 }
 
 impl LocalnetCmd {
@@ -465,7 +471,8 @@ impl LocalnetCmd {
             self.validators,
             self.non_validators,
             &self.prefix,
-            false,
+            self.archival_nodes,
+            self.fixed_shards,
         );
     }
 }
