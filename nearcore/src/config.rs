@@ -534,6 +534,8 @@ impl Config {
 
 #[easy_ext::ext(GenesisExt)]
 impl Genesis {
+    // Creates new genesis with a given set of accounts and shard layout.
+    // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
@@ -1169,6 +1171,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validator_seats: NumSeats,
     local_ports: bool,
     archive: bool,
+    fixed_shards: Option<Vec<String>>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
@@ -1181,15 +1184,39 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let genesis = Genesis::test_sharded(
-        seeds.iter().map(|s| s.parse().unwrap()).collect(),
+
+    let shard_layout = if let Some(ref fixed_shards) = fixed_shards {
+        // If fixed shards are set, we expect that they take over all the shards (except for one that would host all the other accounts).
+        assert!(fixed_shards.len() == num_shards as usize - 1);
+        ShardLayout::v1(
+            fixed_shards.iter().map(|it| it.parse().unwrap()).collect(),
+            vec![],
+            None,
+            0,
+        )
+    } else {
+        ShardLayout::v0(num_shards, 0)
+    };
+    let mut accounts_to_add_to_genesis: Vec<AccountId> =
+        seeds.iter().map(|s| s.parse().unwrap()).collect();
+
+    // If we have fixed shards - let's also add those accounts to genesis.
+    if let Some(ref fixed_shards_accounts) = fixed_shards {
+        accounts_to_add_to_genesis.extend(
+            fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
+        );
+    };
+    let genesis = Genesis::test_with_seeds(
+        accounts_to_add_to_genesis,
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
+        shard_layout,
     );
     let mut configs = vec![];
     let first_node_port = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
+        config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
@@ -1220,8 +1247,24 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
-    create_testnet_configs_from_seeds(
+    fixed_shards: bool,
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
+{
+    let fixed_shards = if fixed_shards {
+        Some((0..(num_shards - 1)).map(|i| format!("shard{}", i)).collect::<Vec<_>>())
+    } else {
+        None
+    };
+    let shard_keys = if let Some(ref fixed_shards) = fixed_shards {
+        fixed_shards
+            .iter()
+            .map(|seed| InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed))
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
@@ -1229,7 +1272,10 @@ pub fn create_testnet_configs(
         num_non_validator_seats,
         local_ports,
         archive,
-    )
+        fixed_shards,
+    );
+
+    (configs, validator_signers, network_signers, genesis, shard_keys)
 }
 
 pub fn init_testnet_configs(
@@ -1239,14 +1285,16 @@ pub fn init_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     archive: bool,
+    fixed_shards: bool,
 ) {
-    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs(
+    let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
         prefix,
         false,
         archive,
+        fixed_shards,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
@@ -1258,6 +1306,10 @@ pub fn init_testnet_configs(
         network_signers[i]
             .write_to_file(&node_dir.join(&configs[i].node_key_file))
             .expect("Error writing key file");
+        for key in &shard_keys {
+            key.write_to_file(&node_dir.join(format!("{}_key.json", key.account_id)))
+                .expect("Error writing shard file");
+        }
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");

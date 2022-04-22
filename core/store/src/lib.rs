@@ -15,6 +15,7 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
+use near_o11y::log_assert;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -169,7 +170,7 @@ impl StoreUpdate {
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
-        debug_assert!(column.is_rc());
+        log_assert!(column.is_rc());
         let value = encode_value_with_rc(value, rc_delta);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
@@ -184,7 +185,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        debug_assert!(!column.is_rc());
+        log_assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -203,7 +204,7 @@ impl StoreUpdate {
         match (&self.tries, other.tries) {
             (_, None) => (),
             (None, Some(tries)) => self.tries = Some(tries),
-            (Some(t1), Some(t2)) => debug_assert!(t1.is_same(&t2)),
+            (Some(t1), Some(t2)) => log_assert!(t1.is_same(&t2)),
         }
 
         self.merge_transaction(other.transaction);

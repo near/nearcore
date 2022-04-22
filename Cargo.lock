@@ -3007,6 +3007,7 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "backtrace",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -3185,6 +3186,7 @@ dependencies = [
  "fs2",
  "lru",
  "near-crypto",
+ "near-o11y",
  "near-primitives",
  "num_cpus",
  "once_cell",
