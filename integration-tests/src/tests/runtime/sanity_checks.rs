@@ -5,7 +5,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{CostGasUsed, ExecutionStatusView, FinalExecutionStatus};
+use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -19,7 +19,7 @@ const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 const MAX_GAS: u64 = 300_000_000_000_000;
 
 fn test_contract_account() -> AccountId {
-    "test_contract.alice.near".parse().unwrap()
+    format!("test-contract.{}", alice_account().as_str()).parse().unwrap()
 }
 
 fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
@@ -90,15 +90,15 @@ fn test_cost_sanity() {
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
-    let receipts_status: Vec<&ExecutionStatusView> =
-        res.receipts_outcome.iter().map(|outcome| &outcome.outcome.status).collect();
+    let receipts_status =
+        res.receipts_outcome.iter().map(|outcome| &outcome.outcome.status).collect::<Vec<_>>();
     insta::assert_yaml_snapshot!("receipts_status", receipts_status);
 
-    let receipts_gas_profile: Vec<&Vec<CostGasUsed>> = res
+    let receipts_gas_profile = res
         .receipts_outcome
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
-        .collect();
+        .collect::<Vec<_>>();
     insta::assert_debug_snapshot!(
         if cfg!(feature = "nightly_protocol") {
             "receipts_gas_profile_nightly"
