@@ -422,9 +422,7 @@ impl RunCmd {
             // `SIGHUP` lets user inform the process that the logging config has changed and
             // EnvFilter needs to be reinitialized.
             if cfg!(unix) {
-                if let Some(ref log_config) = &near_config.config.log_config {
-                    spawn_log_config_watcher(home_dir.join(log_config));
-                };
+                spawn_log_config_watcher(home_dir.join("log_config.json"));
             }
 
             let nearcore::NearNode { rpc_servers, .. } =

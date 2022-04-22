@@ -333,10 +333,6 @@ fn default_use_checkpoints_for_db_migration() -> bool {
     true
 }
 
-fn default_log_config() -> Option<PathBuf> {
-    Some(PathBuf::from("log_level.json"))
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -462,8 +458,6 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     /// Different parameters to configure/optimize underlying storage.
     pub store: near_store::StoreConfig,
-    #[serde(default = "default_log_config")]
-    pub log_config: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -493,7 +487,6 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
             store: near_store::StoreConfig::read_write(),
-            log_config: default_log_config(),
         }
     }
 }
