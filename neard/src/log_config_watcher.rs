@@ -1,6 +1,17 @@
+use actix::{Actor, Arbiter, Context};
 use near_o11y::reload_env_filter;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tokio::runtime::Handle;
+
+/// Runs LogConfigWatcher in a separate thread.
+pub(crate) fn spawn_log_config_watcher(watched_path: PathBuf) {
+    let log_config_arbiter = Arbiter::new();
+    let log_config_arbiter_handle = log_config_arbiter.handle();
+    LogConfigActor::start_in_arbiter(&log_config_arbiter_handle, move |_ctx| LogConfigActor {
+        watched_path,
+    });
+}
 
 /// Configures logging.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -12,12 +23,30 @@ struct LogConfig {
     pub verbose_module: Option<String>,
 }
 
-pub(crate) struct LogConfigWatcher {
-    pub watched_path: PathBuf,
+/// Helper for running LogConfigWatcher in its own thread.
+struct LogConfigActor {
+    watched_path: PathBuf,
 }
 
-impl LogConfigWatcher {
-    pub fn update(&self) {
+impl Actor for LogConfigActor {
+    type Context = Context<Self>;
+
+    fn started(&mut self, _ctx: &mut Self::Context) {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut stream = signal(SignalKind::hangup()).unwrap();
+        let handle = Handle::current();
+        let _guard = handle.enter();
+        futures::executor::block_on(async {
+            loop {
+                stream.recv().await;
+                self.update();
+            }
+        });
+    }
+}
+
+impl LogConfigActor {
+    fn update(&self) {
         // Log to stdout, because otherwise these messages are about controlling logging.
         // If an issue with controlling logging occurs, and logging is disabled, the user may not be
         // able to enable logging.
