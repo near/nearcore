@@ -1197,11 +1197,14 @@ pub fn create_testnet_configs_from_seeds(
     } else {
         ShardLayout::v0(num_shards, 0)
     };
+    let mut accounts_to_add_to_genesis: Vec<AccountId> =
+        seeds.iter().map(|s| s.parse().unwrap()).collect();
+
     // If we have fixed shards - let's also add those accounts to genesis.
-    let accounts_to_add_to_genesis = if let Some(ref fixed_shards_accounts) = fixed_shards {
-        seeds.iter().chain(fixed_shards_accounts.iter()).map(|s| s.parse().unwrap()).collect()
-    } else {
-        seeds.iter().map(|s| s.parse().unwrap()).collect()
+    if let Some(ref fixed_shards_accounts) = fixed_shards {
+        accounts_to_add_to_genesis.extend(
+            fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
+        );
     };
     let genesis = Genesis::test_with_seeds(
         accounts_to_add_to_genesis,
