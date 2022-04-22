@@ -335,13 +335,25 @@ impl Wasmer2VM {
                     .map_err(|err| {
                         use wasmer_engine::InstantiationError::{self, *};
                         match err.downcast_ref::<InstantiationError>() {
-                            Some(Start(err)) => translate_runtime_error(err.clone(), import.vmlogic),
-                            Some(Link(e)) => VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() }),
-                            Some(CreateInstance(e)) => VMError::FunctionCallError(FunctionCallError::LinkError { msg: e.to_string() }),
-                            Some(CpuFeature(e)) => {
-                                panic!("host does not support the CPU features required to run contracts: {}", e)
+                            Some(Start(err)) => {
+                                translate_runtime_error(err.clone(), import.vmlogic)
                             }
-                            None => VMError::FunctionCallError(FunctionCallError::LinkError { msg: err.to_string() })
+                            Some(Link(e)) => {
+                                VMError::FunctionCallError(FunctionCallError::LinkError {
+                                    msg: e.to_string(),
+                                })
+                            }
+                            Some(CreateInstance(e)) => {
+                                VMError::FunctionCallError(FunctionCallError::LinkError {
+                                    msg: e.to_string(),
+                                })
+                            }
+                            Some(CpuFeature(e)) => panic!(
+                                "host doesn't support the CPU features needed to run contracts: {}",
+                                e
+                            ),
+                            // TODO: make this a static invariant.
+                            None => panic!("this ought to be unreachable"),
                         }
                     })?;
                 // SAFETY: being called immediately after instantiation.

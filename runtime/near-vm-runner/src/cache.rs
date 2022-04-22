@@ -338,7 +338,7 @@ pub mod wasmer2_cache {
                 vm.engine
                     .load_universal_executable(&executable)
                     .map(|v| Arc::new(v) as _)
-                    .map_err(|err| CompilationError::WasmerCompileError { msg: err.to_string() })
+                    .map_err(|err| panic!("could not load the executable: {}", err.to_string()))
             })),
             Some(cache) => {
                 let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
