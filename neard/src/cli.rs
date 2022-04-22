@@ -103,7 +103,7 @@ impl NeardCmd {
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum RunError {
-    #[error("Invalid EnvFilter directives provided")]
+    #[error("invalid logging directives provided")]
     EnvFilter(#[source] ParseError),
 }
 

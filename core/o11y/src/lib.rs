@@ -116,9 +116,9 @@ pub fn default_subscriber(
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReloadError {
-    #[error("Cannot reload env_filter")]
+    #[error("cannot reload env_filter")]
     Reload(#[source] Error),
-    #[error("Cannot parse env_filter directive")]
+    #[error("cannot parse env_filter directive")]
     Parse(#[source] ParseError),
     #[error("env_filter reload handle is not available")]
     NoReloadHandle,
