@@ -14,6 +14,7 @@ use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::network::PeerId;
+use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
@@ -113,17 +114,26 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     if db_version == near_primitives::version::DB_VERSION {
         return Ok(());
     }
+
     anyhow::ensure!(
         db_version < near_primitives::version::DB_VERSION,
         "DB version {db_version} is created by a newer version of neard, \
          please update neard"
     );
-    anyhow::ensure!(
-        db_version >= 27,
-        "DB version {db_version} is created by an ancient version of neard and \
-         is no longer supported by this version, please migrate using older \
-         releases"
-    );
+
+    // For given db version, latest neard release which supported that version.
+    // If you’re removing support for a database version from neard put an entry
+    // here so that we can inform user which version they need.
+    const LATEST_DB_SUPPORTED: [(DbVersion, &'static str); 1] = [(26, "1.26")];
+    if let Some((_, release)) =
+        LATEST_DB_SUPPORTED.iter().filter(|(ver, _)| db_version <= *ver).next()
+    {
+        anyhow::bail!(
+            "DB version {db_version} is created by an ancient version of neard \
+             and is no longer supported by this version, please migrate using \
+             {release} release"
+        );
+    }
 
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
@@ -143,12 +153,14 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
 
     // Add migrations here based on `db_version`.
     if db_version <= 26 {
+        // Unreachable since we should have bailed when checking
+        // LATEST_DB_SUPPORTED above.
         unreachable!();
     }
     if db_version <= 27 {
         // version 27 => 28: add ColStateChangesForSplitStates
         // Does not need to do anything since open db with option `create_missing_column_families`
-        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
+        // Nevertheless need to bump db version, because db_version 27 binary can't open db_version 28 db
         info!(target: "near", "Migrate DB from version 27 to 28");
         let store = create_store(path);
         set_store_version(&store, 28);
