@@ -2999,6 +2999,7 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "backtrace",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
