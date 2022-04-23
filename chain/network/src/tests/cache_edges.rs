@@ -9,7 +9,7 @@ use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use near_primitives::time::Clock;
 use near_store::test_utils::create_test_store;
-use near_store::{ColComponentEdges, ColPeerComponent, Store};
+use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -127,7 +127,7 @@ impl RoutingTableTest {
 
         // Check for peers on disk
         let mut total_peers = 0;
-        for (peer, nonce) in self.store.iter(ColPeerComponent) {
+        for (peer, nonce) in self.store.iter(DBCol::ColPeerComponent) {
             total_peers += 1;
 
             let peer = PeerId::try_from_slice(peer.as_ref()).unwrap();
@@ -140,7 +140,7 @@ impl RoutingTableTest {
 
         // Check for edges on disk
         let mut total_nonces = 0;
-        for (nonce, edges) in self.store.iter(ColComponentEdges) {
+        for (nonce, edges) in self.store.iter(DBCol::ColComponentEdges) {
             total_nonces += 1;
 
             let nonce = u64::try_from_slice(nonce.as_ref()).unwrap();

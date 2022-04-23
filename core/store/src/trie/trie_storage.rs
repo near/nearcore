@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{ColState, StorageError, Store};
+use crate::{DBCol, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{TrieCacheMode, TrieNodesCount};
@@ -96,7 +96,7 @@ impl TrieStorage for TrieRecordingStorage {
         let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
         let val = self
             .store
-            .get(ColState, key.as_ref())
+            .get(DBCol::ColState, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
             self.recorded.borrow_mut().insert(*hash, val.clone());
@@ -248,7 +248,7 @@ impl TrieStorage for TrieCachingStorage {
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
                 let val = self
                     .store
-                    .get(ColState, key.as_ref())
+                    .get(DBCol::ColState, key.as_ref())
                     .map_err(|_| StorageError::StorageInternalError)?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState("Trie node missing".to_string())

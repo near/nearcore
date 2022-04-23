@@ -5,7 +5,7 @@ use near_network_primitives::types::{
 use near_primitives::network::PeerId;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol, Store};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
@@ -91,7 +91,7 @@ impl PeerStore {
         });
 
         let now = to_timestamp(Utc::now());
-        for (key, value) in store.iter(ColPeers) {
+        for (key, value) in store.iter(DBCol::ColPeers) {
             let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
             let peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
 
@@ -207,7 +207,7 @@ impl PeerStore {
         peer_state: &KnownPeerState,
     ) -> Result<(), Box<dyn Error>> {
         let mut store_update = store.store_update();
-        store_update.set_ser(ColPeers, peer_id, peer_state)?;
+        store_update.set_ser(DBCol::ColPeers, peer_id, peer_state)?;
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -283,7 +283,7 @@ impl PeerStore {
         let mut store_update = self.store.store_update();
         for peer_id in to_remove {
             self.peer_states.remove(&peer_id);
-            store_update.delete(ColPeers, &peer_id.try_to_vec()?);
+            store_update.delete(DBCol::ColPeers, &peer_id.try_to_vec()?);
         }
         store_update.commit().map_err(|err| err.into())
     }

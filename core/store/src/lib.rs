@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use lru::LruCache;
 
-pub use columns::DBCol::{self, *};
+pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
@@ -313,9 +313,9 @@ pub struct StoreConfig {
     #[serde(default = "default_max_open_files")]
     pub max_open_files: u32,
 
-    /// Cache size for ColState column.
+    /// Cache size for DBCol::ColState column.
     /// Default value: 512MiB.
-    /// Increasing ColState cache size helps making storage more efficient. On the other hand we
+    /// Increasing DBCol::ColState cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
     #[serde(default = "default_col_state_cache_size")]
@@ -350,7 +350,7 @@ impl StoreConfig {
     pub const DEFAULT_MAX_OPEN_FILES: u32 = 10_000;
 
     /// We used to have the same cache size for all columns 32MB. When some RocksDB
-    /// inefficiencies were found ColState cache size was increased up to 512MB.
+    /// inefficiencies were found DBCol::ColState cache size was increased up to 512MB.
     /// This was done Nov 13 2021 and we consider increasing the value.
     /// Tests have shown that increase of col_state_cache_size up to 25GB (we've used this big
     /// value to estimate performance improvement headroom) having max_open_files=10K improved

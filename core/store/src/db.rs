@@ -793,7 +793,6 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 }
 #[cfg(test)]
 mod tests {
-    use crate::db::DBCol::ColState;
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
     use crate::{create_store, DBCol, StoreConfig, StoreStatistics};
@@ -831,21 +830,21 @@ mod tests {
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
         let store = create_store(tmp_dir.path());
-        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1], 1);
-            store_update.update_refcount(ColState, &[2], &[2], 1);
-            store_update.update_refcount(ColState, &[3], &[3], 1);
+            store_update.update_refcount(DBCol::ColState, &[1], &[1], 1);
+            store_update.update_refcount(DBCol::ColState, &[2], &[2], 1);
+            store_update.update_refcount(DBCol::ColState, &[3], &[3], 1);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), Some(vec![1]));
         {
             let mut store_update = store.store_update();
-            store_update.delete_all(ColState);
+            store_update.delete_all(DBCol::ColState);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), None);
     }
 
     #[test]
@@ -854,51 +853,51 @@ mod tests {
         let store = create_store(tmp_dir.path());
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
-        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.update_refcount(DBCol::ColState, &[1], &[1], 1);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1], 1);
+            store_update.update_refcount(DBCol::ColState, &[1], &[1], 1);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), Some(vec![1]));
         assert_eq!(
-            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            rocksdb.get_no_empty_filtering(DBCol::ColState, &[1]).unwrap(),
             Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
         );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1], -1);
+            store_update.update_refcount(DBCol::ColState, &[1], &[1], -1);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(ColState, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), Some(vec![1]));
         assert_eq!(
-            rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(),
+            rocksdb.get_no_empty_filtering(DBCol::ColState, &[1]).unwrap(),
             Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
         );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(ColState, &[1], &[1], -1);
+            store_update.update_refcount(DBCol::ColState, &[1], &[1], -1);
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None
-        assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), Some(vec![]));
+        assert_eq!(rocksdb.get_no_empty_filtering(DBCol::ColState, &[1]).unwrap(), Some(vec![]));
 
         #[cfg(not(feature = "single_thread_rocksdb"))]
         {
             // single_thread_rocksdb makes compact hang forever
-            rocksdb.compact(ColState);
-            rocksdb.compact(ColState);
+            rocksdb.compact(DBCol::ColState);
+            rocksdb.compact(DBCol::ColState);
 
             // After compaction the empty value disappears
-            assert_eq!(rocksdb.get_no_empty_filtering(ColState, &[1]).unwrap(), None);
-            assert_eq!(store.get(ColState, &[1]).unwrap(), None);
+            assert_eq!(rocksdb.get_no_empty_filtering(DBCol::ColState, &[1]).unwrap(), None);
+            assert_eq!(store.get(DBCol::ColState, &[1]).unwrap(), None);
         }
     }
 

@@ -84,7 +84,7 @@ imports and rely on `rustfmt` to sort them.
 use crate::types::KnownPeerState;
 use borsh::BorshSerialize;
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::ColPeers, Store};
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -97,7 +97,7 @@ use borsh::BorshSerialize;
 use rand::seq::SliceRandom;
 
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::ColPeers, Store};
 
 use crate::types::KnownPeerState;
 ```

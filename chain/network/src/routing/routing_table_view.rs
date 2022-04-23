@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::Clock;
 use near_primitives::types::AccountId;
-use near_store::{ColAccountAnnouncements, Store};
+use near_store::{DBCol, Store};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -138,7 +138,11 @@ impl RoutingTableView {
         // Add account to store
         let mut update = self.store.store_update();
         if let Err(e) = update
-            .set_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
+            .set_ser(
+                DBCol::ColAccountAnnouncements,
+                account_id.as_ref().as_bytes(),
+                &announce_account,
+            )
             .and_then(|_| update.commit())
         {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
@@ -245,7 +249,7 @@ impl RoutingTableView {
             Some(announce_account.clone())
         } else {
             self.store
-                .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
+                .get_ser(DBCol::ColAccountAnnouncements, account_id.as_ref().as_bytes())
                 .map(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
                         self.account_peers.put(account_id.clone(), announce_account.clone());

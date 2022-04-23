@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::DBCol::ColStateParts;
+use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::DBCol::ColBlock) {
+                        for _ in store.iter(DBCol::ColBlock) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -1812,7 +1812,7 @@ impl SyncJobsActor {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(ColStateParts, &key)?.unwrap();
+            let part = store.get(DBCol::ColStateParts, &key)?.unwrap();
 
             msg.runtime.apply_state_part(
                 msg.shard_id,

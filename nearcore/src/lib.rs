@@ -23,8 +23,7 @@ use near_store::db::RocksDB;
 use near_store::migrations::{
     get_store_version, migrate_28_to_29, migrate_29_to_30, set_store_version,
 };
-use near_store::DBCol;
-use near_store::{create_store, create_store_with_config, Store};
+use near_store::{create_store, create_store_with_config, DBCol, Store};
 use near_telemetry::TelemetryActor;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -158,7 +157,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         unreachable!();
     }
     if db_version <= 27 {
-        // version 27 => 28: add ColStateChangesForSplitStates
+        // version 27 => 28: add DBCol::ColStateChangesForSplitStates
         // Does not need to do anything since open db with option `create_missing_column_families`
         // Nevertheless need to bump db version, because db_version 27 binary can't open db_version 28 db
         info!(target: "near", "Migrate DB from version 27 to 28");
@@ -374,13 +373,13 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let archive = config.archive;
     let mut skip_columns = Vec::new();
     if archive && !opts.keep_partial_chunks {
-        skip_columns.push(near_store::DBCol::ColPartialChunks);
+        skip_columns.push(DBCol::ColPartialChunks);
     }
     if archive && !opts.keep_invalid_chunks {
-        skip_columns.push(near_store::DBCol::ColInvalidChunks);
+        skip_columns.push(DBCol::ColInvalidChunks);
     }
     if archive && !opts.keep_trie_changes {
-        skip_columns.push(near_store::DBCol::ColTrieChanges);
+        skip_columns.push(DBCol::ColTrieChanges);
     }
 
     // Make sure we can open at least two databases and have some file
@@ -482,7 +481,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         store_update.commit()?;
     }
 
-    // If we’re not keeping ColPartialChunks, update chunk tail to point to
+    // If we’re not keeping DBCol::ColPartialChunks, update chunk tail to point to
     // current final block.  If we don’t do that, the gc will try to work its
     // way from the genesis even though chunks at those heights have been
     // deleted.

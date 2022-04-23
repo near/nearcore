@@ -1,5 +1,5 @@
 """
-Getting data from ColTrieChanges is changed.
+Getting data from DBCol::ColTrieChanges is changed.
 
 https://github.com/nearprotocol/nearcore/pull/2592
 

@@ -139,7 +139,7 @@ fn get_epoch_ids(
     }
 }
 
-// Iterates over the ColEpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
+// Iterates over the DBCol::ColEpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
 // for EpochInfos that satisfy the given predicate.
 fn iterate_and_filter(store: Store, predicate: impl Fn(EpochInfo) -> bool) -> Vec<EpochId> {
     store

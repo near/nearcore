@@ -38,7 +38,7 @@ fn get_incoming_receipts(
     let chunk_hashes = chain_store.get_all_chunk_hashes_by_height(target_height)?;
     if !chunk_hashes.contains(chunk_hash) {
         return Err(anyhow!(
-            "given chunk hash is not listed in ColChunkHashesByHeight[{}]",
+            "given chunk hash is not listed in DBCol::ColChunkHashesByHeight[{}]",
             target_height
         ));
     }
@@ -196,7 +196,7 @@ fn apply_tx_in_block(
             }
         },
         None => {
-            Err(anyhow!("Could not find tx with hash {} in block {}, even though `ColTransactionResult` says it should be there", tx_hash, block_hash))
+            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::ColTransactionResult` says it should be there", tx_hash, block_hash))
         }
     }
 }
@@ -224,7 +224,7 @@ fn apply_tx_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };
@@ -330,7 +330,7 @@ fn apply_receipt_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ColChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };

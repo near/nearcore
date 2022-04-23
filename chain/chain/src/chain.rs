@@ -46,7 +46,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
-use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
+use near_store::{DBCol, ShardTries, StoreUpdate};
 
 use near_primitives::state_record::StateRecord;
 
@@ -1245,7 +1245,7 @@ impl Chain {
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
-        store_update.delete_all(ColState);
+        store_update.delete_all(DBCol::ColState);
         chain_store_update.merge(store_update);
 
         // The reason to reset tail here is not to allow Tail be greater than Head
@@ -1734,7 +1734,7 @@ impl Chain {
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.store().get_ser(ColStateHeaders, &key) {
+        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::ColStateHeaders, &key) {
             return Ok(header);
         }
 
@@ -1906,7 +1906,7 @@ impl Chain {
 
         // Saving the header data
         let mut store_update = self.store.store().store_update();
-        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(shard_state_header)
@@ -1920,7 +1920,7 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.store().get(ColStateParts, &key) {
+        if let Ok(Some(state_part)) = self.store.store().get(DBCol::ColStateParts, &key) {
             return Ok(state_part);
         }
 
@@ -1968,7 +1968,7 @@ impl Chain {
 
         // Saving the part data
         let mut store_update = self.store.store().store_update();
-        store_update.set(ColStateParts, &key, &state_part);
+        store_update.set(DBCol::ColStateParts, &key, &state_part);
         store_update.commit()?;
 
         Ok(state_part)
@@ -2142,7 +2142,7 @@ impl Chain {
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        store_update.set_ser(ColStateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::ColStateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(())
@@ -2177,7 +2177,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
-        store_update.set(ColStateParts, &key, data);
+        store_update.set(DBCol::ColStateParts, &key, data);
         store_update.commit()?;
         Ok(())
     }

@@ -62,9 +62,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_store::get;
 use near_store::test_utils::create_test_store;
-use near_store::DBCol::ColStateParts;
+use near_store::{get, DBCol};
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
@@ -2385,7 +2384,7 @@ fn test_catchup_gas_price_change() {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
-            let part = store.get(ColStateParts, &key).unwrap().unwrap();
+            let part = store.get(DBCol::ColStateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
                 msg.shard_id,
