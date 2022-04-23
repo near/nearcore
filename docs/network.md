@@ -437,9 +437,9 @@ Each component is assigned a unique `nonce`, where first one is assigned nonce 0
 assigned a consecutive integer.
 
 To store components, we have the following columns in the DB.
-- `DBCol::ColLastComponentNonce` Stores `component_nonce: u64`, which is the last used nonce.
-- `DBCol::ColComponentEdges` Mapping from `component_nonce` to list of edges.
-- `DBCol::ColPeerComponent` Mapping from `peer_id` to last component `nonce` it belongs to.
+- `DBCol::LastComponentNonce` Stores `component_nonce: u64`, which is the last used nonce.
+- `DBCol::ComponentEdges` Mapping from `component_nonce` to list of edges.
+- `DBCol::PeerComponent` Mapping from `peer_id` to last component `nonce` it belongs to.
 
 ### 12.2 Storage of `account_id` to `peer_id` mapping
 

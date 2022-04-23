@@ -35,7 +35,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
                     count += 1;
                     store_update
                         .set_ser(
-                            DBCol::ColBlockOrdinal,
+                            DBCol::BlockOrdinal,
                             &index_to_bytes(block_ordinal),
                             &block_hash,
                         )

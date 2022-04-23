@@ -2384,7 +2384,7 @@ fn test_catchup_gas_price_change() {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
-            let part = store.get(DBCol::ColStateParts, &key).unwrap().unwrap();
+            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
                 msg.shard_id,

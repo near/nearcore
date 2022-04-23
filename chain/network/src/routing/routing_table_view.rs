@@ -139,7 +139,7 @@ impl RoutingTableView {
         let mut update = self.store.store_update();
         if let Err(e) = update
             .set_ser(
-                DBCol::ColAccountAnnouncements,
+                DBCol::AccountAnnouncements,
                 account_id.as_ref().as_bytes(),
                 &announce_account,
             )
@@ -249,7 +249,7 @@ impl RoutingTableView {
             Some(announce_account.clone())
         } else {
             self.store
-                .get_ser(DBCol::ColAccountAnnouncements, account_id.as_ref().as_bytes())
+                .get_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes())
                 .map(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
                         self.account_peers.put(account_id.clone(), announce_account.clone());

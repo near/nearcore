@@ -109,7 +109,7 @@ impl EpochManager {
         let validator_reward =
             HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
         let epoch_info_aggregator = store
-            .get_ser(DBCol::ColEpochInfo, AGGREGATOR_KEY)
+            .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
             .map_err(EpochError::from)?
             .unwrap_or_default();
         let mut epoch_manager = EpochManager {
@@ -1297,7 +1297,7 @@ impl EpochManager {
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(epoch_id.clone(), |epoch_id| {
             self.store
-                .get_ser(DBCol::ColEpochInfo, epoch_id.as_ref())?
+                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
                 .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
         })
     }
@@ -1316,7 +1316,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: Arc<EpochInfo>,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(DBCol::ColEpochInfo, epoch_id.as_ref(), &epoch_info)?;
+        store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_info)?;
         self.epochs_info.put(epoch_id.clone(), epoch_info);
         Ok(())
     }
@@ -1324,7 +1324,7 @@ impl EpochManager {
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
-            .get_ser(DBCol::ColEpochValidatorInfo, epoch_id.as_ref())?
+            .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
             .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
     }
 
@@ -1337,7 +1337,7 @@ impl EpochManager {
         epoch_summary: &EpochSummary,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(DBCol::ColEpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
+            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
             .map_err(EpochError::from)
     }
 
@@ -1356,7 +1356,7 @@ impl EpochManager {
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
-                .get_ser(DBCol::ColBlockInfo, hash.as_ref())?
+                .get_ser(DBCol::BlockInfo, hash.as_ref())?
                 .ok_or_else(|| EpochError::MissingBlock(*hash))
                 .map(Arc::new)
         })
@@ -1369,7 +1369,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = *block_info.hash();
         store_update
-            .set_ser(DBCol::ColBlockInfo, block_hash.as_ref(), &block_info)
+            .set_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.put(block_hash, block_info);
         Ok(())
@@ -1382,7 +1382,7 @@ impl EpochManager {
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(DBCol::ColEpochStart, epoch_id.as_ref(), &epoch_start)
+            .set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)
             .map_err(EpochError::from)?;
         self.epoch_id_to_start.put(epoch_id.clone(), epoch_start);
         Ok(())
@@ -1391,7 +1391,7 @@ impl EpochManager {
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.epoch_id_to_start.get_or_try_put(epoch_id.clone(), |epoch_id| {
             self.store
-                .get_ser(DBCol::ColEpochStart, epoch_id.as_ref())?
+                .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
                 .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
         })
     }
@@ -1427,7 +1427,7 @@ impl EpochManager {
             };
             if save {
                 store_update.set_ser(
-                    DBCol::ColEpochInfo,
+                    DBCol::EpochInfo,
                     AGGREGATOR_KEY,
                     &self.epoch_info_aggregator,
                 )?;

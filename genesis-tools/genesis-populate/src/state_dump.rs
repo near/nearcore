@@ -20,7 +20,7 @@ impl StateDump {
         let store = create_store(target_store_path);
         let state_file = dir.join(STATE_DUMP_FILE);
         store
-            .load_from_file(DBCol::ColState, state_file.as_path())
+            .load_from_file(DBCol::State, state_file.as_path())
             .expect("Failed to read state dump");
         let roots_files = dir.join(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
@@ -34,7 +34,7 @@ impl StateDump {
     pub fn save_to_dir(self, dir: PathBuf) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut dump_path = dir.clone();
         dump_path.push(STATE_DUMP_FILE);
-        self.store.save_to_file(DBCol::ColState, dump_path.as_path())?;
+        self.store.save_to_file(DBCol::State, dump_path.as_path())?;
         {
             let mut roots_files = dir.clone();
             roots_files.push(GENESIS_ROOTS_FILE);
