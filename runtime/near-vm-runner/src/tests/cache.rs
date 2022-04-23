@@ -53,7 +53,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(result.outcome().is_none());
+        assert_eq!(result.outcome().used_gas, 0);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
@@ -61,7 +61,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert!(result.outcome().is_none());
+        assert_eq!(result.outcome().used_gas, 0);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))
@@ -103,19 +103,68 @@ fn test_wasmer2_artifact_output_stability() {
     //
     // Note that this test is a best-effort fish net. Some changes that should modify the hash will
     // fall through the cracks here, but hopefully it should catch most of the fish just fine.
-    let mut hasher = StableHasher::new();
-    let code = near_test_contracts::trivial_contract();
-    let config = VMConfig::test();
-    let prepared_code = prepare::prepare_contract(code, &config).unwrap();
-    let mut features = CpuFeature::set();
-    features.insert(CpuFeature::AVX);
-    let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
-    let target = Target::new(triple, features);
-    let vm = Wasmer2VM::new_for_target(config, target);
-    let executable = vm.compile_uncached(&prepared_code).unwrap();
-    let serialized = executable.serialize().unwrap();
-    serialized.hash(&mut hasher);
-    assert_eq!(hasher.finish(), 2128441495928970645, "WASMER2_CONFIG needs version change");
+    let seeds = [2, 3, 5, 7, 11, 13, 17];
+    let prepared_hashes = [
+        4956511664052417334,
+        13266258595277126792,
+        11794508683191255560,
+        4769993623179083711,
+        10062359189500799005,
+        12997491198579188147,
+        4736731759770276858,
+    ];
+    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
+    let compiled_hashes = [
+        2482866579380424992,
+        12522401137476924800,
+        14535116066862320239,
+        14541379784010931226,
+        14081546286930060080,
+        13351538055512369264,
+        10243003885523827708,
+    ];
+    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let contract = near_test_contracts::arbitrary_contract(seed);
+
+        let config = VMConfig::test();
+        let prepared_code = prepare::prepare_contract(&contract, &config).unwrap();
+        let mut hasher = StableHasher::new();
+        (&contract, &prepared_code).hash(&mut hasher);
+        got_prepared_hashes.push(hasher.finish());
+
+        let mut features = CpuFeature::set();
+        features.insert(CpuFeature::AVX);
+        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+        let target = Target::new(triple, features);
+        let vm = Wasmer2VM::new_for_target(config, target);
+        let artifact = vm.compile_uncached(&prepared_code).unwrap();
+        let serialized = artifact.serialize().unwrap();
+        let mut hasher = StableHasher::new();
+        serialized.hash(&mut hasher);
+        got_compiled_hashes.push(hasher.finish());
+
+        std::fs::write(format!("/tmp/artifact{}", got_compiled_hashes[0]), serialized).unwrap();
+    }
+    // These asserts have failed as a result of some change and the following text describes what
+    // the implications of the change.
+    //
+    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
+    // too, as below. Maybe something else too.
+    assert!(
+        got_prepared_hashes == prepared_hashes,
+        "contract preparation hashes have changed to {:#?}",
+        got_prepared_hashes
+    );
+    // In this case you will need to adjust the WASMER2_CONFIG version so that the cached contracts
+    // are evicted from the contract cache.
+    assert!(
+        got_compiled_hashes == compiled_hashes,
+        "VM output hashes have changed to {:#?}",
+        got_compiled_hashes
+    );
+    // Once it has been confirmed that these steps have been done, the expected hashes in this test
+    // can be adjusted.
 }
 
 /// [`CompiledContractCache`] which simulates failures in the underlying

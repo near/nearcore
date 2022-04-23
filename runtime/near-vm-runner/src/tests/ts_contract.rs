@@ -72,7 +72,7 @@ pub fn test_ts_contract() {
             None,
         );
 
-        if let ReturnData::Value(value) = result.outcome().unwrap().return_data.clone() {
+        if let ReturnData::Value(value) = result.outcome().return_data.clone() {
             let value = String::from_utf8(value).unwrap();
             assert_eq!(value, "bar");
         } else {

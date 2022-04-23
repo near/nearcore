@@ -168,7 +168,6 @@ fn main() {
     let maybe_error = last_result.error();
 
     match &last_result {
-        VMResult::NotRun(_) => {}
         VMResult::Aborted(outcome, _) | VMResult::Ok(outcome) => {
             println!(
                 "{:#?}",

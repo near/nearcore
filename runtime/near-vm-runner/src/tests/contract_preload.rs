@@ -83,10 +83,11 @@ fn test_result(result: VMResult, check_gas: bool) -> (i32, i32) {
             }
             oks += 1;
         }
-        VMResult::NotRun(FunctionCallError(_)) => {
+        VMResult::Aborted(outcome, FunctionCallError(_)) => {
+            assert_eq!(outcome.used_gas, 0, "Empty outcome expected but was: {outcome:?}",);
             errs += 1;
         }
-        VMResult::NotRun(err) | VMResult::Aborted(_, err) => {
+        VMResult::Aborted(_, err) => {
             assert!(false, "Unexpected error: {:?}", err)
         }
     }
