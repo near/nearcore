@@ -178,7 +178,6 @@ impl std::error::Error for HandshakeFailureReason {}
     Clone,
     Debug,
     strum::AsStaticStr,
-    strum::EnumVariantNames,
 )]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]

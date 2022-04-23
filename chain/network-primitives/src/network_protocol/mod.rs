@@ -173,7 +173,6 @@ pub struct Pong {
     Clone,
     strum::AsRefStr,
     strum::AsStaticStr,
-    strum::EnumVariantNames,
 )]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
