@@ -119,13 +119,7 @@ pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
-        .unwrap()
-});
-pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
-});
+
 pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_skipped_total",
@@ -174,3 +168,44 @@ pub static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+/// Exports neard, protocol and database versions via Prometheus metrics.
+///
+/// Defines and sets metrics which export node’s max supported protocol version,
+/// used database version and build information.  The latter is taken from
+/// `neard_version` argument.  This should be called only once at startup.
+/// Subsequent calls don’t change exported values.
+pub fn export_version(neard_version: &near_primitives::version::Version) {
+    fn set<T, F: FnOnce(T)>(name: &str, result: near_metrics::Result<T>, callback: F) {
+        match result {
+            Ok(metric) => callback(metric),
+            Err(err) => near_o11y::log_assert!(false, "Error creating {} metric: {}", name, err),
+        };
+    }
+
+    let result = try_create_int_gauge(
+        "near_node_protocol_version",
+        "Max protocol version supported by the node",
+    );
+    set("near_node_protocol_version", result, |m| {
+        m.set(near_primitives::version::PROTOCOL_VERSION as i64)
+    });
+
+    let result = try_create_int_gauge("near_node_db_version", "Database version used by the node");
+    set("near_node_db_version", result, |m| m.set(near_primitives::version::DB_VERSION as i64));
+
+    let result = try_create_int_counter_vec(
+        "near_build_info",
+        "Metric whose labels indicate node’s version; see \
+         <https://www.robustperception.io/exposing-the-software-version-to-prometheus>.",
+        &["release", "build", "rustc_version"],
+    );
+    set("near_build_info", result, |m| {
+        m.with_label_values(&[
+            &neard_version.version,
+            &neard_version.build,
+            &neard_version.rustc_version,
+        ])
+        .inc()
+    });
+}

@@ -2701,6 +2701,7 @@ dependencies = [
  "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-pool",
