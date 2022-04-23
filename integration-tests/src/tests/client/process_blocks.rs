@@ -1630,17 +1630,24 @@ fn test_gc_fork_tail() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(1, block, Provenance::NONE);
     }
+
+    let mut second_epoch_start = None;
     for i in 102..epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         for j in 0..2 {
             env.process_block(j, block.clone(), Provenance::NONE);
+        }
+        if second_epoch_start.is_none() && block.header().epoch_id() != &EpochId::default() {
+            second_epoch_start = Some(i);
         }
     }
     let head = env.clients[1].chain.head().unwrap();
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
+    let tail = env.clients[1].chain.store().tail().unwrap();
+    let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
+    assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
 #[test]
