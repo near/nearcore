@@ -48,11 +48,7 @@ impl Encoder<Vec<u8>> for Codec {
         #[cfg(feature = "performance_stats")]
         {
             let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
-            stat.lock().unwrap().log_add_write_buffer(
-                item.len() + 4,
-                buf.len(),
-                buf.capacity(),
-            );
+            stat.lock().unwrap().log_add_write_buffer(item.len() + 4, buf.len(), buf.capacity());
         }
         if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
             && item.len() + 4 + buf.len() > buf.capacity()

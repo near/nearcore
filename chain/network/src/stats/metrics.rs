@@ -99,7 +99,7 @@ static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_dropped_message_by_type_and_reason_count",
         "Total count of messages which were dropped by type of message and \
          reason why the message has been dropped",
-        &["type", "reason"]
+        &["type", "reason"],
     )
     .unwrap()
 });
