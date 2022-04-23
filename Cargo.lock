@@ -3076,6 +3076,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smart-default",
+ "strum",
 ]
 
 [[package]]

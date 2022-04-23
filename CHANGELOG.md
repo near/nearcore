@@ -23,6 +23,8 @@
 * Use kebab-case names for neard subcommands to make them consistent with flag names.  snake_case names are still valid for existing subcommands but kebab-case will be used for new commands.
 * Added `near_peer_message_received_by_type_bytes` metric [#6661](https://github.com/near/nearcore/pull/6661)
 * Removed `near_<msg-type>_{total,bytes}` metrics in favour of `near_peer_message_received_by_type_{total,bytes}` metrics [#6661](https://github.com/near/nearcore/pull/6661)
+* Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
+* Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
 
 ## 1.25.0 [2022-03-16]
 
