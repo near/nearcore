@@ -223,21 +223,7 @@ impl StoreUpdate {
             (Some(t1), Some(t2)) => log_assert!(t1.is_same(&t2)),
         }
 
-        self.merge_transaction(other.transaction);
-    }
-
-    /// Merge DB Transaction.
-    fn merge_transaction(&mut self, transaction: DBTransaction) {
-        for op in transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => self.transaction.insert(col, key, value),
-                DBOp::Delete { col, key } => self.transaction.delete(col, key),
-                DBOp::UpdateRefcount { col, key, value } => {
-                    self.transaction.update_refcount(col, key, value)
-                }
-                DBOp::DeleteAll { col } => self.transaction.delete_all(col),
-            }
-        }
+        self.transaction.merge(other.transaction)
     }
 
     pub fn commit(self) -> io::Result<()> {
