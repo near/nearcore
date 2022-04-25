@@ -91,8 +91,10 @@ Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcor
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
 On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run nightly build from master with all the nightly protocol feature enabled.
-Every six weeks, we stabilize some protocol features and make a release candidate for testnet.
-After the release candidate has been running on testnet for 2 weeks and no issue is observed, we stabilize and publish the release for mainnet.
+Every five weeks, we stabilize some protocol features and make a release candidate for testnet.
+The process for feature stabilization can be found in [this document](docs/protocol_upgrade.md).
+After the release candidate has been running on testnet for four weeks and no issue is observed,
+we stabilize and publish the release for mainnet.
 
 # Crate Versioning and Publishing
 

@@ -69,6 +69,12 @@ In practice, we have all nightly protocol features enabled for Nayduck tests and
 
 ### Feature Stabilization
 
-When we are ready to make a new release, we examine which features should be stabilized and for those that should be, we
-remove the rust feature gating everywhere.
-In addition, we increment the `PROTOCOL_VERSION` constant and change the `protocol_version` implementation to map the stabilized features to the new protocol version.
+New protocol features are introduced first as nightly features and when the author of the feature thinks that
+the feature is ready to be stabilized, they should submit a pull request to stabilize the feature using
+[this template](../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.md).
+In this pull request, they should the feature gating, increase the `PROTOCOL_VERSION` constant,
+and change the `protocol_version` implementation to map the stabilized features to the new protocol version.
+
+A feature stabilization request must be approved by at least **two** [nearcore code owners](https://github.com/orgs/near/teams/nearcore-codeowners)
+Unless it is a security related fix, a protocol feature cannot be released until at least two weeks after its stabilization.
+This is to ensure that feature implementation and stabilization are not rushed.
