@@ -1,0 +1,8 @@
+wasm_regular_op_cost: 2207874
+wasm_ecrecover_base: 278821988457
+data_receipt_creation_base_send_sir: 36486732312
+data_receipt_creation_base_send_not_sir: 36486732312
+data_receipt_creation_base_execution: 36486732312
+data_receipt_creation_per_byte_send_sir: 17212011
+data_receipt_creation_per_byte_send_not_sir: 17212011
+data_receipt_creation_per_byte_execution: 17212011

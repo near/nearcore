@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
+use node_runtime::config::RuntimeConfig;
 use tracing::{debug, error, info, warn};
 
 use near_chain::types::{
@@ -264,7 +265,7 @@ impl NightshadeRuntime {
         match chain_id {
             "testnet" => {
                 let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                    RuntimeConfig::from_parameters_txt(INITIAL_TESTNET_CONFIG);
                 RuntimeConfigStore::new(Some(&genesis_runtime_config))
             }
             _ => RuntimeConfigStore::new(None),

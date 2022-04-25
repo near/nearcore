@@ -1,0 +1,2 @@
+wasm_regular_op_cost: 822756
+max_functions_number_per_contract: 10000

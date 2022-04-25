@@ -3,9 +3,13 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
+use std::collections::BTreeMap;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::num_rational::Rational;
+use crate::parameter::{read_parameter, Parameter};
 use crate::types::Gas;
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -24,6 +28,23 @@ pub struct Fee {
 }
 
 impl Fee {
+    fn from_parameters(params: &BTreeMap<Parameter, String>, key: &str) -> Fee {
+        Fee {
+            send_sir: read_parameter(
+                params,
+                Parameter::from_str(&(key.to_owned() + "_send_sir")).unwrap(),
+            ),
+            send_not_sir: read_parameter(
+                params,
+                Parameter::from_str(&(key.to_owned() + "_send_not_sir")).unwrap(),
+            ),
+            execution: read_parameter(
+                params,
+                Parameter::from_str(&(key.to_owned() + "_execution")).unwrap(),
+            ),
+        }
+    }
+
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
         if sir {
@@ -136,6 +157,58 @@ pub struct StorageUsageConfig {
 }
 
 impl RuntimeFeesConfig {
+    pub fn from_parameters(params: &BTreeMap<Parameter, String>) -> Self {
+        Self {
+            action_receipt_creation_config: Fee::from_parameters(params, "action_receipt_creation"),
+            data_receipt_creation_config: DataReceiptCreationConfig {
+                base_cost: Fee::from_parameters(params, "data_receipt_creation_base"),
+                cost_per_byte: Fee::from_parameters(params, "data_receipt_creation_per_byte"),
+            },
+            action_creation_config: ActionCreationConfig {
+                create_account_cost: Fee::from_parameters(params, "action_create_account"),
+                deploy_contract_cost: Fee::from_parameters(params, "action_deploy_contract"),
+                deploy_contract_cost_per_byte: Fee::from_parameters(
+                    params,
+                    "action_deploy_contract_per_byte",
+                ),
+                function_call_cost: Fee::from_parameters(params, "action_function_call"),
+                function_call_cost_per_byte: Fee::from_parameters(
+                    params,
+                    "action_function_call_per_byte",
+                ),
+                transfer_cost: Fee::from_parameters(params, "action_transfer"),
+                stake_cost: Fee::from_parameters(params, "action_stake"),
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: Fee::from_parameters(params, "action_add_full_access_key"),
+                    function_call_cost: Fee::from_parameters(
+                        params,
+                        "action_add_function_call_key",
+                    ),
+                    function_call_cost_per_byte: Fee::from_parameters(
+                        params,
+                        "action_add_function_call_key_per_byte",
+                    ),
+                },
+                delete_key_cost: Fee::from_parameters(params, "action_delete_key"),
+                delete_account_cost: Fee::from_parameters(params, "action_delete_account"),
+            },
+            storage_usage_config: StorageUsageConfig {
+                num_bytes_account: read_parameter(params, Parameter::StorageNumBytesAccount),
+                num_extra_bytes_record: read_parameter(
+                    params,
+                    Parameter::StorageNumExtraBytesRecord,
+                ),
+            },
+            burnt_gas_reward: Rational::new(
+                read_parameter(params, Parameter::BurntGasRewardNumerator),
+                read_parameter(params, Parameter::BurntGasRewardDenominator),
+            ),
+            pessimistic_gas_price_inflation_ratio: Rational::new(
+                read_parameter(params, Parameter::PessimisticGasPriceInflationNumerator),
+                read_parameter(params, Parameter::PessimisticGasPriceInflationDenominator),
+            ),
+        }
+    }
     pub fn test() -> Self {
         #[allow(clippy::unreadable_literal)]
         Self {

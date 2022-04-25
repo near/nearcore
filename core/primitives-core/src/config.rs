@@ -1,7 +1,9 @@
+use crate::parameter::{read_optional_parameter, read_parameter, Parameter};
 use crate::types::Gas;
 
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use strum::{Display, EnumCount};
 
@@ -155,6 +157,15 @@ impl<'de> Deserialize<'de> for StackLimiterVersion {
 }
 
 impl VMConfig {
+    pub fn from_parameters(params: &BTreeMap<Parameter, String>) -> VMConfig {
+        VMConfig {
+            ext_costs: ExtCostsConfig::from_parameters(params),
+            grow_mem_cost: read_parameter(params, Parameter::WasmGrowMemCost),
+            regular_op_cost: read_parameter(params, Parameter::WasmRegularOpCost),
+            limit_config: VMLimitConfig::from_parameters(params),
+        }
+    }
+
     pub fn test() -> VMConfig {
         VMConfig {
             ext_costs: ExtCostsConfig::test(),
@@ -184,6 +195,56 @@ impl VMConfig {
 }
 
 impl VMLimitConfig {
+    fn from_parameters(params: &BTreeMap<Parameter, String>) -> VMLimitConfig {
+        Self {
+            max_gas_burnt: read_parameter(params, Parameter::MaxGasBurnt),
+            max_stack_height: read_parameter(params, Parameter::MaxStackHeight),
+            stack_limiter_version: StackLimiterVersion::from_repr(read_parameter(
+                params,
+                Parameter::StackLimiterVersion,
+            ))
+            .expect("Invalid stack limiter version config"),
+            initial_memory_pages: read_parameter(params, Parameter::InitialMemoryPages),
+            max_memory_pages: read_parameter(params, Parameter::MaxMemoryPages),
+            registers_memory_limit: read_parameter(params, Parameter::RegistersMemoryLimit),
+            max_register_size: read_parameter(params, Parameter::MaxRegisterSize),
+            max_number_registers: read_parameter(params, Parameter::MaxNumberRegisters),
+            max_number_logs: read_parameter(params, Parameter::MaxNumberLogs),
+            max_total_log_length: read_parameter(params, Parameter::MaxTotalLogLength),
+            max_total_prepaid_gas: read_parameter(params, Parameter::MaxTotalPrepaidGas),
+            max_actions_per_receipt: read_parameter(params, Parameter::MaxActionsPerReceipt),
+            max_number_bytes_method_names: read_parameter(
+                params,
+                Parameter::MaxNumberBytesMethodNames,
+            ),
+            max_length_method_name: read_parameter(params, Parameter::MaxLengthMethodName),
+            max_arguments_length: read_parameter(params, Parameter::MaxArgumentsLength),
+            max_length_returned_data: read_parameter(params, Parameter::MaxLengthReturnedData),
+            max_contract_size: read_parameter(params, Parameter::MaxContractSize),
+            max_transaction_size: read_parameter(params, Parameter::MaxTransactionSize),
+            max_length_storage_key: read_parameter(params, Parameter::MaxLengthStorageKey),
+            max_length_storage_value: read_parameter(params, Parameter::MaxLengthStorageValue),
+            max_promises_per_function_call_action: read_parameter(
+                params,
+                Parameter::MaxPromisesPerFunctionCallAction,
+            ),
+            max_number_input_data_dependencies: read_parameter(
+                params,
+                Parameter::MaxNumberInputDataDependencies,
+            ),
+            max_functions_number_per_contract: read_optional_parameter(
+                params,
+                Parameter::MaxFunctionsNumberPerContract,
+            ),
+            wasmer2_stack_limit: read_optional_parameter(params, Parameter::Wasmer2StackLimit)
+                .unwrap_or_else(wasmer2_stack_limit_default),
+            max_locals_per_contract: read_optional_parameter(
+                params,
+                Parameter::MaxLocalsPerContract,
+            ),
+        }
+    }
+
     pub fn test() -> Self {
         let max_contract_size = 4 * 2u64.pow(20);
         Self {
@@ -419,6 +480,118 @@ pub fn default_read_cached_trie_node() -> Gas {
 const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
+    fn from_parameters(params: &BTreeMap<Parameter, String>) -> ExtCostsConfig {
+        ExtCostsConfig {
+            base: read_parameter(params, Parameter::WasmHostFunctionBase),
+            contract_loading_base: read_parameter(params, Parameter::WasmContractLoadingBase),
+            contract_loading_bytes: read_parameter(params, Parameter::WasmContractLoadingBytes),
+            read_memory_base: read_parameter(params, Parameter::WasmReadMemoryBase),
+            read_memory_byte: read_parameter(params, Parameter::WasmReadMemoryByte),
+            write_memory_base: read_parameter(params, Parameter::WasmWriteMemoryBase),
+            write_memory_byte: read_parameter(params, Parameter::WasmWriteMemoryByte),
+            read_register_base: read_parameter(params, Parameter::WasmReadRegisterBase),
+            read_register_byte: read_parameter(params, Parameter::WasmReadRegisterByte),
+            write_register_base: read_parameter(params, Parameter::WasmWriteRegisterBase),
+            write_register_byte: read_parameter(params, Parameter::WasmWriteRegisterByte),
+            utf8_decoding_base: read_parameter(params, Parameter::WasmUtf8DecodingBase),
+            utf8_decoding_byte: read_parameter(params, Parameter::WasmUtf8DecodingByte),
+            utf16_decoding_base: read_parameter(params, Parameter::WasmUtf16DecodingBase),
+            utf16_decoding_byte: read_parameter(params, Parameter::WasmUtf16DecodingByte),
+            sha256_base: read_parameter(params, Parameter::WasmSha256Base),
+            sha256_byte: read_parameter(params, Parameter::WasmSha256Byte),
+            keccak256_base: read_parameter(params, Parameter::WasmKeccak256Base),
+            keccak256_byte: read_parameter(params, Parameter::WasmKeccak256Byte),
+            keccak512_base: read_parameter(params, Parameter::WasmKeccak512Base),
+            keccak512_byte: read_parameter(params, Parameter::WasmKeccak512Byte),
+            ripemd160_base: read_parameter(params, Parameter::WasmRipemd160Base),
+            ripemd160_block: read_parameter(params, Parameter::WasmRipemd160Block),
+            ecrecover_base: read_parameter(params, Parameter::WasmEcrecoverBase),
+            log_base: read_parameter(params, Parameter::WasmLogBase),
+            log_byte: read_parameter(params, Parameter::WasmLogByte),
+            storage_write_base: read_parameter(params, Parameter::WasmStorageWriteBase),
+            storage_write_key_byte: read_parameter(params, Parameter::WasmStorageWriteKeyByte),
+            storage_write_value_byte: read_parameter(params, Parameter::WasmStorageWriteValueByte),
+            storage_write_evicted_byte: read_parameter(
+                params,
+                Parameter::WasmStorageWriteEvictedByte,
+            ),
+            storage_read_base: read_parameter(params, Parameter::WasmStorageReadBase),
+            storage_read_key_byte: read_parameter(params, Parameter::WasmStorageReadKeyByte),
+            storage_read_value_byte: read_parameter(params, Parameter::WasmStorageReadValueByte),
+            storage_remove_base: read_parameter(params, Parameter::WasmStorageRemoveBase),
+            storage_remove_key_byte: read_parameter(params, Parameter::WasmStorageRemoveKeyByte),
+            storage_remove_ret_value_byte: read_parameter(
+                params,
+                Parameter::WasmStorageRemoveRetValueByte,
+            ),
+            storage_has_key_base: read_parameter(params, Parameter::WasmStorageHasKeyBase),
+            storage_has_key_byte: read_parameter(params, Parameter::WasmStorageHasKeyByte),
+            storage_iter_create_prefix_base: read_parameter(
+                params,
+                Parameter::WasmStorageIterCreatePrefixBase,
+            ),
+            storage_iter_create_prefix_byte: read_parameter(
+                params,
+                Parameter::WasmStorageIterCreatePrefixByte,
+            ),
+            storage_iter_create_range_base: read_parameter(
+                params,
+                Parameter::WasmStorageIterCreateRangeBase,
+            ),
+            storage_iter_create_from_byte: read_parameter(
+                params,
+                Parameter::WasmStorageIterCreateFromByte,
+            ),
+            storage_iter_create_to_byte: read_parameter(
+                params,
+                Parameter::WasmStorageIterCreateToByte,
+            ),
+            storage_iter_next_base: read_parameter(params, Parameter::WasmStorageIterNextBase),
+            storage_iter_next_key_byte: read_parameter(
+                params,
+                Parameter::WasmStorageIterNextKeyByte,
+            ),
+            storage_iter_next_value_byte: read_parameter(
+                params,
+                Parameter::WasmStorageIterNextValueByte,
+            ),
+            touching_trie_node: read_parameter(params, Parameter::WasmTouchingTrieNode),
+            read_cached_trie_node: read_parameter(params, Parameter::WasmReadCachedTrieNode),
+            promise_and_base: read_parameter(params, Parameter::WasmPromiseAndBase),
+            promise_and_per_promise: read_parameter(params, Parameter::WasmPromiseAndPerPromise),
+            promise_return: read_parameter(params, Parameter::WasmPromiseReturn),
+            validator_stake_base: read_parameter(params, Parameter::WasmValidatorStakeBase),
+            validator_total_stake_base: read_parameter(
+                params,
+                Parameter::WasmValidatorTotalStakeBase,
+            ),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_base: read_parameter(
+                params,
+                Parameter::WasmAltBn128G1MultiexpBase,
+            ),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_element: read_parameter(
+                params,
+                Parameter::WasmAltBn128G1MultiexpElement,
+            ),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_base: read_parameter(
+                params,
+                Parameter::WasmAltBn128PairingCheckBase,
+            ),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_element: read_parameter(
+                params,
+                Parameter::WasmAltBn128PairingCheckElement,
+            ),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_base: read_parameter(params, Parameter::WasmAltBn128G1SumBase),
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_element: read_parameter(params, Parameter::WasmAltBn128G1SumElement),
+        }
+    }
+
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,

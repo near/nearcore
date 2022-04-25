@@ -1,0 +1,1 @@
+storage_amount_per_byte: 10000000000000000000

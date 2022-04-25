@@ -1,0 +1,6 @@
+action_deploy_contract_per_byte_execution: 64572944
+wasm_read_cached_trie_node: 2280000000
+wasmer2_stack_limit: 204800
+max_length_storage_key: 2048
+max_functions_number_per_contract: 10000
+max_locals_per_contract: 1000000
