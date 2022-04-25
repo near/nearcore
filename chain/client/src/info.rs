@@ -258,10 +258,11 @@ pub fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.2}% ({})",
+                "#{:>8} Downloading headers {:.2}% ({}, {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
