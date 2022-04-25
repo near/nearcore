@@ -446,47 +446,27 @@ impl RunCmd {
     }
 }
 
-async fn signal_handlers(home_dir: &Path, rx_crash: Receiver<()>) -> &str {
-    use tokio::signal::unix::{signal, SignalKind};
-    let rx_int = async_stream::stream! {
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-            sigint.recv().await;
-            yield "SIGINT";
-    };
-    let rx_hup = async_stream::stream! {
-        let mut sighup = signal(SignalKind::hangup()).unwrap();
-        loop {
-            sighup.recv().await;
-            yield "SIGHUP";
-        }
-    };
-    let rx_term = async_stream::stream! {
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
-            sigterm.recv().await;
-            yield "SIGTERM";
-    };
-    let rx_crash = async_stream::stream! {
-        let _ = rx_crash.fuse().await;
-        yield "Client died";
-    };
-    pin_mut!(rx_int);
-    pin_mut!(rx_hup);
-    pin_mut!(rx_term);
-    pin_mut!(rx_crash);
-
+async fn signal_handlers(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
     let watched_path = home_dir.join("log_config.json");
     let log_config_watcher = LogConfigWatcher { watched_path };
     // Apply the logging config file if it exists.
     log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
-    let mut rx = rx_int.merge(rx_hup).merge(rx_term).merge(rx_crash);
+
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sighup = signal(SignalKind::hangup()).unwrap();
+
     loop {
-        let sig = rx.next().await.unwrap();
-        if sig == "SIGHUP" {
-            info!(target: "neard", "Received SIGHUP.");
-            log_config_watcher.update(UpdateBehavior::UpdateOrReset);
-        } else {
-            return sig;
-        }
+        break tokio::select! {
+             _ = sigint.recv()  => "SIGINT",
+             _ = sigterm.recv() => "SIGTERM",
+             _ = sighup.recv() => {
+                log_config_watcher.update(UpdateBehavior::UpdateOrReset);
+                continue;
+             },
+             _ = &mut rx_crash => "ClientActor died",
+        };
     }
 }
 
