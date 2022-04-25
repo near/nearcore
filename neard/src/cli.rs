@@ -422,14 +422,8 @@ impl RunCmd {
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
 
-            let sig = if cfg!(unix) {
-                signal_handlers(home_dir, rx).await
-            } else {
-                // TODO(#6372): Support graceful shutdown on windows.
-                tokio::signal::ctrl_c().await.unwrap();
-                "Ctrl+C"
-            };
-            error!(target: "neard", "Got '{}', stopping...", sig);
+            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            error!(target: "neard", "{}, stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -443,7 +437,15 @@ impl RunCmd {
     }
 }
 
-async fn signal_handlers(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
+#[cfg(not(unix))]
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+    // TODO(#6372): Support graceful shutdown on windows.
+    tokio::signal::ctrl_c().await.unwrap();
+    "Ctrl+C"
+}
+
+#[cfg(unix)]
+async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
     let watched_path = home_dir.join("log_config.json");
     let log_config_watcher = LogConfigWatcher { watched_path };
     // Apply the logging config file if it exists.
