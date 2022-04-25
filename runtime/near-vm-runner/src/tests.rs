@@ -60,7 +60,7 @@ fn make_simple_contract_call_with_gas_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> (VMOutcome, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
@@ -71,16 +71,18 @@ fn make_simple_contract_call_with_gas_vm(
 
     let code = ContractCode::new(code.to_vec(), None);
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-    runtime.run(
-        &code,
-        method_name,
-        &mut fake_external,
-        context,
-        &fees,
-        &promise_results,
-        LATEST_PROTOCOL_VERSION,
-        None,
-    )
+    runtime
+        .run(
+            &code,
+            method_name,
+            &mut fake_external,
+            context,
+            &fees,
+            &promise_results,
+            LATEST_PROTOCOL_VERSION,
+            None,
+        )
+        .outcome_error()
 }
 
 fn make_simple_contract_call_with_protocol_version_vm(
@@ -88,7 +90,7 @@ fn make_simple_contract_call_with_protocol_version_vm(
     method_name: &str,
     protocol_version: ProtocolVersion,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> (VMOutcome, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let runtime_config_store = RuntimeConfigStore::new(None);
@@ -99,39 +101,44 @@ fn make_simple_contract_call_with_protocol_version_vm(
 
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
-    runtime.run(
-        &code,
-        method_name,
-        &mut fake_external,
-        context,
-        fees,
-        &promise_results,
-        protocol_version,
-        None,
-    )
+    runtime
+        .run(
+            &code,
+            method_name,
+            &mut fake_external,
+            context,
+            fees,
+            &promise_results,
+            protocol_version,
+            None,
+        )
+        .outcome_error()
 }
 
 fn make_simple_contract_call_vm(
     code: &[u8],
     method_name: &str,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> (VMOutcome, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
 }
 
 #[track_caller]
 fn gas_and_error_match(
-    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
+    outcome_and_error: (VMOutcome, Option<VMError>),
     expected_gas: Option<u64>,
     expected_error: Option<VMError>,
 ) {
     match expected_gas {
         Some(gas) => {
-            let outcome = outcome_and_error.0.unwrap();
+            let outcome = outcome_and_error.0;
             assert_eq!(outcome.used_gas, gas, "used gas differs");
             assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
         }
-        None => assert!(outcome_and_error.0.is_none()),
+        None => {
+            assert_eq!(outcome_and_error.0.used_gas, 0);
+            assert_eq!(outcome_and_error.0.burnt_gas, 0);
+        }
     }
 
     assert_eq!(outcome_and_error.1, expected_error);

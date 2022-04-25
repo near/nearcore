@@ -87,6 +87,14 @@ pub struct AdversarialControls {
     pub adv_disable_header_sync: bool,
     pub adv_disable_doomslug: bool,
     pub adv_sync_height: Option<u64>,
+    pub is_archival: bool,
+}
+
+#[cfg(feature = "test_features")]
+impl AdversarialControls {
+    pub fn new(is_archival: bool) -> Self {
+        Self { is_archival, ..Self::default() }
+    }
 }
 
 /// View client provides currently committed (to the storage) view of the current chain and state.

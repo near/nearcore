@@ -17,9 +17,9 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
+pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;
 pub mod iterator;
@@ -751,8 +751,8 @@ impl Trie {
         TrieIterator::new(self, root)
     }
 
-    pub fn get_touched_nodes_count(&self) -> u64 {
-        self.storage.get_touched_nodes_count()
+    pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        self.storage.get_trie_nodes_count()
     }
 }
 
@@ -760,11 +760,11 @@ impl Trie {
 mod tests {
     use rand::Rng;
 
-    use crate::db::DBCol::ColState;
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
+    use crate::DBCol::ColState;
 
     use super::*;
 
@@ -782,7 +782,7 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
         let trie_changes = trie.update(root, other_delete_changes.drain(..)).unwrap();
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), Ok(None));

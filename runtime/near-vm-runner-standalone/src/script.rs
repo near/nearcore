@@ -7,9 +7,9 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext};
 use near_vm_runner::internal::VMKind;
-use near_vm_runner::{MockCompiledContractCache, VMError};
+use near_vm_runner::{MockCompiledContractCache, VMResult};
 
 use crate::State;
 
@@ -37,7 +37,7 @@ pub struct Step {
 }
 
 pub struct ScriptResults {
-    pub outcomes: Vec<(Option<VMOutcome>, Option<VMError>)>,
+    pub outcomes: Vec<VMResult>,
     pub state: MockedExternal,
 }
 
@@ -216,10 +216,10 @@ fn vm_script_smoke_test() {
 
     assert_eq!(res.outcomes.len(), 4);
 
-    let logs = &res.outcomes[0].0.as_ref().unwrap().logs;
+    let logs = &res.outcomes[0].outcome().logs;
     assert_eq!(logs, &vec!["hello".to_string()]);
 
-    let ret = res.outcomes.last().unwrap().0.as_ref().unwrap().return_data.clone();
+    let ret = res.outcomes.last().unwrap().outcome().return_data.clone();
 
     let expected = ReturnData::Value(4950u64.to_le_bytes().to_vec());
     assert_eq!(ret, expected);
@@ -238,18 +238,21 @@ fn profile_data_is_per_outcome() {
     let res = script.run();
     assert_eq!(res.outcomes.len(), 4);
     assert_eq!(
-        res.outcomes[1].0.as_ref().unwrap().profile.host_gas(),
-        res.outcomes[2].0.as_ref().unwrap().profile.host_gas()
+        res.outcomes[1].outcome().profile.host_gas(),
+        res.outcomes[2].outcome().profile.host_gas()
     );
     assert!(
-        res.outcomes[1].0.as_ref().unwrap().profile.host_gas()
-            > res.outcomes[3].0.as_ref().unwrap().profile.host_gas()
+        res.outcomes[1].outcome().profile.host_gas() > res.outcomes[3].outcome().profile.host_gas()
     );
 }
 
 #[cfg(feature = "no_cache")]
 #[test]
 fn test_evm_slow_deserialize_repro() {
+    lazy_static_include::lazy_static_include_bytes! {
+        ZOMBIE_OWNERSHIP_BIN => "../near-test-contracts/res/ZombieOwnership.bin",
+    };
+
     fn evm_slow_deserialize_repro(vm_kind: VMKind) {
         println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
         tracing_span_tree::span_tree().enable();
@@ -262,14 +265,11 @@ fn test_evm_slow_deserialize_repro() {
         let contract =
             script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
 
-        let input =
-            hex::decode(&include_bytes!("../../near-test-contracts/res/ZombieOwnership.bin"))
-                .unwrap();
-
+        let input = hex::decode(&ZOMBIE_OWNERSHIP_BIN[..]).unwrap();
         script.step(contract, "deploy_code").input(input).repeat(3);
         let res = script.run();
-        assert_eq!(res.outcomes[0].1, None);
-        assert_eq!(res.outcomes[1].1, None);
+        assert_eq!(res.outcomes[0].error(), None);
+        assert_eq!(res.outcomes[1].error(), None);
     }
 
     evm_slow_deserialize_repro(VMKind::Wasmer0);

@@ -106,12 +106,6 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
-/// Number of epochs for which we keep store data
-pub const NUM_EPOCHS_TO_KEEP_STORE_DATA: u64 = 5;
-
-/// Maximum number of height to go through at each step when cleaning forks during garbage collection.
-const GC_FORK_CLEAN_STEP: u64 = 1000;
-
 /// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
 /// When it is called through process_block, it is possible that the shard state for the next epoch
 /// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
@@ -533,12 +527,8 @@ impl Chain {
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
-        let head_res = store_update.head();
-        let head: Tip;
-        match head_res {
-            Ok(h) => {
-                head = h;
-
+        let (block_head, header_head) = match store_update.head() {
+            Ok(block_head) => {
                 // Check that genesis in the store is the same as genesis given in the config.
                 let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
                 if &genesis_hash != genesis.hash() {
@@ -551,64 +541,72 @@ impl Chain {
                 }
 
                 // Check we have the header corresponding to the header_head.
-                let header_head = store_update.header_head()?;
+                let mut header_head = store_update.header_head()?;
                 if store_update.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
-                    store_update.save_header_head_if_not_challenged(&head)?;
+                    store_update.save_header_head_if_not_challenged(&block_head)?;
+                    header_head = block_head.clone();
                 }
+
                 // TODO: perform validation that latest state in runtime matches the stored chain.
+
+                (block_head, header_head)
             }
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => {
-                    for chunk in genesis_chunks {
-                        store_update.save_chunk(chunk.clone());
-                    }
-                    store_update.merge(runtime_adapter.add_validator_proposals(
-                        BlockHeaderInfo::new(
-                            genesis.header(),
-                            // genesis height is considered final
-                            chain_genesis.height,
-                        ),
-                    )?);
-                    store_update.save_block_header(genesis.header().clone())?;
-                    store_update.save_block(genesis.clone());
-                    store_update
-                        .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
-
-                    for (chunk_header, state_root) in
-                        genesis.chunks().iter().zip(state_roots.iter())
-                    {
-                        store_update.save_chunk_extra(
-                            genesis.hash(),
-                            &runtime_adapter
-                                .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                            ChunkExtra::new(
-                                state_root,
-                                CryptoHash::default(),
-                                vec![],
-                                0,
-                                chain_genesis.gas_limit,
-                                0,
-                            ),
-                        );
-                    }
-
-                    head = Tip::from_header(genesis.header());
-                    store_update.save_head(&head)?;
-                    store_update.save_final_head(&head)?;
-
-                    info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
+            Err(err) if matches!(err.kind(), ErrorKind::DBNotFoundErr(_)) => {
+                for chunk in genesis_chunks {
+                    store_update.save_chunk(chunk.clone());
                 }
-                e => return Err(e.into()),
-            },
-        }
+                store_update.merge(runtime_adapter.add_validator_proposals(
+                    BlockHeaderInfo::new(
+                        genesis.header(),
+                        // genesis height is considered final
+                        chain_genesis.height,
+                    ),
+                )?);
+                store_update.save_block_header(genesis.header().clone())?;
+                store_update.save_block(genesis.clone());
+                store_update
+                    .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
+
+                for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+                    store_update.save_chunk_extra(
+                        genesis.hash(),
+                        &runtime_adapter
+                            .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                        ChunkExtra::new(
+                            state_root,
+                            CryptoHash::default(),
+                            vec![],
+                            0,
+                            chain_genesis.gas_limit,
+                            0,
+                        ),
+                    );
+                }
+
+                let block_head = Tip::from_header(genesis.header());
+                let header_head = block_head.clone();
+                store_update.save_head(&block_head)?;
+                store_update.save_final_head(&header_head)?;
+
+                info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
+
+                (block_head, header_head)
+            }
+            Err(err) => return Err(err.into()),
+        };
         store_update.commit()?;
 
-        info!(target: "chain", "Init: head @ {} [{}]", head.height, head.last_block_hash);
+        info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
+              block_head.height, block_head.last_block_hash,
+              header_head.height, header_head.last_block_hash);
+        metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
+        metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
         metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
+
         Ok(Chain {
             store,
             runtime_adapter,
@@ -811,7 +809,7 @@ impl Chain {
     pub fn clear_data(
         &mut self,
         tries: ShardTries,
-        gc_blocks_limit: NumBlocks,
+        gc_config: &near_chain_configs::GCConfig,
     ) -> Result<(), Error> {
         let _d = DelayDetector::new(|| "GC".into());
 
@@ -840,10 +838,11 @@ impl Chain {
             chain_store_update.commit()?;
             fork_tail = gc_stop_height;
         }
-        let mut gc_blocks_remaining = gc_blocks_limit;
+        let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
 
         // Forks Cleaning
-        let stop_height = std::cmp::max(tail, fork_tail.saturating_sub(GC_FORK_CLEAN_STEP));
+        let gc_fork_clean_step = gc_config.gc_fork_clean_step;
+        let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
         for height in (stop_height..fork_tail).rev() {
             self.clear_forks_data(tries.clone(), height, &mut gc_blocks_remaining)?;
             if gc_blocks_remaining == 0 {

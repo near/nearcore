@@ -1,4 +1,3 @@
-
 [package]
 name = "near-jsonrpc-fuzz"
 version = "0.0.0"
@@ -13,11 +12,9 @@ cargo-fuzz = true
 
 [dependencies]
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2"
-actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix = "0.13.0"
 arbitrary = { version = "1", features = ["derive"] }
 base64 = "0.13"
-lazy_static = "1.4"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 once_cell = "1.5.2"
 bs58 = "0.4"

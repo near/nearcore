@@ -83,7 +83,7 @@ fn test_multiple_memories() {
     with_vm_variants(|vm_kind: VMKind| {
         let (result, error) =
             make_simple_contract_call_vm(&multi_memories_contract(), "hello", vm_kind);
-        assert_eq!(result, None);
+        assert_eq!(result.used_gas, 0);
         match error {
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::WasmerCompileError { .. },
@@ -707,15 +707,14 @@ fn bad_many_imports() -> Vec<u8> {
 #[test]
 fn test_bad_many_imports() {
     with_vm_variants(|vm_kind: VMKind| {
-        let result = make_simple_contract_call_vm(&bad_many_imports(), "hello", vm_kind);
-        let outcome = result.0.unwrap();
+        let (outcome, error) = make_simple_contract_call_vm(&bad_many_imports(), "hello", vm_kind);
         assert_eq!(outcome.used_gas, 299664213);
         assert_eq!(outcome.burnt_gas, 299664213);
-        if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
+        if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = error {
             eprintln!("{}", msg);
             assert!(msg.len() < 1000, "Huge error message: {}", msg.len());
         } else {
-            panic!("{:?}", result.1);
+            panic!("{:?}", error);
         }
     });
 }

@@ -8,7 +8,7 @@ rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 anyhow = "1.0.51"
 async-recursion = "0.3.2"
 tracing = "0.1.13"

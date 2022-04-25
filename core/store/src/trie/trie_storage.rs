@@ -9,7 +9,7 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::TrieCacheMode;
+use near_primitives::types::{TrieCacheMode, TrieNodesCount};
 use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
@@ -76,7 +76,7 @@ pub trait TrieStorage {
         None
     }
 
-    fn get_touched_nodes_count(&self) -> u64;
+    fn get_trie_nodes_count(&self) -> TrieNodesCount;
 }
 
 /// Records every value read by retrieve_raw_bytes.
@@ -110,7 +110,7 @@ impl TrieStorage for TrieRecordingStorage {
         Some(self)
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
     }
 }
@@ -138,7 +138,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
         Some(self)
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
     }
 }
@@ -165,15 +165,21 @@ pub struct TrieCachingStorage {
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
-    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It must be empty when we start to apply
-    /// txs and receipts in the chunk. All items placed here must remain until applying txs/receipts ends.
+    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It is created in
+    /// `apply_transactions_with_optional_storage_proof` by calling `get_trie_for_shard`. Before we start to apply
+    /// txs and receipts in the chunk, it must be empty, and all items placed here must remain until applying
+    /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
+    /// `TrieCachingStorage` is removed.
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
     /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
-    /// Counts retrieved trie nodes. Used to compute gas cost for touching trie nodes.
-    pub(crate) counter: Cell<u64>,
+    /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
+    /// from DB or shard cache.
+    pub(crate) db_read_nodes: Cell<u64>,
+    /// Counts trie nodes retrieved from the chunk cache.
+    pub(crate) mem_read_nodes: Cell<u64>,
 }
 
 impl TrieCachingStorage {
@@ -184,7 +190,8 @@ impl TrieCachingStorage {
             shard_cache,
             cache_mode: Cell::new(TrieCacheMode::CachingShard),
             chunk_cache: RefCell::new(Default::default()),
-            counter: Cell::new(0u64),
+            db_read_nodes: Cell::new(0),
+            mem_read_nodes: Cell::new(0),
         }
     }
 
@@ -209,8 +216,12 @@ impl TrieCachingStorage {
         key
     }
 
-    fn inc_counter(&self) {
-        self.counter.set(self.counter.get() + 1);
+    fn inc_db_read_nodes(&self) {
+        self.db_read_nodes.set(self.db_read_nodes.get() + 1);
+    }
+
+    fn inc_mem_read_nodes(&self) {
+        self.mem_read_nodes.set(self.mem_read_nodes.get() + 1);
     }
 
     /// Set cache mode.
@@ -221,8 +232,10 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        // Try to get value from chunk cache containing free of charge nodes.
+        // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
+        // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
+            self.inc_mem_read_nodes();
             return Ok(val.clone());
         }
 
@@ -264,7 +277,7 @@ impl TrieStorage for TrieCachingStorage {
         // - - size of trie keys and values is limited by receipt gas limit / lowest per byte fee
         // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
         // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
-        self.inc_counter();
+        self.inc_db_read_nodes();
         if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
             self.chunk_cache.borrow_mut().insert(*hash, val.clone());
         };
@@ -276,7 +289,7 @@ impl TrieStorage for TrieCachingStorage {
         Some(self)
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
-        self.counter.get()
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        TrieNodesCount { db_reads: self.db_read_nodes.get(), mem_reads: self.mem_read_nodes.get() }
     }
 }

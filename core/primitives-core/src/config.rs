@@ -84,6 +84,18 @@ pub struct VMLimitConfig {
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,
+    /// If present, stores the secondary stack limit as implemented by wasmer2.
+    ///
+    /// This limit should never be hit normally.
+    #[serde(default = "wasmer2_stack_limit_default")]
+    pub wasmer2_stack_limit: i32,
+    /// If present, stores max number of locals declared globally in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_locals_per_contract: Option<u64>,
+}
+
+fn wasmer2_stack_limit_default() -> i32 {
+    100 * 1024
 }
 
 /// Our original code for limiting WASM stack was buggy. We fixed that, but we
@@ -173,6 +185,7 @@ impl VMConfig {
 
 impl VMLimitConfig {
     pub fn test() -> Self {
+        let max_contract_size = 4 * 2u64.pow(20);
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
 
@@ -206,7 +219,7 @@ impl VMLimitConfig {
             max_length_method_name: 256,            // basic safety limit
             max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
-            max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
+            max_contract_size,                      // 4 Mib,
             max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
@@ -215,7 +228,12 @@ impl VMLimitConfig {
             max_promises_per_function_call_action: 1024,
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
-            max_functions_number_per_contract: None,
+            max_functions_number_per_contract: Some(10000),
+            wasmer2_stack_limit: 200 * 1024,
+            // To utilize a local in an useful way, at least two `local.*` instructions are
+            // necessary (they only take constant operands indicating the local to access), which
+            // is 4 bytes worth of code for each local.
+            max_locals_per_contract: Some(max_contract_size / 4),
         }
     }
 }
@@ -232,10 +250,10 @@ pub struct ExtCostsConfig {
     /// Base cost for calling a host function.
     pub base: Gas,
 
-    /// Base cost of loading and compiling contract
-    pub contract_compile_base: Gas,
-    /// Cost of the execution to load and compile contract
-    pub contract_compile_bytes: Gas,
+    /// Base cost of loading a pre-compiled contract
+    pub contract_loading_base: Gas,
+    /// Cost per byte of loading a pre-compiled contract
+    pub contract_loading_bytes: Gas,
 
     /// Base cost for guest memory read
     pub read_memory_base: Gas,
@@ -345,8 +363,11 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
-    /// Cost per touched trie node
+    /// Cost per reading trie node from DB
     pub touching_trie_node: Gas,
+    /// Cost for reading trie node from memory
+    #[serde(default = "default_read_cached_trie_node")]
+    pub read_cached_trie_node: Gas,
 
     // ###############
     // # Promise API #
@@ -374,22 +395,23 @@ pub struct ExtCostsConfig {
     pub alt_bn128_g1_multiexp_base: Gas,
     /// byte cost for multiexp
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_multiexp_byte: Gas,
+    pub alt_bn128_g1_multiexp_element: Gas,
     /// Base cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_g1_sum_base: Gas,
     /// byte cost for sum
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_sum_byte: Gas,
-    /// sublinear cost for items
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_g1_multiexp_sublinear: Gas,
+    pub alt_bn128_g1_sum_element: Gas,
     /// Base cost for pairing check
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_base: Gas,
     /// Cost for pairing check per byte
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    pub alt_bn128_pairing_check_byte: Gas,
+    pub alt_bn128_pairing_check_element: Gas,
+}
+
+pub fn default_read_cached_trie_node() -> Gas {
+    SAFETY_MULTIPLIER * 760_000_000
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -400,8 +422,8 @@ impl ExtCostsConfig {
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_loading_base: SAFETY_MULTIPLIER * 11815321,
+            contract_loading_bytes: SAFETY_MULTIPLIER * 72250,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
@@ -447,6 +469,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
             storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
             touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
+            read_cached_trie_node: default_read_cached_trie_node(),
             promise_and_base: SAFETY_MULTIPLIER * 488337800,
             promise_and_per_promise: SAFETY_MULTIPLIER * 1817392,
             promise_return: SAFETY_MULTIPLIER * 186717462,
@@ -455,25 +478,23 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: SAFETY_MULTIPLIER * 1111697487,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: SAFETY_MULTIPLIER * 1441698,
+            alt_bn128_g1_multiexp_element: SAFETY_MULTIPLIER * 1111697487,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: SAFETY_MULTIPLIER * 8858396182,
+            alt_bn128_pairing_check_element: SAFETY_MULTIPLIER * 8858396182,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
+            alt_bn128_g1_sum_element: SAFETY_MULTIPLIER * 25406181,
         }
     }
 
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             base: 0,
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
+            contract_loading_base: 0,
+            contract_loading_bytes: 0,
             read_memory_base: 0,
             read_memory_byte: 0,
             write_memory_base: 0,
@@ -518,6 +539,7 @@ impl ExtCostsConfig {
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
             touching_trie_node: 0,
+            read_cached_trie_node: 0,
             promise_and_base: 0,
             promise_and_per_promise: 0,
             promise_return: 0,
@@ -526,17 +548,15 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear: 0,
+            alt_bn128_g1_multiexp_element: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte: 0,
+            alt_bn128_pairing_check_element: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte: 0,
+            alt_bn128_g1_sum_element: 0,
         }
     }
 }
@@ -546,8 +566,8 @@ impl ExtCostsConfig {
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
     base,
-    contract_compile_base,
-    contract_compile_bytes,
+    contract_loading_base,
+    contract_loading_bytes,
     read_memory_base,
     read_memory_byte,
     write_memory_base,
@@ -592,6 +612,7 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     touching_trie_node,
+    read_cached_trie_node,
     promise_and_base,
     promise_and_per_promise,
     promise_return,
@@ -600,17 +621,15 @@ pub enum ExtCosts {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_multiexp_byte,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_multiexp_sublinear,
+    alt_bn128_g1_multiexp_element,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_pairing_check_byte,
+    alt_bn128_pairing_check_element,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
-    alt_bn128_g1_sum_byte,
+    alt_bn128_g1_sum_element,
 }
 
 // Type of an action, used in fees logic.
@@ -634,8 +653,8 @@ impl ExtCosts {
         use ExtCosts::*;
         match self {
             base => config.base,
-            contract_compile_base => config.contract_compile_base,
-            contract_compile_bytes => config.contract_compile_bytes,
+            contract_loading_base => config.contract_loading_base,
+            contract_loading_bytes => config.contract_loading_bytes,
             read_memory_base => config.read_memory_base,
             read_memory_byte => config.read_memory_byte,
             write_memory_base => config.write_memory_base,
@@ -680,6 +699,7 @@ impl ExtCosts {
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
             touching_trie_node => config.touching_trie_node,
+            read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,
             promise_and_per_promise => config.promise_and_per_promise,
             promise_return => config.promise_return,
@@ -688,17 +708,15 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_byte => config.alt_bn128_g1_multiexp_byte,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_sublinear => config.alt_bn128_g1_multiexp_sublinear,
+            alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_element,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_byte => config.alt_bn128_pairing_check_byte,
+            alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_element,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
+            alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_element,
         }
     }
 }

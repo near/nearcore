@@ -87,7 +87,7 @@ impl NeardCmd {
             }
 
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir, genesis_validation);
+                cmd.subcmd.run(&home_dir, genesis_validation, cmd.readwrite);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -95,6 +95,17 @@ impl NeardCmd {
             }
         }
     }
+}
+
+#[derive(Parser)]
+pub(super) struct StateViewerCommand {
+    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
+    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
+    /// In case an operation needs to write to caches, a read-write mode may be needed.
+    #[clap(long, short = 'w')]
+    readwrite: bool,
+    #[clap(subcommand)]
+    subcmd: StateViewerSubCommand,
 }
 
 fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
@@ -124,32 +135,31 @@ struct NeardOpts {
 #[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
-    #[clap(name = "init")]
     Init(InitCmd),
     /// Runs NEAR node
-    #[clap(name = "run")]
     Run(RunCmd),
     /// Sets up local configuration with all necessary files (validator key, node key, genesis and
     /// config)
-    #[clap(name = "localnet")]
     Localnet(LocalnetCmd),
     /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
     /// release.
-    // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(name = "testnet", hide = true)]
+    // We’re not using clap(alias = "testnet") on Localnet because we want this
+    // to be a separate subcommand with a deprecation warning.  TODO(#4372):
+    // Deprecated since 1.24.  Delete it in a couple of releases in 2022.
+    #[clap(hide = true)]
     Testnet(LocalnetCmd),
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
     /// removes all information about the network.
-    #[clap(name = "unsafe_reset_all", hide = true)]
+    #[clap(alias = "unsafe_reset_all", hide = true)]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config).
-    #[clap(name = "unsafe_reset_data", hide = true)]
+    #[clap(alias = "unsafe_reset_data", hide = true)]
     UnsafeResetData,
     /// View DB state.
-    #[clap(subcommand, name = "view_state")]
-    StateViewer(StateViewerSubCommand),
+    #[clap(name = "view-state", alias = "view_state")]
+    StateViewer(StateViewerCommand),
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.
@@ -176,7 +186,7 @@ pub(super) enum NeardSubCommand {
     ///
     /// Finally, because this command is meant only as a temporary migration
     /// tool, it is planned to be removed by the end of 2022.
-    #[clap(name = "recompress_storage")]
+    #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
 }
 
@@ -445,6 +455,12 @@ pub(super) struct LocalnetCmd {
     /// Number of validators to initialize the localnet with.
     #[clap(long = "v", default_value = "4")]
     validators: NumSeats,
+    // Whether to create fixed shards accounts (that are tied to a given shard).
+    #[clap(long)]
+    fixed_shards: bool,
+    // Archival nodes
+    #[clap(long)]
+    archival_nodes: bool,
 }
 
 impl LocalnetCmd {
@@ -455,7 +471,8 @@ impl LocalnetCmd {
             self.validators,
             self.non_validators,
             &self.prefix,
-            false,
+            self.archival_nodes,
+            self.fixed_shards,
         );
     }
 }

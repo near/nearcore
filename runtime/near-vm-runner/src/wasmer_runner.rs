@@ -2,6 +2,7 @@ use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::prepare::WASM_FEATURES;
+use crate::runner::VMResult;
 use crate::{cache, imports};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -10,7 +11,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError};
 use wasmer_runtime::{ImportObject, Module};
 
 const WASMER_FEATURES: wasmer_runtime::Features =
@@ -232,14 +233,12 @@ pub(crate) fn run_wasmer0_module<'a>(
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     if method_name.is_empty() {
-        return (
-            None,
-            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ))),
-        );
+        let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+            MethodResolveError::MethodEmptyName,
+        ));
+        return VMResult::nop_outcome(err);
     }
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
@@ -257,11 +256,13 @@ pub(crate) fn run_wasmer0_module<'a>(
     let import_object = imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
-        return (None, Some(e));
+        return VMResult::nop_outcome(e);
     }
 
-    let err = run_method(&module, &import_object, method_name).err();
-    (Some(logic.compute_outcome_and_distribute_gas()), err)
+    match run_method(&module, &import_object, method_name) {
+        Ok(()) => VMResult::ok(logic),
+        Err(err) => VMResult::abort(logic, err),
+    }
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {
@@ -290,7 +291,7 @@ impl crate::runner::VM for Wasmer0VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> (Option<VMOutcome>, Option<VMError>) {
+    ) -> VMResult {
         let _span = tracing::debug_span!(
             target: "vm",
             "run_wasmer0",
@@ -311,19 +312,17 @@ impl crate::runner::VM for Wasmer0VM {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
         if method_name.is_empty() {
-            return (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName,
-                ))),
-            );
+            let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ));
+            return VMResult::nop_outcome(err);
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
         let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
         let module = match into_vm_result(module) {
             Ok(x) => x,
-            Err(err) => return (None, Some(err)),
+            Err(err) => return VMResult::nop_outcome(err),
         };
         let mut memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
@@ -343,25 +342,26 @@ impl crate::runner::VM for Wasmer0VM {
             current_protocol_version,
         );
 
-        // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
-            return (
-                Some(logic.compute_outcome_and_distribute_gas()),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ))),
-            );
+        // TODO: charge this before module is loaded
+        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
+            let err = VMError::FunctionCallError(FunctionCallError::HostError(
+                near_vm_errors::HostError::GasExceeded,
+            ));
+            return VMResult::abort(logic, err);
         }
 
         let import_object =
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            return (None, Some(e));
+            // TODO: This should return an outcome to account for loading cost
+            return VMResult::nop_outcome(e);
         }
 
-        let err = run_method(&module, &import_object, method_name).err();
-        (Some(logic.compute_outcome_and_distribute_gas()), err)
+        match run_method(&module, &import_object, method_name) {
+            Ok(()) => VMResult::ok(logic),
+            Err(err) => VMResult::abort(logic, err),
+        }
     }
 
     fn precompile(

@@ -4,6 +4,7 @@ use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::TrieNodesCount;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::RefCell;
@@ -54,7 +55,7 @@ impl TrieStorage for IncompletePartialStorage {
         unimplemented!()
     }
 
-    fn get_touched_nodes_count(&self) -> u64 {
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
     }
 }
@@ -162,10 +163,10 @@ mod nodes_counter_tests {
         items
             .iter()
             .map(|(key, value)| {
-                let initial_counter = trie.get_touched_nodes_count();
+                let initial_count = trie.get_trie_nodes_count().db_reads;
                 let got_value = trie.get(&state_root, key).unwrap();
                 assert_eq!(*value, got_value);
-                trie.get_touched_nodes_count() - initial_counter
+                trie.get_trie_nodes_count().db_reads - initial_count
             })
             .collect()
     }
@@ -210,8 +211,8 @@ mod nodes_counter_tests {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::TRIE_LIMIT_CACHED_VALUE_SIZE;
-    use crate::trie::{TrieCache, TrieCachingStorage, TrieRefcountChange};
+    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TRIE_LIMIT_CACHED_VALUE_SIZE};
+    use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
@@ -228,7 +229,7 @@ mod caching_storage_tests {
                 rc: 1,
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().unwrap();
         tries.get_store()
     }
@@ -246,11 +247,12 @@ mod caching_storage_tests {
         assert_eq!(trie_cache.get(&key), None);
 
         for _ in 0..2 {
-            let count_before = trie_caching_storage.get_touched_nodes_count();
+            let count_before = trie_caching_storage.get_trie_nodes_count();
             let result = trie_caching_storage.retrieve_raw_bytes(&key);
-            let count_after = trie_caching_storage.get_touched_nodes_count();
+            let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
             assert_eq!(result.unwrap().as_ref(), value);
-            assert_eq!(count_before + 1, count_after);
+            assert_eq!(count_delta.db_reads, 1);
+            assert_eq!(count_delta.mem_reads, 0);
             assert_eq!(trie_cache.get(&key).unwrap().as_ref(), value);
         }
     }
@@ -282,12 +284,13 @@ mod caching_storage_tests {
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let _ = trie_caching_storage.retrieve_raw_bytes(&key);
 
-        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_after = trie_caching_storage.get_touched_nodes_count();
+        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(trie_cache.get(&key), None);
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_before, count_after);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 
     /// Check that positions of item and costs of its retrieval are returned correctly.
@@ -311,27 +314,30 @@ mod caching_storage_tests {
         // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
         // item while caching chunk.
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
-        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_after = trie_caching_storage.get_touched_nodes_count();
+        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_before + 1, count_after);
+        assert_eq!(count_delta.db_reads, 1);
+        assert_eq!(count_delta.mem_reads, 0);
 
         // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
-        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_after = trie_caching_storage.get_touched_nodes_count();
+        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_before, count_after);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
         // dropped only when trie caching storage is dropped.
         trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
-        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_after = trie_caching_storage.get_touched_nodes_count();
+        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_before, count_after);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 
     /// Check that if an item present in chunk cache gets evicted from the shard cache, it stays in the chunk cache.
@@ -359,10 +365,11 @@ mod caching_storage_tests {
 
         // Check that the first element gets evicted, but the counter is not incremented.
         assert_eq!(trie_cache.get(&key), None);
-        let count_before = trie_caching_storage.get_touched_nodes_count();
+        let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_after = trie_caching_storage.get_touched_nodes_count();
+        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
         assert_eq!(result.unwrap().as_ref(), value);
-        assert_eq!(count_before, count_after);
+        assert_eq!(count_delta.db_reads, 0);
+        assert_eq!(count_delta.mem_reads, 1);
     }
 }

@@ -1,6 +1,6 @@
 use crate::types::PeerMessage;
 use near_metrics::{
-    inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
+    do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
     IntGauge,
 };
@@ -15,6 +15,14 @@ pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
 pub static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
+});
+pub static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_received_by_type_bytes",
+        "Total data received from peers by message types",
+        &["type"],
+    )
+    .unwrap()
 });
 pub static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -111,9 +119,12 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
-#[derive(Clone)]
+#[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
-    pub peer_messages: HashMap<String, Option<IntCounter>>,
+    // received messages
+    peer_messages: HashMap<String, IntCounter>,
+    // sent messages (broadcast style)
+    pub broadcast_messages: IntCounterVec,
 }
 
 impl NetworkMetrics {
@@ -123,28 +134,19 @@ impl NetworkMetrics {
                 .iter()
                 .filter(|&name| *name != "Routed")
                 .chain(RoutedMessageBody::VARIANTS.iter())
-                .flat_map(|name: &&str| {
-                    [
-                        NetworkMetrics::peer_message_total_rx,
-                        NetworkMetrics::peer_message_bytes_rx,
-                        NetworkMetrics::peer_message_dropped,
-                    ]
-                    .map(|method| {
-                        let counter_name = method(name);
-                        let counter = try_create_int_counter(&counter_name, &counter_name).ok();
-                        (counter_name, counter)
-                    })
+                .filter_map(|name: &&str| {
+                    let counter_name = Self::peer_message_dropped(name);
+                    try_create_int_counter(&counter_name, &counter_name)
+                        .ok()
+                        .map(|counter| (counter_name, counter))
                 })
                 .collect(),
+            broadcast_messages: do_create_int_counter_vec(
+                "near_broadcast_msg",
+                "Broadcasted messages",
+                &["type"],
+            ),
         }
-    }
-
-    pub fn peer_message_total_rx(message_name: &str) -> String {
-        format!("near_{}_total", message_name.to_lowercase())
-    }
-
-    pub fn peer_message_bytes_rx(message_name: &str) -> String {
-        format!("near_{}_bytes", message_name.to_lowercase())
     }
 
     pub fn peer_message_dropped(message_name: &str) -> String {
@@ -153,13 +155,11 @@ impl NetworkMetrics {
 
     pub fn inc(&self, message_name: &str) {
         if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_opt(counter.as_ref());
+            counter.inc();
         }
     }
 
-    pub fn inc_by(&self, message_name: &str, value: u64) {
-        if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_by_opt(counter.as_ref(), value);
-        }
+    pub fn inc_broadcast(&self, message_name: &str) {
+        self.broadcast_messages.with_label_values(&[message_name]).inc();
     }
 }

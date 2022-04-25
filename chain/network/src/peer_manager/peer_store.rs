@@ -17,7 +17,7 @@ use tracing::{debug, error, info};
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub(crate) enum TrustLevel {
+enum TrustLevel {
     /// We learn about it from other peers.
     Indirect,
     /// Responding node at addr claims to possess PeerId.
@@ -167,7 +167,7 @@ impl PeerStore {
         &mut self,
         peer_info: &PeerInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
+        self.add_signed_peer(peer_info.clone())?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
@@ -339,6 +339,7 @@ impl PeerStore {
     }
 
     /// Adds a peer into the store with given trust level.
+    #[inline(always)]
     fn add_peer(
         &mut self,
         peer_info: PeerInfo,
@@ -388,10 +389,13 @@ impl PeerStore {
         Ok(())
     }
 
-    /// Adds indirect peers into the store.
+    /// Adds peers we’ve learned about from other peers.
     ///
-    /// Indirect peers are ones we’ve received from other peers and thus we
-    /// don’t know if their identity is correct.
+    /// Identities of the nodes hasn’t been verified in any way.  We don’t even
+    /// know if there is anything running at given addresses and even if there
+    /// are nodes there we haven’t received signatures of their peer ID.
+    ///
+    /// See also [`Self::add_direct_peer`] and [`Self::add_signed_peer`].
     pub(crate) fn add_indirect_peers(
         &mut self,
         peers: impl Iterator<Item = PeerInfo>,
@@ -415,16 +419,31 @@ impl PeerStore {
         Ok(())
     }
 
-    /// Adds a peer into the store with given trust level.  To add indirect
-    /// peers, use [`add_indirect_peers`] instead.
-    pub(crate) fn add_trusted_peer(
+    /// Adds a peer we’ve connected to but haven’t verified ID yet.
+    ///
+    /// We've connected to the host (thus know that the address is correct) and
+    /// they claim they control given peer ID but we haven’t received signature
+    /// confirming that identity yet.
+    ///
+    /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
+    pub(crate) fn add_direct_peer(
         &mut self,
         peer_info: PeerInfo,
-        trust_level: TrustLevel,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        debug_assert_ne!(TrustLevel::Indirect, trust_level);
-        self.add_peer(peer_info, trust_level)?;
-        Ok(())
+        self.add_peer(peer_info, TrustLevel::Direct)
+    }
+
+    /// Adds a peer which proved to have secret key associated with the ID.
+    ///
+    /// The host have sent us a message signed with a secret key corresponding
+    /// to the peer ID thus we can be sure that they control the secret key.
+    ///
+    /// See also [`Self::add_indirect_peers`] and [`Self::add_direct_peer`].
+    pub(crate) fn add_signed_peer(
+        &mut self,
+        peer_info: PeerInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.add_peer(peer_info, TrustLevel::Signed)
     }
 }
 

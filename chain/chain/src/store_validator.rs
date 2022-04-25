@@ -19,7 +19,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges, SHOULD_COL_GC, SKIP_COL_GC};
+use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -78,6 +78,7 @@ pub struct StoreValidator {
     inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
+    pub is_archival: bool,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,
@@ -89,6 +90,7 @@ impl StoreValidator {
         config: GenesisConfig,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         store: Store,
+        is_archival: bool,
     ) -> Self {
         StoreValidator {
             me,
@@ -98,6 +100,7 @@ impl StoreValidator {
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::instant(),
+            is_archival,
             errors: vec![],
             tests: 0,
         }
@@ -111,8 +114,8 @@ impl StoreValidator {
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            if SHOULD_COL_GC[col as usize] && self.inner.gc_col[col as usize] == 0 {
-                if SKIP_COL_GC[col as usize] {
+            if col.is_gc() && self.inner.gc_col[col as usize] == 0 {
+                if col.is_gc_optional() {
                     res.push((
                         to_string(&col) + " (skipping is acceptable)",
                         self.inner.gc_col[col as usize],
@@ -135,7 +138,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for (key, value) in self.store.clone().iter_without_rc_logic(col) {
+        for (key, value) in self.store.clone().iter_raw_bytes(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
@@ -337,6 +340,7 @@ impl StoreValidator {
         }
         Ok(())
     }
+
     pub fn validate(&mut self) {
         self.start_time = Clock::instant();
 
@@ -425,7 +429,7 @@ mod tests {
             true,
         )
         .unwrap();
-        (chain, StoreValidator::new(None, genesis, runtime_adapter, store))
+        (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))
     }
 
     #[test]
