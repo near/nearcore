@@ -842,8 +842,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        match read_with_cache(&self.store, DBCol::Chunks, &mut self.chunks, chunk_hash.as_ref())
-        {
+        match read_with_cache(&self.store, DBCol::Chunks, &mut self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
@@ -1061,13 +1060,8 @@ impl ChainStoreAccess for ChainStore {
         &mut self,
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error> {
-        read_with_cache(
-            &self.store,
-            DBCol::Transactions,
-            &mut self.transactions,
-            tx_hash.as_ref(),
-        )
-        .map_err(|e| e.into())
+        read_with_cache(&self.store, DBCol::Transactions, &mut self.transactions, tx_hash.as_ref())
+            .map_err(|e| e.into())
     }
 
     fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error> {
@@ -2496,9 +2490,9 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::EpochStart
             | DBCol::EpochValidatorInfo
             | DBCol::BlockOrdinal
-            | DBCol::NextBlockWithNewChunk
-            | DBCol::LastBlockWithNewChunk
-            | DBCol::TransactionRefCount
+            | DBCol::_NextBlockWithNewChunk
+            | DBCol::_LastBlockWithNewChunk
+            | DBCol::_TransactionRefCount
             | DBCol::StateChangesForSplitStates
             | DBCol::CachedContractCode => {
                 unreachable!();
@@ -2767,11 +2761,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
         }
         for (height, hash_set) in chunk_hashes_by_height {
-            store_update.set_ser(
-                DBCol::ChunkHashesByHeight,
-                &index_to_bytes(height),
-                &hash_set,
-            )?;
+            store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
             store_update.set_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
@@ -2827,12 +2817,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             let data = shard_id.try_to_vec()?;
-            store_update.update_refcount(
-                DBCol::ReceiptIdToShardId,
-                receipt_id.as_ref(),
-                &data,
-                1,
-            );
+            store_update.update_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data, 1);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
             store_update.set_ser(DBCol::BlockRefCount, block_hash.as_ref(), refcount)?;
@@ -2840,11 +2825,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (block_hash, block_merkle_tree) in
             self.chain_store_cache_update.block_merkle_tree.iter()
         {
-            store_update.set_ser(
-                DBCol::BlockMerkleTree,
-                block_hash.as_ref(),
-                block_merkle_tree,
-            )?;
+            store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree)?;
         }
         for (block_ordinal, block_hash) in
             self.chain_store_cache_update.block_ordinal_to_hash.iter()
@@ -3636,9 +3617,7 @@ mod tests {
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
-            store_update
-                .set_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
-                .unwrap();
+            store_update.set_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info).unwrap();
             store_update.commit().unwrap();
         }
         for i in 1..1000 {
@@ -3653,9 +3632,7 @@ mod tests {
             {
                 let mut store_update = store_update.store().store_update();
                 let block_info = BlockInfo::default();
-                store_update
-                    .set_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info)
-                    .unwrap();
+                store_update.set_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
                 store_update.commit().unwrap();
             }
             store_update

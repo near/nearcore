@@ -397,10 +397,8 @@ pub(crate) fn block_chunks_exist(
                             })?;
                         let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
                         unwrap_or_err_db!(
-                            sv.store.get_ser::<ChunkExtra>(
-                                DBCol::ChunkExtra,
-                                block_shard_uid.as_ref()
-                            ),
+                            sv.store
+                                .get_ser::<ChunkExtra>(DBCol::ChunkExtra, block_shard_uid.as_ref()),
                             "Can't get chunk extra for chunk {:?} from storage",
                             chunk_header
                         );
@@ -542,10 +540,8 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     );
     // 2) Chunk Extra with `block_hash` and `shard_uid` should be available and match with the new root
     let chunk_extra = unwrap_or_err_db!(
-        sv.store.get_ser::<ChunkExtra>(
-            DBCol::ChunkExtra,
-            &get_block_shard_uid(block_hash, shard_uid)
-        ),
+        sv.store
+            .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
         "Can't get Chunk Extra from storage with key {:?} {:?}",
         block_hash,
         shard_uid

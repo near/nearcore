@@ -387,11 +387,10 @@ impl RoutingTableActor {
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(component_nonce);
 
-        let res =
-            match self.store.get_ser::<Vec<Edge>>(DBCol::ComponentEdges, enc_nonce.as_ref()) {
-                Ok(Some(edges)) => Ok(edges),
-                _ => Err(()),
-            };
+        let res = match self.store.get_ser::<Vec<Edge>>(DBCol::ComponentEdges, enc_nonce.as_ref()) {
+            Ok(Some(edges)) => Ok(edges),
+            _ => Err(()),
+        };
 
         update.delete(DBCol::ComponentEdges, enc_nonce.as_ref());
 

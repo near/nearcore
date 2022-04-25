@@ -138,11 +138,7 @@ impl RoutingTableView {
         // Add account to store
         let mut update = self.store.store_update();
         if let Err(e) = update
-            .set_ser(
-                DBCol::AccountAnnouncements,
-                account_id.as_ref().as_bytes(),
-                &announce_account,
-            )
+            .set_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
             .and_then(|_| update.commit())
         {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);

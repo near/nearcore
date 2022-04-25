@@ -128,8 +128,8 @@ where
 pub fn migrate_28_to_29(path: &Path) {
     let store = create_store(path);
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::NextBlockWithNewChunk);
-    store_update.delete_all(DBCol::LastBlockWithNewChunk);
+    store_update.delete_all(DBCol::_NextBlockWithNewChunk);
+    store_update.delete_all(DBCol::_LastBlockWithNewChunk);
     store_update.commit().unwrap();
 
     set_store_version(&store, 29);

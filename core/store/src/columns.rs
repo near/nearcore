@@ -270,9 +270,9 @@ const NO_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     DBCol::LastComponentNonce,
     DBCol::ComponentEdges,
     DBCol::BlockOrdinal,
-    DBCol::EpochInfo, // https://github.com/nearprotocol/nearcore/pull/2952
+    DBCol::EpochInfo,          // https://github.com/nearprotocol/nearcore/pull/2952
     DBCol::EpochValidatorInfo, // https://github.com/nearprotocol/nearcore/pull/2952
-    DBCol::EpochStart, // https://github.com/nearprotocol/nearcore/pull/2952
+    DBCol::EpochStart,         // https://github.com/nearprotocol/nearcore/pull/2952
     DBCol::CachedContractCode,
 ]);
 
@@ -283,12 +283,8 @@ const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     DBCol::StateParts,
 ]);
 
-const RC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
-    DBCol::State,
-    DBCol::Transactions,
-    DBCol::Receipts,
-    DBCol::ReceiptIdToShardId,
-]);
+const RC_COLUMNS: [bool; DBCol::COUNT] =
+    col_set(&[DBCol::State, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptIdToShardId]);
 
 const fn col_set(cols: &[DBCol]) -> [bool; DBCol::COUNT] {
     let mut res = [false; DBCol::COUNT];
@@ -352,9 +348,7 @@ impl fmt::Display for DBCol {
             Self::CachedContractCode => "cached code",
             Self::EpochValidatorInfo => "epoch validator info",
             Self::HeaderHashesByHeight => "header hashes indexed by their height",
-            Self::StateChangesForSplitStates => {
-                "state changes indexed by block hash and shard id"
-            }
+            Self::StateChangesForSplitStates => "state changes indexed by block hash and shard id",
         };
         write!(f, "{}", desc)
     }
