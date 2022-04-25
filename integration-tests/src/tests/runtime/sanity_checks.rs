@@ -98,7 +98,23 @@ fn test_cost_sanity() {
         .receipts_outcome
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
+        .map(|gas_profile| {
+            gas_profile
+                .iter()
+                .cloned()
+                .map(|cost| {
+                    if cost.cost == "CONTRACT_LOADING_BYTES" {
+                        // Ignore `gas_used` of `CONTRACT_LOADING_BYTES` since contract size is
+                        // non-deterministic. Size may depend on random environmental factors.
+                        CostGasUsed { gas_used: 0, ..cost }
+                    } else {
+                        cost
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
+
     insta::assert_debug_snapshot!(
         if cfg!(feature = "nightly_protocol") {
             "receipts_gas_profile_nightly"
@@ -106,22 +122,5 @@ fn test_cost_sanity() {
             "receipts_gas_profile"
         },
         receipts_gas_profile
-            .iter()
-            .map(|gas_profile| {
-                gas_profile
-                    .iter()
-                    .cloned()
-                    .map(|cost| {
-                        if cost.cost == "CONTRACT_LOADING_BYTES" {
-                            // Ignore `gas_used` of `CONTRACT_LOADING_BYTES` since contract size is
-                            // non-deterministic. Size may depend on random environmental factors.
-                            CostGasUsed { gas_used: 0, ..cost }
-                        } else {
-                            cost
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>()
     );
 }
