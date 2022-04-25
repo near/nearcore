@@ -194,6 +194,7 @@ static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
 pub fn export_version(neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION as i64);
     NODE_DB_VERSION.set(near_primitives::version::DB_VERSION as i64);
+    NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
         .with_label_values(&[
             &neard_version.version,
