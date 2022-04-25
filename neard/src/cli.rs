@@ -1,4 +1,4 @@
-use crate::log_config_watcher::LogConfigWatcher;
+use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
 use futures::future::FutureExt;
 use futures::pin_mut;
@@ -476,11 +476,14 @@ async fn signal_handlers(home_dir: &Path, rx_crash: Receiver<()>) -> &str {
 
     let watched_path = home_dir.join("log_config.json");
     let log_config_watcher = LogConfigWatcher { watched_path };
+    // Apply the logging config file if it exists.
+    log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
     let mut rx = rx_int.merge(rx_hup).merge(rx_term).merge(rx_crash);
     loop {
         let sig = rx.next().await.unwrap();
         if sig == "SIGHUP" {
-            log_config_watcher.update();
+            info!(target: "neard", "Received SIGHUP.");
+            log_config_watcher.update(UpdateBehavior::UpdateOrReset);
         } else {
             return sig;
         }
