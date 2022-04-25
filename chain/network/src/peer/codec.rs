@@ -128,7 +128,7 @@ mod test {
         {
             let mut codec = Codec::default();
             let mut buffer = BytesMut::new();
-            codec.encode(msg.serialize(enc).unwrap(), &mut buffer).unwrap();
+            codec.encode(msg.serialize(enc), &mut buffer).unwrap();
             let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
             assert_eq!(PeerMessage::deserialize(enc, &decoded).unwrap(), msg);
         }

@@ -299,7 +299,6 @@ impl PeerHandle {
                             &cfg.signer.secret_key,
                         )),
                     },
-                    NetworkMetrics::new(),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,

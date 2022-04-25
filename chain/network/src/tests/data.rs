@@ -23,11 +23,11 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-pub fn make_genesis_block(clock: &mut dyn Clock, chunks: Vec<ShardChunk>) -> Block {
+pub fn make_genesis_block(clock: &Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
         PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
-        clock.now(),
+        clock.utc_now(),
         0,                     // height
         1000,                  // initial_gas_price
         1000,                  // initial_total_supply
@@ -36,7 +36,7 @@ pub fn make_genesis_block(clock: &mut dyn Clock, chunks: Vec<ShardChunk>) -> Blo
 }
 
 pub fn make_block(
-    clock: &dyn Clock,
+    clock: &Clock,
     signer: &dyn ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
@@ -61,7 +61,7 @@ pub fn make_block(
         signer,
         CryptoHash::default(), // next_bp_hash
         CryptoHash::default(), // block_merkle_root
-        Some(clock.now()),     // timestamp_override
+        Some(clock.utc_now()), // timestamp_override
     )
 }
 
@@ -228,11 +228,11 @@ impl Chain {
     pub fn make<R: Rng>(clock: &mut FakeClock, rng: &mut R, block_count: usize) -> Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
-        blocks.push(make_genesis_block(clock, chunks.make()));
+        blocks.push(make_genesis_block(&clock.clock(), chunks.make()));
         let signer = make_validator_signer(rng);
         for _ in 1..block_count {
             clock.advance(Duration::seconds(15));
-            blocks.push(make_block(clock, &signer, blocks.last().unwrap(), chunks.make()));
+            blocks.push(make_block(&clock.clock(), &signer, blocks.last().unwrap(), chunks.make()));
         }
         Chain {
             genesis_id: GenesisId {

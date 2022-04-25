@@ -69,7 +69,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     for enc in [Encoding::Proto, Encoding::Borsh] {
         for m in &msgs {
             (|| {
-                let m2 = PeerMessage::deserialize(enc, &m.serialize(enc)?)
+                let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
                     .with_context(|| format!("{m}"))?;
                 if *m != m2 {
                     bail!("deserialize(serialize({m}) = {m2}");
@@ -83,14 +83,13 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     // Encodings should never be compatible.
     for (from, to) in [(Encoding::Proto, Encoding::Borsh), (Encoding::Borsh, Encoding::Proto)] {
         for m in &msgs {
-            (|| {
-                let bytes = &m.serialize(from).with_context(|| format!("{m}"))?;
-                match PeerMessage::deserialize(to, bytes) {
-                    Err(_) => anyhow::Ok(()),
-                    Ok(m2) => bail!("deserialize(serialize({m})) = {m2}, want error"),
+            let bytes = &m.serialize(from);
+            match PeerMessage::deserialize(to, bytes) {
+                Err(_) => {}
+                Ok(m2) => {
+                    bail!("from={from:?},to={to:?}: deserialize(serialize({m})) = {m2}, want error")
                 }
-            })()
-            .with_context(|| format!("from={from:?},to={to:?}"))?;
+            }
         }
     }
 

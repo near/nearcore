@@ -1,14 +1,11 @@
 /// Contains types that belong to the `network protocol.
 mod borsh;
 mod borsh_conv;
-mod proto {
-    include!(concat!(env!("OUT_DIR"), "/network.rs"));
-}
 mod proto_conv;
 
-pub use self::borsh::{
-    PartialSync, RoutingState, RoutingSyncV2, RoutingTableUpdate, RoutingVersion2,
-};
+#[path = "./generated/network.rs"]
+#[rustfmt::skip]
+mod proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
 use ::prost::Message as _;
@@ -25,7 +22,12 @@ use near_primitives::types::{EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use std::fmt;
 
-/// Structure representing handshake between peers.#[derive(PartialEq, Eq, Clone, Debug)]
+pub use self::borsh::{
+    PartialSync, RoutingState, RoutingSyncV2, RoutingTableUpdate, RoutingVersion2,
+};
+
+/// Structure representing handshake between peers.
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Current protocol version.
     pub(crate) protocol_version: u32,
@@ -119,11 +121,11 @@ pub enum Encoding {
 }
 
 impl PeerMessage {
-    pub(crate) fn serialize(&self, enc: Encoding) -> anyhow::Result<Vec<u8>> {
-        Ok(match enc {
-            Encoding::Borsh => borsh::PeerMessage::try_from(self)?.try_to_vec()?,
-            Encoding::Proto => proto::PeerMessage::try_from(self)?.encode_to_vec(),
-        })
+    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
+        match enc {
+            Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
+            Encoding::Proto => proto::PeerMessage::from(self).encode_to_vec(),
+        }
     }
 
     pub(crate) fn deserialize(enc: Encoding, data: &[u8]) -> anyhow::Result<PeerMessage> {

@@ -22,7 +22,6 @@ use near_network_primitives::types::{
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 
-use anyhow::bail;
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -226,8 +225,7 @@ impl PeerActor {
             _ => (),
         };
 
-        let bytes = msg.serialize(mode)?;
-        // error!(target: "network", "Error converting message to bytes: {}", err),
+        let bytes = msg.serialize(mode);
         self.tracker.increment_sent(bytes.len() as u64);
         let bytes_len = bytes.len();
         if !self.framed.write(bytes) {
@@ -235,7 +233,7 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            bail!(
+            anyhow::bail!(
                 "{} Failed to send message {} of size {}",
                 tid,
                 msg.as_ref(),

@@ -1,3 +1,6 @@
+/// After changing this file, regenerate protobuf code.
+/// See build.rs for details.
+
 syntax = "proto3";
 package network;
 
