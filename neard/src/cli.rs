@@ -425,7 +425,7 @@ impl RunCmd {
             let sig = wait_for_interrupt_signal(home_dir, rx).await;
             error!(target: "neard", "{}, stopping...", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.stop(true).await;
+                server.handle().stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;

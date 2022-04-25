@@ -1495,7 +1495,7 @@ pub fn start_http(
     let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
-            .data(JsonRpcHandler {
+            .app_data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,

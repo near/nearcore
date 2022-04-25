@@ -315,7 +315,7 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
+        rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),

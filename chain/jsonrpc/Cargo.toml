@@ -9,8 +9,8 @@ edition = "2021"
 
 [dependencies]
 actix = "0.13.0"
-actix-web = "=4.0.0-beta.6"
-actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }
+actix-web = "4.0.1"
+actix-cors = "0.6.1"
 easy-ext = "0.2"
 tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 futures = "0.3"
