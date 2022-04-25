@@ -269,7 +269,7 @@ fn main_docker(
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.58.1"; //< Update this when Dockerfile changes
+    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
