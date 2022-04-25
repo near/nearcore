@@ -30,7 +30,7 @@ use crate::types::EpochInfoAggregator;
 pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_chain::types::ValidatorInfoIdentifier;
 use near_chain_configs::GenesisConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::DBCol::ColEpochValidatorInfo;
@@ -1186,24 +1186,6 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         let stake_divisor = { config.minimum_stake_divisor as Balance };
         Ok(seat_price / stake_divisor)
-    }
-
-    // Note: this function should only be used in 18 -> 19 migration and should be removed in the
-    // next release
-    /// `block_header_info` must be the header info of the last block of an epoch.
-    pub fn migrate_18_to_19(
-        &mut self,
-        block_header_info: &BlockHeaderInfo,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), EpochError> {
-        let last_block_info = self.get_block_info(&block_header_info.hash)?;
-        self.finalize_epoch(
-            store_update,
-            &last_block_info,
-            &block_header_info.hash,
-            block_header_info.random_value.into(),
-        )?;
-        Ok(())
     }
 }
 
