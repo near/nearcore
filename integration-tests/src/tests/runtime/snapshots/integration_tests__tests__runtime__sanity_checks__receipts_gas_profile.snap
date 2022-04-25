@@ -1,6 +1,6 @@
 ---
 source: integration-tests/src/tests/runtime/sanity_checks.rs
-expression: receipts_gas_profile
+expression: "receipts_gas_profile.iter().map(|gas_profile|\n            {\n                gas_profile.iter().cloned().map(|cost|\n                            {\n                                if cost.cost == \"CONTRACT_LOADING_BYTES\" {\n                                        CostGasUsed { gas_used: 0, ..cost }\n                                    } else { cost }\n                            }).collect::<Vec<_>>()\n            }).collect::<Vec<_>>()"
 
 ---
 [
@@ -63,7 +63,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -270,7 +270,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -293,7 +293,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -331,7 +331,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
     ],
     [],
@@ -344,7 +344,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
     ],
     [],
@@ -357,7 +357,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
     ],
     [],
@@ -374,7 +374,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 14739000,
+            gas_used: 0,
         },
     ],
     [],
@@ -390,7 +390,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
     ],
     [],
@@ -408,7 +408,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 20438874750,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
