@@ -25,8 +25,7 @@ use near_primitives::types::{EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use std::fmt;
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-/// Structure representing handshake between peers.
+/// Structure representing handshake between peers.#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Current protocol version.
     pub(crate) protocol_version: u32,
