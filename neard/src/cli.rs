@@ -1,7 +1,5 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
-use futures::future::FutureExt;
-use futures::pin_mut;
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -13,7 +11,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
