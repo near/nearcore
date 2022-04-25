@@ -116,15 +116,15 @@ impl RocksDBMetrics {
 }
 
 fn get_prometheus_metric_name(stat_name: &str) -> String {
-    format!("near_{}", stat_name.replace(".", "_"))
+    format!("near_{}", stat_name.replace('.', "_"))
 }
 
 fn get_metric_name_summary_count_gauge(stat_name: &str) -> String {
-    format!("near_{}_count", stat_name.replace(".", "_"))
+    format!("near_{}_count", stat_name.replace('.', "_"))
 }
 
 fn get_metric_name_summary_sum_gauge(stat_name: &str) -> String {
-    format!("near_{}_sum", stat_name.replace(".", "_"))
+    format!("near_{}_sum", stat_name.replace('.', "_"))
 }
 
 fn get_stats_summary_count_key(stat_name: &str) -> String {

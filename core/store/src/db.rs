@@ -18,7 +18,6 @@ use strum::EnumCount;
 use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
-pub(crate) mod v6_to_v7;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DBError(String);
@@ -81,6 +80,10 @@ impl DBTransaction {
 
     pub(crate) fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
+    }
+
+    pub(crate) fn merge(&mut self, other: DBTransaction) {
+        self.ops.extend(other.ops)
     }
 }
 
@@ -300,7 +303,7 @@ pub(crate) trait Database: Sync + Send {
     }
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
@@ -325,7 +328,7 @@ impl Database for RocksDB {
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
 
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -387,7 +390,6 @@ impl Database for RocksDB {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::UpdateRefcount { col, key, value } => unsafe {
-                    assert!(col.is_rc());
                     batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
                 DBOp::Delete { col, key } => unsafe {
@@ -435,11 +437,11 @@ impl Database for TestDB {
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let iterator = self.iter_without_rc_logic(col);
+        let iterator = self.iter_raw_bytes(col);
         RocksDB::iter_with_rc_logic(col, iterator)
     }
 
-    fn iter_without_rc_logic<'a>(
+    fn iter_raw_bytes<'a>(
         &'a self,
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -624,13 +626,20 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let db = RocksDB::new(path, &StoreConfig::read_only())?;
-        db.get(DBCol::ColDbVersion, VERSION_KEY).map(|result| {
-            serde_json::from_slice(
-                &result
-                    .expect("Failed to find version in first column. Database must be corrupted."),
-            )
-            .expect("Failed to parse version. Database must be corrupted.")
+        let value = RocksDB::new(path, &StoreConfig::read_only())?
+            .get(DBCol::ColDbVersion, VERSION_KEY)?
+            .ok_or_else(|| {
+                DBError(
+                    "Failed to read database version; \
+                     it’s not a neard database or database is corrupted."
+                        .into(),
+                )
+            })?;
+        serde_json::from_slice(&value).map_err(|_err| {
+            DBError(format!(
+                "Failed to parse database version: {value:?}; \
+                 it’s not a neard database or database is corrupted."
+            ))
         })
     }
 

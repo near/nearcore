@@ -754,9 +754,8 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             PROTOCOL_VERSION,
             Some(&cache),
         );
-        assert!(vm_result.outcome().is_some());
         assert!(vm_result.error().is_some());
-        vm_result.outcome().cloned().unwrap()
+        vm_result.outcome_error().0
     };
 
     let warmup_outcome = run();

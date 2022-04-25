@@ -24,6 +24,7 @@
 * Added `near_peer_message_received_by_type_bytes` metric [#6661](https://github.com/near/nearcore/pull/6661)
 * Removed `near_<msg-type>_{total,bytes}` metrics in favour of `near_peer_message_received_by_type_{total,bytes}` metrics [#6661](https://github.com/near/nearcore/pull/6661)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
+* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 
 ## 1.25.0 [2022-03-16]
 
