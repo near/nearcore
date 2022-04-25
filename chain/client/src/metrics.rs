@@ -187,10 +187,9 @@ static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
 
 /// Exports neard, protocol and database versions via Prometheus metrics.
 ///
-/// Defines and sets metrics which export node’s max supported protocol version,
-/// used database version and build information.  The latter is taken from
-/// `neard_version` argument.  This should be called only once at startup.
-/// Subsequent calls don’t change exported values.
+/// Sets metrics which export node’s max supported protocol version, used
+/// database version and build information.  The latter is taken from
+/// `neard_version` argument.
 pub fn export_version(neard_version: &near_primitives::version::Version) {
     NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION as i64);
     NODE_DB_VERSION.set(near_primitives::version::DB_VERSION as i64);
