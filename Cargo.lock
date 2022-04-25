@@ -2701,6 +2701,7 @@ dependencies = [
  "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-pool",
@@ -2834,6 +2835,7 @@ dependencies = [
  "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-primitives",
  "near-rpc-error-macro",
  "once_cell",
@@ -2842,6 +2844,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3008,6 +3011,8 @@ name = "near-o11y"
 version = "0.0.0"
 dependencies = [
  "backtrace",
+ "once_cell",
+ "thiserror",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -3415,8 +3420,11 @@ dependencies = [
  "once_cell",
  "openssl-probe",
  "rustc_version 0.4.0",
+ "serde",
+ "serde_json",
  "shell-escape",
  "state-viewer",
+ "thiserror",
  "tikv-jemallocator",
  "tokio",
  "tracing",
@@ -5482,9 +5490,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b2f3f698253f03119ac0102beaa64f67a67e08074d03a22d18784104543727f"
+checksum = "50145484efff8818b5ccd256697f36863f587da82cf8b409c53adf1e840798e3"
 dependencies = [
  "futures-core",
  "pin-project-lite",
