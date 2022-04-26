@@ -331,9 +331,9 @@ impl Runtime {
             result.result = Err(e);
             return Ok(result);
         }
+        metrics::ACTION_CALLED_COUNT.with_label_values(&[action.as_ref()]).inc();
         match action {
             Action::CreateAccount(_) => {
-                metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc();
                 action_create_account(
                     &apply_state.config.transaction_costs,
                     &apply_state.config.account_creation_config,
@@ -345,7 +345,6 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
-                metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -356,7 +355,6 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                metrics::ACTION_FUNCTION_CALL_TOTAL.inc();
                 action_function_call(
                     state_update,
                     apply_state,
@@ -374,7 +372,6 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(transfer) => {
-                metrics::ACTION_TRANSFER_TOTAL.inc();
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
@@ -405,7 +402,6 @@ impl Runtime {
                 }
             }
             Action::Stake(stake) => {
-                metrics::ACTION_STAKE_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -418,7 +414,6 @@ impl Runtime {
                 )?;
             }
             Action::AddKey(add_key) => {
-                metrics::ACTION_ADD_KEY_TOTAL.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -429,7 +424,6 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
-                metrics::ACTION_DELETE_KEY_TOTAL.inc();
                 action_delete_key(
                     &apply_state.config.transaction_costs,
                     state_update,
@@ -441,7 +435,6 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
-                metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -455,7 +448,6 @@ impl Runtime {
             }
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             Action::StakeChunkOnly(stake) => {
-                metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
