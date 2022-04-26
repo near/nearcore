@@ -185,23 +185,17 @@ class DockerNode(cluster.LocalNode):
 
 
 def main():
+    nodes = []
+
     # Build the container
     run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore'))
     try:
-        run_test_image_ready()
-    finally:
-        subprocess.check_call(('docker', 'image', 'rm', _DOCKER_IMAGE_TAG))
+        dot_near = pathlib.Path.home() / '.near'
 
+        # Initialise local network
+        cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
+        docker_run(cmd, volume=(dot_near, '/home/near'))
 
-def run_test_image_ready():
-    dot_near = pathlib.Path.home() / '.near'
-
-    # Initialise local network
-    cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
-    docker_run(cmd, volume=(dot_near, '/home/near'))
-
-    nodes = []
-    try:
         # Start all the nodes
         for ordinal in range(NUM_NODES):
             logger.info(f'Starting node {ordinal}')
@@ -244,6 +238,8 @@ def run_test_image_ready():
             run(('docker', 'stop') + cids)
         for node in nodes:
             node._container_id = None
+
+        subprocess.check_call(('docker', 'image', 'rm', '-f', _DOCKER_IMAGE_TAG))
 
 
 if __name__ == '__main__':
