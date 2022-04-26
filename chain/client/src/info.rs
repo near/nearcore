@@ -257,10 +257,11 @@ pub fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.2}% ({})",
+                "#{:>8} Downloading headers {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
@@ -271,10 +272,11 @@ pub fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading blocks {:.2}% ({})",
+                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {
