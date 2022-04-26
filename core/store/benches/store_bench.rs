@@ -3,7 +3,6 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::DBCol::ColBlockMerkleTree;
 use near_store::{create_store, DBCol, Store};
 use std::time::{Duration, Instant};
 
@@ -89,8 +88,8 @@ fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCo
 fn benchmark_write_then_read_successful_10m(bench: &mut Bencher) {
     // By adding logs, I've seen a lot of write to keys with size 40, an values with sizes
     // between 10 .. 333.
-    // NOTE: ColBlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
-    benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, ColBlockMerkleTree);
+    // NOTE: DBCol::BlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
+    benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, DBCol::BlockMerkleTree);
 }
 
 benchmark_group!(benches, benchmark_write_then_read_successful_10m);
