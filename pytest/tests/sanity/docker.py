@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import typing
+import uuid
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -35,6 +36,8 @@ NUM_NODES = 3
 _REPO_DIR = pathlib.Path(__file__).resolve().parents[3]
 _CD_PRINTED = False
 _Command = typing.Sequence[typing.Union[str, pathlib.Path]]
+
+_DOCKER_IMAGE_TAG = 'nearcore-testimage-' + uuid.uuid4().hex
 
 
 def run(cmd: _Command, *, capture_output: bool = False) -> typing.Optional[str]:
@@ -119,7 +122,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
         cmd.append((f'-e{key}={value}'))
 
     # Specify the image to run.
-    cmd.append('nearcore')
+    cmd.append(_DOCKER_IMAGE_TAG)
 
     # And finally, specify the command.
     if shell_cmd:
@@ -182,17 +185,17 @@ class DockerNode(cluster.LocalNode):
 
 
 def main():
-    # Build the container
-    run(('make', 'docker-nearcore'))
-
-    dot_near = pathlib.Path.home() / '.near'
-
-    # Initialise local network
-    cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
-    docker_run(cmd, volume=(dot_near, '/home/near'))
-
     nodes = []
+
+    # Build the container
+    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore'))
     try:
+        dot_near = pathlib.Path.home() / '.near'
+
+        # Initialise local network
+        cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
+        docker_run(cmd, volume=(dot_near, '/home/near'))
+
         # Start all the nodes
         for ordinal in range(NUM_NODES):
             logger.info(f'Starting node {ordinal}')
@@ -235,6 +238,9 @@ def main():
             run(('docker', 'stop') + cids)
         for node in nodes:
             node._container_id = None
+
+        subprocess.check_call(
+            ('docker', 'image', 'rm', '-f', _DOCKER_IMAGE_TAG))
 
 
 if __name__ == '__main__':

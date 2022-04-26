@@ -29,13 +29,33 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 fn wasmparser_decode(
     code: &[u8],
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
-    use wasmparser::ValidPayload;
+    use wasmparser::{ImportSectionEntryType, ValidPayload};
     let mut validator = wasmparser::Validator::new();
     validator.wasm_features(WASM_FEATURES);
     let mut function_count = Some(0u64);
     let mut local_count = Some(0u64);
     for payload in wasmparser::Parser::new(0).parse_all(code) {
-        match validator.payload(&payload?)? {
+        let payload = payload?;
+
+        // The validator does not output `ValidPayload::Func` for imported functions.
+        if let wasmparser::Payload::ImportSection(ref import_section_reader) = payload {
+            let mut import_section_reader = import_section_reader.clone();
+            for _ in 0..import_section_reader.get_count() {
+                match import_section_reader.read()?.ty {
+                    ImportSectionEntryType::Function(_) => {
+                        function_count = function_count.and_then(|f| f.checked_add(1))
+                    }
+                    ImportSectionEntryType::Table(_)
+                    | ImportSectionEntryType::Memory(_)
+                    | ImportSectionEntryType::Event(_)
+                    | ImportSectionEntryType::Global(_)
+                    | ImportSectionEntryType::Module(_)
+                    | ImportSectionEntryType::Instance(_) => {}
+                }
+            }
+        }
+
+        match validator.payload(&payload)? {
             ValidPayload::Ok => (),
             ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
             ValidPayload::Func(mut validator, body) => {
