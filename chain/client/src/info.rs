@@ -12,7 +12,7 @@ use near_primitives::telemetry::{
 use near_primitives::time::{Clock, Instant};
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::Version;
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
 use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
@@ -60,6 +60,7 @@ impl InfoHelper {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
         set_open_files_limit(0);
+        metrics::export_version(&client_config.version);
         InfoHelper {
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
@@ -179,8 +180,6 @@ impl InfoHelper {
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
         (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
-        (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
-        (metrics::NODE_DB_VERSION.set(DB_VERSION as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
@@ -258,10 +257,11 @@ pub fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.2}% ({})",
+                "#{:>8} Downloading headers {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
@@ -272,10 +272,11 @@ pub fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading blocks {:.2}% ({})",
+                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {

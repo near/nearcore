@@ -211,8 +211,8 @@ mod nodes_counter_tests {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::TRIE_LIMIT_CACHED_VALUE_SIZE;
-    use crate::trie::{TrieCache, TrieCachingStorage, TrieRefcountChange};
+    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TRIE_LIMIT_CACHED_VALUE_SIZE};
+    use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;

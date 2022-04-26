@@ -1405,11 +1405,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(
-            env.clients[0].chain.store().fork_tail().unwrap()
-                <= env.clients[0].chain.store().tail().unwrap()
-        );
-
         blocks.push(block);
     }
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
@@ -1630,17 +1625,24 @@ fn test_gc_fork_tail() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(1, block, Provenance::NONE);
     }
+
+    let mut second_epoch_start = None;
     for i in 102..epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         for j in 0..2 {
             env.process_block(j, block.clone(), Provenance::NONE);
+        }
+        if second_epoch_start.is_none() && block.header().epoch_id() != &EpochId::default() {
+            second_epoch_start = Some(i);
         }
     }
     let head = env.clients[1].chain.head().unwrap();
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
+    let tail = env.clients[1].chain.store().tail().unwrap();
+    let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
+    assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
 #[test]
@@ -3342,9 +3344,9 @@ fn verify_contract_limits_upgrade(
     let old_protocol_version = feature.protocol_version() - 1;
     let new_protocol_version = feature.protocol_version();
 
+    let epoch_length = 5;
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
-        let epoch_length = 5;
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
@@ -3364,7 +3366,12 @@ fn verify_contract_limits_upgrade(
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::large_contract(function_limit + 1, local_limit + 1),
+            &near_test_contracts::LargeContract {
+                functions: function_limit + 1,
+                locals_per_function: local_limit + 1,
+                ..Default::default()
+            }
+            .make(),
             epoch_length,
             1,
         );
@@ -3403,16 +3410,22 @@ fn verify_contract_limits_upgrade(
     // Move to the new protocol version.
     {
         let tip = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&tip.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
+        let mut last_block_hash = tip.last_block_hash;
+        for i in 0..2 * epoch_length {
+            let height = tip.height + i + 1;
+            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
+
+            let epoch_id = env.clients[0]
+                .runtime_adapter
+                .get_epoch_id_from_prev_block(&last_block_hash)
+                .unwrap();
+            let block_producer =
+                env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
+            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+
+            last_block_hash = *block.header().hash();
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
     }
 
     // Re-run the transaction & get tx outcome.
@@ -4903,22 +4916,21 @@ mod lower_storage_key_limit_test {
         // Move to the new protocol version.
         {
             let tip = env.clients[0].chain.head().unwrap();
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&tip.last_block_hash)
-                .unwrap();
-            let block_producer = env.clients[0]
-                .runtime_adapter
-                .get_block_producer(&epoch_id, tip.height + 1)
-                .unwrap();
-            let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-            let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-            assert!(res.is_ok());
+            let mut last_block_hash = tip.last_block_hash;
+            for i in 0..2 * epoch_length {
+                let height = tip.height + i + 1;
+                let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
 
-            for i in 1..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
+                let epoch_id = env.clients[0]
+                    .runtime_adapter
+                    .get_epoch_id_from_prev_block(&last_block_hash)
+                    .unwrap();
+                let block_producer =
+                    env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
+                set_block_protocol_version(&mut block, block_producer, new_protocol_version);
+
+                last_block_hash = *block.header().hash();
+                env.process_block(0, block, Provenance::PRODUCED);
             }
         }
 

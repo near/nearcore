@@ -245,14 +245,11 @@ impl TrieViewer {
         let time_str = format!("{:.*}ms", 2, time_ms);
 
         if let Some(err) = err {
-            if let Some(outcome) = outcome {
-                logs.extend(outcome.logs);
-            }
+            logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
-            let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
             logs.extend(outcome.logs);
             let result = match outcome.return_data {

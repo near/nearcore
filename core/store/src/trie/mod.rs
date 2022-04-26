@@ -17,7 +17,6 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub(crate) use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
