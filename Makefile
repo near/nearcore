@@ -10,14 +10,17 @@ export CARGO_TARGET_DIR = target
 all: release
 
 
+docker-nearcore: DOCKER_TAG ?= nearcore
 docker-nearcore:
-	docker build -t nearcore         -f Dockerfile --build-arg=make_target=neard-release         --progress=plain .
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-release         --progress=plain .
 
+docker-nearcore-sandbox: DOCKER_TAG ?= nearcore-sandbox
 docker-nearcore-sandbox:
-	docker build -t nearcore-sandbox -f Dockerfile --build-arg=make_target=neard-sandbox-release --progress=plain .
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-sandbox-release --progress=plain .
 
+docker-nearcore-nightly: DOCKER_TAG ?= nearcore-nightly
 docker-nearcore-nightly:
-	docker build -t nearcore-nightly -f Dockerfile --build-arg=make_target=neard-nightly-release --progress=plain .
+	docker build -t $(DOCKER_TAG) -f Dockerfile --build-arg=make_target=neard-nightly-release --progress=plain .
 
 
 release: neard-release

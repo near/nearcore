@@ -3366,7 +3366,12 @@ fn verify_contract_limits_upgrade(
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::large_contract(function_limit + 1, local_limit + 1),
+            &near_test_contracts::LargeContract {
+                functions: function_limit + 1,
+                locals_per_function: local_limit + 1,
+                ..Default::default()
+            }
+            .make(),
             epoch_length,
             1,
         );
