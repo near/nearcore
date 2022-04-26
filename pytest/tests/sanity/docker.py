@@ -239,7 +239,8 @@ def main():
         for node in nodes:
             node._container_id = None
 
-        subprocess.check_call(('docker', 'image', 'rm', '-f', _DOCKER_IMAGE_TAG))
+        subprocess.check_call(
+            ('docker', 'image', 'rm', '-f', _DOCKER_IMAGE_TAG))
 
 
 if __name__ == '__main__':
