@@ -132,6 +132,7 @@ impl Cmd {
 fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env()
         .finish()
+        .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
     let _subscriber = near_o11y::default_subscriber(env_filter).global();
     let orig_hook = std::panic::take_hook();
