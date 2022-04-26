@@ -1405,11 +1405,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(
-            env.clients[0].chain.store().fork_tail().unwrap()
-                <= env.clients[0].chain.store().tail().unwrap()
-        );
-
         blocks.push(block);
     }
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
