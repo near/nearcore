@@ -1,8 +1,10 @@
 mod cli;
+mod log_config_watcher;
 
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 
 use self::cli::NeardCmd;
+use crate::cli::RunError;
 use nearcore::get_default_home;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
@@ -38,7 +40,7 @@ static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemal
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-fn main() {
+fn main() -> Result<(), RunError> {
     #[cfg(feature = "memory_stats")]
     ALLOC.set_report_usage_interval(512 << 20).enable_stack_trace(true);
     // We use it to automatically search the for root certificates to perform HTTPS calls
