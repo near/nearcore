@@ -340,6 +340,15 @@ fn read_node_from_chunk_cache_ext(
 
     (0..iters)
         .map(|i| {
+            // Setup:
+            // Insert a number of worst-case trie nodes *somehow*. It really
+            // doesn't matter how we do it. But it matters that they are
+            // extension nodes with the desired key length.
+            // The easiest way to insert such a node is by encoding it manually
+            // and inserting it as a value. This means it's not even part of the
+            // actual trie, but it looks like a trie node and can be accessed by
+            // hash. Thus, it is sufficient for estimating the cost to read end
+            // decode such a worst-case node.
             let tb = testbed.transaction_builder();
             let signer = tb.random_account();
             let values_inserted = num_values * data_spread_factor;
