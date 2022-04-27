@@ -288,7 +288,7 @@ pub enum SandboxResponse {
     SandboxFastForwardFailed(String),
 }
 
-#[derive(actix::Message, strum::AsStaticStr)]
+#[derive(actix::Message, strum::IntoStaticStr)]
 #[rtype(result = "NetworkViewClientResponses")]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
