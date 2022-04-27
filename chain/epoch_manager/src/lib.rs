@@ -1197,8 +1197,8 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let validators = &epoch_info.chunk_producers_settlement()[shard_id as usize];
-        for validator_id in validators.iter() {
+        let chunk_producers = epoch_info.chunk_producers_settlement();
+        for validator_id in chunk_producers[shard_id as usize].iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }
