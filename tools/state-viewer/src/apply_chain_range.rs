@@ -96,7 +96,7 @@ fn old_outcomes(
         .map(|outcome| {
             store
                 .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
-                    DBCol::ColTransactionResult,
+                    DBCol::TransactionResult,
                     outcome.id.as_ref(),
                 )
                 .unwrap()
