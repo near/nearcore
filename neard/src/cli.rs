@@ -423,7 +423,7 @@ impl RunCmd {
                     .expect("start_with_config");
 
             let sig = wait_for_interrupt_signal(home_dir, rx).await;
-            error!(target: "neard", "{}, stopping...", sig);
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -512,19 +512,19 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Keep data in ColPartialChunks column.  Data in that column can be
-    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// Keep data in DBCol::PartialChunks column.  Data in that column can be
+    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
     /// always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
     /// when receiving chunks and is not needed to serve archival requests.
     /// This is always true if node is not an archival node.
     #[clap(long)]
     keep_invalid_chunks: bool,
 
-    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
     /// by archival nodes.  This is always true if node is not an archival node.
     #[clap(long)]
     keep_trie_changes: bool,
