@@ -181,21 +181,22 @@ impl StoreUpdate {
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
-    // Saves a given value.
-    // Must not be used for RC columns - please use 'update refcount' instead.
+    /// Saves a given value.
+    /// Must not be used for RC columns - please use 'update_refcount' instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         assert!(!column.is_rc());
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
-    // Saves a BorshSerialized value.
-    // Must not be used for RC columns - please use 'update refcount' instead.
+    /// Saves a BorshSerialized value.
+    /// Must not be used for RC columns - please use 'update_refcount' instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
+        assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -211,8 +212,10 @@ impl StoreUpdate {
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
+    /// Deletes the given key from the database.
+    /// Must not be used for RC columns (use update_refcount instead).
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        debug_assert!(!column.is_rc());
+        assert!(!column.is_rc());
         self.transaction.delete(column, key.to_vec());
     }
 
