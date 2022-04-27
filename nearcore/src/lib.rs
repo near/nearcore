@@ -98,7 +98,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::new(&path, &near_config.config.store)?;
+    let db = RocksDB::open(path, &near_config.config.store)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
