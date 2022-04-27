@@ -170,16 +170,7 @@ impl std::error::Error for HandshakeFailureReason {}
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    strum::AsStaticStr,
-    strum::EnumVariantNames,
-)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {

@@ -39,37 +39,38 @@ impl Encoder<Vec<u8>> for Codec {
 
     fn encode(&mut self, item: Vec<u8>, buf: &mut BytesMut) -> Result<(), Error> {
         if item.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-            Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
-        } else {
-            #[cfg(feature = "performance_stats")]
-            {
-                let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
-                stat.lock().unwrap().log_add_write_buffer(
-                    item.len() + 4,
-                    buf.len(),
-                    buf.capacity(),
-                );
-            }
-            if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
-                && item.len() + 4 + buf.len() > buf.capacity()
-            {
-                #[cfg(feature = "performance_stats")]
-                let tid = near_rust_allocator_proxy::get_tid();
-                #[cfg(not(feature = "performance_stats"))]
-                let tid = 0;
-                error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}", 
-                    tid,
-                    item.len(), buf.capacity());
-
-                metrics::DROPPED_MESSAGES_COUNT.inc_by(1);
-                return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
-            }
-            // First four bytes is the length of the buffer.
-            buf.reserve(item.len() + 4);
-            buf.put_u32_le(item.len() as u32);
-            buf.put(&item[..]);
-            Ok(())
+            // TODO(mina86): Is there some way we can know what message we’re
+            // encoding?
+            metrics::MessageDropped::InputTooLong.inc_unknown_msg();
+            return Err(Error::new(ErrorKind::InvalidInput, "Input is too long"));
         }
+
+        #[cfg(feature = "performance_stats")]
+        {
+            let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
+            stat.lock().unwrap().log_add_write_buffer(item.len() + 4, buf.len(), buf.capacity());
+        }
+        if buf.capacity() >= MAX_WRITE_BUFFER_CAPACITY_BYTES
+            && item.len() + 4 + buf.len() > buf.capacity()
+        {
+            #[cfg(feature = "performance_stats")]
+            let tid = near_rust_allocator_proxy::get_tid();
+            #[cfg(not(feature = "performance_stats"))]
+            let tid = 0;
+            error!(target: "network", "{} throwing away message, because buffer is full item.len(): {} buf.capacity: {}",
+                   tid,
+                   item.len(), buf.capacity());
+
+            // TODO(mina86): Is there some way we can know what message
+            // we’re encoding?
+            metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
+            return Err(Error::new(ErrorKind::Other, "Buf max capacity exceeded"));
+        }
+        // First four bytes is the length of the buffer.
+        buf.reserve(item.len() + 4);
+        buf.put_u32_le(item.len() as u32);
+        buf.put(&item[..]);
+        Ok(())
     }
 }
 
