@@ -172,12 +172,7 @@ impl PeerActor {
                     let tid = near_rust_allocator_proxy::get_tid();
                     #[cfg(not(feature = "performance_stats"))]
                     let tid = 0;
-                    error!(
-                        "{} Failed to send message {} of size {}",
-                        tid,
-                        strum::AsStaticRef::as_static(msg),
-                        bytes_len,
-                    )
+                    error!("{} Failed to send message {} of size {}", tid, msg.as_ref(), bytes_len,)
                 }
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
