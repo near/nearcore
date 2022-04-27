@@ -29,7 +29,6 @@ use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use strum::AsStaticStr;
 
 /// Message from peer to peer manager
 #[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
@@ -391,7 +390,7 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkClientResponses")]

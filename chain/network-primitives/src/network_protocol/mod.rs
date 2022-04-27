@@ -165,9 +165,7 @@ pub struct Pong {
 
 // TODO(#1313): Use Box
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, strum::AsRefStr, strum::AsStaticStr,
-)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, strum::AsRefStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
