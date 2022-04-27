@@ -1,14 +1,12 @@
-use std::iter;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
+use crate::estimator_context::Testbed;
+use crate::gas_cost::{GasCost, NonNegativeTolerance};
+use crate::utils::{aggregate_per_block_measurements, percentiles};
 use near_primitives::hash::hash;
 use near_primitives::types::TrieCacheMode;
 use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieCachingStorage, TrieStorage};
 use near_vm_logic::ExtCosts;
-
-use crate::estimator_context::Testbed;
-use crate::gas_cost::{GasCost, NonNegativeTolerance};
-use crate::utils::{aggregate_per_block_measurements, percentiles};
+use std::iter;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
 
@@ -24,9 +22,9 @@ pub(crate) fn write_node(
     let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
+        let key = &key.as_str()[..key_len].as_bytes();
         let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value.as_bytes()));
     }
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
     blocks.push(setup_block);
@@ -34,14 +32,22 @@ pub(crate) fn write_node(
         ["1", "2", "3"]
             .iter()
             .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], value)])
+            .map(|value| {
+                vec![tb.account_insert_key(
+                    signer.clone(),
+                    key.as_str()[0..1].as_bytes(),
+                    value.as_bytes(),
+                )]
+            })
             .take(measured_iters + warmup_iters),
     );
     blocks.extend(
         ["1", "2", "3"]
             .iter()
             .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key, value)])
+            .map(|value| {
+                vec![tb.account_insert_key(signer.clone(), key.as_bytes(), value.as_bytes())]
+            })
             .take(measured_iters + warmup_iters),
     );
     let results = &testbed.measure_blocks(blocks, 0)[1..];
@@ -80,8 +86,8 @@ pub(crate) fn read_node_from_db(
     let key = "j".repeat(final_key_len);
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
-        let value = "0";
+        let key = &key.as_str()[..key_len].as_bytes();
+        let value = "0".as_bytes();
         setup_block.push(tb.account_insert_key(signer.clone(), key, value));
     }
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
@@ -154,7 +160,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
         );
         let mut p_results = percentiles(results, percentiles_of_interest);
         if debug {
-            println!(
+            eprintln!(
                 "{:<32}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
                 "",
                 percentiles_of_interest[0],
@@ -162,16 +168,14 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                 percentiles_of_interest[2],
                 percentiles_of_interest[3]
             );
-            print!("{:<32}", "Base Case");
+            eprint!("{:<32}", "Base Case");
             for cost in p_results.iter() {
-                print!("{:>8} ", cost.to_gas() / 1_000_000);
+                eprint!("{:>8} ", cost.to_gas() / 1_000_000);
             }
-            println!();
+            eprintln!();
         }
         // Take the 90th percentile measured.
-        p_results.pop();
-        p_results.pop();
-        p_results.pop().unwrap()
+        p_results.swap_remove(1)
     };
 
     // If debug output is enable, run the same estimation using different
@@ -192,11 +196,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Base Case w data locality");
+                eprint!("{:<32}", "Base Case w data locality");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
         // Worst-case
@@ -211,11 +215,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Worst Case");
+                eprint!("{:<32}", "Worst Case");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
         // Worst-case, but warmed up
@@ -231,11 +235,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Warmed-up");
+                eprint!("{:<32}", "Warmed-up");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
         // Worst-case, but amortized
@@ -252,11 +256,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Amortized");
+                eprint!("{:<32}", "Amortized");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
         // Almost-best-case
@@ -275,11 +279,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Best Case (from memory)");
+                eprint!("{:<32}", "Best Case (from memory)");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
         // Best-case
@@ -299,11 +303,11 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             );
             let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
             if debug {
-                print!("{:<32}", "Best Case");
+                eprint!("{:<32}", "Best Case");
                 for cost in p_results.iter() {
-                    print!("{:>8} ", cost.to_gas() / 1_000_000);
+                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
                 }
-                println!();
+                eprintln!();
             }
         }
     }
@@ -351,7 +355,7 @@ fn read_node_from_chunk_cache_ext(
             let mut setup_block = Vec::new();
             for (j, value) in values.iter().cloned().enumerate() {
                 let key = j.to_le_bytes().to_vec();
-                setup_block.push(tb.account_insert_key_bytes(signer.clone(), key, value));
+                setup_block.push(tb.account_insert_key(signer.clone(), &key, &value));
             }
             testbed.process_block(setup_block, 0);
 
@@ -404,9 +408,7 @@ fn read_raw_nodes_from_storage(
             let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
             match node.node {
                 RawTrieNode::Extension(v, _) => v.len(),
-                _ => {
-                    unreachable!();
-                }
+                _ => unreachable!(),
             }
         })
         .sum()
