@@ -406,9 +406,11 @@ pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 
-/// Compute number of seats per shard for given total number of seats and number of shards.
-pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Vec<NumSeats> {
-    vec![num_seats; num_shards as usize]
+pub fn get_num_seats_per_shard(
+    num_shards: NumShards,
+    num_seats_per_shard: NumSeats,
+) -> Vec<NumSeats> {
+    vec![num_seats_per_shard; num_shards as usize]
 }
 
 /// Generate random string of given length
@@ -449,16 +451,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_num_chunk_producers() {
-        for num_seats in 1..50 {
-            for num_shards in 1..50 {
-                let assignment = get_num_seats_per_shard(num_shards, num_seats);
-                assert_eq!(assignment.iter().sum::<u64>(), max(num_seats, num_shards));
-            }
-        }
-    }
 
     #[test]
     fn test_create_hash_upgradable() {

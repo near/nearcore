@@ -1199,15 +1199,15 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let validators = if !checked_feature!(
+        let validators = if checked_feature!(
             "protocol_feature_chunk_only_producers",
             ChunkOnlyProducers,
             PROTOCOL_VERSION
         ) {
+            &epoch_info.chunk_producers_settlement()[shard_id as usize]
+        } else {
             // before chunk only producers is enabled, all validators track all shards
             epoch_info.block_producers_settlement()
-        } else {
-            &epoch_info.chunk_producers_settlement()[shard_id as usize]
         };
         for validator_id in validators.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
