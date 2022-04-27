@@ -77,41 +77,64 @@ fn smoke_test() {
     assert!(!base_rs_contract().is_empty());
 }
 
-/// Construct a contract with many entitites.
-///
-/// Currently supports constructing contracts that contain a specified number of functions with the
-/// specified number of locals each.
-///
-/// Exports a function called `main` that does nothing.
-pub fn large_contract(functions: u32, locals: u32) -> Vec<u8> {
-    use wasm_encoder::{
-        CodeSection, Export, ExportSection, Function, FunctionSection, Instruction, Module,
-        TypeSection, ValType,
-    };
-    // Won't generate a valid WASM without functions.
-    assert!(functions >= 1, "must specify at least 1 function to be generated");
-    let mut module = Module::new();
-    let mut type_section = TypeSection::new();
-    type_section.function([], []);
-    module.section(&type_section);
+pub struct LargeContract {
+    pub functions: u32,
+    pub locals_per_function: u32,
+    pub panic_imports: u32, // How many times to import `env.panic`
+}
 
-    let mut functions_section = FunctionSection::new();
-    for _ in 0..functions {
-        functions_section.function(0);
+impl Default for LargeContract {
+    fn default() -> Self {
+        Self { functions: 1, locals_per_function: 0, panic_imports: 0 }
     }
-    module.section(&functions_section);
+}
 
-    let mut exports_section = ExportSection::new();
-    exports_section.export("main", Export::Function(0));
-    module.section(&exports_section);
+impl LargeContract {
+    /// Construct a contract with many entitites.
+    ///
+    /// Currently supports constructing contracts that contain a specified number of functions with the
+    /// specified number of locals each.
+    ///
+    /// Exports a function called `main` that does nothing.
+    pub fn make(&self) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, EntityType, Export, ExportSection, Function, FunctionSection,
+            ImportSection, Instruction, Module, TypeSection, ValType,
+        };
 
-    let mut code_section = CodeSection::new();
-    for _ in 0..functions {
-        let mut f = Function::new([(locals, ValType::I64)]);
-        f.instruction(&Instruction::End);
-        code_section.function(&f);
+        // Won't generate a valid WASM without functions.
+        assert!(self.functions >= 1, "must specify at least 1 function to be generated");
+        let mut module = Module::new();
+        let mut type_section = TypeSection::new();
+        type_section.function([], []);
+        module.section(&type_section);
+
+        if self.panic_imports != 0 {
+            let mut import_section = ImportSection::new();
+            for _ in 0..self.panic_imports {
+                import_section.import("env", Some("panic"), EntityType::Function(0));
+            }
+            module.section(&import_section);
+        }
+
+        let mut functions_section = FunctionSection::new();
+        for _ in 0..self.functions {
+            functions_section.function(0);
+        }
+        module.section(&functions_section);
+
+        let mut exports_section = ExportSection::new();
+        exports_section.export("main", Export::Function(0));
+        module.section(&exports_section);
+
+        let mut code_section = CodeSection::new();
+        for _ in 0..self.functions {
+            let mut f = Function::new([(self.locals_per_function, ValType::I64)]);
+            f.instruction(&Instruction::End);
+            code_section.function(&f);
+        }
+        module.section(&code_section);
+
+        module.finish()
     }
-    module.section(&code_section);
-
-    module.finish()
 }
