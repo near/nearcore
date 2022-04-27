@@ -297,7 +297,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    for <'a> &'a Message: Into<&'static str>,
+    for<'a> &'a Message: Into<&'static str>,
 {
     let msg_text = (&msg).into();
     measure_performance_internal(class_name, msg, f, Some(msg_text))

@@ -18,7 +18,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    for <'a> &'a Message: Into<&'static str>,
+    for<'a> &'a Message: Into<&'static str>,
 {
     f(msg)
 }
