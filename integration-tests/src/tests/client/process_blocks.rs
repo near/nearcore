@@ -62,9 +62,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_store::get;
 use near_store::test_utils::create_test_store;
-use near_store::DBCol::ColStateParts;
+use near_store::{get, DBCol};
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
@@ -1405,11 +1404,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(
-            env.clients[0].chain.store().fork_tail().unwrap()
-                <= env.clients[0].chain.store().tail().unwrap()
-        );
-
         blocks.push(block);
     }
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
@@ -1630,17 +1624,24 @@ fn test_gc_fork_tail() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(1, block, Provenance::NONE);
     }
+
+    let mut second_epoch_start = None;
     for i in 102..epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         for j in 0..2 {
             env.process_block(j, block.clone(), Provenance::NONE);
+        }
+        if second_epoch_start.is_none() && block.header().epoch_id() != &EpochId::default() {
+            second_epoch_start = Some(i);
         }
     }
     let head = env.clients[1].chain.head().unwrap();
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    assert_eq!(env.clients[1].chain.store().fork_tail().unwrap(), 3);
+    let tail = env.clients[1].chain.store().tail().unwrap();
+    let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
+    assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
 #[test]
@@ -2378,7 +2379,7 @@ fn test_catchup_gas_price_change() {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
-            let part = store.get(ColStateParts, &key).unwrap().unwrap();
+            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
                 msg.shard_id,
@@ -3364,7 +3365,12 @@ fn verify_contract_limits_upgrade(
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::large_contract(function_limit + 1, local_limit + 1),
+            &near_test_contracts::LargeContract {
+                functions: function_limit + 1,
+                locals_per_function: local_limit + 1,
+                ..Default::default()
+            }
+            .make(),
             epoch_length,
             1,
         );

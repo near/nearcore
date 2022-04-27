@@ -122,11 +122,11 @@ impl EstimationRow {
         db: &Db,
         metric: Option<Metric>,
     ) -> anyhow::Result<Vec<(String, NaiveDateTime)>> {
-        let extra_condition = match metric {
-            Some(m) => format!("AND {}", m.condition()),
-            None => String::new(),
+        let metric_condition = match metric {
+            Some(m) => m.condition(),
+            None => "",
         };
-        let sql = format!("SELECT commit_hash,min(date) FROM estimation WHERE wall_clock_time IS NOT NULL {extra_condition} GROUP BY commit_hash ORDER BY date ASC;");
+        let sql = format!("SELECT commit_hash,min(date) FROM estimation WHERE {metric_condition} GROUP BY commit_hash ORDER BY date ASC;");
         let mut stmt = db.conn.prepare(&sql)?;
         let data = stmt
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, NaiveDateTime>(1)?)))?

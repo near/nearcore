@@ -1,7 +1,7 @@
+use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
-use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, EnvFilterBuilder};
+use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -10,6 +10,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -24,10 +25,11 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() {
+    pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
         let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        let env_filter =
+            EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
         // This is hidden by default so we enable it for sandbox node.
         let env_filter = if cfg!(feature = "sandbox") {
@@ -93,8 +95,15 @@ impl NeardCmd {
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
             }
-        }
+        };
+        Ok(())
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum RunError {
+    #[error("invalid logging directives provided")]
+    EnvFilter(#[source] BuildEnvFilterError),
 }
 
 #[derive(Parser)]
@@ -413,21 +422,8 @@ impl RunCmd {
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
 
-            let sig = if cfg!(unix) {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut sigint = signal(SignalKind::interrupt()).unwrap();
-                let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                futures::select! {
-                    _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "ClientActor died",
-                }
-            } else {
-                // TODO(#6372): Support graceful shutdown on windows.
-                tokio::signal::ctrl_c().await.unwrap();
-                "Ctrl+C"
-            };
-            info!(target: "neard", "Got '{}', stopping...", sig);
+            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -438,6 +434,38 @@ impl RunCmd {
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+    // TODO(#6372): Support graceful shutdown on windows.
+    tokio::signal::ctrl_c().await.unwrap();
+    "Ctrl+C"
+}
+
+#[cfg(unix)]
+async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
+    let watched_path = home_dir.join("log_config.json");
+    let log_config_watcher = LogConfigWatcher { watched_path };
+    // Apply the logging config file if it exists.
+    log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
+
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sighup = signal(SignalKind::hangup()).unwrap();
+
+    loop {
+        break tokio::select! {
+             _ = sigint.recv()  => "SIGINT",
+             _ = sigterm.recv() => "SIGTERM",
+             _ = sighup.recv() => {
+                log_config_watcher.update(UpdateBehavior::UpdateOrReset);
+                continue;
+             },
+             _ = &mut rx_crash => "ClientActor died",
+        };
     }
 }
 
@@ -484,19 +512,19 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Keep data in ColPartialChunks column.  Data in that column can be
-    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// Keep data in DBCol::PartialChunks column.  Data in that column can be
+    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
     /// always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
     /// when receiving chunks and is not needed to serve archival requests.
     /// This is always true if node is not an archival node.
     #[clap(long)]
     keep_invalid_chunks: bool,
 
-    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
     /// by archival nodes.  This is always true if node is not an archival node.
     #[clap(long)]
     keep_trie_changes: bool,
