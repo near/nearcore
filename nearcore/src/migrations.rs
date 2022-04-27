@@ -34,11 +34,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
                     println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
                     count += 1;
                     store_update
-                        .set_ser(
-                            DBCol::ColBlockOrdinal,
-                            &index_to_bytes(block_ordinal),
-                            &block_hash,
-                        )
+                        .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
                         .expect("BorshSerialize should not fail");
                 }
             }
