@@ -4,7 +4,6 @@ use strum::{EnumCount, IntoEnumIterator};
 
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
-// TODO(mm-near): add info about the RC in the columns.
 #[derive(
     PartialEq,
     Debug,
@@ -238,6 +237,26 @@ pub enum DBCol {
 
 impl DBCol {
     /// Whethere this column is reference-counted.
+    /// This means, that we're storing additional 8 bytes at the end of the payload with the current RC value.
+    /// For such columns you must not use set, set_ser or delete, but 'update_refcount' instead.
+    //
+    /// Under the hood, we're using our custom merge operator (refcount_merge) to properly 'join' the refcounted cells.
+    /// WARNING: this means that the 'value' for a given key must never change.
+    /// Example:
+    ///   update_refcount("foo", "bar", 1);
+    ///   // good - after this call, the RC will be equal to 3.
+    ///   update_refcount("foo", "bar", 2);
+    ///   // bad - the value is still 'bar'.
+    ///   update_refcount("foo", "baz", 1);
+    ///   // ok - the value will be removed now. (as rc == 0)
+    ///   update_refcount("foo", "", -3)
+    ///
+    /// Quick note on negative refcounts:
+    ///   if we have a key that ends up having a negative refcount, we have to store this value (negative ref) in the database.
+    /// Example:
+    ///   update_refcount("a", "b", 1)
+    ///   update_refcount("a", -3)
+    ///   // Now we have the entry in the database that has "a", empty value and refcount value of -2,
     pub fn is_rc(&self) -> bool {
         RC_COLUMNS[*self as usize]
     }
