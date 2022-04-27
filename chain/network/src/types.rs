@@ -390,7 +390,7 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, strum::AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkClientResponses")]
