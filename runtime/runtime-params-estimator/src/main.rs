@@ -55,7 +55,7 @@ struct CliArgs {
     /// Compare baseline `costs-file` with a different costs file.
     #[clap(long, requires("costs-file"))]
     compare_to: Option<PathBuf>,
-    /// Only measure the specified metrics, computing a subset of costs.
+    /// Coma-separated lists of a subset of costs to estimate.
     #[clap(long)]
     costs: Option<String>,
     /// Build and run the estimator inside a docker container via QEMU.
@@ -72,9 +72,9 @@ struct CliArgs {
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
     #[clap(long)]
     drop_os_cache: bool,
-    /// Print extra debug information
-    #[clap(long, multiple_occurrences = true, possible_values=&["io", "rocksdb", "least-squares"])]
-    debug: Vec<String>,
+    /// Print extra debug information.
+    #[clap(long)]
+    debug: bool,
     /// Print detailed estimation results in JSON format. One line with one JSON
     /// object per estimation.
     #[clap(long)]
@@ -160,15 +160,13 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
-    let debug_options: Vec<_> = cli_args.debug.iter().map(String::as_str).collect();
-
     if cli_args.docker {
         return main_docker(
             &state_dump_path,
             cli_args.full,
             cli_args.docker_shell,
             cli_args.json_output,
-            debug_options.contains(&"io"),
+            cli_args.debug,
         );
     }
 
@@ -206,7 +204,7 @@ fn main() -> anyhow::Result<()> {
 
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
-    rocksdb_test_config.debug_rocksdb = debug_options.contains(&"rocksdb");
+    rocksdb_test_config.debug_rocksdb = cli_args.debug;
     rocksdb_test_config.drop_os_cache = cli_args.drop_os_cache;
     let iter_per_block = cli_args.iters;
     let active_accounts = cli_args.accounts_num;
@@ -234,7 +232,7 @@ fn main() -> anyhow::Result<()> {
         vm_kind,
         costs_to_measure,
         rocksdb_test_config,
-        debug_least_squares: debug_options.contains(&"least-squares"),
+        debug: cli_args.debug,
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
     };
@@ -264,14 +262,14 @@ fn main_docker(
     full: bool,
     debug_shell: bool,
     json_output: bool,
-    debug_io_log: bool,
+    debug: bool,
 ) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.58.1"; //< Update this when Dockerfile changes
+    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
@@ -301,7 +299,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
 
         let mut qemu_cmd_builder = QemuCommandBuilder::default();
 
-        if debug_io_log {
+        if debug {
             qemu_cmd_builder = qemu_cmd_builder.plugin_log(true).print_on_every_close(true);
         }
         let mut qemu_cmd =

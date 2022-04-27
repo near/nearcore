@@ -1,6 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use crate::client::Client;
+use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
@@ -14,7 +14,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
@@ -48,9 +48,9 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::db::DBCol::ColStateParts;
+use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::db::DBCol::ColBlock) {
+                        for _ in store.iter(DBCol::Block) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -356,6 +356,7 @@ impl ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
+                            self.adv.read().unwrap().is_archival,
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -673,7 +674,7 @@ impl Handler<Status> for ClientActor {
                 return Err(StatusError::NodeIsSyncing);
             }
         }
-        let validators = self
+        let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
@@ -798,8 +799,33 @@ impl Handler<Status> for ClientActor {
                         self.client.chain.genesis_block().header().height(),
                     ),
                 ),
-                current_head_status: self.client.chain.head()?.clone().into(),
+                current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.clone().into(),
+                orphans: self.client.chain.orphans().list_orphans_by_height(),
+                blocks_with_missing_chunks: self
+                    .client
+                    .chain
+                    .blocks_with_missing_chunks
+                    .list_blocks_by_height(),
+                epoch_info: EpochInfoView {
+                    epoch_id: head.epoch_id.0,
+                    height: epoch_start_height,
+                    first_block_hash: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .hash()
+                        .clone(),
+                    start_time: self
+                        .client
+                        .chain
+                        .get_block_by_height(epoch_start_height)?
+                        .header()
+                        .timestamp()
+                        .to_rfc3339(),
+                    validators: validators.to_vec(),
+                },
             })
         } else {
             None
@@ -1006,6 +1032,15 @@ impl ClientActor {
 
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let log_block_production_info =
+            if self.client.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                true
+            } else {
+                // the next block is still the same epoch
+                let epoch_start_height =
+                    self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+                latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
+            };
 
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
@@ -1024,6 +1059,7 @@ impl ClientActor {
                     Clock::instant(),
                     height,
                     have_all_chunks,
+                    log_block_production_info,
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
@@ -1776,7 +1812,7 @@ impl SyncJobsActor {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(ColStateParts, &key)?.unwrap();
+            let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime.apply_state_part(
                 msg.shard_id,

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -545,7 +546,17 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_epoch_last_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         next_epoch_id: &EpochId,
-    ) -> Result<(BlockInfo, BlockInfo, BlockInfo, EpochInfo, EpochInfo, EpochInfo), Error>;
+    ) -> Result<
+        (
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<BlockInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+            Arc<EpochInfo>,
+        ),
+        Error,
+    >;
 
     // TODO #3488 this likely to be updated
     /// Hash that is necessary for prove Epochs in Epoch Sync.
@@ -771,7 +782,11 @@ pub struct LatestKnown {
     pub seen: u64,
 }
 
-/// Either an epoch id or latest block hash
+/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
+/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
+/// be hash of the latest block in the current epoch.  Using current epoch id
+/// with `EpochId` or arbitrary block hash in past or present epochs will result
+/// in errors.
 #[derive(Debug)]
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),

@@ -19,6 +19,11 @@ where
         Self { inner: Mutex::new(LruCache::<K, V>::new(cap)) }
     }
 
+    /// Returns the number of key-value pairs that are currently in the the cache.
+    pub fn len(&self) -> usize {
+        self.inner.lock().unwrap().len()
+    }
+
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they gets gets moved to the head of
     /// the LRU list.

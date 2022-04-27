@@ -316,7 +316,7 @@ pub struct StatusSyncInfo {
 
 // TODO: add more information to ValidatorInfo
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
     pub is_slashed: bool,
@@ -372,10 +372,26 @@ pub struct BlockStatusView {
     pub hash: CryptoHash,
 }
 
+impl BlockStatusView {
+    pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
+        Self { height: height.clone(), hash: hash.clone() }
+    }
+}
+
 impl From<Tip> for BlockStatusView {
     fn from(tip: Tip) -> Self {
         Self { height: tip.height, hash: tip.last_block_hash }
     }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EpochInfoView {
+    pub epoch_id: CryptoHash,
+    pub height: BlockHeight,
+    pub first_block_hash: CryptoHash,
+    pub start_time: String,
+    pub validators: Vec<ValidatorInfo>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -386,6 +402,9 @@ pub struct DetailedDebugStatus {
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
+    pub orphans: Vec<BlockStatusView>,
+    pub blocks_with_missing_chunks: Vec<BlockStatusView>,
+    pub epoch_info: EpochInfoView,
 }
 
 // TODO: add more information to status.
@@ -409,7 +428,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks, sync info and chain info.
+    /// Information about last blocks, sync, epoch and chain info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }

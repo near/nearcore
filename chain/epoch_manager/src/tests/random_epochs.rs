@@ -1,6 +1,7 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 use crate::test_utils::{
     hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
@@ -133,12 +134,12 @@ fn validate(
         .collect::<Vec<_>>();
     assert_eq!(
         &epoch_infos[0],
-        epoch_manager.get_epoch_info(&EpochId(CryptoHash::default())).unwrap(),
+        &epoch_manager.get_epoch_info(&EpochId(CryptoHash::default())).unwrap(),
         "first two epoch are the same, even epoch_height"
     );
     let block_infos = block_hashes
         .iter()
-        .map(|&hash| epoch_manager.get_block_info(&hash).unwrap().clone())
+        .map(|&hash| epoch_manager.get_block_info(&hash).unwrap())
         .collect::<Vec<_>>();
     if DEBUG_PRINT {
         println!("Block heights: {:?}", heights);
@@ -165,7 +166,7 @@ fn validate(
     verify_epochs(&epoch_infos);
 }
 
-fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
+fn verify_epochs(epoch_infos: &Vec<Arc<EpochInfo>>) {
     for i in 1..epoch_infos.len() {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
@@ -223,7 +224,7 @@ fn verify_epochs(epoch_infos: &Vec<EpochInfo>) {
     }
 }
 
-fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInfo>) {
+fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<BlockInfo>>) {
     let mut proposals = BTreeMap::default();
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
@@ -241,13 +242,8 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
             } else {
                 assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
-            let aggregator = epoch_manager
-                .get_and_update_epoch_info_aggregator(
-                    prev_block_info.epoch_id(),
-                    block_info.prev_hash(),
-                    true,
-                )
-                .unwrap();
+            let aggregator =
+                epoch_manager.get_epoch_info_aggregator_upto_last(block_info.prev_hash()).unwrap();
             assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
             proposals = BTreeMap::from_iter(
                 block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
@@ -260,7 +256,7 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
 
 fn verify_slashes(
     epoch_manager: &mut EpochManager,
-    block_infos: &Vec<BlockInfo>,
+    block_infos: &Vec<Arc<BlockInfo>>,
     slashes_per_block: &Vec<Vec<SlashedValidator>>,
 ) {
     for i in 1..block_infos.len() {
@@ -318,7 +314,7 @@ fn verify_slashes(
 fn verify_block_stats(
     epoch_manager: &mut EpochManager,
     heights: Vec<u64>,
-    block_infos: &Vec<BlockInfo>,
+    block_infos: &Vec<Arc<BlockInfo>>,
     block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {
@@ -329,13 +325,8 @@ fn verify_block_stats(
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
-            let aggregator = epoch_manager
-                .get_and_update_epoch_info_aggregator(
-                    block_infos[i].epoch_id(),
-                    &block_hashes[i],
-                    true,
-                )
-                .unwrap();
+            let aggregator =
+                epoch_manager.get_epoch_info_aggregator_upto_last(&block_hashes[i]).unwrap();
             let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);

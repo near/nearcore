@@ -3,130 +3,76 @@ use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::{DB_VERSION, PROTOCOL_VERSION};
-use near_store::{create_store_with_config, Store, StoreConfig};
-use nearcore::{get_default_home, get_store_path, load_config, NearConfig};
-use once_cell::sync::Lazy;
+use near_store::{create_store_with_config, Store};
+use nearcore::{get_store_path, load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(|| get_default_home());
-
-#[derive(Parser)]
-pub struct StateViewerCmd {
-    #[clap(flatten)]
-    opts: StateViewerOpts,
-    #[clap(subcommand)]
-    subcmd: StateViewerSubCommand,
-}
-
-impl StateViewerCmd {
-    pub fn parse_and_run() {
-        let state_viewer_cmd = Self::parse();
-        state_viewer_cmd.opts.init();
-        println!("state_viewer: Latest Protocol: {}, DB Version: {}", PROTOCOL_VERSION, DB_VERSION);
-
-        let home_dir = state_viewer_cmd.opts.home;
-        let genesis_validation = if state_viewer_cmd.opts.unsafe_fast_startup {
-            GenesisValidationMode::UnsafeFast
-        } else {
-            GenesisValidationMode::Full
-        };
-        state_viewer_cmd.subcmd.run(&home_dir, genesis_validation);
-    }
-}
-
-#[derive(Parser, Debug)]
-struct StateViewerOpts {
-    /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
-    home: PathBuf,
-    /// Skips consistency checks of the 'genesis.json' file upon startup.
-    /// Let's you start `neard` slightly faster.
-    #[clap(long)]
-    pub unsafe_fast_startup: bool,
-}
-
-impl StateViewerOpts {
-    fn init(&self) {
-        init_integration_logger();
-    }
-}
 
 #[derive(Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
-    #[clap(name = "peers")]
     Peers,
-    #[clap(name = "state")]
     State,
     /// Generate a genesis file from the current state of the DB.
-    #[clap(name = "dump_state")]
+    #[clap(alias = "dump_state")]
     DumpState(DumpStateCmd),
-    #[clap(name = "dump_state_redis")]
+    #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
     /// Print chain from start_index to end_index.
-    #[clap(name = "chain")]
     Chain(ChainCmd),
     /// Replay headers from chain.
-    #[clap(name = "replay")]
     Replay(ReplayCmd),
     /// Apply blocks at a range of heights for a single shard.
-    #[clap(name = "apply_range")]
+    #[clap(alias = "apply_range")]
     ApplyRange(ApplyRangeCmd),
     /// Apply block at some height for shard.
-    #[clap(name = "apply")]
     Apply(ApplyCmd),
     /// View head of the storage.
-    #[clap(name = "view_chain")]
+    #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
     /// Check whether the node has all the blocks up to its head.
-    #[clap(name = "check_block")]
+    #[clap(alias = "check_block")]
     CheckBlock,
     /// Dump deployed contract code of given account to wasm file.
-    #[clap(name = "dump_code")]
+    #[clap(alias = "dump_code")]
     DumpCode(DumpCodeCmd),
     /// Dump contract data in storage of given account to binary file.
-    #[clap(name = "dump_account_storage")]
+    #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
-    #[clap(name = "epoch_info")]
+    #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
     /// Dump stats for the RocksDB storage.
-    #[clap(name = "rocksdb_stats")]
+    #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
-    #[clap(name = "receipts")]
     Receipts(ReceiptsCmd),
-    #[clap(name = "chunks")]
     Chunks(ChunksCmd),
-    #[clap(name = "partial_chunks")]
+    #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
     /// Apply a chunk, even if it's not included in any block on disk
-    #[clap(name = "apply_chunk")]
+    #[clap(alias = "apply_chunk")]
     ApplyChunk(ApplyChunkCmd),
     /// Apply a transaction if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
-    #[clap(name = "apply_tx")]
+    #[clap(alias = "apply_tx")]
     ApplyTx(ApplyTxCmd),
     /// Apply a receipt if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
-    #[clap(name = "apply_receipt")]
+    #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store = create_store_with_config(
-            &get_store_path(home_dir),
-            StoreConfig { read_only: true, enable_statistics: false },
-        );
+        let store_path = get_store_path(home_dir);
+        let store_config = &near_config.config.store.clone().with_read_only(!readwrite);
+        let store = create_store_with_config(&store_path, store_config);
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),

@@ -4,7 +4,7 @@ name = "estimator-warehouse"
 version = "0.0.0"
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.59"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]

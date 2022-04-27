@@ -409,7 +409,8 @@ where
     inner: UnsafeWriter<T, E, K>,
 }
 
-impl<T: 'static, E: 'static, A, K: 'static + EncoderCallBack> ActorFuture for WriterFut<T, E, A, K>
+impl<T: 'static, E: 'static, A, K: 'static + EncoderCallBack> ActorFuture<A>
+    for WriterFut<T, E, A, K>
 where
     T: AsyncWrite + Unpin,
     E: From<io::Error>,
@@ -417,7 +418,6 @@ where
     A::Context: AsyncContext<A>,
 {
     type Output = ();
-    type Actor = A;
 
     fn poll(
         self: Pin<&mut Self>,
@@ -514,7 +514,7 @@ where
     inner: UnsafeWriter<T, E, K>,
 }
 
-impl<T, E, A, K> ActorFuture for WriterDrain<T, E, A, K>
+impl<T, E, A, K> ActorFuture<A> for WriterDrain<T, E, A, K>
 where
     T: AsyncWrite + Unpin,
     E: From<io::Error>,
@@ -523,7 +523,6 @@ where
     K: EncoderCallBack,
 {
     type Output = ();
-    type Actor = A;
 
     fn poll(
         self: Pin<&mut Self>,

@@ -8,10 +8,11 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext};
 
 use crate::cache::{self, into_vm_result};
 use crate::vm_kind::VMKind;
+use crate::VMResult;
 
 const SHARE_MEMORY_INSTANCE: bool = false;
 
@@ -125,12 +126,12 @@ impl ContractCaller {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
-    ) -> (Option<VMOutcome>, Option<VMError>) {
+    ) -> VMResult {
         match self.preloaded.get(preloaded.handle) {
             Some(call) => {
                 let call_data = call.rx.recv().unwrap();
                 match call_data.result {
-                    Err(err) => (None, Some(err)),
+                    Err(err) => VMResult::nop_outcome(err),
                     Ok(module) => match (&module, &mut self.vm_data_private) {
                         #[cfg(feature = "wasmer0_vm")]
                         (VMModule::Wasmer0(module), VMDataPrivate::Wasmer0(memory)) => {

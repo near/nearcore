@@ -1,5 +1,5 @@
 use crate::private_actix::{StopMsg, ValidateEdgeList};
-use actix::{Actor, Handler, SyncContext, System};
+use actix::{Actor, ActorContext, Handler, SyncContext};
 use conqueue::{QueueReceiver, QueueSender};
 use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
@@ -22,8 +22,8 @@ impl Actor for EdgeValidatorActor {
 
 impl Handler<StopMsg> for EdgeValidatorActor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
-        System::current().stop();
+    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
+        ctx.stop();
     }
 }
 

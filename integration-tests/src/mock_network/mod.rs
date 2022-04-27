@@ -300,6 +300,7 @@ mod test {
             runtimes[0].clone(),
             &chain_genesis,
             env.clients[0].chain.doomslug_threshold_mode,
+            true,
         )
         .unwrap();
         (ChainHistoryAccess { chain, target_height: 21 }, env)

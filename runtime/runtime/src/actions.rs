@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -28,13 +28,13 @@ use near_vm_errors::{
     AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::VMContext;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
-use near_vm_runner::precompile_contract;
+use near_vm_runner::{precompile_contract, VMResult};
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -49,7 +49,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
         Ok(Some(code)) => code,
@@ -57,13 +57,12 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return (None, Some(VMError::FunctionCallError(error)));
+            return VMResult::nop_outcome(VMError::FunctionCallError(error));
         }
         Err(e) => {
-            return (
-                None,
-                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
-            );
+            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
+                ExternalError::StorageError(e),
+            )));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -99,8 +98,14 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
+    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // charge only for trie nodes touched during function calls.
+    // TODO (#5920): Consider using RAII for switching the state back
+    let protocol_version = runtime_ext.protocol_version();
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    }
     let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
@@ -112,7 +117,10 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
     result
 }
 
@@ -159,7 +167,8 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    );
+    )
+    .outcome_error();
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
             FunctionCallError::Nondeterministic(msg) => {
@@ -221,7 +230,18 @@ pub(crate) fn action_function_call(
         }
         None => true,
     };
-    if let Some(outcome) = outcome {
+
+    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt_for_function_call =
+        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+    // `FunctionCall`s error.
+    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.logs.extend(outcome.logs);
+    result.profile.merge(&outcome.profile);
+    if execution_succeeded {
         let new_receipts: Vec<_> = outcome
             .action_receipts
             .into_iter()
@@ -241,25 +261,13 @@ pub(crate) fn action_function_call(
                 }),
             })
             .collect();
-        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
-        result.gas_burnt_for_function_call =
-            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
-        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
-        // `FunctionCall`s error.
-        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-        result.logs.extend(outcome.logs.into_iter());
-        result.profile.merge(&outcome.profile);
-        if execution_succeeded {
-            account.set_amount(outcome.balance);
-            account.set_storage_usage(outcome.storage_usage);
-            result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(new_receipts);
-        }
-    } else {
-        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
+
+        account.set_amount(outcome.balance);
+        account.set_storage_usage(outcome.storage_usage);
+        result.result = Ok(outcome.return_data);
+        result.new_receipts.extend(new_receipts);
     }
+
     Ok(())
 }
 

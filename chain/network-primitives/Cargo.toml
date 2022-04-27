@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 description = "This crate hosts NEAR network-related primitive types"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
@@ -12,8 +12,7 @@ publish = true
 
 [dependencies]
 anyhow = "1.0.51"
-actix = "=0.11.0-beta.2"
-actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 deepsize = { version = "0.2.0", optional = true }

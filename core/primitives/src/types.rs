@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use serde::{Deserialize, Serialize};
+use std::ops;
 
 use near_crypto::PublicKey;
 
@@ -989,4 +990,25 @@ pub enum TrieCacheMode {
     /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
     /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
     CachingChunk,
+}
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+#[derive(Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+/// Used to determine the number of trie nodes charged during some operation. Panics on underflow.
+impl ops::Sub for TrieNodesCount {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Self {
+            db_reads: self.db_reads - other.db_reads,
+            mem_reads: self.mem_reads - other.mem_reads,
+        }
+    }
 }

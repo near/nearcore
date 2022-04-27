@@ -32,27 +32,24 @@ pub fn test_ts_contract() {
             None,
         );
         assert_eq!(
-            result.1,
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
-                panic_msg: "explicit guest panic".to_string()
-            })))
+            result.error(),
+            Some(&VMError::FunctionCallError(FunctionCallError::HostError(
+                HostError::GuestPanic { panic_msg: "explicit guest panic".to_string() }
+            )))
         );
 
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
-        runtime
-            .run(
-                &code,
-                "try_storage_write",
-                &mut fake_external,
-                context,
-                &fees,
-                &promise_results,
-                LATEST_PROTOCOL_VERSION,
-                None,
-            )
-            .0
-            .unwrap();
+        runtime.run(
+            &code,
+            "try_storage_write",
+            &mut fake_external,
+            context,
+            &fees,
+            &promise_results,
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
         // Verify by looking directly into the storage of the host.
         {
             let res = fake_external.storage_get(b"foo");
@@ -75,7 +72,7 @@ pub fn test_ts_contract() {
             None,
         );
 
-        if let ReturnData::Value(value) = result.0.unwrap().return_data {
+        if let ReturnData::Value(value) = result.outcome().return_data.clone() {
             let value = String::from_utf8(value).unwrap();
             assert_eq!(value, "bar");
         } else {

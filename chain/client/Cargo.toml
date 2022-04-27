@@ -4,12 +4,12 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
 ansi_term = "0.12"
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 actix-rt = "2"
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -40,6 +40,7 @@ near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
+near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 delay-detector = { path = "../../tools/delay_detector" }

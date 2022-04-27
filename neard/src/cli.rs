@@ -1,7 +1,7 @@
+use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
-use futures::future::FutureExt;
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, EnvFilterBuilder};
+use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -10,6 +10,7 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
@@ -24,10 +25,11 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() {
+    pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
         let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish();
+        let env_filter =
+            EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
         // This is hidden by default so we enable it for sandbox node.
         let env_filter = if cfg!(feature = "sandbox") {
@@ -87,14 +89,32 @@ impl NeardCmd {
             }
 
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.run(&home_dir, genesis_validation);
+                cmd.subcmd.run(&home_dir, genesis_validation, cmd.readwrite);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
             }
-        }
+        };
+        Ok(())
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum RunError {
+    #[error("invalid logging directives provided")]
+    EnvFilter(#[source] BuildEnvFilterError),
+}
+
+#[derive(Parser)]
+pub(super) struct StateViewerCommand {
+    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
+    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
+    /// In case an operation needs to write to caches, a read-write mode may be needed.
+    #[clap(long, short = 'w')]
+    readwrite: bool,
+    #[clap(subcommand)]
+    subcmd: StateViewerSubCommand,
 }
 
 fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
@@ -124,32 +144,31 @@ struct NeardOpts {
 #[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
-    #[clap(name = "init")]
     Init(InitCmd),
     /// Runs NEAR node
-    #[clap(name = "run")]
     Run(RunCmd),
     /// Sets up local configuration with all necessary files (validator key, node key, genesis and
     /// config)
-    #[clap(name = "localnet")]
     Localnet(LocalnetCmd),
     /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
     /// release.
-    // TODO(#4372): Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(name = "testnet", hide = true)]
+    // We’re not using clap(alias = "testnet") on Localnet because we want this
+    // to be a separate subcommand with a deprecation warning.  TODO(#4372):
+    // Deprecated since 1.24.  Delete it in a couple of releases in 2022.
+    #[clap(hide = true)]
     Testnet(LocalnetCmd),
     /// (unsafe) Remove the entire NEAR home directory (which includes the
     /// configuration, genesis files, private keys and data).  This effectively
     /// removes all information about the network.
-    #[clap(name = "unsafe_reset_all", hide = true)]
+    #[clap(alias = "unsafe_reset_all", hide = true)]
     UnsafeResetAll,
     /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config).
-    #[clap(name = "unsafe_reset_data", hide = true)]
+    #[clap(alias = "unsafe_reset_data", hide = true)]
     UnsafeResetData,
     /// View DB state.
-    #[clap(subcommand, name = "view_state")]
-    StateViewer(StateViewerSubCommand),
+    #[clap(name = "view-state", alias = "view_state")]
+    StateViewer(StateViewerCommand),
     /// Recompresses the entire storage.  This is a slow operation which reads
     /// all the data from the database and writes them down to a new copy of the
     /// database.
@@ -176,7 +195,7 @@ pub(super) enum NeardSubCommand {
     ///
     /// Finally, because this command is meant only as a temporary migration
     /// tool, it is planned to be removed by the end of 2022.
-    #[clap(name = "recompress_storage")]
+    #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
 }
 
@@ -403,21 +422,8 @@ impl RunCmd {
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
 
-            let sig = if cfg!(unix) {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut sigint = signal(SignalKind::interrupt()).unwrap();
-                let mut sigterm = signal(SignalKind::terminate()).unwrap();
-                futures::select! {
-                    _ = sigint .recv().fuse() => "SIGINT",
-                    _ = sigterm.recv().fuse() => "SIGTERM",
-                    _ = rx.fuse() => "ClientActor died",
-                }
-            } else {
-                // TODO(#6372): Support graceful shutdown on windows.
-                tokio::signal::ctrl_c().await.unwrap();
-                "Ctrl+C"
-            };
-            info!(target: "neard", "Got '{}', stopping...", sig);
+            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -428,6 +434,38 @@ impl RunCmd {
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+    // TODO(#6372): Support graceful shutdown on windows.
+    tokio::signal::ctrl_c().await.unwrap();
+    "Ctrl+C"
+}
+
+#[cfg(unix)]
+async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
+    let watched_path = home_dir.join("log_config.json");
+    let log_config_watcher = LogConfigWatcher { watched_path };
+    // Apply the logging config file if it exists.
+    log_config_watcher.update(UpdateBehavior::UpdateOnlyIfExists);
+
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sighup = signal(SignalKind::hangup()).unwrap();
+
+    loop {
+        break tokio::select! {
+             _ = sigint.recv()  => "SIGINT",
+             _ = sigterm.recv() => "SIGTERM",
+             _ = sighup.recv() => {
+                log_config_watcher.update(UpdateBehavior::UpdateOrReset);
+                continue;
+             },
+             _ = &mut rx_crash => "ClientActor died",
+        };
     }
 }
 
@@ -445,6 +483,12 @@ pub(super) struct LocalnetCmd {
     /// Number of validators to initialize the localnet with.
     #[clap(long = "v", default_value = "4")]
     validators: NumSeats,
+    // Whether to create fixed shards accounts (that are tied to a given shard).
+    #[clap(long)]
+    fixed_shards: bool,
+    // Archival nodes
+    #[clap(long)]
+    archival_nodes: bool,
 }
 
 impl LocalnetCmd {
@@ -455,7 +499,8 @@ impl LocalnetCmd {
             self.validators,
             self.non_validators,
             &self.prefix,
-            false,
+            self.archival_nodes,
+            self.fixed_shards,
         );
     }
 }
@@ -467,19 +512,19 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Keep data in ColPartialChunks column.  Data in that column can be
-    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// Keep data in DBCol::PartialChunks column.  Data in that column can be
+    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
     /// always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
     /// when receiving chunks and is not needed to serve archival requests.
     /// This is always true if node is not an archival node.
     #[clap(long)]
     keep_invalid_chunks: bool,
 
-    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
     /// by archival nodes.  This is always true if node is not an archival node.
     #[clap(long)]
     keep_trie_changes: bool,

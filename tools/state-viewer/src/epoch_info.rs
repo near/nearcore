@@ -41,14 +41,12 @@ pub(crate) fn print_epoch_info(
     let epoch_ids = get_epoch_ids(epoch_selection, store, chain_store, epoch_manager);
 
     let head_block_info =
-        epoch_manager.get_block_info(&chain_store.head().unwrap().last_block_hash).unwrap().clone();
+        epoch_manager.get_block_info(&chain_store.head().unwrap().last_block_hash).unwrap();
     let head_epoch_height =
         epoch_manager.get_epoch_info(head_block_info.epoch_id()).unwrap().epoch_height();
-    let mut epoch_infos: Vec<(EpochId, EpochInfo)> = epoch_ids
+    let mut epoch_infos: Vec<(EpochId, Arc<EpochInfo>)> = epoch_ids
         .iter()
-        .map(|epoch_id| {
-            (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap().clone())
-        })
+        .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap()))
         .collect();
     // Sorted output is much easier to follow.
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
@@ -77,7 +75,7 @@ fn get_block_height_range(
     epoch_manager: &mut EpochManager,
 ) -> Range<BlockHeight> {
     let head = chain_store.head().unwrap();
-    let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap().clone();
+    let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap();
     loop {
         let cur_epoch_info = epoch_manager.get_epoch_info(cur_block_info.epoch_id()).unwrap();
         let cur_epoch_height = cur_epoch_info.epoch_height();
@@ -87,13 +85,10 @@ fn get_block_height_range(
             cur_block_info,
             epoch_info.epoch_height()
         );
-        let prev_epoch_last_block_hash = epoch_manager
-            .get_block_info(cur_block_info.epoch_first_block())
-            .unwrap()
-            .prev_hash()
-            .clone();
+        let epoch_first_block_info =
+            epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
-            epoch_manager.get_block_info(&prev_epoch_last_block_hash).unwrap().clone();
+            epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
         if cur_epoch_height == epoch_info.epoch_height() {
             return epoch_manager.get_epoch_start_height(cur_block_info.hash()).unwrap()
                 ..(cur_block_info.height() + 1);
@@ -112,11 +107,8 @@ fn get_epoch_ids(
     match epoch_selection {
         EpochSelection::All => iterate_and_filter(store, |_| true),
         EpochSelection::Current => {
-            let epoch_id = epoch_manager
-                .get_block_info(&chain_store.head().unwrap().last_block_hash)
-                .unwrap()
-                .epoch_id()
-                .clone();
+            let epoch_id =
+                epoch_manager.get_epoch_id(&chain_store.head().unwrap().last_block_hash).unwrap();
             vec![epoch_id]
         }
         EpochSelection::EpochId { epoch_id } => {
@@ -131,12 +123,12 @@ fn get_epoch_ids(
         }
         EpochSelection::BlockHash { block_hash } => {
             let block_hash = CryptoHash::from_str(&block_hash).unwrap();
-            vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+            vec![epoch_manager.get_epoch_id(&block_hash).unwrap()]
         }
         EpochSelection::BlockHeight { block_height } => {
             // Fetch an epoch containing the given block height.
             let block_hash = chain_store.get_block_hash_by_height(block_height).unwrap();
-            vec![epoch_manager.get_block_info(&block_hash).unwrap().epoch_id().clone()]
+            vec![epoch_manager.get_epoch_id(&block_hash).unwrap()]
         }
         EpochSelection::ProtocolVersion { protocol_version } => {
             // Fetch the first epoch of the given protocol version.
@@ -147,11 +139,11 @@ fn get_epoch_ids(
     }
 }
 
-// Iterates over the ColEpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
+// Iterates over the DBCol::EpochInfo column, ignores AGGREGATOR_KEY and returns deserialized EpochId
 // for EpochInfos that satisfy the given predicate.
 fn iterate_and_filter(store: Store, predicate: impl Fn(EpochInfo) -> bool) -> Vec<EpochId> {
     store
-        .iter(DBCol::ColEpochInfo)
+        .iter(DBCol::EpochInfo)
         .filter_map(|(key, value)| {
             if key.as_ref() == AGGREGATOR_KEY {
                 None

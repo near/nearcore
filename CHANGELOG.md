@@ -1,19 +1,68 @@
 # Changelog
 
 ## [unreleased]
-* increasing max_gas_burnt from 200TGas to 300Tgas, allowing larger transactions.
-* increasing `action_creation_config.deploy_contract_cost_per_byte.execution`
 
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions [#5482](https://github.com/near/nearcore/pull/5482)
+* Include `promise_batch_action_function_call_weight` host function on the runtime [#6285](https://github.com/near/nearcore/pull/6285) [#6536](https://github.com/near/nearcore/pull/6536)
+* Increase deployment cost [#6397](https://github.com/near/nearcore/pull/6397)
+* Limit the number of locals per contract to 1_000_000
+* Ensure caching all nodes in the chunk for which touching trie node cost was charged, reduce cost of future reads in a chunk [#6628](https://github.com/near/nearcore/pull/6628)
+* Lower storage key limit to 2 KiB
 
 ### Non-protocol Changes
 
 * Switch to LZ4+ZSTD compression from Snappy in RocksDB [#6365](https://github.com/near/nearcore/pull/6365)
 * Moved Client Actor to separate thread - should improve performance [#6333](https://github.com/near/nearcore/pull/6333)
+* Safe DB migrations using RocksDB checkpoints [#6282](https://github.com/near/nearcore/pull/6282)
+* [NEP205](https://github.com/near/NEPs/issues/205): Configurable start of protocol upgrade voting [#6309](https://github.com/near/nearcore/pull/6309)
+* Make max_open_files and col_state_cache_size parameters configurable [#6584](https://github.com/near/nearcore/pull/6584)
+* Make RocksDB block_size configurable [#6631](https://github.com/near/nearcore/pull/6631)
+* Increase default max_open_files RocksDB parameter from 512 to 10k [#6607](https://github.com/near/nearcore/pull/6607)
+* Use kebab-case names for neard subcommands to make them consistent with flag names.  snake_case names are still valid for existing subcommands but kebab-case will be used for new commands.
+* Added `near_peer_message_received_by_type_bytes` metric [#6661](https://github.com/near/nearcore/pull/6661)
+* Removed `near_<msg-type>_{total,bytes}` metrics in favour of `near_peer_message_received_by_type_{total,bytes}` metrics [#6661](https://github.com/near/nearcore/pull/6661)
+* Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
+* Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
+* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
+* Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
 
-## `1.23.0` [13-12-2021]
+## 1.25.0 [2022-03-16]
+
+### Protocol Changes
+* `max_gas_burnt` has been increased to 300.
+
+### Non-protocol Changes
+* More Prometheus metrics related to epoch, sync state, node version, chunk fullness and missing chunks have been added.
+* Progress bar is now displayed when downloading `config.json` and `genesis.json`.
+* Status line printed in logs by `neard` is now more descriptive.
+- `view_state` is now a command of `neard`; `state-viewer` is no longer a separate binary.
+- `RUST_LOG` environment variable is now correctly respected.
+- `NetworkConfig::verify` will now fail if configuration is invalid rather than printing error and continuing.
+- Fixed a minor bug which resulted in DB Not Found errors when requesting chunks.
+- Updated to wasmer-near 2.2.0 which fixes a potential crash and improves cost estimator working.
+- `neard init` will no longer override node or validator private keys.
+- Rosetta RPC now populates `related_transactions` field.
+- Rosetta RPC support is now compiled in by default. The feature still needs to be explicitly turned on and is experimental.
+- Rosetta RPC /network/status end point correctly works on non-archival nodes.
+- `unsafe_reset_all` and `unsafe_reset_data` commands are now deprecated. Use `rm` explicitly instead.
+
+## 1.24.0 [2022-02-14]
+
+### Protocol Changes
+
+* Enable access key nonce range for implicit accounts to prevent tx hash collisions.
+* Upgraded our version of pwasm-utils to 0.18 -- the old one severely undercounted stack usage in some cases.
+
+### Non-protocol Changes
+
+* Fix a bug in chunk requesting where validator might request chunks even if parent block hasn’t been processed yet.
+* Fix memory leak in near-network.
+* Change block sync to request 5 blocks at a time
+* Change NUM_ORPHAN_ANCESTORS_CHECK to 3
+
+## 1.23.0 [2021-12-13]
 
 ### Protocol Changes
 
@@ -26,7 +75,7 @@
 
 * Increase RocksDB cache size to 512 MB for state column to speed up blocks processing [#5212](https://github.com/near/nearcore/pull/5212)
 
-## `1.22.0` [11-15-2021]
+## 1.22.0 [2021-11-15]
 
 ### Protocol Changes
 * Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. [#4934](https://github.com/near/nearcore/pull/4934)
@@ -34,7 +83,7 @@
 * Lower data receipt cost and base cost of `ecrecover` host function.
 * Upgrade from one shard to four shards (Simple Nightshade Phase 0)
 
-## `1.21.0` [09-06-2021]
+## 1.21.0 [2021-09-06]
 
 ### Protocol Changes
 
@@ -47,7 +96,7 @@
 * Address test dependency issue #4556 [#4606](https://github.com/near/nearcore/pull/4606). [#4622](https://github.com/near/nearcore/pull/4622).
 * Fix neard shutdown issue [#4429](https://github.com/near/nearcore/pull/4429). #[4442](https://github.com/near/nearcore/pull/4442)
 
-## `1.20.0` [07-26-2021]
+## 1.20.0 [2021-07-26]
 
 ### Protocol Changes
 

@@ -2272,7 +2272,7 @@ mod test {
             5,
         ));
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-        let mut chain_store = ChainStore::new(create_test_store(), 0);
+        let mut chain_store = ChainStore::new(create_test_store(), 0, true);
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),

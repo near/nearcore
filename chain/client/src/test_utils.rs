@@ -117,7 +117,8 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+    let mut chain =
+        Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
@@ -211,7 +212,7 @@ pub fn setup_only_view(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
 
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),

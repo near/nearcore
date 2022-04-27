@@ -1,5 +1,6 @@
 use crate::mock_network::MockPeerManagerActor;
 use actix::{Actor, Addr, Arbiter, Recipient};
+use anyhow::Context;
 #[cfg(feature = "mock_network")]
 use near_chain::ChainStoreUpdate;
 use near_chain::{
@@ -17,19 +18,19 @@ use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::db::TestDB;
-use near_store::{create_store, Store};
+use near_store::create_store;
+use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{io, thread};
 use tracing::info;
 
 fn setup_runtime(
@@ -38,7 +39,7 @@ fn setup_runtime(
     in_memory_storage: bool,
 ) -> Arc<NightshadeRuntime> {
     let store = if in_memory_storage {
-        Store::new(Arc::new(TestDB::new()))
+        create_test_store()
     } else {
         let path = get_store_path(home_dir);
         create_store(&path)
@@ -62,10 +63,15 @@ fn setup_mock_peer_manager_actor(
     mode: MockNetworkMode,
     network_delay: Duration,
     target_height: Option<BlockHeight>,
+    save_trie_changes: bool,
 ) -> MockPeerManagerActor {
-    let chain =
-        Chain::new_for_view_client(runtime, chain_genesis, DoomslugThresholdMode::NoApprovals)
-            .unwrap();
+    let chain = Chain::new_for_view_client(
+        runtime,
+        chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        save_trie_changes,
+    )
+    .unwrap();
     let chain_height = chain.head().unwrap().height;
     let target_height = min(target_height.unwrap_or(chain_height), chain_height);
 
@@ -156,10 +162,16 @@ pub fn setup_mock_network(
     if let Some(start_height) = client_start_height {
         info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
         #[cfg(feature = "mock_network")]
-        let mut chain_store =
-            ChainStore::new(client_runtime.get_store(), config.genesis.config.genesis_height);
-        let mut network_chain_store =
-            ChainStore::new(mock_network_runtime.get_store(), config.genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(
+            client_runtime.get_store(),
+            config.genesis.config.genesis_height,
+            !config.client_config.archive,
+        );
+        let mut network_chain_store = ChainStore::new(
+            mock_network_runtime.get_store(),
+            config.genesis.config.genesis_height,
+            !config.client_config.archive,
+        );
 
         let network_tail_height = network_chain_store.tail().unwrap();
         let network_head_height = network_chain_store.head().unwrap().height;
@@ -225,54 +237,43 @@ pub fn setup_mock_network(
             let state_root_node =
                 mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
-            let mut handlers = HashMap::new();
             let finished_parts_count = Arc::new(AtomicUsize::new(0));
-            for part_id in 0..num_parts {
-                let mock_network_runtime1 = mock_network_runtime.clone();
-                let client_runtime1 = client_runtime.clone();
-                let finished_parts_count1 = finished_parts_count.clone();
-                let hash1 = hash.clone();
-                let state_root1 = state_root.clone();
-                let next_hash1 = next_hash.clone();
-                handlers.insert(
-                    part_id,
-                    thread::spawn(move || {
-                        let state_part = mock_network_runtime1
-                            .obtain_state_part(
-                                shard_id,
-                                &next_hash1,
-                                &state_root1,
-                                PartId::new(part_id, num_parts),
-                            )
-                            .unwrap();
-                        client_runtime1
-                            .apply_state_part(
-                                shard_id,
-                                &state_root1,
-                                PartId::new(part_id, num_parts),
-                                &state_part,
-                                &mock_network_runtime1
-                                    .get_epoch_id_from_prev_block(&hash1)
-                                    .unwrap(),
-                            )
-                            .unwrap();
-                        finished_parts_count1.fetch_add(1, Ordering::SeqCst);
-                        info!(
-                            target: "mock_network",
-                            "Done {}/{} parts for shard {}",
-                            finished_parts_count1.load(Ordering::SeqCst) + 1,
-                            num_parts,
+
+            (0..num_parts)
+                .into_par_iter()
+                .try_for_each(|part_id| -> anyhow::Result<()> {
+                    let state_part = mock_network_runtime
+                        .obtain_state_part(
                             shard_id,
-                        );
-                    }),
-                );
-            }
-            for (part_id, handler) in handlers {
-                handler.join().expect(&format!(
-                    "Problem in copying state parts {} in shard {}",
-                    part_id, shard_id,
-                ));
-            }
+                            &next_hash,
+                            &state_root,
+                            PartId::new(part_id, num_parts),
+                        )
+                        .with_context(|| {
+                            format!("Obtaining state part {} in shard {}", part_id, shard_id)
+                        })?;
+                    client_runtime
+                        .apply_state_part(
+                            shard_id,
+                            &state_root,
+                            PartId::new(part_id, num_parts),
+                            &state_part,
+                            &mock_network_runtime.get_epoch_id_from_prev_block(&hash)?,
+                        )
+                        .with_context(|| {
+                            format!("Applying state part {} in shard {}", part_id, shard_id)
+                        })?;
+                    finished_parts_count.fetch_add(1, Ordering::SeqCst);
+                    info!(
+                        target: "mock_network",
+                        "Done {}/{} parts for shard {}",
+                        finished_parts_count.load(Ordering::SeqCst) + 1,
+                        num_parts,
+                        shard_id,
+                    );
+                    Ok(())
+                })
+                .unwrap();
         }
     }
 
@@ -303,6 +304,7 @@ pub fn setup_mock_network(
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone();
     let genesis_config = config.genesis.config.clone();
+    let archival = config.client_config.archive;
     let mock_network_actor =
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
@@ -314,6 +316,7 @@ pub fn setup_mock_network(
                 mode,
                 network_delay,
                 target_height,
+                !archival,
             )
         });
     // for some reason, with "test_features", start_http requires PeerManagerActor,

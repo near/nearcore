@@ -1,3 +1,4 @@
+use crate::logic;
 use crate::types::ReceiptIndex;
 use crate::External;
 use borsh::BorshDeserialize;
@@ -11,11 +12,8 @@ use near_primitives::types::{Balance, Nonce};
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
-#[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::{HostError, VMLogicError};
-
-type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
+use near_vm_errors::HostError;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 
@@ -36,12 +34,10 @@ pub struct ReceiptMetadata {
 #[derive(Default, Clone, PartialEq)]
 pub(crate) struct ReceiptManager {
     pub(crate) action_receipts: ActionReceipts,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FunctionCallActionIndex {
     /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
@@ -50,7 +46,6 @@ struct FunctionCallActionIndex {
     action_index: usize,
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 fn get_fuction_call_action_mut(
     action_receipts: &mut ActionReceipts,
     index: FunctionCallActionIndex,
@@ -64,8 +59,7 @@ fn get_fuction_call_action_mut(
     } else {
         panic!(
             "Invalid function call index \
-                        (promise_index={}, action_index={})",
-            receipt_index, action_index
+             (promise_index={receipt_index}, action_index={action_index})",
         );
     }
 }
@@ -109,7 +103,7 @@ impl ReceiptManager {
         ext: &mut dyn External,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
-    ) -> ExtResult<ReceiptIndex> {
+    ) -> logic::Result<ReceiptIndex> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = ext.generate_data_id();
@@ -141,7 +135,7 @@ impl ReceiptManager {
     pub(crate) fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -160,7 +154,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
         Ok(())
     }
@@ -187,7 +181,6 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
@@ -196,7 +189,7 @@ impl ReceiptManager {
         attached_deposit: Balance,
         prepaid_gas: Gas,
         gas_weight: GasWeight,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         let action_index = self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
@@ -218,40 +211,6 @@ impl ReceiptManager {
         Ok(())
     }
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `method_name` - a name of the contract method to call
-    /// * `arguments` - a Wasm code to attach
-    /// * `attached_deposit` - amount of tokens to transfer with the call
-    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub(crate) fn append_action_function_call(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        attached_deposit: Balance,
-        prepaid_gas: Gas,
-    ) -> ExtResult<()> {
-        self.append_action(
-            receipt_index,
-            Action::FunctionCall(FunctionCallAction {
-                method_name: String::from_utf8(method_name)
-                    .map_err(|_| HostError::InvalidMethodName)?,
-                args,
-                gas: prepaid_gas,
-                deposit: attached_deposit,
-            }),
-        );
-        Ok(())
-    }
-
     /// Attach the [`TransferAction`] action to an existing receipt.
     ///
     /// # Arguments
@@ -266,7 +225,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         deposit: Balance,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
     }
@@ -287,7 +246,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         stake: Balance,
         public_key: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::Stake(StakeAction {
@@ -315,7 +274,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
         nonce: Nonce,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -352,7 +311,7 @@ impl ReceiptManager {
         allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -391,7 +350,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         public_key: Vec<u8>,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::DeleteKey(DeleteKeyAction {
@@ -416,7 +375,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> ExtResult<()> {
+    ) -> logic::Result<()> {
         self.append_action(
             receipt_index,
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
@@ -438,7 +397,6 @@ impl ReceiptManager {
     /// # Returns
     ///
     /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub(crate) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
         let gas_weight_sum: u128 =
             self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();

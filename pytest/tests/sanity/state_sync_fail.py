@@ -63,5 +63,5 @@ time.sleep(3)
 try:
     status = node2.get_status()
     sys.exit("node 2 successfully started while it should fail")
-except requests.exceptions.HTTPError:
+except requests.exceptions.ConnectionError:
     pass

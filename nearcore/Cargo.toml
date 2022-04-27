@@ -4,14 +4,13 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.51"
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
-actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix = "0.13.0"
 actix-web = "=4.0.0-beta.6"
 actix-rt = "2"
 byteorder = "1.2"

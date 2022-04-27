@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -89,25 +90,31 @@ class LogTracker:
             f.seek(0, 2)
             self.offset = f.tell()
 
-    def check(self, pattern: str) -> bool:
-        """Check whether the pattern can be found in the logs."""
+    # Pattern matching ANSI escape codes starting with a Control Sequence
+    # Introducer (CSI) sequence.  Most notably Select Graphic Rendition (SGR)
+    # such as ‘\x1b[35;41m’.
+    _CSI_RE = re.compile('\x1b\\[[^\x40-\x7E]*[\x40-\x7E]')
+
+    def _read_file(self) -> str:
+        """Returns data from the file starting from the offset."""
         with open(self.fname) as rd:
             rd.seek(self.offset)
-            found = pattern in rd.read()
+            data = rd.read()
             self.offset = rd.tell()
-        return found
+        # Strip ANSI codes
+        return self._CSI_RE.sub('', data)
 
-    def reset(self) -> bool:
+    def check(self, pattern: str) -> bool:
+        """Check whether the pattern can be found in the logs."""
+        return pattern in self._read_file()
+
+    def reset(self) -> None:
         """Resets log offset to beginning of the file."""
         self.offset = 0
 
-    def count(self, pattern):
+    def count(self, pattern: str) -> int:
         """Count number of occurrences of pattern in new logs."""
-        with open(self.fname) as rd:
-            rd.seek(self.offset)
-            count = rd.read().count(pattern)
-            self.offset = rd.tell()
-        return count
+        return self._read_file().count(pattern)
 
 
 def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
@@ -164,7 +171,8 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 
-def load_test_contract(filename: str = 'test_contract_rs.wasm') -> bytearray:
+def load_test_contract(
+        filename: str = 'base_test_contract_rs.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package.
 
     This is just a convenience function around load_binary_file which loads
@@ -355,6 +363,11 @@ def poll_blocks(node: cluster.LocalNode,
     while time.monotonic() < end:
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
+            if __target:
+                msg = f'{latest}  (waiting for #{__target})'
+            else:
+                msg = str(latest)
+            logger.info(msg)
             yield latest
             previous = latest.height
             if start_height == -1:
@@ -415,7 +428,6 @@ def wait_for_blocks(node: cluster.LocalNode,
     if timeout is None:
         timeout = max(10, count * 5)
     for latest in poll_blocks(node, timeout=timeout, __target=target, **kw):
-        logger.info(f'{latest}  (waiting for #{target})')
         if latest.height >= target:
             return latest
 

@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -12,11 +12,10 @@ edition = "2021"
 [dependencies]
 derive_more = "0.99.9"
 hex = "0.4"
-lazy_static = "1.4"
 strum = { version = "0.20", features = ["derive"] }
 
 awc = "3.0.0-beta.5"
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 actix-web = "=4.0.0-beta.6"
 actix-http = "=3.0.0-beta.6"
 actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }

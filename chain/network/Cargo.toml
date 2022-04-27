@@ -4,11 +4,12 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 publish = false
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
+anyhow = "1.0.55"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"
@@ -23,7 +24,7 @@ rand = "0.7"
 serde = { version = "1", features = ["alloc", "derive", "rc"], optional = true }
 strum = { version = "0.20", features = ["derive"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio-util = { version = "0.7.1", features = ["codec"] }
 tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 tracing = "0.1.13"
 

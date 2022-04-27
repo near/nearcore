@@ -7,6 +7,7 @@ use std::sync::Arc;
 use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
+use near_store::test_utils::create_test_store;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
@@ -19,14 +20,13 @@ use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_store::{db, Store};
 use nearcore::config;
 use nearcore::config::NearConfig;
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     config.network_config.verify().context("start_with_config")?;
     let node_id = PeerId::new(config.network_config.public_key.clone());
-    let store = Store::new(Arc::new(db::TestDB::new()));
+    let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());
     let network = Network::new(&config, network_adapter.clone(), qps_limit);
@@ -132,6 +132,7 @@ impl Cmd {
 fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env()
         .finish()
+        .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
     let _subscriber = near_o11y::default_subscriber(env_filter).global();
     let orig_hook = std::panic::take_hook();

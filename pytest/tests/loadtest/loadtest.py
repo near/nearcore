@@ -29,7 +29,7 @@ if __name__ == '__main__':
     # First - 'reset' the counters in the contract.
     for y in range(args.num_accounts):
         my_account.send_call_contract_raw_tx(
-            contract_id=f"shard{y}.test.near",
+            contract_id=f"shard{y}",
             method_name="reset_increment_many",
             args=f'{{"how_many": 400}}'.encode("utf-8"),
             deposit=0)
@@ -39,7 +39,7 @@ if __name__ == '__main__':
     for i in tqdm(range(args.num_requests)):
         for y in range(args.num_accounts):
             result = my_account.send_call_contract_raw_tx(
-                contract_id=f"shard{y}.test.near",
+                contract_id=f"shard{y}",
                 method_name="increment_many",
                 args=f'{{"how_many": {min(400 + i, 450)}}}'.encode("utf-8"),
                 deposit=0)
@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     for y in range(args.num_accounts):
         res = my_account.send_call_contract_raw_tx(
-            contract_id=f"shard{y}.test.near",
+            contract_id=f"shard{y}",
             method_name="get_increment_many",
             args='',
             deposit=0)
@@ -60,4 +60,3 @@ if __name__ == '__main__':
             print(f"Shard {y}: PASS")
         else:
             print(f"Shard {y} : FAIL {outcome} vs {args.num_accounts}")
-        break
