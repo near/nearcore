@@ -18,7 +18,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: AsRef<str>,
+    Message: strum::AsStaticRef<str>,
 {
     f(msg)
 }
