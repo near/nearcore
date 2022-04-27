@@ -14,7 +14,6 @@ use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
-use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -2130,8 +2129,8 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         1,
     );
     let shard_config = ShardConfig {
-        num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
-        avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
+        num_block_producer_seats_per_shard: vec![1; 4],
+        avg_hidden_validator_seats_per_shard: vec![1; 4],
         shard_layout: shard_layout.clone(),
     };
     let config = epoch_config(2, 1, 2, 0, 90, 60, 0, Some(shard_config));
