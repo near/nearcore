@@ -3323,7 +3323,7 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "1.26.0-rc.1"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
