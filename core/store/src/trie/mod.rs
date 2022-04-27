@@ -252,7 +252,7 @@ impl TrieNode {
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub enum RawTrieNode {
+enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -261,9 +261,9 @@ pub enum RawTrieNode {
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
 #[derive(Debug, Eq, PartialEq)]
-pub struct RawTrieNodeWithSize {
-    pub node: RawTrieNode,
-    pub memory_usage: u64,
+struct RawTrieNodeWithSize {
+    node: RawTrieNode,
+    memory_usage: u64,
 }
 
 const LEAF_NODE: u8 = 0;
@@ -386,13 +386,13 @@ impl RawTrieNodeWithSize {
     }
 
     #[allow(dead_code)]
-    pub fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
+    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
         let mut out = Vec::new();
         self.encode_into(&mut out)?;
         Ok(out)
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
@@ -754,6 +754,32 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+}
+
+/// Methods used in the runtime-parameter-estimator for measuring trie internal
+/// operations.
+pub mod estimator {
+    use super::RawTrieNode;
+    use super::RawTrieNodeWithSize;
+    use near_primitives::hash::hash;
+
+    /// Create an encoded extension node with the given value as the key.
+    /// This serves no purpose other than for the estimator.
+    pub fn encode_extension_node(key: Vec<u8>) -> Vec<u8> {
+        let h = hash(&key);
+        let node = RawTrieNode::Extension(key, h);
+        let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
+        node_with_size.encode().unwrap()
+    }
+    /// Decode am extension node and return its inner key.
+    /// This serves no purpose other than for the estimator.
+    pub fn decode_extension_node(bytes: &[u8]) -> Vec<u8> {
+        let node = RawTrieNodeWithSize::decode(bytes).unwrap();
+        match node.node {
+            RawTrieNode::Extension(v, _) => v,
+            _ => unreachable!(),
+        }
     }
 }
 

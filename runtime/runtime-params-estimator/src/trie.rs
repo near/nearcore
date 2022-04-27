@@ -3,7 +3,7 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, percentiles};
 use near_primitives::hash::hash;
 use near_primitives::types::TrieCacheMode;
-use near_store::{RawTrieNode, RawTrieNodeWithSize, TrieCachingStorage, TrieStorage};
+use near_store::{TrieCachingStorage, TrieStorage};
 use near_vm_logic::ExtCosts;
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -354,11 +354,8 @@ fn read_node_from_chunk_cache_ext(
             let values_inserted = num_values * data_spread_factor;
             let values: Vec<_> = (0..values_inserted)
                 .map(|_| {
-                    let v = tb.random_vec(value_len);
-                    let h = hash(&v);
-                    let node = RawTrieNode::Extension(v, h);
-                    let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
-                    node_with_size.encode().unwrap()
+                    let extention_key = tb.random_vec(value_len);
+                    near_store::estimator::encode_extension_node(extention_key)
                 })
                 .collect();
             let mut setup_block = Vec::new();
@@ -414,11 +411,7 @@ fn read_raw_nodes_from_storage(
     keys.iter()
         .map(|key| {
             let bytes = caching_storage.retrieve_raw_bytes(key).unwrap();
-            let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
-            match node.node {
-                RawTrieNode::Extension(v, _) => v.len(),
-                _ => unreachable!(),
-            }
+            near_store::estimator::decode_extension_node(&bytes).len()
         })
         .sum()
 }
