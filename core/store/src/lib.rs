@@ -29,7 +29,7 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, RocksDBOptions, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -386,8 +386,7 @@ pub fn create_store(path: &Path) -> Store {
 }
 
 pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let db =
-        RocksDBOptions::default().open(path, &store_config).expect("Failed to open the database");
+    let db = RocksDB::open(path, &store_config).expect("Failed to open the database");
     Store::new(Arc::new(db))
 }
 
