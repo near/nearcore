@@ -59,13 +59,25 @@ pub(crate) struct DBTransaction {
 }
 
 pub(crate) enum DBOp {
+    /// Sets `key` to `value`, without doing any checks.
+    Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Sets `key` to `value`, and additionally debug-checks that the value is
+    /// not overwritten.
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Modifies a reference-counted column. `value` includes both the value per
+    /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Deletes sepecific `key`.
     Delete { col: DBCol, key: Vec<u8> },
+    /// Deletes all data from a column.
     DeleteAll { col: DBCol },
 }
 
 impl DBTransaction {
+    pub(crate) fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        self.ops.push(DBOp::Set { col, key, value });
+    }
+
     pub(crate) fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
@@ -303,9 +315,17 @@ impl Database for RocksDB {
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => unsafe {
+                DBOp::Set { col, key, value } => unsafe {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
+                DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Ok(Some(old_value)) = self.get(col, &key) {
+                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                        }
+                    }
+                    batch.put_cf(unsafe { &*self.cfs[col as usize] }, key, value);
+                }
                 DBOp::UpdateRefcount { col, key, value } => unsafe {
                     batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
@@ -384,7 +404,15 @@ impl Database for TestDB {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
+                DBOp::Set { col, key, value } => {
+                    db[col as usize].insert(key, value);
+                }
                 DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Some(old_value) = db[col as usize].get(&key) {
+                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                        }
+                    }
                     db[col as usize].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
@@ -404,6 +432,19 @@ impl Database for TestDB {
         }
         Ok(())
     }
+}
+
+fn assert_no_ovewrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+    assert_eq!(
+        value, old_value,
+        "\
+write once column overwritten
+col: {col}
+key: {key:?}
+old value: {old_value:?}
+new value: {value:?}
+"
+    )
 }
 
 fn set_compression_options(opts: &mut Options) {
