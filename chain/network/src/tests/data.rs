@@ -160,8 +160,8 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
 pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
     Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: rng.sample_iter(Standard).take(65).collect(),
-            right_block_header: rng.sample_iter(Standard).take(34).collect(),
+            left_block_header: rng.sample_iter(&Standard).take(65).collect(),
+            right_block_header: rng.sample_iter(&Standard).take(34).collect(),
         }),
         &make_validator_signer(rng),
     )
