@@ -112,6 +112,11 @@ struct StandaloneOutput {
 }
 
 fn main() {
+    rayon::ThreadPoolBuilder::new()
+        .stack_size(8 * 1024 * 1024)
+        .build_global()
+        .expect("install rayon thread pool globally");
+
     let cli_args = CliArgs::parse();
 
     if cli_args.timings {

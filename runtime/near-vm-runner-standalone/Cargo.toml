@@ -27,6 +27,7 @@ base64 = "0.13"
 lazy-static-include = "3"
 num-rational = "0.3"
 tracing-span-tree = "0.1"
+rayon = "1.0"
 
 near-vm-logic = { path = "../near-vm-logic", features = ["costs_counting"]}
 near-vm-runner = { path = "../near-vm-runner", features = ["wasmtime_vm", "wasmer2_vm"] }
