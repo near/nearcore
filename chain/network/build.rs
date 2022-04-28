@@ -27,7 +27,8 @@ fn is_fresh(want_prefix: &str, generated: &Path) -> bool {
     return format!("{prefix}\n") == content_prefix(content);
 }
 
-fn main() -> std::io::Result<()> {
+#[allow(unreachable_code)]
+fn main() -> anyhow::Result<()> {
     // Generate code from proto, whenever proto files change.
     // The generated code is checked into the repo, so that
     // building near node doesn't have a dependency on protoc
@@ -51,9 +52,16 @@ fn main() -> std::io::Result<()> {
 
     eprintln!("proto file changed, need to regenerate the code");
     eprintln!("This requires protoc to be installed and available in $PATH");
+    // prost-build checks the presence of protoc in its build.rs and panics
+    // if it is not found and it is unable to compile it.
+    // To avoid that I had to make the build dependency on prost-build optional
+    // add the conditional compilation here.
+    #[cfg(feature = "prost-build")]
     prost_build::Config::new()
         .out_dir("src/network_protocol/generated")
         .compile_protos(&[proto_path], &["src/"])?;
+    #[cfg(not(feature = "prost-build"))]
+    anyhow::bail!("To regenerate the code, run 'cargo build --features prost-build'");
     let content = std::fs::read_to_string(generated_path)?;
     let mut generated = want_prefix;
     generated += &content_prefix(&content);

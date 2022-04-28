@@ -8,7 +8,7 @@ rust-version = "1.60.0"
 publish = false
 
 [build-dependencies]
-prost-build = { version = "0.10"}
+prost-build = { version = "0.10", optional = true }
 sha2 = "0.9"
 base64 = "0.11"
 anyhow = "1.0.55"
