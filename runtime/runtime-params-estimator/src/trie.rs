@@ -19,35 +19,27 @@ pub(crate) fn write_node(
     let tb = testbed.transaction_builder();
     // Prepare a long chain in the trie
     let signer = tb.random_account();
-    let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
+    let key = "j".repeat(final_key_len);
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len].as_bytes();
-        let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value.as_bytes()));
+        let key = &key.as_bytes()[..key_len];
+        let value = b"0";
+        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
     }
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
     blocks.push(setup_block);
     blocks.extend(
-        ["1", "2", "3"]
+        [b"1", b"2", b"3"]
             .iter()
             .cycle()
-            .map(|value| {
-                vec![tb.account_insert_key(
-                    signer.clone(),
-                    key.as_str()[0..1].as_bytes(),
-                    value.as_bytes(),
-                )]
-            })
+            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_bytes()[0..1], *value)])
             .take(measured_iters + warmup_iters),
     );
     blocks.extend(
-        ["1", "2", "3"]
+        [b"1", b"2", b"3"]
             .iter()
             .cycle()
-            .map(|value| {
-                vec![tb.account_insert_key(signer.clone(), key.as_bytes(), value.as_bytes())]
-            })
+            .map(|value| vec![tb.account_insert_key(signer.clone(), key.as_bytes(), *value)])
             .take(measured_iters + warmup_iters),
     );
     let results = &testbed.measure_blocks(blocks, 0)[1..];
@@ -86,14 +78,14 @@ pub(crate) fn read_node_from_db(
     let key = "j".repeat(final_key_len);
     let mut setup_block = Vec::new();
     for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len].as_bytes();
-        let value = "0".as_bytes();
+        let key = &key.as_bytes()[..key_len];
+        let value = b"0";
         setup_block.push(tb.account_insert_key(signer.clone(), key, value));
     }
     let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
     blocks.push(setup_block);
     blocks.extend(
-        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key.as_str()[0..1])])
+        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key[0..1])])
             .take(measured_iters + warmup_iters),
     );
     blocks.extend(
@@ -133,23 +125,18 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     // - L3 CPU cache is filled with dummy data before measuring
     let spoil_l3 = true;
     // - Completely cold cache
-    let num_warmup_values = 0;
+    let warmups = 0;
     // - Single node read, no amortization possible
     let num_values = 1;
     // - Data is spread in main memory
-    let data_spread_factor = 7;
+    let data_spread = 7;
 
-    // For the base case, worst-case assumption is slightly relaxed. The base at
-    // the 90th percentile case is used as final estimation.
-    let base_case = {
-        // Reading a different node before the measurement loads data structure
-        // into cache. It would be difficult for an attacker to avoid this
-        // consistently, so the base case assumes this is in cache.
-        let num_warmup_values = 1;
-        // Some amortization should also be allowed, or how would an attacker
-        // actually abuse undercharged costs?
-        let num_values = 16;
-
+    let mut estimation = |debug_name: &'static str,
+                          iters: usize,
+                          num_values: usize,
+                          num_warmup_values: usize,
+                          data_spread_factor: usize,
+                          spoil_l3: bool| {
         let results = read_node_from_chunk_cache_ext(
             testbed,
             iters,
@@ -158,22 +145,42 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
             data_spread_factor,
             spoil_l3,
         );
-        let mut p_results = percentiles(results, percentiles_of_interest);
+        let p_results = percentiles(results, percentiles_of_interest).collect::<Vec<_>>();
         if debug {
-            eprintln!(
-                "{:<32}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
-                "",
-                percentiles_of_interest[0],
-                percentiles_of_interest[1],
-                percentiles_of_interest[2],
-                percentiles_of_interest[3]
-            );
-            eprint!("{:<32}", "Base Case");
+            eprint!("{:<32}", debug_name);
             for cost in p_results.iter() {
                 eprint!("{:>8} ", cost.to_gas() / 1_000_000);
             }
             eprintln!();
         }
+        p_results
+    };
+
+    // Print header of debug table
+    if debug {
+        eprintln!(
+            "{:<32}{:>8.3} {:>8.3} {:>8.3} {:>8.3}",
+            "",
+            percentiles_of_interest[0],
+            percentiles_of_interest[1],
+            percentiles_of_interest[2],
+            percentiles_of_interest[3]
+        );
+    }
+
+    // For the base case, worst-case assumption is slightly relaxed. The base at
+    // the 90th percentile case is used as final estimation.
+    let base_case = {
+        // Reading a different node before the measurement loads data structure
+        // into cache. It would be difficult for an attacker to avoid this
+        // consistently, so the base case assumes this is in cache.
+        let warmups = 1;
+        // Some amortization should also be allowed, or how would an attacker
+        // actually abuse undercharged costs?
+        let num_values = 16;
+
+        let mut p_results =
+            estimation("Base Case", iters, num_values, warmups, data_spread, spoil_l3);
         // Take the 90th percentile measured.
         p_results.swap_remove(1)
     };
@@ -181,134 +188,49 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     // If debug output is enable, run the same estimation using different
     // assumptions and print a table of results.
     if debug {
-        // Base case with better data locality
+        // Base case with better data locality.
         {
-            let num_warmup_values = 1;
+            let warmups = 1;
             let num_values = 16;
-            let data_spread_factor = 1;
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Base Case w data locality");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            let data_spread = 1;
+            estimation("Base Case w locality", iters, num_values, warmups, data_spread, spoil_l3);
         }
-        // Worst-case
+        // Worst-case: All parameters as explained above.
         {
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Worst Case");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            estimation("Worst Case", iters, num_values, warmups, data_spread, spoil_l3);
         }
-        // Worst-case, but warmed up
+        // Worst-case, but one warm up value to load data structures and code
+        // into cache.
         {
-            let num_warmup_values = 1;
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Warmed-up");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            let warmups = 1;
+            estimation("Warmed-up", iters, num_values, warmups, data_spread, spoil_l3);
         }
-        // Worst-case, but amortized
+        // Worst-case, but amortized costs over several values, allowing
+        // hardware level optimizations to kick in.
         {
             let num_values = 128;
             let iters = 30; // For estimation speed only, should not affect results
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Amortized");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            estimation("Amortized", iters, num_values, warmups, data_spread, spoil_l3);
         }
-        // Almost-best-case
+        // Almost-best-case, only the L3 is still overwritten between
+        // iterations.
         {
-            let num_warmup_values = 1;
+            let warmups = 1;
             let num_values = 128;
             let iters = 30; // For estimation speed only, should not affect results
-            let data_spread_factor = 1;
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Best Case (from memory)");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            let data_spread = 1;
+            estimation("Best Case(from memory)", iters, num_values, warmups, data_spread, spoil_l3);
         }
-        // Best-case
+        // Best-case: Nothing attempted to worsen memory latency, just iterate
+        // over measurements and allow the hardware to do all optimizations it
+        // can.
         {
             let spoil_l3 = false;
-            let num_warmup_values = 1;
+            let warmups = 1;
             let num_values = 128;
             let iters = 30; // For estimation speed only, should not affect results
             let data_spread_factor = 1;
-            let results = read_node_from_chunk_cache_ext(
-                testbed,
-                iters,
-                num_values,
-                num_warmup_values,
-                data_spread_factor,
-                spoil_l3,
-            );
-            let p_results = percentiles(results, &[0.5, 0.9, 0.99, 0.999]);
-            if debug {
-                eprint!("{:<32}", "Best Case");
-                for cost in p_results.iter() {
-                    eprint!("{:>8} ", cost.to_gas() / 1_000_000);
-                }
-                eprintln!();
-            }
+            estimation("Best Case", iters, num_values, warmups, data_spread_factor, spoil_l3);
         }
     }
 
