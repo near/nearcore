@@ -120,7 +120,7 @@ pub struct ShardSyncDownload {
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsStaticStr)]
+#[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -142,8 +142,8 @@ pub enum SyncStatus {
 
 impl SyncStatus {
     /// Get a string representation of the status variant
-    pub fn as_variant_name(&self) -> &'static str {
-        strum::AsStaticRef::as_static(self)
+    pub fn as_variant_name(&self) -> &str {
+        self.as_ref()
     }
 
     /// True if currently engaged in syncing the chain.

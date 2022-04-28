@@ -155,7 +155,7 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    #["protocol_feature_function_call_weight", FunctionCallWeight] promise_batch_action_function_call_weight<[
+    #[FunctionCallWeight] promise_batch_action_function_call_weight<[
         promise_index: u64,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -293,15 +293,19 @@ pub(crate) mod wasmer2 {
 
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic};
-    use wasmer_engine::{ExportFunction, ExportFunctionMetadata, Resolver};
-    use wasmer_vm::{VMFunction, VMFunctionKind, VMMemory};
+    use wasmer_engine::Engine;
+    use wasmer_engine_universal::UniversalEngine;
+    use wasmer_vm::{
+        ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
+    };
 
-    pub(crate) struct Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
+    pub(crate) struct Wasmer2Imports<'engine, 'vmlogic, 'vmlogic_refs> {
         pub(crate) memory: VMMemory,
         // Note: this same object is also referenced by the `metadata` field!
         pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
         pub(crate) metadata: Arc<ExportFunctionMetadata>,
         pub(crate) protocol_version: ProtocolVersion,
+        pub(crate) engine: &'engine UniversalEngine,
     }
 
     trait Wasmer2Type {
@@ -339,13 +343,13 @@ pub(crate) mod wasmer2 {
         }
     }
 
-    impl<'vmlogic, 'vmlogic_refs> Resolver for Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
-        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_engine::Export> {
+    impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
             if module != "env" {
                 return None;
             }
             if field == "memory" {
-                return Some(wasmer_engine::Export::Memory(self.memory.clone()));
+                return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
@@ -397,7 +401,11 @@ pub(crate) mod wasmer2 {
                     }
                     // TODO: a phf hashmap would probably work better here.
                     if field == stringify!($func) {
-                        return Some(wasmer_engine::Export::Function(ExportFunction {
+                        let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
+                        let rets = [$(<$returns as Wasmer2Type>::ty()),*];
+                        let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
+                        let signature = self.engine.register_signature(signature);
+                        return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
                                 address: $func as *const _,
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
@@ -407,11 +415,7 @@ pub(crate) mod wasmer2 {
                                 vmctx: wasmer_vm::VMFunctionEnvironment {
                                     host_env: self.vmlogic as *const _ as *mut _
                                 },
-                                signature: wasmer_types::FunctionType::new([
-                                    $(<$arg_type as Wasmer2Type>::ty()),*
-                                ], [
-                                    $(<$returns as Wasmer2Type>::ty()),*
-                                ]),
+                                signature,
                                 kind: VMFunctionKind::Static,
                                 call_trampoline: None,
                                 instance_ref: None,
@@ -426,18 +430,25 @@ pub(crate) mod wasmer2 {
         }
     }
 
-    pub(crate) fn build<'a, 'b>(
+    pub(crate) fn build<'e, 'a, 'b>(
         memory: VMMemory,
         logic: &'a mut VMLogic<'b>,
         protocol_version: ProtocolVersion,
-    ) -> Wasmer2Imports<'a, 'b> {
+        engine: &'e UniversalEngine,
+    ) -> Wasmer2Imports<'e, 'a, 'b> {
         let metadata = unsafe {
             // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
             // is sufficiently long by tying the lifetime of VMLogic to the return type which
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        Wasmer2Imports { memory, vmlogic: logic, metadata: Arc::new(metadata), protocol_version }
+        Wasmer2Imports {
+            memory,
+            vmlogic: logic,
+            metadata: Arc::new(metadata),
+            protocol_version,
+            engine,
+        }
     }
 }
 

@@ -22,7 +22,7 @@ use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSI
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
-use near_store::{ColBlockInfo, ColEpochInfo, ColEpochStart, Store, StoreUpdate};
+use near_store::{DBCol, Store, StoreUpdate};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
@@ -30,10 +30,9 @@ use crate::types::EpochInfoAggregator;
 pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_chain::types::ValidatorInfoIdentifier;
 use near_chain_configs::GenesisConfig;
 use near_primitives::shard_layout::ShardLayout;
-use near_store::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
 mod reward_calculator;
@@ -110,7 +109,7 @@ impl EpochManager {
         let validator_reward =
             HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
         let epoch_info_aggregator = store
-            .get_ser(ColEpochInfo, AGGREGATOR_KEY)
+            .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
             .map_err(EpochError::from)?
             .unwrap_or_default();
         let mut epoch_manager = EpochManager {
@@ -1187,24 +1186,6 @@ impl EpochManager {
         let stake_divisor = { config.minimum_stake_divisor as Balance };
         Ok(seat_price / stake_divisor)
     }
-
-    // Note: this function should only be used in 18 -> 19 migration and should be removed in the
-    // next release
-    /// `block_header_info` must be the header info of the last block of an epoch.
-    pub fn migrate_18_to_19(
-        &mut self,
-        block_header_info: &BlockHeaderInfo,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), EpochError> {
-        let last_block_info = self.get_block_info(&block_header_info.hash)?;
-        self.finalize_epoch(
-            store_update,
-            &last_block_info,
-            &block_header_info.hash,
-            block_header_info.random_value.into(),
-        )?;
-        Ok(())
-    }
 }
 
 /// Private utilities for EpochManager.
@@ -1316,7 +1297,7 @@ impl EpochManager {
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(epoch_id.clone(), |epoch_id| {
             self.store
-                .get_ser(ColEpochInfo, epoch_id.as_ref())?
+                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
                 .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
         })
     }
@@ -1335,7 +1316,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: Arc<EpochInfo>,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(ColEpochInfo, epoch_id.as_ref(), &epoch_info)?;
+        store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_info)?;
         self.epochs_info.put(epoch_id.clone(), epoch_info);
         Ok(())
     }
@@ -1343,7 +1324,7 @@ impl EpochManager {
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
-            .get_ser(ColEpochValidatorInfo, epoch_id.as_ref())?
+            .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
             .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
     }
 
@@ -1356,7 +1337,7 @@ impl EpochManager {
         epoch_summary: &EpochSummary,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(ColEpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
+            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
             .map_err(EpochError::from)
     }
 
@@ -1375,7 +1356,7 @@ impl EpochManager {
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
-                .get_ser(ColBlockInfo, hash.as_ref())?
+                .get_ser(DBCol::BlockInfo, hash.as_ref())?
                 .ok_or_else(|| EpochError::MissingBlock(*hash))
                 .map(Arc::new)
         })
@@ -1388,7 +1369,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = *block_info.hash();
         store_update
-            .set_ser(ColBlockInfo, block_hash.as_ref(), &block_info)
+            .set_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.put(block_hash, block_info);
         Ok(())
@@ -1401,7 +1382,7 @@ impl EpochManager {
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
         store_update
-            .set_ser(ColEpochStart, epoch_id.as_ref(), &epoch_start)
+            .set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)
             .map_err(EpochError::from)?;
         self.epoch_id_to_start.put(epoch_id.clone(), epoch_start);
         Ok(())
@@ -1410,7 +1391,7 @@ impl EpochManager {
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.epoch_id_to_start.get_or_try_put(epoch_id.clone(), |epoch_id| {
             self.store
-                .get_ser(ColEpochStart, epoch_id.as_ref())?
+                .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
                 .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))
         })
     }
@@ -1445,7 +1426,11 @@ impl EpochManager {
                 *block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
             if save {
-                store_update.set_ser(ColEpochInfo, AGGREGATOR_KEY, &self.epoch_info_aggregator)?;
+                store_update.set_ser(
+                    DBCol::EpochInfo,
+                    AGGREGATOR_KEY,
+                    &self.epoch_info_aggregator,
+                )?;
             }
         }
         Ok(())

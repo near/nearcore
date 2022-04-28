@@ -247,15 +247,12 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             // i == gc_height is the only height should be processed here
             if block1.header().height() > gc_height || i == gc_height {
                 let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
-                tries2
-                    .apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2)
-                    .unwrap();
+                tries2.apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2);
                 state_root2 = trie_changes2.new_root;
                 assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                 store_update2.merge(trie_store_update2);
             } else {
-                let (trie_store_update2, new_root2) =
-                    tries2.apply_all(&trie_changes2, shard_uid).unwrap();
+                let (trie_store_update2, new_root2) = tries2.apply_all(&trie_changes2, shard_uid);
                 state_root2 = new_root2;
                 store_update2.merge(trie_store_update2);
             }
@@ -630,16 +627,17 @@ fn test_gc_star_large() {
 fn test_fork_far_away_from_epoch_end() {
     let verbose = false;
     let max_changes = 1;
+    let fork_clean_step = 100;
+    let epoch_length = fork_clean_step + 10;
     let simple_chains = vec![
         SimpleChain { from: 0, length: 5, is_removed: false },
         SimpleChain { from: 5, length: 2, is_removed: true },
         // We want the chain to end up exactly at the new epoch start.
-        SimpleChain { from: 5, length: 6600 - 5 + 1, is_removed: false },
+        SimpleChain { from: 5, length: 6 * epoch_length - 5 + 1, is_removed: false },
     ];
 
     let num_shards = 1;
-    // We pick the epoch length that is greater than 1k (GC_FORK_CLEAN_STEP)
-    let mut chain1 = get_chain_with_epoch_length_and_num_shards(1100, num_shards);
+    let mut chain1 = get_chain_with_epoch_length_and_num_shards(epoch_length, num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
     let mut states1 = vec![(
@@ -664,7 +662,14 @@ fn test_fork_far_away_from_epoch_end() {
 
     // GC execution
     chain1
-        .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .clear_data(
+            tries1.clone(),
+            &GCConfig {
+                gc_blocks_limit: 100,
+                gc_fork_clean_step: fork_clean_step,
+                ..GCConfig::default()
+            },
+        )
         .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks

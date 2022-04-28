@@ -1,6 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use crate::client::Client;
+use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::DBCol::ColStateParts;
+use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -340,7 +340,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::DBCol::ColBlock) {
+                        for _ in store.iter(DBCol::Block) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -1032,6 +1032,15 @@ impl ClientActor {
 
         let epoch_id =
             self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let log_block_production_info =
+            if self.client.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+                true
+            } else {
+                // the next block is still the same epoch
+                let epoch_start_height =
+                    self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+                latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
+            };
 
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
@@ -1050,6 +1059,7 @@ impl ClientActor {
                     Clock::instant(),
                     height,
                     have_all_chunks,
+                    log_block_production_info,
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
@@ -1802,7 +1812,7 @@ impl SyncJobsActor {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(ColStateParts, &key)?.unwrap();
+            let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime.apply_state_part(
                 msg.shard_id,

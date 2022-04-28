@@ -15,61 +15,54 @@ use std::str::FromStr;
 #[derive(Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
-    #[clap(name = "peers")]
     Peers,
-    #[clap(name = "state")]
     State,
     /// Generate a genesis file from the current state of the DB.
-    #[clap(name = "dump_state")]
+    #[clap(alias = "dump_state")]
     DumpState(DumpStateCmd),
-    #[clap(name = "dump_state_redis")]
+    #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
     /// Print chain from start_index to end_index.
-    #[clap(name = "chain")]
     Chain(ChainCmd),
     /// Replay headers from chain.
-    #[clap(name = "replay")]
     Replay(ReplayCmd),
     /// Apply blocks at a range of heights for a single shard.
-    #[clap(name = "apply_range")]
+    #[clap(alias = "apply_range")]
     ApplyRange(ApplyRangeCmd),
     /// Apply block at some height for shard.
-    #[clap(name = "apply")]
     Apply(ApplyCmd),
     /// View head of the storage.
-    #[clap(name = "view_chain")]
+    #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
     /// Check whether the node has all the blocks up to its head.
-    #[clap(name = "check_block")]
+    #[clap(alias = "check_block")]
     CheckBlock,
     /// Dump deployed contract code of given account to wasm file.
-    #[clap(name = "dump_code")]
+    #[clap(alias = "dump_code")]
     DumpCode(DumpCodeCmd),
     /// Dump contract data in storage of given account to binary file.
-    #[clap(name = "dump_account_storage")]
+    #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
-    #[clap(name = "epoch_info")]
+    #[clap(alias = "epoch_info")]
     EpochInfo(EpochInfoCmd),
     /// Dump stats for the RocksDB storage.
-    #[clap(name = "rocksdb_stats")]
+    #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
-    #[clap(name = "receipts")]
     Receipts(ReceiptsCmd),
-    #[clap(name = "chunks")]
     Chunks(ChunksCmd),
-    #[clap(name = "partial_chunks")]
+    #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
     /// Apply a chunk, even if it's not included in any block on disk
-    #[clap(name = "apply_chunk")]
+    #[clap(alias = "apply_chunk")]
     ApplyChunk(ApplyChunkCmd),
     /// Apply a transaction if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
-    #[clap(name = "apply_tx")]
+    #[clap(alias = "apply_tx")]
     ApplyTx(ApplyTxCmd),
     /// Apply a receipt if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
-    #[clap(name = "apply_receipt")]
+    #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
 }
 

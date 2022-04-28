@@ -212,12 +212,12 @@ fn peer_recover() {
 /// B knows nothing about A (since store is wiped) and A knows old information from B.
 /// A should learn new information from B and connect with it.
 #[test]
-fn check_connection_with_new_identity() {
+fn check_connection_with_new_identity() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).enable_outbound();
 
     // This is needed, because even if outbound is enabled, there is no booting nodes,
     // so A and B doesn't know each other yet.
-    runner.push(Action::AddEdge(0, 1));
+    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
 
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
@@ -230,13 +230,13 @@ fn check_connection_with_new_identity() {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
-    runner.push(Action::Wait(2000));
+    runner.push(Action::Wait(Duration::from_millis(2000)));
 
     // Check the no node tried to connect to itself in this process.
     #[cfg(feature = "test_features")]
     runner.push_action(wait_for(|| near_network::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
 
-    start_test(runner);
+    start_test(runner)
 }
 
 #[test]

@@ -2,7 +2,7 @@ pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
-pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
@@ -10,11 +10,14 @@ pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
 
-pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     base64::decode(s).map_err(|err| err.into())
 }
 
-pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn from_base_buf(
+    s: &str,
+    buffer: &mut Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match bs58::decode(s).into(buffer) {
         Ok(_) => Ok(()),
         Err(err) => Err(err.into()),
@@ -34,8 +37,10 @@ where
     }
 }
 
-pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error>> {
-    fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
+pub trait BaseDecode:
+    for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error + Send + Sync>>
+{
+    fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = from_base(s)?;
         Self::try_from(&bytes)
     }
