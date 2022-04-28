@@ -36,7 +36,7 @@ impl TransactionPool {
         }
     }
 
-    pub fn init_metric() {
+    pub fn init_metrics() {
         // A `get()` call initializes a metric even if its value is zero.
         metrics::TRANSACTION_POOL_TOTAL.get();
     }

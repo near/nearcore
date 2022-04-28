@@ -492,7 +492,7 @@ impl ShardsManager {
         network_adapter: Arc<dyn PeerManagerAdapter>,
         rng_seed: RngSeed,
     ) -> Self {
-        TransactionPool::init_metric();
+        TransactionPool::init_metrics();
         Self {
             me: me.clone(),
             tx_pools: HashMap::new(),
