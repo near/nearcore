@@ -313,9 +313,9 @@ mod tests {
             1,
         );
         let shard_config = ShardConfig {
-            num_block_producer_seats_per_shard: vec![1; 4],
-            avg_hidden_validator_seats_per_shard: vec![1; 4],
-            shard_layout,
+            num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
+            avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
+            shard_layout: shard_layout,
         };
         let epoch_manager = Arc::new(RwLock::new(get_epoch_manager(
             simple_nightshade_version - 1,
