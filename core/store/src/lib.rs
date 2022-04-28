@@ -9,12 +9,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use lru::LruCache;
 
-pub use columns::DBCol::{self, *};
+pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
+use near_o11y::log_assert;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -28,7 +29,7 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, RocksDBOptions, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -80,11 +81,17 @@ impl Store {
         self.storage.iter(column)
     }
 
-    pub fn iter_without_rc_logic<'a>(
+    /// Fetches raw key/value pairs from the database.
+    ///
+    /// Practically, this means that for rc columns rc is included in the value.
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn iter_raw_bytes<'a>(
         &'a self,
         column: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        self.storage.iter_without_rc_logic(column)
+        self.storage.iter_raw_bytes(column)
     }
 
     pub fn iter_prefix<'a>(
@@ -108,7 +115,7 @@ impl Store {
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        for (key, value) in self.storage.iter_without_rc_logic(column) {
+        for (key, value) in self.storage.iter_raw_bytes(column) {
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -169,28 +176,46 @@ impl StoreUpdate {
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
-        debug_assert!(column.is_rc());
+        assert!(column.is_rc());
         let value = encode_value_with_rc(value, rc_delta);
-        self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
+        self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
+    /// Saves a given value.
+    /// Must not be used for RC columns - please use 'update_refcount' instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        assert!(!column.is_rc());
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
+    /// Saves a BorshSerialized value.
+    /// Must not be used for RC columns - please use 'update_refcount' instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        debug_assert!(!column.is_rc());
+        assert!(!column.is_rc());
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
     }
 
+    /// Modify raw value stored in the database, without doing any sanity checks
+    /// for ref counts.
+    ///
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        self.transaction.insert(column, key.to_vec(), value.to_vec())
+    }
+
+    /// Deletes the given key from the database.
+    /// Must not be used for RC columns (use update_refcount instead).
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
+        assert!(!column.is_rc());
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -203,24 +228,10 @@ impl StoreUpdate {
         match (&self.tries, other.tries) {
             (_, None) => (),
             (None, Some(tries)) => self.tries = Some(tries),
-            (Some(t1), Some(t2)) => debug_assert!(t1.is_same(&t2)),
+            (Some(t1), Some(t2)) => log_assert!(t1.is_same(&t2)),
         }
 
-        self.merge_transaction(other.transaction);
-    }
-
-    /// Merge DB Transaction.
-    fn merge_transaction(&mut self, transaction: DBTransaction) {
-        for op in transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => self.transaction.insert(col, key, value),
-                DBOp::Delete { col, key } => self.transaction.delete(col, key),
-                DBOp::UpdateRefcount { col, key, value } => {
-                    self.transaction.update_refcount(col, key, value)
-                }
-                DBOp::DeleteAll { col } => self.transaction.delete_all(col),
-            }
-        }
+        self.transaction.merge(other.transaction)
     }
 
     pub fn commit(self) -> io::Result<()> {
@@ -308,18 +319,25 @@ pub struct StoreConfig {
     /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
     /// Linux.
     #[serde(default = "default_max_open_files")]
-    pub max_open_files: i32,
+    pub max_open_files: u32,
 
-    /// Cache size for ColState column.
+    /// Cache size for DBCol::State column.
     /// Default value: 512MiB.
-    /// Increasing ColState cache size helps making storage more efficient. On the other hand we
+    /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
     #[serde(default = "default_col_state_cache_size")]
     pub col_state_cache_size: usize,
+
+    /// Block size used internally in RocksDB.
+    /// Default value: 16KiB.
+    /// We're still experimented with this parameter and it seems decreasing its value can improve
+    /// the performance of the storage
+    #[serde(default = "default_block_size")]
+    pub block_size: usize,
 }
 
-fn default_max_open_files() -> i32 {
+fn default_max_open_files() -> u32 {
     StoreConfig::DEFAULT_MAX_OPEN_FILES
 }
 
@@ -327,14 +345,29 @@ fn default_col_state_cache_size() -> usize {
     StoreConfig::DEFAULT_COL_STATE_CACHE_SIZE
 }
 
+fn default_block_size() -> usize {
+    StoreConfig::DEFAULT_BLOCK_SIZE
+}
+
 impl StoreConfig {
-    /// This is a value that we've used since 3 Dec 2019.
-    pub const DEFAULT_MAX_OPEN_FILES: i32 = 512;
+    /// We've used a value of 512 for max_open_files since 3 Dec 2019. As it turned out we were
+    /// hitting that limit and store had to constantly close/reopen the same set of files.
+    /// Running state viewer on a dense set of 500 blocks did almost 200K file opens (having less
+    /// than 7K unique files opened, some files were opened 400+ times).
+    /// Using 10K limit for max_open_files led to performance improvement of ~11%.
+    pub const DEFAULT_MAX_OPEN_FILES: u32 = 10_000;
 
     /// We used to have the same cache size for all columns 32MB. When some RocksDB
-    /// inefficiencies were found ColState cache size was increased up to 512MB.
+    /// inefficiencies were found DBCol::State cache size was increased up to 512MB.
     /// This was done Nov 13 2021 and we consider increasing the value.
+    /// Tests have shown that increase of col_state_cache_size up to 25GB (we've used this big
+    /// value to estimate performance improvement headroom) having max_open_files=10K improved
+    /// performance of state viewer by 60%.
     pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
+
+    /// Earlier this value was taken from the openethereum default parameter and we use it since
+    /// then.
+    pub const DEFAULT_BLOCK_SIZE: usize = 16 * bytesize::KIB as usize;
 
     pub fn read_only() -> StoreConfig {
         StoreConfig::read_write().with_read_only(true)
@@ -346,6 +379,7 @@ impl StoreConfig {
             enable_statistics: false,
             max_open_files: default_max_open_files(),
             col_state_cache_size: default_col_state_cache_size(),
+            block_size: default_block_size(),
         }
     }
 
@@ -360,8 +394,7 @@ pub fn create_store(path: &Path) -> Store {
 }
 
 pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let db =
-        RocksDBOptions::default().open(path, &store_config).expect("Failed to open the database");
+    let db = RocksDB::open(path, &store_config).expect("Failed to open the database");
     Store::new(Arc::new(db))
 }
 
@@ -545,22 +578,22 @@ pub fn remove_account(
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    store.get_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY)
+    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
 
 pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
-    store.get_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY)
+    store.get_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)
 }
 
 pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
     store_update
-        .set_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
+        .set_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
         .expect("Borsh cannot fail");
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -569,18 +602,18 @@ pub struct StoreCompiledContractCache {
 }
 
 /// Cache for compiled contracts code using Store for keeping data.
-/// We store contracts in VM-specific format in DBCol::ColCachedContractCode.
+/// We store contracts in VM-specific format in DBCol::CachedContractCode.
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &[u8], value: &[u8]) -> io::Result<()> {
         let mut store_update = self.store.store_update();
-        store_update.set(DBCol::ColCachedContractCode, key, value);
+        store_update.set(DBCol::CachedContractCode, key, value);
         store_update.commit()
     }
 
     fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.store.get(DBCol::ColCachedContractCode, key)
+        self.store.get(DBCol::CachedContractCode, key)
     }
 }
 

@@ -38,7 +38,7 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid);
     assert_eq!(trie.storage.as_caching_storage().unwrap().shard_uid.shard_id, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
-    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
     for (key, value) in deduped {

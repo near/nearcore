@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -65,6 +65,7 @@ impl GenesisBuilder {
             None,
             None,
             None,
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -176,7 +177,7 @@ impl GenesisBuilder {
         let trie_changes = state_update.finalize()?.0;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid)?;
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());

@@ -170,16 +170,7 @@ impl std::error::Error for HandshakeFailureReason {}
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    strum::AsStaticStr,
-    strum::EnumVariantNames,
-)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -265,11 +256,10 @@ impl fmt::Display for PeerMessage {
 
 impl PeerMessage {
     pub(crate) fn msg_variant(&self) -> &str {
-        match self {
-            PeerMessage::Routed(routed_message) => {
-                strum::AsStaticRef::as_static(&routed_message.body)
-            }
-            _ => strum::AsStaticRef::as_static(self),
+        if let PeerMessage::Routed(routed_message) = self {
+            routed_message.body.as_ref()
+        } else {
+            self.as_ref()
         }
     }
 

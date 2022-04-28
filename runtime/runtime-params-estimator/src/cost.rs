@@ -505,12 +505,12 @@ pub enum Cost {
     ValidatorTotalStakeBase,
 
     AltBn128G1MultiexpBase,
-    AltBn128G1MultiexpByte,
+    AltBn128G1MultiexpElement,
     AltBn128G1MultiexpSublinear,
     AltBn128PairingCheckBase,
-    AltBn128PairingCheckByte,
+    AltBn128PairingCheckElement,
     AltBn128G1SumBase,
-    AltBn128G1SumByte,
+    AltBn128G1SumElement,
 
     // Costs used only in estimator
     //

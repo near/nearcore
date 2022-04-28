@@ -28,6 +28,7 @@ reed-solomon-erasure = "4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 smart-default = "0.6"
+strum = "0.20"
 
 borsh = { version = "0.9", features = ["rc"] }
 
@@ -46,8 +47,6 @@ protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
-protocol_feature_function_call_weight = ["near-primitives-core/protocol_feature_function_call_weight"]
-protocol_feature_chunk_nodes_cache = ["near-primitives-core/protocol_feature_chunk_nodes_cache"]
 nightly_protocol_features = [
   "nightly_protocol",
   "protocol_feature_alt_bn128",
@@ -55,8 +54,6 @@ nightly_protocol_features = [
   "protocol_feature_routing_exchange_algorithm",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_function_call_weight",
-  "protocol_feature_chunk_nodes_cache",
 ]
 nightly_protocol = []
 deepsize_feature = [
