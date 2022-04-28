@@ -2,7 +2,6 @@
 pub use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
@@ -323,7 +322,6 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 
     // IbfMessage
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     IbfMessage {
         peer_id: PeerId,
         ibf_msg: RoutingSyncV2,

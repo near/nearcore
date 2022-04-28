@@ -22,7 +22,6 @@ use actix::{
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use anyhow::bail;
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use futures::FutureExt;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
@@ -1848,15 +1847,20 @@ impl PeerManagerActor {
 
                 NetworkResponses::NoResponse
             }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            NetworkRequests::IbfMessage { peer_id, ibf_msg } => match ibf_msg {
-                crate::network_protocol::RoutingSyncV2::Version2(ibf_msg) => {
-                    if let Some(addr) = self.connected_peers.get(&peer_id).map(|p| p.addr.clone()) {
-                        self.process_ibf_msg(&peer_id, ibf_msg, addr, throttle_controller)
+            NetworkRequests::IbfMessage { peer_id, ibf_msg } => {
+                if cfg!(feature = "protocol_feature_routing_exchange_algorithm") {
+                    match ibf_msg {
+                        crate::network_protocol::RoutingSyncV2::Version2(ibf_msg) => {
+                            if let Some(addr) =
+                                self.connected_peers.get(&peer_id).map(|p| p.addr.clone())
+                            {
+                                self.process_ibf_msg(&peer_id, ibf_msg, addr, throttle_controller)
+                            }
+                        }
                     }
-                    NetworkResponses::NoResponse
                 }
-            },
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
                 Self::broadcast_message(
@@ -2328,7 +2332,6 @@ impl PeerManagerActor {
         }
     }
 
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn process_ibf_msg(
         &self,
         peer_id: &PeerId,
