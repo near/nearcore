@@ -79,6 +79,9 @@ pub(crate) struct PeerActor {
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
+    /// PeerManager is a recipient of 2 types of messages, therefore
+    /// to inject a fake PeerManager in tests, we need a separate
+    /// recipient address for each message type.
     peer_manager_addr: Recipient<PeerManagerMessageRequest>,
     peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerManagerMessageRequest>>,
     /// Addr for client to send messages related to the chain.
@@ -623,7 +626,7 @@ impl PeerActor {
             return false;
         };
         let r = self.txns_since_last_block.load(Ordering::Acquire);
-        r >= MAX_TRANSACTIONS_PER_BLOCK_MESSAGE
+        r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE
     }
 }
 

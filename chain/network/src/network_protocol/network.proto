@@ -152,7 +152,7 @@ message LastEdge {
 // about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
   repeated Edge edges = 1;
-  // list of known NEAR accounts 
+  // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
 }
 
@@ -181,6 +181,8 @@ message PeersResponse {
 // Request to send back headers of the NEAR chain blocks.
 // Receiver finds in block_hashes the first hash of a block it knows about
 // and rends back BlockHeadersResponse with block headers following that block.
+// At most 512 block headers are returned:
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/client/src/sync.rs#L38
 // It might happen that the receiver doesn't know some of the hashes in the list
 // in the following cases:
 // - sender's view of the chain forked from the receiver's view of the chain

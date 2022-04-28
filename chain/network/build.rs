@@ -9,6 +9,11 @@ fn content_prefix(content: &str) -> String {
 
 fn main() -> std::io::Result<()> {
     // Generate code from proto, whenever proto files change.
+    // The generated code is checked into the repo, so that
+    // building near node doesn't have a dependency on protoc
+    // being installed locally.
+    // Ideally, during "cargo build" protoc should be rather build from source
+    // or a pre-compiled binary should be downloaded.
     // TODO: generalize to an arbitrary number of protos.
 
     // TODO: this is disgusting, generated code shouldn't be checked into git.

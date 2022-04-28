@@ -23,6 +23,16 @@ enum ClockInner<'a> {
     Fake(&'a FakeClock),
 }
 
+/// Clock encapsulates a system clock, allowing to replace it
+/// with a fake in tests.
+/// Since system clock is a source of external information,
+/// it has to be replaced with a fake double, if we want our
+/// tests to be deterministic.
+///
+/// This is a reimplementation of primitives/src/time.rs
+/// with a more systematic approach.
+/// TODO: add tests, put it is some reusable package and use
+/// throughout the nearcore codebase.
 pub struct Clock<'a>(ClockInner<'a>);
 
 impl<'a> Clock<'a> {
