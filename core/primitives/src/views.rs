@@ -917,7 +917,7 @@ impl From<Action> for ActionView {
 }
 
 impl TryFrom<ActionView> for Action {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
         Ok(match action_view {
@@ -1423,7 +1423,7 @@ impl From<Receipt> for ReceiptView {
 }
 
 impl TryFrom<ReceiptView> for Receipt {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
         Ok(Receipt {

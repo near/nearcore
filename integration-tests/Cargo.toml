@@ -48,6 +48,7 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
+near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
@@ -61,6 +62,7 @@ near-logger-utils = { path = "../test-utils/logger" }
 
 [dev-dependencies]
 assert_matches = "1.3"
+insta = "1"
 near-logger-utils = { path = "../test-utils/logger" }
 
 [features]

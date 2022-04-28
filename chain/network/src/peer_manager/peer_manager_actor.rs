@@ -1426,10 +1426,7 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                self.network_metrics.inc(
-                    NetworkMetrics::peer_message_dropped(strum::AsStaticRef::as_static(&msg.body))
-                        .as_str(),
-                );
+                metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
                 debug!(target: "network",
                       account_id = ?self.config.account_id,
@@ -1458,7 +1455,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT.inc();
+                metrics::MessageDropped::UnknownAccount.inc(&msg);
                 debug!(target: "network",
                        account_id = ?self.config.account_id,
                        to = ?account_id,
@@ -2270,7 +2267,7 @@ impl PeerManagerActor {
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
         let _d = delay_detector::DelayDetector::new(|| {
-            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into()
+            format!("routed message from {}", msg.msg.body.as_ref()).into()
         });
         let RoutedMessageFrom { mut msg, from } = msg;
 
