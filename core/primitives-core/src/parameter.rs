@@ -1,5 +1,15 @@
 /// Protocol configuration parameter which may change between protocol versions.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::IntoStaticStr, strum::EnumString)]
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Parameter {
     // Gas economics config

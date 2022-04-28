@@ -39,14 +39,12 @@ impl ParameterTable {
     }
 
     pub(crate) fn get<F: std::str::FromStr>(&self, key: Parameter) -> F {
-        let key_str: &'static str = key.into();
-        self.get_optional(key).unwrap_or_else(|| panic!("Missing parameter `{key_str}`"))
+        self.get_optional(key).unwrap_or_else(|| panic!("Missing parameter `{key}`"))
     }
 
     pub(crate) fn get_optional<F: std::str::FromStr>(&self, key: Parameter) -> Option<F> {
-        let key_str: &'static str = key.into();
         Some(self.params.get(&key)?.parse().unwrap_or_else(|_err| {
-            panic!("Could not parse parameter `{key_str}` as `{}`.", std::any::type_name::<F>())
+            panic!("Could not parse parameter `{key}` as `{}`.", std::any::type_name::<F>())
         }))
     }
 
