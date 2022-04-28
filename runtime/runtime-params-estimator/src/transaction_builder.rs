@@ -61,15 +61,15 @@ impl TransactionBuilder {
     pub(crate) fn account_insert_key(
         &mut self,
         account: AccountId,
-        key: &str,
-        value: &str,
+        key: &[u8],
+        value: &[u8],
     ) -> SignedTransaction {
         let arg = (key.len() as u64)
             .to_le_bytes()
             .into_iter()
-            .chain(key.bytes())
+            .chain(key.iter().cloned())
             .chain((value.len() as u64).to_le_bytes().into_iter())
-            .chain(value.bytes())
+            .chain(value.iter().cloned())
             .collect();
 
         self.transaction_from_function_call(account, "account_storage_insert_key", arg)
@@ -111,6 +111,11 @@ impl TransactionBuilder {
             }
         }
     }
+
+    pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
+        (0..len).map(|_| self.rng().gen()).collect()
+    }
+
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
         let nonce = self.nonces.entry(account_id.clone()).or_default();
         *nonce += 1;
