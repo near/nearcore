@@ -106,12 +106,11 @@ mod tests {
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageKeyLimit,
     };
     use near_primitives_core::hash::hash;
-    use near_primitives_core::parameter::load_parameters_from_txt;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
 
-    static OLD_CONFIGS: &[(ProtocolVersion, &[u8])] = &[
+    static OLD_CONFIGS: &[(ProtocolVersion, &str)] = &[
         (0, include_config!("legacy_configs/29.json")),
         (42, include_config!("legacy_configs/42.json")),
         (48, include_config!("legacy_configs/48.json")),
@@ -121,10 +120,10 @@ mod tests {
         (53, include_config!("legacy_configs/53.json")),
     ];
 
-    fn check_config(protocol_version: ProtocolVersion, config_bytes: &[u8]) {
+    fn check_config(protocol_version: ProtocolVersion, config_bytes: &str) {
         assert_eq!(
             RuntimeConfigStore::new(None).get_config(protocol_version).as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(config_bytes).unwrap()
+            &serde_json::from_str::<RuntimeConfig>(config_bytes).unwrap()
         );
     }
 
@@ -151,7 +150,7 @@ mod tests {
         ];
         let actual_hashes = std::iter::once(&(0, BASE_CONFIG))
             .chain(CONFIG_DIFFS)
-            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
+            .map(|(_protocol_version, config_str)| to_base(&hash(config_str.as_bytes())))
             .collect::<Vec<_>>();
         assert_eq!(
             expected_hashes, actual_hashes,
@@ -175,7 +174,7 @@ If you add a new config diff, add a missing hash to the end of `expected_hashes`
         ];
         let actual_hashes = OLD_CONFIGS
             .iter()
-            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
+            .map(|(_protocol_version, config_str)| to_base(&hash(config_str.as_bytes())))
             .collect::<Vec<_>>();
         assert_eq!(
             expected_hashes, actual_hashes,
@@ -252,14 +251,14 @@ Old config hashes changed. \n
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 0);
         assert_ne!(
             config.as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(OLD_CONFIGS[1].1).unwrap()
+            &serde_json::from_str::<RuntimeConfig>(OLD_CONFIGS[1].1).unwrap()
         );
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(OLD_CONFIGS[2].1).unwrap()
+            &serde_json::from_str::<RuntimeConfig>(OLD_CONFIGS[2].1).unwrap()
         );
     }
 
@@ -300,7 +299,7 @@ Old config hashes changed. \n
     fn test_old_and_new_runtime_config_format_match() {
         let old_configs = BTreeMap::from_iter(OLD_CONFIGS.iter().cloned().map(
             |(protocol_version, config_bytes)| {
-                (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
+                (protocol_version, Arc::new(serde_json::from_str(config_bytes).unwrap()))
             },
         ));
         let old_store = RuntimeConfigStore { store: old_configs };
@@ -310,11 +309,11 @@ Old config hashes changed. \n
 
         // Testnet initial config for old version was different, thus needs separate testing
         let old_genesis_runtime_config =
-            serde_json::from_slice(include_config!("legacy_configs/29_testnet.json")).unwrap();
+            serde_json::from_str(include_config!("legacy_configs/29_testnet.json")).unwrap();
         let old_testnet_store = RuntimeConfigStore::new(Some(&old_genesis_runtime_config));
 
         let new_genesis_runtime_config =
-            RuntimeConfig::from_parameters(&load_parameters_from_txt(INITIAL_TESTNET_CONFIG));
+            RuntimeConfig::from_parameters(&ParameterTable::from_txt(INITIAL_TESTNET_CONFIG));
         let new_testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
         check_store(old_testnet_store, new_testnet_store);
     }
