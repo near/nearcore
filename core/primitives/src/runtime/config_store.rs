@@ -1,23 +1,23 @@
 use crate::runtime::config::RuntimeConfig;
+use crate::runtime::parameter_table::ParameterTable;
 use crate::types::ProtocolVersion;
-use near_primitives_core::parameter::load_parameters_from_txt;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(concat!("../../res/runtime_configs/", $file))
+        include_str!(concat!("../../res/runtime_configs/", $file))
     };
 }
 
 /// The base config file with all initial parameter values defined.
 /// Later version are calculated by applying diffs to this base.
-static BASE_CONFIG: &[u8] = include_config!("parameters.txt");
+static BASE_CONFIG: &str = include_config!("parameters.txt");
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
-static CONFIG_DIFFS: &[(ProtocolVersion, &[u8])] = &[
+static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (42, include_config!("42.txt")),
     (48, include_config!("48.txt")),
     (49, include_config!("49.txt")),
@@ -30,7 +30,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &[u8])] = &[
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
-pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("parameters_testnet.txt");
+pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.txt");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -48,14 +48,14 @@ impl RuntimeConfigStore {
     /// runtime config by sequential modifications to the genesis runtime config.
     /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
-        let mut params = load_parameters_from_txt(BASE_CONFIG);
+        let mut params = ParameterTable::from_txt(BASE_CONFIG);
 
         let mut store = BTreeMap::new();
         store.insert(0, Arc::new(RuntimeConfig::from_parameters(&params)));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff = load_parameters_from_txt(diff_bytes);
-            params.extend(diff);
+            let diff = ParameterTable::from_txt(diff_bytes);
+            params.apply_diff(diff);
             store.insert(*protocol_version, Arc::new(RuntimeConfig::from_parameters(&params)));
         }
 

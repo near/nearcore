@@ -1,9 +1,3 @@
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, BufReader},
-    str::FromStr,
-};
-
 /// Protocol configuration parameter which may change between protocol versions.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::IntoStaticStr, strum::EnumString)]
 #[strum(serialize_all = "snake_case")]
@@ -163,40 +157,4 @@ pub enum Parameter {
     MaxFunctionsNumberPerContract,
     Wasmer2StackLimit,
     MaxLocalsPerContract,
-}
-
-pub fn load_parameters_from_txt(arg: &[u8]) -> BTreeMap<Parameter, String> {
-    let parameters = BufReader::new(arg).lines().filter_map(|line| {
-        let trimmed = line.unwrap().trim().to_owned();
-        if trimmed.starts_with("#") || trimmed.is_empty() {
-            None
-        } else {
-            let mut iter = trimmed.split(":");
-            let key_str = iter.next().unwrap().trim();
-            let typed_key = Parameter::from_str(key_str)
-                .unwrap_or_else(|_err| panic!("Unexpected parameter `{key_str}`."));
-            let value =
-                iter.next().expect("Parameter name and value must be separated by a ':'").trim();
-            Some((typed_key.to_owned(), value.to_owned()))
-        }
-    });
-    BTreeMap::from_iter(parameters)
-}
-
-pub fn read_parameter<F: std::str::FromStr>(
-    params: &BTreeMap<Parameter, String>,
-    key: Parameter,
-) -> F {
-    let key_str: &'static str = key.into();
-    read_optional_parameter(params, key).unwrap_or_else(|| panic!("Missing parameter `{key_str}`"))
-}
-
-pub fn read_optional_parameter<F: std::str::FromStr>(
-    params: &BTreeMap<Parameter, String>,
-    key: Parameter,
-) -> Option<F> {
-    let key_str: &'static str = key.into();
-    Some(params.get(&key)?.parse().unwrap_or_else(|_err| {
-        panic!("Could not parse parameter `{key_str}` as `{}`.", std::any::type_name::<F>())
-    }))
 }

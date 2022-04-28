@@ -1,11 +1,11 @@
 //! Settings of the parameters of the runtime.
-use std::collections::BTreeMap;
-
-use near_primitives_core::parameter::{load_parameters_from_txt, read_parameter, Parameter};
+use near_primitives_core::parameter::Parameter;
 use serde::{Deserialize, Serialize};
 
 use crate::config::VMConfig;
+use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
+use crate::runtime::parameter_table::{FromParameterTable, ParameterTable};
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 
@@ -26,17 +26,21 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub fn from_parameters(params: &BTreeMap<Parameter, String>) -> Self {
+    pub(crate) fn from_parameters(params: &ParameterTable) -> Self {
         Self {
-            storage_amount_per_byte: read_parameter(&params, Parameter::StorageAmountPerByte),
+            storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte),
             transaction_costs: RuntimeFeesConfig::from_parameters(&params),
             wasm_config: VMConfig::from_parameters(&params),
             account_creation_config: AccountCreationConfig::from_parameters(&params),
         }
     }
 
-    pub fn from_parameters_txt(txt_file: &[u8]) -> Self {
-        Self::from_parameters(&load_parameters_from_txt(txt_file))
+    pub fn initial_testnet_config() -> Self {
+        Self::from_parameters_txt(INITIAL_TESTNET_CONFIG)
+    }
+
+    pub fn from_parameters_txt(txt_file: &str) -> Self {
+        Self::from_parameters(&ParameterTable::from_txt(txt_file))
     }
 
     pub fn test() -> Self {
@@ -78,13 +82,11 @@ impl Default for AccountCreationConfig {
     }
 }
 impl AccountCreationConfig {
-    fn from_parameters(params: &BTreeMap<Parameter, String>) -> Self {
+    fn from_parameters(params: &ParameterTable) -> Self {
         Self {
-            min_allowed_top_level_account_length: read_parameter(
-                params,
-                Parameter::MinAllowedTopLevelAccountLength,
-            ),
-            registrar_account_id: read_parameter(params, Parameter::RegistrarAccountId),
+            min_allowed_top_level_account_length: params
+                .get(Parameter::MinAllowedTopLevelAccountLength),
+            registrar_account_id: params.get(Parameter::RegistrarAccountId),
         }
     }
 }
