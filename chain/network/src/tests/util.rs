@@ -39,12 +39,14 @@ impl<'a> Clock<'a> {
     pub fn real() -> Clock<'static> {
         Clock(ClockInner::Real)
     }
-    pub fn mono_now(&self) -> Instant {
+    /// current time according to the monotonic clock
+    pub fn now(&self) -> Instant {
         match self.0 {
             ClockInner::Real => Instant::now(),
-            ClockInner::Fake(fake) => fake.mono_now(),
+            ClockInner::Fake(fake) => fake.now(),
         }
     }
+    /// current time according to the system/walltime clock
     pub fn utc_now(&self) -> Utc {
         match self.0 {
             ClockInner::Real => chrono::Utc::now(),
@@ -62,7 +64,7 @@ impl FakeClock {
     pub fn new(utc: Utc) -> Self {
         Self { utc, mono: *FAKE_CLOCK_MONO_START }
     }
-    pub fn mono_now(&self) -> Instant {
+    pub fn now(&self) -> Instant {
         self.mono
     }
     pub fn utc_now(&self) -> Utc {

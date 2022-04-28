@@ -211,9 +211,7 @@ impl ChunkSet {
             0,                          // genesis_height
             PROTOCOL_VERSION,
         );
-        for c in &chunks {
-            self.chunks.insert(c.chunk_hash(), c.clone());
-        }
+        self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
     }
 }

@@ -1,9 +1,6 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
-use crate::stats::metrics::NetworkMetrics;
 use crate::tests::actix::ActixSystem;
 use crate::tests::data;
 use crate::types::{
@@ -11,30 +8,25 @@ use crate::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, RoutingTableUpdate,
 };
 use actix::{Actor, Context, Handler, StreamHandler as _};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey};
+use near_crypto::InMemorySigner;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEdgeInfo, PartialEncodedChunkResponseMsg, PeerInfo, PeerType, RawRoutedMessage,
-    RoutedMessage, RoutedMessageBody,
+    PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessage, RoutedMessageBody,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunkPart,
-    ReedSolomonWrapper, ShardChunk,
-};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
-use rand::Rng;
+
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time;
@@ -66,7 +58,6 @@ pub enum Response {
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
-    PeersRequest,
     PeersResponse(Vec<PeerInfo>),
     Transaction(SignedTransaction),
     Challenge(Challenge),
