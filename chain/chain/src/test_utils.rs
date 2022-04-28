@@ -8,7 +8,7 @@ use near_primitives::state_part::PartId;
 use num_rational::Rational;
 use tracing::debug;
 
-use near_chain_configs::ProtocolConfig;
+use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
@@ -42,11 +42,10 @@ use near_primitives::views::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{
-    ColBlockHeader, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges,
-    WrappedTrieChanges,
+    DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
@@ -208,7 +207,7 @@ impl KeyValueRuntime {
         if headers_cache.get(hash).is_some() {
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
-        if let Some(result) = self.store.get_ser(ColBlockHeader, hash.as_ref())? {
+        if let Some(result) = self.store.get_ser(DBCol::BlockHeader, hash.as_ref())? {
             headers_cache.insert(*hash, result);
             return Ok(Some(headers_cache.get(hash).unwrap().clone()));
         }
@@ -1043,12 +1042,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                 .unwrap_or_default()
                 .map(|h| h.height())
                 .unwrap_or_default();
-            block_height.saturating_sub(NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length)
+            block_height.saturating_sub(DEFAULT_GC_NUM_EPOCHS_TO_KEEP * self.epoch_length)
         /*  // TODO: use this version of the code instead - after we fix the block creation
             // issue in multiple tests.
-        // We have to return the first block of the epoch T-NUM_EPOCHS_TO_KEEP_STORE_DATA.
+        // We have to return the first block of the epoch T-DEFAULT_GC_NUM_EPOCHS_TO_KEEP.
         let mut current_header = self.get_block_header(block_hash).unwrap().unwrap();
-        for _ in 0..NUM_EPOCHS_TO_KEEP_STORE_DATA {
+        for _ in 0..DEFAULT_GC_NUM_EPOCHS_TO_KEEP {
             let last_block_of_prev_epoch = current_header.next_epoch_id();
             current_header =
                 self.get_block_header(&last_block_of_prev_epoch.0).unwrap().unwrap();
@@ -1336,7 +1335,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().clone().iter(ColBlockHeader) {
+    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

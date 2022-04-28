@@ -4,7 +4,7 @@ use crate::peer::utils;
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
-use crate::stats::metrics::{self, NetworkMetrics};
+use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
@@ -96,8 +96,6 @@ pub(crate) struct PeerActor {
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
     last_time_received_message_update: Instant,
-    /// Dynamic Prometheus metrics
-    network_metrics: Arc<NetworkMetrics>,
     /// How many transactions we have received since the last block message
     /// Note: Shared between multiple Peers.
     txns_since_last_block: Arc<AtomicUsize>,
@@ -128,7 +126,6 @@ impl PeerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         partial_edge_info: Option<PartialEdgeInfo>,
-        network_metrics: Arc<NetworkMetrics>,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
@@ -150,7 +147,6 @@ impl PeerActor {
             chain_info: Default::default(),
             partial_edge_info,
             last_time_received_message_update: Clock::instant(),
-            network_metrics,
             txns_since_last_block,
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
@@ -176,12 +172,7 @@ impl PeerActor {
                     let tid = near_rust_allocator_proxy::get_tid();
                     #[cfg(not(feature = "performance_stats"))]
                     let tid = 0;
-                    error!(
-                        "{} Failed to send message {} of size {}",
-                        tid,
-                        strum::AsStaticRef::as_static(msg),
-                        bytes_len,
-                    )
+                    error!("{} Failed to send message {} of size {}", tid, msg.as_ref(), bytes_len,)
                 }
             }
             Err(err) => error!(target: "network", "Error converting message to bytes: {}", err),
@@ -694,17 +685,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
         self.on_receive_message();
 
-        self.network_metrics
-            .inc(NetworkMetrics::peer_message_total_rx(peer_msg.msg_variant()).as_ref());
-
-        self.network_metrics.inc_by(
-            NetworkMetrics::peer_message_bytes_rx(peer_msg.msg_variant()).as_ref(),
-            msg.len() as u64,
-        );
-
-        metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-            .with_label_values(&[peer_msg.msg_variant()])
-            .inc();
+        {
+            let labels = [peer_msg.msg_variant()];
+            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
+                .with_label_values(&labels)
+                .inc_by(msg.len() as u64);
+        }
 
         match (self.peer_status, peer_msg) {
             (_, PeerMessage::HandshakeFailure(peer_info, reason)) => {

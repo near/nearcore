@@ -49,7 +49,7 @@ if __name__ == '__main__':
                 'block_id': get_block_id(args.block_id)
             }
         elif args.chunk_id is not None:
-            params = {'chunk_id': chunk_id}
+            params = {'chunk_id': args.chunk_id}
     else:
         assert False
 

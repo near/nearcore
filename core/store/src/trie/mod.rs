@@ -791,7 +791,7 @@ mod tests {
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
-    use crate::DBCol::ColState;
+    use crate::DBCol;
 
     use super::*;
 
@@ -1083,7 +1083,7 @@ mod tests {
                         .as_caching_storage()
                         .unwrap()
                         .store
-                        .iter(ColState)
+                        .iter(DBCol::State)
                         .peekable()
                         .peek()
                         .is_none(),
@@ -1187,9 +1187,9 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
-        store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
+        store.save_to_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
+        store2.load_from_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
         let tries2 = ShardTries::new(store2, 0, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");

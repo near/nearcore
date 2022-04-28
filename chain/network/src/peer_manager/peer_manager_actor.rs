@@ -877,7 +877,6 @@ impl PeerManagerActor {
             }
         };
 
-        let network_metrics = self.network_metrics.clone();
         let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
 
         // Start every peer actor on separate thread.
@@ -914,7 +913,6 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 partial_edge_info,
-                network_metrics,
                 txns_since_last_block,
                 peer_counter,
                 rate_limiter,
@@ -1144,7 +1142,7 @@ impl PeerManagerActor {
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
-    ///     
+    ///
     /// Safe set contruction process:
     /// 1. Add all whitelisted peers to the safe set.
     /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
@@ -1428,10 +1426,7 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                self.network_metrics.inc(
-                    NetworkMetrics::peer_message_dropped(strum::AsStaticRef::as_static(&msg.body))
-                        .as_str(),
-                );
+                metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
                 debug!(target: "network",
                       account_id = ?self.config.account_id,
@@ -1460,7 +1455,7 @@ impl PeerManagerActor {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::DROP_MESSAGE_UNKNOWN_ACCOUNT.inc();
+                metrics::MessageDropped::UnknownAccount.inc(&msg);
                 debug!(target: "network",
                        account_id = ?self.config.account_id,
                        to = ?account_id,
@@ -2272,7 +2267,7 @@ impl PeerManagerActor {
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
         let _d = delay_detector::DelayDetector::new(|| {
-            format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into()
+            format!("routed message from {}", msg.msg.body.as_ref()).into()
         });
         let RoutedMessageFrom { mut msg, from } = msg;
 
