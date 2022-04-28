@@ -21,6 +21,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use std::fmt;
+use thiserror::Error;
 
 pub use self::borsh::{
     PartialSync, RoutingState, RoutingSyncV2, RoutingTableUpdate, RoutingVersion2,
@@ -73,7 +74,7 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::AsStaticStr, strum::EnumVariantNames)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::AsRefStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
@@ -120,6 +121,18 @@ pub enum Encoding {
     Proto,
 }
 
+#[derive(Error, Debug)]
+pub enum ParsePeerMessageError {
+    #[error("BorshDecode")]
+    BorshDecode(std::io::Error),
+    #[error("BorshConv")]
+    BorshConv(borsh_conv::ParsePeerMessageError),
+    #[error("ProtoDecode")]
+    ProtoDecode(prost::DecodeError),
+    #[error("ProtoConv")]
+    ProtoConv(proto_conv::ParsePeerMessageError),
+}
+
 impl PeerMessage {
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
@@ -128,19 +141,26 @@ impl PeerMessage {
         }
     }
 
-    pub(crate) fn deserialize(enc: Encoding, data: &[u8]) -> anyhow::Result<PeerMessage> {
+    pub(crate) fn deserialize(
+        enc: Encoding,
+        data: &[u8],
+    ) -> Result<PeerMessage, ParsePeerMessageError> {
         Ok(match enc {
-            Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)?).try_into()?,
-            Encoding::Proto => (&proto::PeerMessage::decode(data)?).try_into()?,
+            Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)
+                .map_err(ParsePeerMessageError::BorshDecode)?)
+                .try_into()
+                .map_err(ParsePeerMessageError::BorshConv)?,
+            Encoding::Proto => (&proto::PeerMessage::decode(data)
+                .map_err(ParsePeerMessageError::ProtoDecode)?)
+                .try_into()
+                .map_err(ParsePeerMessageError::ProtoConv)?,
         })
     }
 
     pub(crate) fn msg_variant(&self) -> &str {
         match self {
-            PeerMessage::Routed(routed_message) => {
-                strum::AsStaticRef::as_static(&routed_message.body)
-            }
-            _ => strum::AsStaticRef::as_static(self),
+            PeerMessage::Routed(routed_message) => routed_message.body.as_ref(),
+            _ => self.as_ref(),
         }
     }
 

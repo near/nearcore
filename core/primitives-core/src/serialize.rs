@@ -37,9 +37,13 @@ where
     }
 }
 
+<<<<<<< HEAD
 pub trait BaseDecode:
     for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error + Send + Sync>>
 {
+=======
+pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error + Send + Sync>> {
+>>>>>>> 1fc80d726 (migrated to thiserror)
     fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = from_base(s)?;
         Self::try_from(&bytes)

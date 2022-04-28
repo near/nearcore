@@ -4,7 +4,6 @@ use crate::network_protocol::proto::peer_message::MessageType as ProtoMT;
 use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PeerMessage, RoutingSyncV2, RoutingTableUpdate,
 };
-use anyhow::{bail, Context};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
@@ -16,19 +15,38 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
+use thiserror::Error;
 
-fn try_from_vec<'a, X, Y: TryFrom<&'a X>>(xs: &'a Vec<X>) -> Result<Vec<Y>, Y::Error> {
+#[derive(Error, Debug)]
+#[error("[{idx}]: {source}")]
+pub struct ParseVecError<E> {
+    idx: usize,
+    #[source]
+    source: E,
+}
+
+fn try_from_vec<'a, X, Y: TryFrom<&'a X>>(
+    xs: &'a Vec<X>,
+) -> Result<Vec<Y>, ParseVecError<Y::Error>> {
     let mut ys = vec![];
-    for x in xs {
-        ys.push(x.try_into()?);
+    for (idx, x) in xs.iter().enumerate() {
+        ys.push(x.try_into().map_err(|source| ParseVecError { idx, source })?);
     }
     Ok(ys)
 }
 
-fn try_from_required<'a, X, Y: TryFrom<&'a X, Error = anyhow::Error>>(
+#[derive(Error, Debug)]
+pub enum ParseRequiredError<E> {
+    #[error("missing, while required")]
+    Missing,
+    #[error(transparent)]
+    Other(E),
+}
+
+fn try_from_required<'a, X, Y: TryFrom<&'a X>>(
     x: &'a Option<X>,
-) -> anyhow::Result<Y> {
-    x.as_ref().context("missing")?.try_into()
+) -> Result<Y, ParseRequiredError<Y::Error>> {
+    x.as_ref().ok_or(ParseRequiredError::Missing)?.try_into().map_err(ParseRequiredError::Other)
 }
 
 impl From<&CryptoHash> for proto::CryptoHash {
@@ -37,10 +55,12 @@ impl From<&CryptoHash> for proto::CryptoHash {
     }
 }
 
+pub type ParseCryptoHashError = Box<dyn std::error::Error + Send + Sync>;
+
 impl TryFrom<&proto::CryptoHash> for CryptoHash {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::CryptoHash) -> anyhow::Result<Self> {
-        CryptoHash::try_from(&p.hash[..]).map_err(|err| anyhow::Error::msg(err.to_string()))
+    type Error = ParseCryptoHashError;
+    fn try_from(p: &proto::CryptoHash) -> Result<Self, Self::Error> {
+        CryptoHash::try_from(&p.hash[..])
     }
 }
 
@@ -52,10 +72,19 @@ impl From<&GenesisId> for proto::GenesisId {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParseGenesisIdError {
+    #[error("hash: {0}")]
+    Hash(ParseRequiredError<ParseCryptoHashError>),
+}
+
 impl TryFrom<&proto::GenesisId> for GenesisId {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::GenesisId) -> anyhow::Result<Self> {
-        Ok(Self { chain_id: p.chain_id.clone(), hash: try_from_required(&p.hash).context("hash")? })
+    type Error = ParseGenesisIdError;
+    fn try_from(p: &proto::GenesisId) -> Result<Self, Self::Error> {
+        Ok(Self {
+            chain_id: p.chain_id.clone(),
+            hash: try_from_required(&p.hash).map_err(Self::Error::Hash)?,
+        })
     }
 }
 
@@ -72,11 +101,17 @@ impl From<&PeerChainInfoV2> for proto::PeerChainInfo {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParsePeerChainInfoV2Error {
+    #[error("genesis_id {0}")]
+    GenesisId(ParseRequiredError<ParseGenesisIdError>),
+}
+
 impl TryFrom<&proto::PeerChainInfo> for PeerChainInfoV2 {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::PeerChainInfo) -> anyhow::Result<Self> {
+    type Error = ParsePeerChainInfoV2Error;
+    fn try_from(p: &proto::PeerChainInfo) -> Result<Self, Self::Error> {
         Ok(Self {
-            genesis_id: try_from_required(&p.genesis_id).context("genesis_id")?,
+            genesis_id: try_from_required(&p.genesis_id).map_err(Self::Error::GenesisId)?,
             height: p.height,
             tracked_shards: p.tracked_shards.clone(),
             archival: p.archival,
@@ -92,10 +127,12 @@ impl From<&PeerId> for proto::PublicKey {
     }
 }
 
+pub type ParsePeerIdError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::PublicKey> for PeerId {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::PublicKey) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&p.borsh)?)
+    type Error = ParsePeerIdError;
+    fn try_from(p: &proto::PublicKey) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&p.borsh)
     }
 }
 
@@ -107,10 +144,12 @@ impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     }
 }
 
+pub type ParsePartialEdgeInfoError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::PartialEdgeInfo) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&p.borsh)?)
+    type Error = ParsePartialEdgeInfoError;
+    fn try_from(p: &proto::PartialEdgeInfo) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&p.borsh)
     }
 }
 
@@ -122,10 +161,12 @@ impl From<&PeerInfo> for proto::PeerInfo {
     }
 }
 
+pub type ParsePeerInfoError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::PeerInfo> for PeerInfo {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::PeerInfo) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&x.borsh)?)
+    type Error = ParsePeerInfoError;
+    fn try_from(x: &proto::PeerInfo) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
     }
 }
 
@@ -145,16 +186,33 @@ impl From<&Handshake> for proto::Handshake {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParseHandshakeError {
+    #[error("sender_peer_id {0}")]
+    SenderPeerId(ParseRequiredError<ParsePeerIdError>),
+    #[error("target_peer_id {0}")]
+    TargetPeerId(ParseRequiredError<ParsePeerIdError>),
+    #[error("sender_listen_port {0}")]
+    SenderListenPort(std::num::TryFromIntError),
+    #[error("sender_chain_info {0}")]
+    SenderChainInfo(ParseRequiredError<ParsePeerChainInfoV2Error>),
+    #[error("partial_edge_info {0}")]
+    PartialEdgeInfo(ParseRequiredError<ParsePartialEdgeInfoError>),
+}
+
 impl TryFrom<&proto::Handshake> for Handshake {
-    type Error = anyhow::Error;
-    fn try_from(p: &proto::Handshake) -> anyhow::Result<Self> {
+    type Error = ParseHandshakeError;
+    fn try_from(p: &proto::Handshake) -> Result<Self, Self::Error> {
         Ok(Self {
             protocol_version: p.protocol_version,
             oldest_supported_version: p.oldest_supported_version,
-            sender_peer_id: try_from_required(&p.sender_peer_id).context("sender_peer_id")?,
-            target_peer_id: try_from_required(&p.target_peer_id).context("target_peer_id")?,
+            sender_peer_id: try_from_required(&p.sender_peer_id)
+                .map_err(Self::Error::SenderPeerId)?,
+            target_peer_id: try_from_required(&p.target_peer_id)
+                .map_err(Self::Error::TargetPeerId)?,
             sender_listen_port: {
-                let port = u16::try_from(p.sender_listen_port).context("sender_listen_port")?;
+                let port =
+                    u16::try_from(p.sender_listen_port).map_err(Self::Error::SenderListenPort)?;
                 if port == 0 {
                     None
                 } else {
@@ -162,9 +220,9 @@ impl TryFrom<&proto::Handshake> for Handshake {
                 }
             },
             sender_chain_info: try_from_required(&p.sender_chain_info)
-                .context("sender_chain_info")?,
+                .map_err(Self::Error::SenderChainInfo)?,
             partial_edge_info: try_from_required(&p.partial_edge_info)
-                .context("partial_edge_info")?,
+                .map_err(Self::Error::PartialEdgeInfo)?,
         })
     }
 }
@@ -199,28 +257,39 @@ impl From<(&PeerInfo, &HandshakeFailureReason)> for proto::HandshakeFailure {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParseHandshakeFailureError {
+    #[error("peer_info: {0}")]
+    PeerInfo(ParseRequiredError<ParsePeerInfoError>),
+    #[error("genesis_id: {0}")]
+    GenesisId(ParseRequiredError<ParseGenesisIdError>),
+    #[error("reason: unknown")]
+    UnknownReason,
+}
+
 impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::HandshakeFailure) -> anyhow::Result<Self> {
-        let pi = try_from_required(&x.peer_info).context("peer_info")?;
-        let hfr =
-            match proto::handshake_failure::Reason::from_i32(x.reason).context("unknown reason")? {
-                proto::handshake_failure::Reason::ProtocolVersionMismatch => {
-                    HandshakeFailureReason::ProtocolVersionMismatch {
-                        version: x.version,
-                        oldest_supported_version: x.oldest_supported_version,
-                    }
+    type Error = ParseHandshakeFailureError;
+    fn try_from(x: &proto::HandshakeFailure) -> Result<Self, Self::Error> {
+        let pi = try_from_required(&x.peer_info).map_err(Self::Error::PeerInfo)?;
+        let hfr = match proto::handshake_failure::Reason::from_i32(x.reason)
+            .unwrap_or(proto::handshake_failure::Reason::Unknown)
+        {
+            proto::handshake_failure::Reason::ProtocolVersionMismatch => {
+                HandshakeFailureReason::ProtocolVersionMismatch {
+                    version: x.version,
+                    oldest_supported_version: x.oldest_supported_version,
                 }
-                proto::handshake_failure::Reason::GenesisMismatch => {
-                    HandshakeFailureReason::GenesisMismatch(
-                        try_from_required(&x.genesis_id).context("genesis_id")?,
-                    )
-                }
-                proto::handshake_failure::Reason::InvalidTarget => {
-                    HandshakeFailureReason::InvalidTarget
-                }
-                proto::handshake_failure::Reason::Unknown => bail!("unknown reason"),
-            };
+            }
+            proto::handshake_failure::Reason::GenesisMismatch => {
+                HandshakeFailureReason::GenesisMismatch(
+                    try_from_required(&x.genesis_id).map_err(Self::Error::GenesisId)?,
+                )
+            }
+            proto::handshake_failure::Reason::InvalidTarget => {
+                HandshakeFailureReason::InvalidTarget
+            }
+            proto::handshake_failure::Reason::Unknown => return Err(Self::Error::UnknownReason),
+        };
         Ok((pi, hfr))
     }
 }
@@ -233,10 +302,12 @@ impl From<&Edge> for proto::Edge {
     }
 }
 
+pub type ParseEdgeError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::Edge> for Edge {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::Edge) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&x.borsh)?)
+    type Error = ParseEdgeError;
+    fn try_from(x: &proto::Edge) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
     }
 }
 
@@ -248,10 +319,12 @@ impl From<&AnnounceAccount> for proto::AnnounceAccount {
     }
 }
 
+pub type ParseAnnounceAccountError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::AnnounceAccount> for AnnounceAccount {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::AnnounceAccount) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&x.borsh)?)
+    type Error = ParseAnnounceAccountError;
+    fn try_from(x: &proto::AnnounceAccount) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
     }
 }
 
@@ -266,12 +339,20 @@ impl From<&RoutingTableUpdate> for proto::RoutingTableUpdate {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParseRoutingTableUpdateError {
+    #[error("edges {0}")]
+    Edges(ParseVecError<ParseEdgeError>),
+    #[error("accounts {0}")]
+    Accounts(ParseVecError<ParseAnnounceAccountError>),
+}
+
 impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::RoutingTableUpdate) -> anyhow::Result<Self> {
+    type Error = ParseRoutingTableUpdateError;
+    fn try_from(x: &proto::RoutingTableUpdate) -> Result<Self, Self::Error> {
         Ok(Self {
-            edges: try_from_vec(&x.edges).context("edges")?,
-            accounts: try_from_vec(&x.accounts).context("accounts")?,
+            edges: try_from_vec(&x.edges).map_err(Self::Error::Edges)?,
+            accounts: try_from_vec(&x.accounts).map_err(Self::Error::Accounts)?,
         })
     }
 }
@@ -284,10 +365,12 @@ impl From<&BlockHeader> for proto::BlockHeader {
     }
 }
 
+pub type ParseBlockHeaderError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::BlockHeader> for BlockHeader {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::BlockHeader) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&x.borsh)?)
+    type Error = ParseBlockHeaderError;
+    fn try_from(x: &proto::BlockHeader) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
     }
 }
 
@@ -299,10 +382,12 @@ impl From<&Block> for proto::Block {
     }
 }
 
+pub type ParseBlockError = borsh::maybestd::io::Error;
+
 impl TryFrom<&proto::Block> for Block {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::Block) -> anyhow::Result<Self> {
-        Ok(Self::try_from_slice(&x.borsh)?)
+    type Error = ParseBlockError;
+    fn try_from(x: &proto::Block) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
     }
 }
 
@@ -390,72 +475,129 @@ impl From<&PeerMessage> for proto::PeerMessage {
     }
 }
 
+pub type ParseTransactionError = borsh::maybestd::io::Error;
+pub type ParseRoutedError = borsh::maybestd::io::Error;
+pub type ParseChallengeError = borsh::maybestd::io::Error;
+pub type ParseEpochSyncResponseError = borsh::maybestd::io::Error;
+pub type ParseEpochSyncFinalizationResponseError = borsh::maybestd::io::Error;
+pub type ParseRoutingTableSyncV2Error = borsh::maybestd::io::Error;
+
+#[derive(Error, Debug)]
+pub enum ParsePeerMessageError {
+    #[error("empty message")]
+    Empty,
+    #[error("handshake: {0}")]
+    Handshake(ParseHandshakeError),
+    #[error("handshake_failure: {0}")]
+    HandshakeFailure(ParseHandshakeFailureError),
+    #[error("last_edge: {0}")]
+    LastEdge(ParseRequiredError<ParseEdgeError>),
+    #[error("sync_routing_table: {0}")]
+    SyncRoutingTable(ParseRoutingTableUpdateError),
+    #[error("update_nonce_requrest: {0}")]
+    UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
+    #[error("update_nonce_response: {0}")]
+    UpdateNonceResponse(ParseRequiredError<ParseEdgeError>),
+    #[error("peers_response: {0}")]
+    PeersResponse(ParseVecError<ParsePeerInfoError>),
+    #[error("block_headers_request: {0}")]
+    BlockHeadersRequest(ParseVecError<ParseCryptoHashError>),
+    #[error("block_headers_response: {0}")]
+    BlockHeadersResponse(ParseVecError<ParseBlockHeaderError>),
+    #[error("block_request: {0}")]
+    BlockRequest(ParseRequiredError<ParseCryptoHashError>),
+    #[error("block_response: {0}")]
+    BlockResponse(ParseRequiredError<ParseBlockError>),
+    #[error("transaction: {0}")]
+    Transaction(ParseTransactionError),
+    #[error("routed: {0}")]
+    Routed(ParseRoutedError),
+    #[error("challenge: {0}")]
+    Challenge(ParseChallengeError),
+    #[error("epoch_sync_request: {0}")]
+    EpochSyncRequest(ParseRequiredError<ParseCryptoHashError>),
+    #[error("epoch_sync_response: {0}")]
+    EpochSyncResponse(ParseEpochSyncResponseError),
+    #[error("epoch_sync_finalization_request: {0}")]
+    EpochSyncFinalizationRequest(ParseRequiredError<ParseCryptoHashError>),
+    #[error("epoch_sync_finalization_response: {0}")]
+    EpochSyncFinalizationResponse(ParseEpochSyncFinalizationResponseError),
+    #[error("routing_table_sync_v2")]
+    RoutingTableSyncV2(ParseRoutingTableSyncV2Error),
+}
+
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
-    type Error = anyhow::Error;
-    fn try_from(x: &proto::PeerMessage) -> anyhow::Result<Self> {
-        Ok(match x.message_type.as_ref().context("empty or unknown")? {
-            ProtoMT::Handshake(h) => PeerMessage::Handshake(h.try_into().context("Handshake")?),
+    type Error = ParsePeerMessageError;
+    fn try_from(x: &proto::PeerMessage) -> Result<Self, Self::Error> {
+        Ok(match x.message_type.as_ref().ok_or(Self::Error::Empty)? {
+            ProtoMT::Handshake(h) => {
+                PeerMessage::Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+            }
             ProtoMT::HandshakeFailure(hf) => {
-                let (pi, hfr) = hf.try_into().context("HandshakeFailure")?;
+                let (pi, hfr) = hf.try_into().map_err(Self::Error::HandshakeFailure)?;
                 PeerMessage::HandshakeFailure(pi, hfr)
             }
             ProtoMT::LastEdge(le) => {
-                PeerMessage::LastEdge(try_from_required(&le.edge).context("LastEdge")?)
+                PeerMessage::LastEdge(try_from_required(&le.edge).map_err(Self::Error::LastEdge)?)
             }
-            ProtoMT::SyncRoutingTable(rtu) => {
-                PeerMessage::SyncRoutingTable(rtu.try_into().context("SyncRoutingTable")?)
-            }
+            ProtoMT::SyncRoutingTable(rtu) => PeerMessage::SyncRoutingTable(
+                rtu.try_into().map_err(Self::Error::SyncRoutingTable)?,
+            ),
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
-                try_from_required(&unr.partial_edge_info).context("UpdateNonceRequest")?,
+                try_from_required(&unr.partial_edge_info)
+                    .map_err(Self::Error::UpdateNonceRequest)?,
             ),
             ProtoMT::UpdateNonceResponse(unr) => PeerMessage::ResponseUpdateNonce(
-                try_from_required(&unr.edge).context("UpdateNonceResponse")?,
+                try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
             ),
             ProtoMT::PeersRequest(_) => PeerMessage::PeersRequest,
-            ProtoMT::PeersResponse(pr) => {
-                PeerMessage::PeersResponse(try_from_vec(&pr.peers).context("PeersResponse")?)
-            }
+            ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(
+                try_from_vec(&pr.peers).map_err(Self::Error::PeersResponse)?,
+            ),
             ProtoMT::BlockHeadersRequest(bhr) => PeerMessage::BlockHeadersRequest(
-                try_from_vec(&bhr.block_hashes).context("BlockHeadersRequest")?,
+                try_from_vec(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,
             ),
             ProtoMT::BlockHeadersResponse(bhr) => PeerMessage::BlockHeaders(
-                try_from_vec(&bhr.block_headers).context("BlockHeadersResponse")?,
+                try_from_vec(&bhr.block_headers).map_err(Self::Error::BlockHeadersResponse)?,
             ),
             ProtoMT::BlockRequest(br) => PeerMessage::BlockRequest(
-                try_from_required(&br.block_hash).context("BlockRequest")?,
+                try_from_required(&br.block_hash).map_err(Self::Error::BlockRequest)?,
             ),
-            ProtoMT::BlockResponse(br) => {
-                PeerMessage::Block(try_from_required(&br.block).context("BlockResponse")?)
-            }
+            ProtoMT::BlockResponse(br) => PeerMessage::Block(
+                try_from_required(&br.block).map_err(Self::Error::BlockResponse)?,
+            ),
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
-                SignedTransaction::try_from_slice(&t.borsh).context("Transaction")?,
+                SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
             ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(
-                RoutedMessage::try_from_slice(&r.borsh).context("Routed")?,
+                RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
             )),
             ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
-            ProtoMT::Challenge(c) => {
-                PeerMessage::Challenge(Challenge::try_from_slice(&c.borsh).context("Challenge")?)
-            }
+            ProtoMT::Challenge(c) => PeerMessage::Challenge(
+                Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
+            ),
             ProtoMT::EpochSyncRequest(esr) => PeerMessage::EpochSyncRequest(EpochId(
-                try_from_required(&esr.epoch_id).context("EpochSyncRequest")?,
+                try_from_required(&esr.epoch_id).map_err(Self::Error::EpochSyncRequest)?,
             )),
             ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(Box::new(
-                EpochSyncResponse::try_from_slice(&esr.borsh).context("EpochSyncResponse")?,
+                EpochSyncResponse::try_from_slice(&esr.borsh)
+                    .map_err(Self::Error::EpochSyncResponse)?,
             )),
             ProtoMT::EpochSyncFinalizationRequest(esr) => {
                 PeerMessage::EpochSyncFinalizationRequest(EpochId(
-                    try_from_required(&esr.epoch_id).context("EpochSyncFinalizationRequest")?,
+                    try_from_required(&esr.epoch_id)
+                        .map_err(Self::Error::EpochSyncFinalizationRequest)?,
                 ))
             }
             ProtoMT::EpochSyncFinalizationResponse(esr) => {
                 PeerMessage::EpochSyncFinalizationResponse(Box::new(
                     EpochSyncFinalizationResponse::try_from_slice(&esr.borsh)
-                        .context("EpochSyncFinalizationResponse")?,
+                        .map_err(Self::Error::EpochSyncFinalizationResponse)?,
                 ))
             }
             ProtoMT::RoutingTableSyncV2(rts) => PeerMessage::RoutingTableSyncV2(
-                RoutingSyncV2::try_from_slice(&rts.borsh).context("RoutingTableSyncV2")?,
+                RoutingSyncV2::try_from_slice(&rts.borsh)
+                    .map_err(Self::Error::RoutingTableSyncV2)?,
             ),
         })
     }

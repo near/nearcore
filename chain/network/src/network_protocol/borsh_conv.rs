@@ -1,7 +1,7 @@
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh as net;
-use anyhow::bail;
+use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {
     fn from(x: &net::Handshake) -> Self {
@@ -75,13 +75,19 @@ impl From<&mem::HandshakeFailureReason> for net::HandshakeFailureReason {
 
 //////////////////////////////////////////
 
+#[derive(Error, Debug)]
+pub enum ParsePeerMessageError {
+    #[error("HandshakeV2 is deprecated")]
+    DeprecatedHandshakeV2,
+}
+
 impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
-    type Error = anyhow::Error;
-    fn try_from(x: &net::PeerMessage) -> anyhow::Result<Self> {
+    type Error = ParsePeerMessageError;
+    fn try_from(x: &net::PeerMessage) -> Result<Self, Self::Error> {
         Ok(match x.clone() {
-            net::PeerMessage::Handshake(h) => mem::PeerMessage::Handshake((&h).try_into()?),
+            net::PeerMessage::Handshake(h) => mem::PeerMessage::Handshake((&h).into()),
             net::PeerMessage::HandshakeFailure(pi, hfr) => {
-                mem::PeerMessage::HandshakeFailure(pi, (&hfr).try_into()?)
+                mem::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
             net::PeerMessage::LastEdge(e) => mem::PeerMessage::LastEdge(e),
             net::PeerMessage::SyncRoutingTable(rtu) => mem::PeerMessage::SyncRoutingTable(rtu),
@@ -99,7 +105,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(r),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
-            net::PeerMessage::_HandshakeV2 => bail!("HandshakeV2 is deprecated"),
+            net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
             net::PeerMessage::EpochSyncRequest(epoch_id) => {
                 mem::PeerMessage::EpochSyncRequest(epoch_id)
             }

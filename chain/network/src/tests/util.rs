@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use once_cell::sync::Lazy;
 
 // TODO: consider wrapping these types to prevent interaction with

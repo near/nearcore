@@ -1,3 +1,4 @@
+use crate::network_protocol::{Encoding, ParsePeerMessageError};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::private_actix::{
@@ -42,6 +43,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -106,13 +108,22 @@ pub(crate) struct PeerActor {
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
     /// a given encoding right away.
-    force_encoding: Option<crate::network_protocol::Encoding>,
+    force_encoding: Option<Encoding>,
 }
 
 impl Debug for PeerActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{:?}", self.my_node_info)
     }
+}
+
+/// A custom IOError type because FramedWrite is hiding the actual
+/// underlying std::io::Error.
+/// TODO: replace FramedWrite with sth more reasonable.
+#[derive(Error, Debug)]
+pub enum IOError {
+    #[error("{tid} Failed to send message {message_type} of size {size}")]
+    Send { tid: i32, message_type: String, size: usize },
 }
 
 impl PeerActor {
@@ -132,7 +143,7 @@ impl PeerActor {
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
-        force_encoding: Option<crate::network_protocol::Encoding>,
+        force_encoding: Option<Encoding>,
     ) -> Self {
         PeerActor {
             my_node_info,
@@ -161,17 +172,16 @@ impl PeerActor {
         }
     }
 
-    fn parse_message(&mut self, msg: &[u8]) -> anyhow::Result<PeerMessage> {
+    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
         if let Some(e) = self.force_encoding {
             return PeerMessage::deserialize(e, msg);
         }
         if self.peer_status == PeerStatus::Connecting {
-            if let Ok(msg) = PeerMessage::deserialize(crate::network_protocol::Encoding::Proto, msg)
-            {
+            if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
                 self.protocol_buffers_supported = true;
                 return Ok(msg);
             }
-            match PeerMessage::deserialize(crate::network_protocol::Encoding::Borsh, msg) {
+            match PeerMessage::deserialize(Encoding::Borsh, msg) {
                 Ok(msg) => Ok(msg),
                 Err(err) => {
                     self.send_message_or_log(&PeerMessage::HandshakeFailure(
@@ -185,29 +195,29 @@ impl PeerActor {
                 }
             }
         } else if self.protocol_buffers_supported {
-            PeerMessage::deserialize(crate::network_protocol::Encoding::Proto, msg)
+            PeerMessage::deserialize(Encoding::Proto, msg)
         } else {
-            PeerMessage::deserialize(crate::network_protocol::Encoding::Borsh, msg)
+            PeerMessage::deserialize(Encoding::Borsh, msg)
         }
     }
 
     fn send_message_or_log(&mut self, msg: &PeerMessage) {
         if let Err(err) = self.send_message(msg) {
-            debug!(target: "network", "send_message(): {}", err);
+            warn!(target: "network", "send_message(): {}", err);
         }
     }
 
-    fn send_message(&mut self, msg: &PeerMessage) -> anyhow::Result<()> {
+    fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
         if let Some(enc) = self.force_encoding {
             return self.send_message_with_encoding(msg, enc);
         }
         if self.peer_status == PeerStatus::Connecting {
-            self.send_message_with_encoding(msg, crate::network_protocol::Encoding::Proto)?;
-            self.send_message_with_encoding(msg, crate::network_protocol::Encoding::Borsh)?;
+            self.send_message_with_encoding(msg, Encoding::Proto)?;
+            self.send_message_with_encoding(msg, Encoding::Borsh)?;
         } else if self.protocol_buffers_supported {
-            self.send_message_with_encoding(msg, crate::network_protocol::Encoding::Proto)?;
+            self.send_message_with_encoding(msg, Encoding::Proto)?;
         } else {
-            self.send_message_with_encoding(msg, crate::network_protocol::Encoding::Borsh)?;
+            self.send_message_with_encoding(msg, Encoding::Borsh)?;
         }
         Ok(())
     }
@@ -215,8 +225,8 @@ impl PeerActor {
     fn send_message_with_encoding(
         &mut self,
         msg: &PeerMessage,
-        mode: crate::network_protocol::Encoding,
-    ) -> anyhow::Result<()> {
+        enc: Encoding,
+    ) -> Result<(), IOError> {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -225,7 +235,7 @@ impl PeerActor {
             _ => (),
         };
 
-        let bytes = msg.serialize(mode);
+        let bytes = msg.serialize(enc);
         self.tracker.increment_sent(bytes.len() as u64);
         let bytes_len = bytes.len();
         if !self.framed.write(bytes) {
@@ -233,12 +243,11 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            anyhow::bail!(
-                "{} Failed to send message {} of size {}",
+            return Err(IOError::Send {
                 tid,
-                msg.as_ref(),
-                bytes_len,
-            )
+                message_type: msg.as_ref().to_string(),
+                size: bytes_len,
+            });
         }
         Ok(())
     }

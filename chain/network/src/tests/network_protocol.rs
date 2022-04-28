@@ -80,6 +80,15 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         }
     }
 
+    // Test the unambiguous parsing argument described in
+    // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit#heading=h.x1awbr2acslb
+    for m in &msgs {
+        let x = m.serialize(Encoding::Proto);
+        assert!(x[0] >= 32, "serialize({},PROTO)[0] = {:?}, want >= 32", m, x.get(0));
+        let y = m.serialize(Encoding::Borsh);
+        assert!(y[0] <= 21, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
+    }
+
     // Encodings should never be compatible.
     for (from, to) in [(Encoding::Proto, Encoding::Borsh), (Encoding::Borsh, Encoding::Proto)] {
         for m in &msgs {

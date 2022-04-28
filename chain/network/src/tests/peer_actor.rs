@@ -103,7 +103,7 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for FakeActor {
 impl Handler<NetworkViewClientMessages> for FakeActor {
     type Result = NetworkViewClientResponses;
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
-        println!("{}: view client message {}", self.cfg.id(), strum::AsStaticRef::as_static(&msg));
+        println!("{}: view client message {}", self.cfg.id(),Into::<&'static str>::into(&msg));
         match msg {
             NetworkViewClientMessages::GetChainInfo => {
                 let ci = self.cfg.chain.get_info();
@@ -138,7 +138,7 @@ impl Handler<NetworkViewClientMessages> for FakeActor {
 impl Handler<NetworkClientMessages> for FakeActor {
     type Result = NetworkClientResponses;
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Self::Context) -> Self::Result {
-        println!("{}: client message {}", self.cfg.id(), strum::AsStaticRef::as_static(&msg));
+        println!("{}: client message {}", self.cfg.id(), Into::<&'static str>::into(&msg));
         let mut resp = NetworkClientResponses::NoResponse;
         match msg {
             NetworkClientMessages::Block(b, _, _) => {
