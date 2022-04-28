@@ -1,0 +1,44 @@
+[package]
+name = "mock_node"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.60.0"
+edition = "2021"
+
+[[bin]]
+path = "src/main.rs"
+name = "start_mock_node"
+
+[dependencies]
+actix = "0.13.0"
+actix-rt = "2"
+anyhow = "1.0.55"
+clap = { version = "3.1.6", features = ["derive"] }
+futures = "0.3"
+rand = "0.7"
+rayon = "1.5"
+regex = "1"
+tempfile = "3"
+tracing = "0.1.13"
+
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-chain = { path = "../../chain/chain" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-client = { path = "../../chain/client" }
+near-crypto = { path = "../../core/crypto" }
+near-epoch-manager = { path = "../../chain/epoch_manager"}
+near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-network = { path = "../../chain/network" }
+near-network-primitives = { path = "../../chain/network-primitives" }
+near-store = { path = "../../core/store" }
+near-telemetry = { path = "../../chain/telemetry" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-primitives = { path = "../../core/primitives" }
+near-logger-utils = { path = "../../test-utils/logger" }
+nearcore = { path = "../../nearcore" }
+
+[features]
+default = ["mock_node"]
+mock_node = ["near-chain/mock_node", "near-epoch-manager/mock_node"]

@@ -1,7 +1,6 @@
-use crate::mock_network::MockPeerManagerActor;
+use crate::MockPeerManagerActor;
 use actix::{Actor, Addr, Arbiter, Recipient};
 use anyhow::Context;
-#[cfg(feature = "mock_network")]
 use near_chain::ChainStoreUpdate;
 use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
@@ -10,7 +9,6 @@ use near_chain_configs::GenesisConfig;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-#[cfg(feature = "mock_network")]
 use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
@@ -117,7 +115,7 @@ impl FromStr for MockNetworkMode {
         }
     }
 }
-/// Setup up a mock network environment, including setting up
+/// Setup up a mock node, including setting up
 /// a MockPeerManagerActor and a ClientActor and a ViewClientActor
 /// `client_home_dir`: home dir for the new client
 /// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
@@ -129,7 +127,7 @@ impl FromStr for MockNetworkMode {
 /// `target_height`: height that the simulated peers will produce blocks until. If None, will
 ///                  use the height from the chain head in storage
 /// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
-pub fn setup_mock_network(
+pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: NearConfig,
@@ -161,7 +159,6 @@ pub fn setup_mock_network(
     // set up client dir to be ready to process blocks from client_start_height
     if let Some(start_height) = client_start_height {
         info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
-        #[cfg(feature = "mock_network")]
         let mut chain_store = ChainStore::new(
             client_runtime.get_store(),
             config.genesis.config.genesis_height,
@@ -197,35 +194,29 @@ pub fn setup_mock_network(
         }
 
         // copy chain info
-        #[cfg(feature = "mock_network")]
-        {
-            let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
-                &mut chain_store,
-                &hash,
-                mock_network_runtime.clone(),
-                &mut network_chain_store,
-            )
-            .unwrap();
-            chain_store_update.commit().unwrap();
-            info!(target:"mock_network", "Done preparing chain state");
-        }
+        let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
+            &mut chain_store,
+            &hash,
+            mock_network_runtime.clone(),
+            &mut network_chain_store,
+        )
+        .unwrap();
+        chain_store_update.commit().unwrap();
+        info!(target:"mock_network", "Done preparing chain state");
 
         // copy epoch info
-        #[cfg(feature = "mock_network")]
-        {
-            let mut epoch_manager = EpochManager::new_from_genesis_config(
-                client_runtime.get_store(),
-                &config.genesis.config,
-            )
-            .unwrap();
-            let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
-                mock_network_runtime.get_store(),
-                &config.genesis.config,
-            )
-            .unwrap();
-            epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
-            info!(target:"mock_network", "Done preparing epoch info");
-        }
+        let mut epoch_manager = EpochManager::new_from_genesis_config(
+            client_runtime.get_store(),
+            &config.genesis.config,
+        )
+        .unwrap();
+        let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
+            mock_network_runtime.get_store(),
+            &config.genesis.config,
+        )
+        .unwrap();
+        epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
+        info!(target:"mock_network", "Done preparing epoch info");
 
         // copy state for all shards
         let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
@@ -335,9 +326,8 @@ pub fn setup_mock_network(
 }
 
 #[cfg(test)]
-#[cfg(feature = "mock_network")]
 mod test {
-    use crate::mock_network::setup::{setup_mock_network, MockNetworkMode};
+    use crate::setup::{setup_mock_node, MockNetworkMode};
     use actix::{Actor, System};
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
@@ -362,7 +352,7 @@ mod test {
     // then start a mock network with this chain history and test that
     // the client in the mock network can catch up these 20 blocks
     #[test]
-    fn test_mocknet_basic() {
+    fn test_mock_node_basic() {
         init_integration_logger();
 
         // first set up a network with only one validator and generate some blocks
@@ -449,7 +439,7 @@ mod test {
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         run_actix(async move {
-            let (_mock_network, _client, view_client) = setup_mock_network(
+            let (_mock_network, _client, view_client) = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,

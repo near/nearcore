@@ -1,12 +1,10 @@
-extern crate integration_tests;
-
 use actix::{Actor, System};
 use clap::Parser;
 use futures::{future, FutureExt};
 use std::path::Path;
 
-use integration_tests::mock_network::setup::{setup_mock_network, MockNetworkMode};
-use integration_tests::mock_network::GetChainTargetBlockHeight;
+use mock_node::setup::{setup_mock_node, MockNetworkMode};
+use mock_node::GetChainTargetBlockHeight;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
 use near_client::GetBlock;
@@ -16,7 +14,7 @@ use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::types::BlockHeight;
 use std::time::Duration;
 
-/// Program to start a testing environment for one client and a mock network environment
+/// Program to start a mock node, which runs a regular client in a mock network environment.
 /// The mock network simulates the entire network by reading a pre-generated chain history
 /// on storage and responds to the client's network requests.
 /// The binary runs in two modes, NoNewBlocks and ProduceNewBlocks, determined by flag `mode`.
@@ -30,16 +28,16 @@ use std::time::Duration;
 /// the same height as the client, which is specified by client_start_height.
 ///
 /// Example commands:
-/// start_mock_network ~/.near/localnet/node0 -h 100 --mode no_new_blocks
+/// start_mock_node ~/.near/localnet/node0 -h 100 --mode no_new_blocks
 ///
 /// Client starts at genesis height and mock network starts at height 100. No new blocks will be produced.
 /// The simulated peers stay at height 100.
 ///
-/// start_mock_network ~/.near/localnet/node0 -s 61 -h 100 --mode produce_new_blocks
+/// start_mock_node ~/.near/localnet/node0 -s 61 -h 100 --mode produce_new_blocks
 ///
 /// Both client and mock network starts at height 61, mock network will produce new blocks until height 100
 ///  
-/// start_mock_network ~/.near/localnet/node0 -h 100 --mode "produce_new_blocks(20)"
+/// start_mock_node ~/.near/localnet/node0 -h 100 --mode "produce_new_blocks(20)"
 ///
 /// Client starts at genesis height and mock network starts at heigh 20,
 /// mock network will produce new blocks until height 100
@@ -79,19 +77,18 @@ fn main() {
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;
-    let signer =
-        InMemorySigner::from_random("mock_network_node".parse().unwrap(), KeyType::ED25519);
+    let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
     near_config.network_config.public_key = signer.public_key;
     near_config.network_config.secret_key = signer.secret_key;
     near_config.client_config.tracked_shards =
         (0..near_config.genesis.config.shard_layout.num_shards()).collect();
 
-    let tempdir = tempfile::Builder::new().prefix("mock_network_node").tempdir().unwrap();
+    let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
     let client_home_dir =
         args.client_home_dir.unwrap_or(String::from(tempdir.path().to_str().unwrap()));
     let network_delay = Duration::from_millis(args.network_delay);
     run_actix(async move {
-        let (mock_network, _client, view_client) = setup_mock_network(
+        let (mock_network, _client, view_client) = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
