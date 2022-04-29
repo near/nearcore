@@ -1680,8 +1680,6 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
-                    // Only add a transaction to a transaction pool if a node is a validator.
-                    // Transactions may not be removed from a transaction pool otherwise.
                     self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                     if !is_forwarded {
