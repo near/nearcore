@@ -13,6 +13,10 @@ if __name__ == '__main__':
     parser.add_argument('--home', type=str, required=True)
     parser.add_argument('--num_accounts', type=int, default=5)
     parser.add_argument('--num_requests', type=int, default=50)
+    # Contract types:
+    #  - storage - tries to do maximum amount of reads & writes (increments a large vector)
+    #  - compute - tries to do maximum amount of compute (infinite loop)
+    parser.add_argument('--contract_type', type=str, default='storage')
     args = parser.parse_args()
 
     validator_key = key.Key.from_json_file(join(args.home,
@@ -36,27 +40,34 @@ if __name__ == '__main__':
 
     results = []
 
+    contract_type = args.contract_type
+    assert (contract_type in ['storage', 'compute'])
+
+    method_name = "increment_many" if contract_type == 'storage' else 'infinite_loop'
+
     for i in tqdm(range(args.num_requests)):
         for y in range(args.num_accounts):
             result = my_account.send_call_contract_raw_tx(
                 contract_id=f"shard{y}",
-                method_name="increment_many",
+                method_name=method_name,
                 args=f'{{"how_many": {min(400 + i, 450)}}}'.encode("utf-8"),
                 deposit=0)
             results.append(result)
 
-    for y in range(args.num_accounts):
-        res = my_account.send_call_contract_raw_tx(
-            contract_id=f"shard{y}",
-            method_name="get_increment_many",
-            args='',
-            deposit=0)
-        print(f"Shard {y} asking for result: {res}")
-        result = mocknet_helpers.tx_result(res["result"],
-                                           validator_key.account_id,
-                                           wait_for_success=True)
-        outcome = base64.b64decode(result['status']['SuccessValue'])
-        if int(outcome) == args.num_requests:
-            print(f"Shard {y}: PASS")
-        else:
-            print(f"Shard {y} : FAIL {outcome} vs {args.num_accounts}")
+    if contract_type == 'storage':
+        # For 'storage' contracts - we can also check that all were executed successfully.
+        for y in range(args.num_accounts):
+            res = my_account.send_call_contract_raw_tx(
+                contract_id=f"shard{y}",
+                method_name="get_increment_many",
+                args='',
+                deposit=0)
+            print(f"Shard {y} asking for result: {res}")
+            result = mocknet_helpers.tx_result(res["result"],
+                                               validator_key.account_id,
+                                               wait_for_success=True)
+            outcome = base64.b64decode(result['status']['SuccessValue'])
+            if int(outcome) == args.num_requests:
+                print(f"Shard {y}: PASS")
+            else:
+                print(f"Shard {y} : FAIL {outcome} vs {args.num_accounts}")
