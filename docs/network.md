@@ -86,7 +86,7 @@ And a list of edges, where each edge is represented by the structure `Edge`.
 
 Both are defined below.
 
-# 6.1 PublicKey
+## 6.1 PublicKey
 
 We use two types of public keys:
 - a 256 bit `ED25519` public key
@@ -102,14 +102,14 @@ pub enum PublicKey {
 }
 ```
 
-# 6.2 PeerId
+## 6.2 PeerId
 
 Each `peer` is uniquely defined by its `PublicKey`, and represented by `PeerId` struct.
 ```rust
 pub struct PeerId(PublicKey);
 ```
 
-# 6.3 Edge
+## 6.3 Edge
 
 Each `edge` is represented by `Edge` structure. It contains the following
 - pair of nodes represented by their public keys.
@@ -119,7 +119,7 @@ Each `edge` is represented by `Edge` structure. It contains the following
 - Signatures from both peers for active edges.
 - Signature from one peers in case an edge got removed.
 
-# 6.4 Graph representation
+## 6.4 Graph representation
 
 `RoutingTableActor` is responsible for storing and maintaining set of all edges.
 They are kept in `edge_info` data structure of type `HashSet<Edge>`.
@@ -132,7 +132,7 @@ pub struct RoutingTableActor {
     pub edges_info: HashSet<Edge>,
     /// ...
 }
-
+```
 # 7. Code flow - connecting to a peer - handshake
 
 When `PeerManagerActor` starts it starts to listen to a specific port.
@@ -324,7 +324,7 @@ And then, all validated edges received from `EdgeVerifierActor` will be sent aga
 `AddVerifiedEdges`.
 
 
-## 8.5 Step 6
+## 8.6 Step 6
 
 When `RoutingTableActor` receives `RoutingTableMessages::AddVerifiedEdges`, the method`add_verified_edges_to_routing_table` will be called.
 It will add edges to `RoutingTableActor::edges_info` struct, and mark routing table, that it needs recalculation
