@@ -1369,7 +1369,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = *block_info.hash();
         store_update
-            .set_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
+            .insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.put(block_hash, block_info);
         Ok(())
