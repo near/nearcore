@@ -2121,8 +2121,6 @@ dependencies = [
  "parking_lot 0.11.2",
  "primitive-types",
  "rand 0.7.3",
- "rayon",
- "regex",
  "serde",
  "serde_json",
  "tempfile",
@@ -2523,6 +2521,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "mock_node"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix-rt",
+ "anyhow",
+ "clap 3.1.6",
+ "futures",
+ "near-actix-test-utils",
+ "near-chain",
+ "near-chain-configs",
+ "near-client",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-jsonrpc",
+ "near-logger-utils",
+ "near-network",
+ "near-network-primitives",
+ "near-performance-metrics",
+ "near-primitives",
+ "near-store",
+ "near-telemetry",
+ "nearcore",
+ "rand 0.7.3",
+ "rayon",
+ "regex",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
+use near_primitives::utils::generate_random_string;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -1126,10 +1126,10 @@ pub fn init_configs(
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
-                num_block_producer_seats_per_shard: get_num_seats_per_shard(
-                    num_shards,
-                    NUM_BLOCK_PRODUCER_SEATS,
-                ),
+                num_block_producer_seats_per_shard: vec![
+                    NUM_BLOCK_PRODUCER_SEATS;
+                    num_shards as usize
+                ],
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
@@ -1209,7 +1209,7 @@ pub fn create_testnet_configs_from_seeds(
     let genesis = Genesis::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
-        get_num_seats_per_shard(num_shards, num_validator_seats),
+        vec![num_validator_seats; num_shards as usize],
         shard_layout,
     );
     let mut configs = vec![];
