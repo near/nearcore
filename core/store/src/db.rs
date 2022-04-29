@@ -232,11 +232,11 @@ pub(crate) trait Database: Sync + Send {
     }
 
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        let start_time = std::time::Instant::now();
+        let timer = metrics::DATABASE_OP_LATENCY_HIST
+            .with_label_values(&["get", col.into()])
+            .start_timer();
         let result = self.get_internal(col, key);
-        metrics::DATABASE_GET_LATENCY_HIST
-            .with_label_values(&[&format!("{}", col)])
-            .observe(start_time.elapsed().as_micros() as f64);
+        timer.observe_duration();
         result
     }
 
