@@ -232,6 +232,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use near_client_primitives::types::Error::TransactionPoolFull;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
@@ -493,8 +494,13 @@ mod tests {
         let mut pool = TransactionPool::new(TEST_SEED, pool_size as usize);
         let mut num_inserted_tx = 0;
         for tx in transactions {
-            if pool.insert_transaction(tx).is_ok() {
-                num_inserted_tx += 1;
+            match pool.insert_transaction(tx) {
+                Ok(_) => {
+                    num_inserted_tx += 1;
+                }
+                Err(err) => {
+                    assert!(matches!(err, TransactionPoolFull));
+                }
             }
         }
         assert_eq!(num_inserted_tx, pool_size);
