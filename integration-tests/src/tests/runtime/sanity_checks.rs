@@ -5,7 +5,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{CostGasUsed, FinalExecutionStatus};
+use near_primitives::views::{CostGasUsed, ExecutionStatusView, FinalExecutionStatus};
 use nearcore::config::GenesisExt;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -90,8 +90,19 @@ fn test_cost_sanity() {
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
-    let receipts_status =
-        res.receipts_outcome.iter().map(|outcome| &outcome.outcome.status).collect::<Vec<_>>();
+    let receipts_status = res
+        .receipts_outcome
+        .iter()
+        .map(|outcome| {
+            match outcome.outcome.status {
+                ExecutionStatusView::SuccessReceiptId(_) => {
+                    // We don’t control the hash of the receipt so clear it.
+                    ExecutionStatusView::SuccessReceiptId(Default::default())
+                }
+                ref status => status.clone(),
+            }
+        })
+        .collect::<Vec<_>>();
     insta::assert_yaml_snapshot!("receipts_status", receipts_status);
 
     let receipts_gas_profile = res
