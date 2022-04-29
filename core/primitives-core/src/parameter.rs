@@ -8,6 +8,7 @@
     Ord,
     strum::IntoStaticStr,
     strum::EnumString,
+    Debug,
     strum::Display,
 )]
 #[strum(serialize_all = "snake_case")]

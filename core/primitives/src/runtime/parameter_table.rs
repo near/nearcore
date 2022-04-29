@@ -22,6 +22,7 @@ pub(crate) struct ParameterTable {
 /// Error returned by ParameterTable::from_txt() that parses a runtime
 /// configuration TXT file.
 #[derive(Error, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub(crate) enum InvalidConfigError {
     #[error("Unknown parameter `{0}`")]
     UnknownParameter(String),
@@ -240,5 +241,211 @@ impl FromParameterTable for RuntimeFeesConfig {
                 params.get(Parameter::PessimisticGasPriceInflationDenominator),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InvalidConfigError, ParameterTable};
+    use near_primitives_core::parameter::Parameter;
+    use std::collections::BTreeMap;
+
+    #[track_caller]
+    fn check_parameter_table(base_config: &str, diffs: &[&str], expected: &ParameterTable) {
+        let mut params = ParameterTable::from_txt(base_config).unwrap();
+        for diff in diffs {
+            let diff = ParameterTable::from_txt(diff).unwrap();
+            params.apply_diff(diff);
+        }
+
+        assert_eq!(params.params, expected.params);
+    }
+
+    #[track_caller]
+    fn check_invalid_parameter_table(
+        base_config: &str,
+        diffs: &[&str],
+        expected: InvalidConfigError,
+    ) {
+        let params = ParameterTable::from_txt(base_config);
+
+        let result = params.and_then(|params| {
+            diffs.iter().try_fold(params, |mut params, diff| {
+                params.apply_diff(ParameterTable::from_txt(diff)?);
+                Ok(params)
+            })
+        });
+
+        match result {
+            Ok(_) => panic!("Input should have parser error"),
+            Err(err) => assert_eq!(err, expected),
+        }
+    }
+
+    /// Tests synthetic small example configurations. For tests with "real"
+    /// input data, we already have
+    /// `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
+    #[test]
+    fn test_correct_parameter_tables() {
+        let base_0 = r#"
+# Comment line
+registrar_account_id: registrar
+min_allowed_top_level_account_length: 32
+storage_amount_per_byte: 100000000000000000000
+storage_num_bytes_account: 100
+storage_num_extra_bytes_record: 40
+"#;
+        let base_1 = r#"
+registrar_account_id: registrar
+# Comment line
+min_allowed_top_level_account_length: 32
+
+# Comment line with trailing whitespace # 
+
+storage_amount_per_byte: 100000000000000000000
+storage_num_bytes_account: 100
+storage_num_extra_bytes_record   :   40  
+
+"#;
+
+        let diff_0 = r#"
+# Comment line
+registrar_account_id: near
+min_allowed_top_level_account_length: 32000
+wasm_regular_op_cost: 3856371
+"#;
+        let diff_1 = r#"
+# Comment line
+registrar_account_id: near
+storage_num_extra_bytes_record: 77
+wasm_regular_op_cost: 0
+max_memory_pages: 512
+"#;
+
+        // Check empty input
+        check_parameter_table("", &[], &ParameterTable { params: BTreeMap::new() });
+
+        // Reading reading a normally formatted base parameter file with no diffs
+        check_parameter_table(
+            base_0,
+            &[],
+            &ParameterTable {
+                params: BTreeMap::from_iter([
+                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
+                    (Parameter::MinAllowedTopLevelAccountLength, "32".to_owned()),
+                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
+                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
+                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
+                ]),
+            },
+        );
+
+        // Reading reading a slightly funky formatted base parameter file with no diffs
+        check_parameter_table(
+            base_1,
+            &[],
+            &ParameterTable {
+                params: BTreeMap::from_iter([
+                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
+                    (Parameter::MinAllowedTopLevelAccountLength, "32".to_owned()),
+                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
+                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
+                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
+                ]),
+            },
+        );
+
+        // Apply one diff
+        check_parameter_table(
+            base_0,
+            &[diff_0],
+            &ParameterTable {
+                params: BTreeMap::from_iter([
+                    (Parameter::RegistrarAccountId, "near".to_owned()),
+                    (Parameter::MinAllowedTopLevelAccountLength, "32000".to_owned()),
+                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
+                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
+                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
+                    (Parameter::WasmRegularOpCost, "3856371".to_owned()),
+                ]),
+            },
+        );
+
+        // Apply two diffs
+        check_parameter_table(
+            base_0,
+            &[diff_0, diff_1],
+            &ParameterTable {
+                params: BTreeMap::from_iter([
+                    (Parameter::RegistrarAccountId, "near".to_owned()),
+                    (Parameter::MinAllowedTopLevelAccountLength, "32000".to_owned()),
+                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
+                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
+                    (Parameter::StorageNumExtraBytesRecord, "77".to_owned()),
+                    (Parameter::WasmRegularOpCost, "0".to_owned()),
+                    (Parameter::MaxMemoryPages, "512".to_owned()),
+                ]),
+            },
+        );
+
+        // Providing no value is also legal, the code that uses the parameter to
+        // figure out how to interpret it. For example, it could mean this
+        // parameter no longer exists.
+        let diff_with_empty_value = "min_allowed_top_level_account_length:";
+        check_parameter_table(
+            base_0,
+            &[diff_with_empty_value],
+            &ParameterTable {
+                params: BTreeMap::from_iter([
+                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
+                    (Parameter::MinAllowedTopLevelAccountLength, "".to_owned()),
+                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
+                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
+                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
+                ]),
+            },
+        );
+    }
+
+    /// Tests synthetic small example configurations. For tests with "real"
+    /// input data, we already have
+    /// `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
+    #[test]
+    fn test_invalid_parameter_tables() {
+        // Key that is not a `Parameter`
+        check_invalid_parameter_table(
+            "invalid_key: 100",
+            &[],
+            InvalidConfigError::UnknownParameter("invalid_key".to_owned()),
+        );
+        check_invalid_parameter_table(
+            "wasm_regular_op_cost: 100",
+            &["invalid_key: 100"],
+            InvalidConfigError::UnknownParameter("invalid_key".to_owned()),
+        );
+
+        // No key
+        check_invalid_parameter_table(
+            ": 100",
+            &[],
+            InvalidConfigError::UnknownParameter("".to_owned()),
+        );
+        check_invalid_parameter_table(
+            "wasm_regular_op_cost: 100",
+            &[": 100"],
+            InvalidConfigError::UnknownParameter("".to_owned()),
+        );
+
+        // Wrong separator
+        check_invalid_parameter_table(
+            "wasm_regular_op_cost=100",
+            &[],
+            InvalidConfigError::NoSeparator,
+        );
+        check_invalid_parameter_table(
+            "wasm_regular_op_cost: 100",
+            &["wasm_regular_op_cost=100"],
+            InvalidConfigError::NoSeparator,
+        );
     }
 }
