@@ -1325,7 +1325,7 @@ pub fn test_smart_contract_free(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
-/// Get number of charged trie node accesses from the execution metadata.  
+/// Get number of charged trie node accesses from the execution metadata.
 fn get_trie_nodes_count(
     metadata: &ExecutionMetadataView,
     runtime_config: &RuntimeConfig,
@@ -1349,7 +1349,7 @@ fn get_trie_nodes_count(
 
 /// Checks correctness of touching trie node cost for writing value into contract storage.
 /// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
-/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
+/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.
 pub fn test_contract_write_key_value_cost(node: impl Node) {
     let node_user = node.user();
     let results: Vec<_> = vec![
@@ -1508,7 +1508,7 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
 /// We have checked manually that if chunk cache mode is not disabled, then the following scenario happens:
 /// - 1st receipt enables chunk cache mode but doesn't disable it
 /// - 2nd receipt triggers insertion of `Value 2` into the chunk cache
-/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.  
+/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.
 pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
