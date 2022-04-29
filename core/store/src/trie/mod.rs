@@ -17,7 +17,8 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
+pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
+use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
@@ -753,6 +754,32 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+}
+
+/// Methods used in the runtime-parameter-estimator for measuring trie internal
+/// operations.
+pub mod estimator {
+    use super::RawTrieNode;
+    use super::RawTrieNodeWithSize;
+    use near_primitives::hash::hash;
+
+    /// Create an encoded extension node with the given value as the key.
+    /// This serves no purpose other than for the estimator.
+    pub fn encode_extension_node(key: Vec<u8>) -> Vec<u8> {
+        let h = hash(&key);
+        let node = RawTrieNode::Extension(key, h);
+        let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
+        node_with_size.encode().unwrap()
+    }
+    /// Decode am extension node and return its inner key.
+    /// This serves no purpose other than for the estimator.
+    pub fn decode_extension_node(bytes: &[u8]) -> Vec<u8> {
+        let node = RawTrieNodeWithSize::decode(bytes).unwrap();
+        match node.node {
+            RawTrieNode::Extension(v, _) => v,
+            _ => unreachable!(),
+        }
     }
 }
 
