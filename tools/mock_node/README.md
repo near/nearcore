@@ -17,6 +17,17 @@ It simulates the entire network by substituting PeerManagerActor with a mock net
 responding to the client's network requests by reading from a pre-generated chain history
 in storage.
 
+### Setup
+- ```bash 
+  cargo build -p mock_node (--release)
+- If you are running a mock node for mainnet or testnet, or any performance sensitive jobs, 
+  please compile with --release.
+- If you are running a mock node for mainnet or testnet on a GCP node, you want to place the new client home
+  dir on a SSD disk for optimal rocksdb performance. Note that the 
+  default booting disk of GCP notes are HDD, so you need to mount a new SSD disk on 
+  your node and put the mock node's home dir there. See https://cloud.google.com/compute/docs/disks/add-persistent-disk
+  for how to attach and mount a new disk to an existing GCP node. 
+
 ### Usage
 ```bash
 start_mock_node [FLAGS] [OPTIONS] <chain-history-home-dir> --mode <mode> [client-home-dir]
@@ -27,11 +38,6 @@ start_mock_node --help
 ```
 to see all flags and options the command supports. 
 
-Note
-- We strongly suggest you to compile with --release, especially if you are running performance benchmarks, 
-  similar with how you should compile neard with --release if the neard will be used to run a node in production. 
-- The new client home dir must be mounted on a SSD disk for optimal rocksdb performance.
-The default booting disk of GCP nodes are HDD, please mount a new SSD disk for testing.
 
 Example use cases:
 
