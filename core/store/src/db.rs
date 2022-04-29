@@ -1,6 +1,6 @@
 use super::StoreConfig;
 use crate::db::refcount::merge_refcounted_records;
-use crate::DBCol;
+use crate::{metrics, DBCol};
 use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
 use rocksdb::checkpoint::Checkpoint;
@@ -230,7 +230,17 @@ pub(crate) trait Database: Sync + Send {
     fn transaction(&self) -> DBTransaction {
         DBTransaction { ops: Vec::new() }
     }
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+
+    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        let start_time = std::time::Instant::now();
+        let result = self.get_internal(col, key);
+        metrics::DATABASE_GET_LATENCY_HIST
+            .with_label_values(&[&format!("{}", col)])
+            .observe(start_time.elapsed().as_micros() as f64);
+        result
+    }
+
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
         &'a self,
@@ -251,7 +261,7 @@ pub(crate) trait Database: Sync + Send {
 }
 
 impl Database for RocksDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
         Ok(RocksDB::get_with_rc_logic(col, result))
@@ -368,7 +378,7 @@ impl Database for RocksDB {
 }
 
 impl Database for TestDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let result = self.db.read().unwrap()[col as usize].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
     }

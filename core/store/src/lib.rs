@@ -44,6 +44,7 @@ pub mod db;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
+mod metrics;
 
 #[derive(Clone)]
 pub struct Store {
