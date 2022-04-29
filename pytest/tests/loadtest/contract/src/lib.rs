@@ -58,4 +58,8 @@ impl Counter {
     pub fn get_increment_many(&self) -> u64 {
         self.get_previous_val(1)
     }
+
+    pub fn infinite_loop(&self) {
+        loop {}
+    }
 }
