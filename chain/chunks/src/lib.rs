@@ -2221,6 +2221,7 @@ mod test {
     use crate::test_utils::*;
 
     const TEST_SEED: RngSeed = [3; 32];
+    const TX_POOL_SIZE: usize = 1_000;
 
     /// should not request partial encoded chunk from self
     #[test]
@@ -2232,6 +2233,7 @@ mod test {
             runtime_adapter,
             network_adapter.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
         let added = Clock::instant();
         shards_manager.requested_partial_encoded_chunks.insert(
@@ -2289,6 +2291,7 @@ mod test {
             runtime_adapter.clone(),
             network_adapter.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
@@ -2455,6 +2458,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
         // process chunk part 0
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
@@ -2527,6 +2531,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
 
         // part id > num parts
@@ -2553,6 +2558,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
@@ -2616,6 +2622,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             test_seed,
+            TX_POOL_SIZE,
         );
         let header_head = Tip {
             height: 0,
@@ -2644,6 +2651,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             test_seed,
+            TX_POOL_SIZE,
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
@@ -2665,6 +2673,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             test_seed,
+            TX_POOL_SIZE,
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
@@ -2690,6 +2699,7 @@ mod test {
             fixture.mock_runtime.clone(),
             fixture.mock_network.clone(),
             TEST_SEED,
+            TX_POOL_SIZE,
         );
         let (most_parts, other_parts) = {
             let mut most_parts = fixture.mock_chunk_parts.clone();
