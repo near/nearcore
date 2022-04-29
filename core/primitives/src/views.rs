@@ -389,8 +389,7 @@ impl From<Tip> for BlockStatusView {
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
-    pub first_block_hash: CryptoHash,
-    pub start_time: String,
+    pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
 }
 

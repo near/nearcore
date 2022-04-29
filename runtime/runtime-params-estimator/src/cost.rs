@@ -455,7 +455,14 @@ pub enum Cost {
     /// cost when we can guarantee that trie node is cached in memory, which
     /// allows us to charge less costs.
     ///
-    /// TODO (CP-29): implement estimation
+    /// Estimation: Since this is a small cost, it cannot be measured accurately
+    /// through the normal process of measuring several transactions and
+    /// calculating the difference. Instead, the estimation directly
+    /// instantiates the caching storage and reads nodes of the largest possible
+    /// size from it. This is done in a pessimistic setup and the 90th
+    /// percentile of measured samples is taken as the final cost. The details
+    /// for this are a bit involved but roughly speaking, it just forces values
+    /// out of CPU caches so that they are always read from memory.
     ReadCachedTrieNode,
     /// Helper estimation for `TouchingTrieNode`
     ///
