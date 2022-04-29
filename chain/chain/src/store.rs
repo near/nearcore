@@ -3617,7 +3617,9 @@ mod tests {
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
-            store_update.set_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info).unwrap();
+            store_update
+                .insert_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
+                .unwrap();
             store_update.commit().unwrap();
         }
         for i in 1..1000 {
@@ -3632,7 +3634,9 @@ mod tests {
             {
                 let mut store_update = store_update.store().store_update();
                 let block_info = BlockInfo::default();
-                store_update.set_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
+                store_update
+                    .insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info)
+                    .unwrap();
                 store_update.commit().unwrap();
             }
             store_update
