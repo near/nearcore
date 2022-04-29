@@ -133,6 +133,7 @@ pub struct RoutingTableActor {
     /// ...
 }
 ```
+
 # 7. Code flow - connecting to a peer - handshake
 
 When `PeerManagerActor` starts it starts to listen to a specific port.
