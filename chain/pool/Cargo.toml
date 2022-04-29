@@ -12,7 +12,9 @@ edition = "2021"
 borsh = "0.9"
 once_cell = "1.5.2"
 rand = "0.7"
+tracing = "0.1"
 
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
+near-client-primitives = { path = "../client-primitives" }

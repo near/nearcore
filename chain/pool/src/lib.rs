@@ -1,13 +1,14 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 use borsh::BorshSerialize;
+use near_client_primitives::types::Error;
 use near_crypto::PublicKey;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::ops::Bound;
+use tracing::debug;
 
 mod metrics;
 pub mod types;
@@ -24,15 +25,18 @@ pub struct TransactionPool {
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     last_used_key: PoolKey,
+    /// Max number of unique transactions in this transaction pool.
+    max_unique_transactions: usize,
 }
 
 impl TransactionPool {
-    pub fn new(key_seed: RngSeed) -> Self {
+    pub fn new(key_seed: RngSeed, max_unique_transactions: usize) -> Self {
         Self {
             key_seed,
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
+            max_unique_transactions,
         }
     }
 
@@ -49,10 +53,16 @@ impl TransactionPool {
     }
 
     /// Insert a signed transaction into the pool that passed validation.
-    pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
+    pub fn insert_transaction(
+        &mut self,
+        signed_transaction: SignedTransaction,
+    ) -> Result<bool, Error> {
+        if self.unique_transactions.len() > self.max_unique_transactions {
+            return Err(Error::TransactionPoolFull);
+        }
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
             // The hash of this transaction was already seen, skip it.
-            return false;
+            return Ok(false);
         }
         metrics::TRANSACTION_POOL_TOTAL.inc();
 
@@ -62,7 +72,7 @@ impl TransactionPool {
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
-        true
+        Ok(true)
     }
 
     /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
@@ -105,8 +115,14 @@ impl TransactionPool {
 
     /// Reintroduce transactions back during the chain reorg
     pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
+        let mut dropped_transactions = 0;
         for tx in transactions {
-            self.insert_transaction(tx);
+            if self.insert_transaction(tx).is_err() {
+                dropped_transactions += 1;
+            }
+        }
+        if dropped_transactions > 0 {
+            debug!(target: "txpool", "Dropped {dropped_transactions} transactions while reintroducing transactions.");
         }
     }
 

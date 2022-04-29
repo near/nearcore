@@ -471,6 +471,7 @@ pub struct ShardsManager {
     me: Option<AccountId>,
 
     tx_pools: HashMap<ShardId, TransactionPool>,
+    max_transaction_pool_size: usize,
 
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
@@ -491,11 +492,13 @@ impl ShardsManager {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         rng_seed: RngSeed,
+        max_transaction_pool_size: usize,
     ) -> Self {
         TransactionPool::init_metrics();
         Self {
             me: me.clone(),
             tx_pools: HashMap::new(),
+            max_transaction_pool_size,
             runtime_adapter: runtime_adapter.clone(),
             peer_manager_adapter: network_adapter,
             encoded_chunks: EncodedChunksCache::new(),
@@ -934,7 +937,11 @@ impl ShardsManager {
     }
 
     /// Returns true if transaction is not in the pool before call
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
+    pub fn insert_transaction(
+        &mut self,
+        shard_id: ShardId,
+        tx: SignedTransaction,
+    ) -> Result<bool, near_client_primitives::types::Error> {
         self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
@@ -961,7 +968,10 @@ impl ShardsManager {
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
         self.tx_pools.entry(shard_id).or_insert_with(|| {
-            TransactionPool::new(ShardsManager::random_seed(&self.rng_seed, shard_id))
+            TransactionPool::new(
+                ShardsManager::random_seed(&self.rng_seed, shard_id),
+                self.max_transaction_pool_size,
+            )
         })
     }
 

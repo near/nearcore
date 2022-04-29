@@ -33,6 +33,7 @@ pub enum Error {
     Chunk(near_chunks_primitives::Error),
     BlockProducer(String),
     ChunkProducer(String),
+    TransactionPoolFull,
     Other(String),
 }
 
@@ -43,6 +44,7 @@ impl std::fmt::Display for Error {
             Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
+            Error::TransactionPoolFull => write!(f, "Transaction Pool is full"),
             Error::Other(err) => write!(f, "Other: {}", err),
         }
     }

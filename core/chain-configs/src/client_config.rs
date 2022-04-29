@@ -154,6 +154,9 @@ pub struct ClientConfig {
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
+    /// Max size of an individual transaction pool.
+    /// Note that a node runs a transaction pool for each tracked shard.
+    pub max_transaction_pool_size: usize,
 }
 
 impl ClientConfig {
@@ -212,6 +215,7 @@ impl ClientConfig {
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
+            max_transaction_pool_size: 1_000,
         }
     }
 }

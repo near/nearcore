@@ -333,6 +333,10 @@ fn default_use_checkpoints_for_db_migration() -> bool {
     true
 }
 
+fn default_max_transaction_pool_size() -> usize {
+    10_000
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -458,6 +462,8 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     /// Different parameters to configure/optimize underlying storage.
     pub store: near_store::StoreConfig,
+    #[serde(default = "default_max_transaction_pool_size")]
+    pub max_transaction_pool_size: usize,
 }
 
 impl Default for Config {
@@ -487,6 +493,8 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
             store: near_store::StoreConfig::read_write(),
+            max_transaction_pool_size:
+                default_max_transaction_pool_size(),
         }
     }
 }
@@ -700,6 +708,8 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                max_transaction_pool_size: config
+                    .max_transaction_pool_size,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

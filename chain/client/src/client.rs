@@ -163,6 +163,7 @@ impl Client {
             runtime_adapter.clone(),
             network_adapter.clone(),
             rng_seed,
+            config.max_transaction_pool_size,
         );
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
@@ -1666,14 +1667,6 @@ impl Client {
                 let active_validator = self.active_validator(shard_id)?;
 
                 // If I'm not an active validator I should forward tx to next validators.
-                debug!(
-                    target: "client",
-                    "Recording a transaction. I'm {:?}, {} is_forwarded: {}",
-                    me,
-                    shard_id,
-                    is_forwarded
-                );
-                self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                 // Active validator:
                 //   possibly forward to next epoch validators
@@ -1681,6 +1674,8 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
+                    self.shards_mgr.insert_transaction(shard_id, tx.clone())?;
+                    debug!(target: "client", "Recording a transaction. I'm {:?}, {} is_forwarded: {}", me, shard_id, is_forwarded);
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }

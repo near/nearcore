@@ -2657,6 +2657,7 @@ dependencies = [
  "lru",
  "near-chain",
  "near-chunks-primitives",
+ "near-client-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
@@ -3051,11 +3052,13 @@ name = "near-pool"
 version = "0.0.0"
 dependencies = [
  "borsh",
+ "near-client-primitives",
  "near-crypto",
  "near-metrics",
  "near-primitives",
  "once_cell",
  "rand 0.7.3",
+ "tracing",
 ]
 
 [[package]]

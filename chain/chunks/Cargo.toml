@@ -21,6 +21,7 @@ prometheus = "0.11"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
+near-client-primitives = { path = "../client-primitives" }
 near-chunks-primitives = { path = "../chunks-primitives" }
 near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
