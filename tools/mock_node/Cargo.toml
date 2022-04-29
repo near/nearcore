@@ -41,4 +41,5 @@ nearcore = { path = "../../nearcore" }
 
 [features]
 default = ["mock_node"]
+test_features = ["nearcore/test_features"]
 mock_node = ["near-chain/mock_node", "near-epoch-manager/mock_node"]

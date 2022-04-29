@@ -158,7 +158,7 @@ pub fn setup_mock_node(
 
     // set up client dir to be ready to process blocks from client_start_height
     if let Some(start_height) = client_start_height {
-        info!(target:"mock_network", "Preparing client data dir to be able to start at the specified start height {}", start_height);
+        info!(target:"mock_node", "Preparing client data dir to be able to start at the specified start height {}", start_height);
         let mut chain_store = ChainStore::new(
             client_runtime.get_store(),
             config.genesis.config.genesis_height,
@@ -172,7 +172,7 @@ pub fn setup_mock_node(
 
         let network_tail_height = network_chain_store.tail().unwrap();
         let network_head_height = network_chain_store.head().unwrap().height;
-        info!(target:"mock_network",
+        info!(target:"mock_node",
               "network data chain tail height {} head height {}",
               network_tail_height,
               network_head_height,
@@ -202,7 +202,7 @@ pub fn setup_mock_node(
         )
         .unwrap();
         chain_store_update.commit().unwrap();
-        info!(target:"mock_network", "Done preparing chain state");
+        info!(target:"mock_node", "Done preparing chain state");
 
         // copy epoch info
         let mut epoch_manager = EpochManager::new_from_genesis_config(
@@ -216,13 +216,13 @@ pub fn setup_mock_node(
         )
         .unwrap();
         epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
-        info!(target:"mock_network", "Done preparing epoch info");
+        info!(target:"mock_node", "Done preparing epoch info");
 
         // copy state for all shards
         let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
         let next_block = network_chain_store.get_block(&next_hash).unwrap();
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
-            info!(target:"mock_network", "Preparing state for shard {}", shard_id);
+            info!(target:"mock_node", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
@@ -256,7 +256,7 @@ pub fn setup_mock_node(
                         })?;
                     finished_parts_count.fetch_add(1, Ordering::SeqCst);
                     info!(
-                        target: "mock_network",
+                        target: "mock_node",
                         "Done {}/{} parts for shard {}",
                         finished_parts_count.load(Ordering::SeqCst) + 1,
                         num_parts,
