@@ -57,7 +57,7 @@ impl TransactionPool {
         &mut self,
         signed_transaction: SignedTransaction,
     ) -> Result<bool, Error> {
-        if self.unique_transactions.len() > self.max_unique_transactions {
+        if self.unique_transactions.len() >= self.max_unique_transactions {
             return Err(Error::TransactionPoolFull);
         }
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
@@ -241,6 +241,7 @@ mod tests {
     use near_primitives::types::Balance;
 
     const TEST_SEED: RngSeed = [3; 32];
+    const TRANSACTION_POOL_SIZE: usize = 1_000;
 
     fn generate_transactions(
         signer_id: &str,
@@ -269,11 +270,11 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, TRANSACTION_POOL_SIZE);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(pool.insert_transaction(tx).is_ok());
         }
         (
             prepare_transactions(&mut pool, expected_weight)
@@ -380,12 +381,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, TRANSACTION_POOL_SIZE);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
-            pool.insert_transaction(tx);
+            assert!(pool.insert_transaction(tx).is_ok());
         }
         assert_eq!(pool.len(), n as usize);
 
@@ -437,7 +438,7 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(pool.insert_transaction(tx).is_ok());
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
@@ -471,7 +472,7 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(pool.insert_transaction(tx).is_ok());
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 5);
@@ -480,5 +481,22 @@ mod tests {
         let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
         new_nonces.sort();
         assert_ne!(nonces, new_nonces);
+    }
+
+    /// Test transaction pool size restrictions.
+    #[test]
+    fn test_pool_size_restriction() {
+        let pool_size = 9;
+        let num_transactions = pool_size + 3;
+        let transactions = generate_transactions("alice.near", "alice.near", 1, num_transactions);
+
+        let mut pool = TransactionPool::new(TEST_SEED, pool_size as usize);
+        let mut num_inserted_tx = 0;
+        for tx in transactions {
+            if pool.insert_transaction(tx).is_ok() {
+                num_inserted_tx += 1;
+            }
+        }
+        assert_eq!(num_inserted_tx, pool_size);
     }
 }
