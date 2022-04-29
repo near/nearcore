@@ -189,7 +189,7 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
 
 pub fn get_block_shard_id_rev(
     key: &[u8],
-) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error>> {
+) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error + Send + Sync>> {
     if key.len() != 40 {
         return Err(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()

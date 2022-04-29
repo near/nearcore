@@ -410,7 +410,7 @@ pub struct ExtCostsConfig {
     pub alt_bn128_pairing_check_element: Gas,
 }
 
-pub fn default_read_cached_trie_node() -> Gas {
+fn default_read_cached_trie_node() -> Gas {
     SAFETY_MULTIPLIER * 760_000_000
 }
 

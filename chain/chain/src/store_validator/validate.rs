@@ -29,7 +29,7 @@ pub enum StoreValidatorError {
     #[error(transparent)]
     IOError(#[from] std::io::Error),
     #[error("DB is corrupted")]
-    DBCorruption(#[from] Box<dyn std::error::Error>),
+    DBCorruption(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("Function {func_name:?}: data is invalid, {reason:?}")]
     InvalidData { func_name: String, reason: String },
     #[error("Function {func_name:?}: data that expected to exist in DB is not found, {reason:?}")]

@@ -116,7 +116,8 @@ fn main() {
                 }));
             }),
             100,
-            target_height * 1000,
+            // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
+            target_height * 5000,
         )
         .start();
     })

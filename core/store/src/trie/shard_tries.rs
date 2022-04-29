@@ -89,7 +89,7 @@ impl ShardTries {
                         TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
                     shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                 }
-                DBOp::Insert { col, .. } if *col == DBCol::State => unreachable!(),
+                DBOp::Set { col, .. } if *col == DBCol::State => unreachable!(),
                 DBOp::Delete { col, .. } if *col == DBCol::State => unreachable!(),
                 DBOp::DeleteAll { col } if *col == DBCol::State => {
                     // Delete is possible in reset_data_pre_state_sync
