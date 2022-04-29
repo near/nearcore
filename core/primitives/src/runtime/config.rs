@@ -9,6 +9,8 @@ use crate::runtime::parameter_table::{FromParameterTable, ParameterTable};
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 
+use super::parameter_table::InvalidConfigError;
+
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
@@ -35,12 +37,13 @@ impl RuntimeConfig {
         }
     }
 
-    pub fn initial_testnet_config() -> Self {
+    pub fn initial_testnet_config() -> RuntimeConfig {
         Self::from_parameters_txt(INITIAL_TESTNET_CONFIG)
+            .expect("Failed parsing initial testnet config")
     }
 
-    pub fn from_parameters_txt(txt_file: &str) -> Self {
-        Self::from_parameters(&ParameterTable::from_txt(txt_file))
+    pub(crate) fn from_parameters_txt(txt_file: &str) -> Result<RuntimeConfig, InvalidConfigError> {
+        Ok(Self::from_parameters(&ParameterTable::from_txt(txt_file)?))
     }
 
     pub fn test() -> Self {

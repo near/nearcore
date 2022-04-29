@@ -9,6 +9,7 @@ use near_primitives_core::runtime::fees::{
 use num_rational::Rational;
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use thiserror::Error;
 
 pub(crate) trait FromParameterTable {
     fn from_parameters(params: &ParameterTable) -> Self;
@@ -18,24 +19,40 @@ pub(crate) struct ParameterTable {
     params: BTreeMap<Parameter, String>,
 }
 
+/// Error returned by ParameterTable::from_txt() that parses a runtime
+/// configuration TXT file.
+#[derive(Error, Debug)]
+pub(crate) enum InvalidConfigError {
+    #[error("Unknown parameter `{0}`")]
+    UnknownParameter(String),
+    #[error("Parameter name and value must be separated by a ':'")]
+    NoSeparator,
+}
+
 impl ParameterTable {
-    pub(crate) fn from_txt(arg: &str) -> ParameterTable {
-        let parameters = arg.lines().filter_map(|line| {
-            let trimmed = line.trim().to_owned();
-            if trimmed.starts_with("#") || trimmed.is_empty() {
-                None
-            } else {
-                let (key, value) = trimmed
-                    .split_once(":")
-                    .expect("Parameter name and value must be separated by a ':'");
+    pub(crate) fn from_txt(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
+        let parameters = arg
+            .lines()
+            .filter_map(|line| {
+                // ignore comments and empty lines
+                let trimmed = line.trim().to_owned();
+                if trimmed.starts_with("#") || trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            })
+            .map(|trimmed| {
+                let (key, value) =
+                    trimmed.split_once(":").ok_or(InvalidConfigError::NoSeparator)?;
                 let typed_key: Parameter = key
                     .trim()
                     .parse()
-                    .unwrap_or_else(|_err| panic!("Unexpected parameter `{key}`."));
-                Some((typed_key, value.trim().to_owned()))
-            }
-        });
-        ParameterTable { params: BTreeMap::from_iter(parameters) }
+                    .map_err(|_| InvalidConfigError::UnknownParameter(key.to_owned()))?;
+                Ok((typed_key, value.trim().to_owned()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ParameterTable { params: BTreeMap::from_iter(parameters) })
     }
 
     pub(crate) fn get<F: std::str::FromStr>(&self, key: Parameter) -> F {
