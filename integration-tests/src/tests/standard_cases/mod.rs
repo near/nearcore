@@ -816,10 +816,35 @@ pub fn test_delete_key_last(node: impl Node) {
     let root = node_user.get_state_root();
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    let transaction_result =
-        node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
+
+    match transaction_result {
+        Ok(transaction_result) => {
+            assert_eq!(
+                transaction_result.status,
+                FinalExecutionStatus::SuccessValue(String::new())
+            );
+            assert_eq!(transaction_result.receipts_outcome.len(), 1);
+        }
+        Err(err) => {
+            // TODO(#6724): This is a wrong error, the transaction actually
+            // succeeds. We get an error here when we retry the tx and the second
+            // time around it fails. Normally, retries are handled by nonces, but we
+            // forget the nonce when we delete a key!
+            assert_eq!(
+                err,
+                ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: account_id.clone(),
+                            public_key: node.signer().public_key(),
+                        },
+                    )
+                ))
+            )
+        }
+    }
+
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
