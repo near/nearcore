@@ -231,7 +231,6 @@ pub(crate) trait Database: Sync + Send {
         DBTransaction { ops: Vec::new() }
     }
 
-    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let start_time = std::time::Instant::now();
         let result = self.get_internal(col, key);
@@ -240,6 +239,8 @@ pub(crate) trait Database: Sync + Send {
             .observe(start_time.elapsed().as_micros() as f64);
         result
     }
+
+    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
 
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
