@@ -477,21 +477,23 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
 #[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
-    #[clap(long = "n", default_value = "0")]
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
     non_validators: NumSeats,
-    /// Prefix the directory name for each node with (node results in node0, node1, ...)
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the localnet with.
-    #[clap(long, default_value = "1")]
+    #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
-    #[clap(long = "v", default_value = "4")]
+    #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    // Whether to create fixed shards accounts (that are tied to a given shard).
+    /// Whether to create fixed shards accounts (that are tied to a given
+    /// shard).
     #[clap(long)]
     fixed_shards: bool,
-    // Archival nodes
+    /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
 }
