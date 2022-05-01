@@ -261,8 +261,9 @@ fn test_evm_slow_deserialize_repro() {
         let contract =
             script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
 
-        let zombie_ownership_bin =
-            std::fs::read("../near-test-contracts/res/ZombieOwnership.bin").unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../near-test-contracts/res/ZombieOwnership.bin");
+        let zombie_ownership_bin = std::fs::read(path).unwrap();
         let input = hex::decode(&zombie_ownership_bin[..]).unwrap();
         script.step(contract, "deploy_code").input(input).repeat(3);
         let res = script.run();

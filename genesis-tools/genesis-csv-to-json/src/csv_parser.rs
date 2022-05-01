@@ -276,6 +276,8 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use chrono::TimeZone;
     use csv::WriterBuilder;
     use tempfile::NamedTempFile;
@@ -342,7 +344,8 @@ mod tests {
 
     #[test]
     fn test_res_file() {
-        let res = std::fs::read("res/test_accounts.csv").unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res/test_accounts.csv");
+        let res = std::fs::read(path).unwrap();
         keys_to_state_records(&res[..], 1).unwrap();
     }
 }
