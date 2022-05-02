@@ -1,8 +1,8 @@
-wasm_regular_op_cost: 2_207_874
-wasm_ecrecover_base: 278_821_988_457
-data_receipt_creation_base_send_sir: 36_486_732_312
-data_receipt_creation_base_send_not_sir: 36_486_732_312
-data_receipt_creation_base_execution: 36_486_732_312
-data_receipt_creation_per_byte_send_sir: 17_212_011
-data_receipt_creation_per_byte_send_not_sir: 17_212_011
-data_receipt_creation_per_byte_execution: 17_212_011
+wasm_regular_op_cost: 3_856_371 -> 2_207_874
+wasm_ecrecover_base: 3_365_369_625_000 -> 278_821_988_457
+data_receipt_creation_base_send_sir: 4_697_339_419_375 -> 36_486_732_312
+data_receipt_creation_base_send_not_sir: 4_697_339_419_375 -> 36_486_732_312
+data_receipt_creation_base_execution: 4_697_339_419_375 -> 36_486_732_312
+data_receipt_creation_per_byte_send_sir: 59_357_464 -> 17_212_011
+data_receipt_creation_per_byte_send_not_sir: 59_357_464 -> 17_212_011
+data_receipt_creation_per_byte_execution: 59_357_464 -> 17_212_011

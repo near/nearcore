@@ -1,5 +1,5 @@
 use crate::runtime::config::RuntimeConfig;
-use crate::runtime::parameter_table::ParameterTable;
+use crate::runtime::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -55,8 +55,8 @@ impl RuntimeConfigStore {
         store.insert(0, Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"))));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff = ParameterTable::from_txt(diff_bytes).unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
-            params.apply_diff(diff);
+            let diff = ParameterTableDiff::from_txt(diff_bytes).unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
             store.insert(
                 *protocol_version,
                 Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),

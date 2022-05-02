@@ -7,6 +7,11 @@ pub(crate) struct ParameterTable {
     params: BTreeMap<Parameter, serde_json::Value>,
 }
 
+/// Changes made to parameters between versions.
+pub(crate) struct ParameterTableDiff {
+    params: BTreeMap<Parameter, (serde_json::Value, serde_json::Value)>,
+}
+
 /// Error returned by ParameterTable::from_txt() that parses a runtime
 /// configuration TXT file.
 #[derive(Error, Debug)]
@@ -15,32 +20,29 @@ pub(crate) enum InvalidConfigError {
     UnknownParameter(#[source] strum::ParseError, String),
     #[error("Unable to parse value: `{1}`")]
     ValueParseError(#[source] serde_json::Error, String),
-    #[error("Parameter name and value must be separated by a `:`")]
-    NoSeparator,
+    #[error("Parameter name and value must be separated by a `:`. Line {0}: `{1}`")]
+    NoSeparator(usize, String),
     #[error("Intermediate JSON created by parser does not match `RuntimeConfig`")]
     WrongStructure(#[source] serde_json::Error),
+    #[error(
+        "Invalid diff. An old value for parameter {0} exists but the diff did not contain it."
+    )]
+    OldValueExists(Parameter),
+    #[error(
+        "Invalid diff. An old value for parameter {0} was specified in the diff but the previous version does not contain it."
+    )]
+    NoOldValueExists(Parameter),
+    #[error(
+        "Invalid diff. The old value for parameter {0} in the diff is not the same as found in the previous version."
+    )]
+    WrongOldValue(Parameter),
 }
 
 impl ParameterTable {
     pub(crate) fn from_txt(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
-        let parameters = arg
-            .lines()
-            .filter_map(|line| {
-                // ignore comments and empty lines
-                let trimmed = line.trim().to_owned();
-                if trimmed.starts_with("#") || trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed)
-                }
-            })
-            .map(|trimmed| {
-                let (key, value) =
-                    trimmed.split_once(":").ok_or(InvalidConfigError::NoSeparator)?;
-                let typed_key: Parameter = key
-                    .trim()
-                    .parse()
-                    .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
+        let parameters = txt_to_key_values(arg)
+            .map(|result| {
+                let (typed_key, value) = result?;
                 Ok((typed_key, parse_parameter_txt_value(value.trim())?))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -67,8 +69,34 @@ impl ParameterTable {
         })
     }
 
-    pub(crate) fn apply_diff(&mut self, diff: ParameterTable) {
-        self.params.extend(diff.params)
+    pub(crate) fn apply_diff(
+        &mut self,
+        diff: ParameterTableDiff,
+    ) -> Result<(), InvalidConfigError> {
+        for (key, (before, after)) in diff.params {
+            if before.is_null() {
+                match self.params.get(&key) {
+                    Some(serde_json::Value::Null) | None => {
+                        self.params.insert(key, after);
+                    }
+                    Some(_) => return Err(InvalidConfigError::OldValueExists(key)),
+                }
+            } else {
+                match self.params.get(&key) {
+                    Some(serde_json::Value::Null) | None => {
+                        return Err(InvalidConfigError::NoOldValueExists(key))
+                    }
+                    Some(value) => {
+                        if *value != before {
+                            return Err(InvalidConfigError::WrongOldValue(key));
+                        } else {
+                            self.params.insert(key, after);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn transaction_costs_json(&self) -> serde_json::Value {
@@ -130,6 +158,57 @@ impl ParameterTable {
     }
 }
 
+impl ParameterTableDiff {
+    pub(crate) fn from_txt(arg: &str) -> Result<ParameterTableDiff, InvalidConfigError> {
+        let parameters = txt_to_key_values(arg)
+            .map(|result| {
+                let (typed_key, value) = result?;
+                if let Some((before, after)) = value.split_once("->") {
+                    Ok((
+                        typed_key,
+                        (
+                            parse_parameter_txt_value(before.trim())?,
+                            parse_parameter_txt_value(after.trim())?,
+                        ),
+                    ))
+                } else {
+                    Ok((
+                        typed_key,
+                        (serde_json::Value::Null, parse_parameter_txt_value(value.trim())?),
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ParameterTableDiff { params: BTreeMap::from_iter(parameters) })
+    }
+}
+
+fn txt_to_key_values(
+    arg: &str,
+) -> impl Iterator<Item = Result<(Parameter, &str), InvalidConfigError>> {
+    arg.lines()
+        .enumerate()
+        .filter_map(|(nr, line)| {
+            // ignore comments and empty lines
+            let trimmed = line.trim();
+            if trimmed.starts_with("#") || trimmed.is_empty() {
+                None
+            } else {
+                Some((nr, trimmed))
+            }
+        })
+        .map(|(nr, trimmed)| {
+            let (key, value) = trimmed
+                .split_once(":")
+                .ok_or(InvalidConfigError::NoSeparator(nr + 1, trimmed.to_owned()))?;
+            let typed_key: Parameter = key
+                .trim()
+                .parse()
+                .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
+            Ok((typed_key, value))
+        })
+}
+
 /// Parses a value from the custom format for runtime parameter definitions.
 ///
 /// A value can be a positive integer or a string, both written without quotes.
@@ -139,14 +218,19 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidCo
         return Ok(serde_json::Value::Null);
     }
     if value.chars().all(|c| c.is_numeric() || c == '_') {
-        Ok(serde_json::Value::Number(
-            value
-                .chars()
-                .filter(|c| c.is_numeric())
-                .collect::<String>()
-                .parse()
-                .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))?,
-        ))
+        let raw_number = value.chars().filter(|c| c.is_numeric()).collect::<String>();
+        // We do not have "arbitrary_precision" serde feature enabled, thus we
+        // can only store up to `u64::MAX`, which is `18446744073709551615` and
+        // has 20 characters.
+        if raw_number.len() < 20 {
+            Ok(serde_json::Value::Number(
+                raw_number
+                    .parse()
+                    .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))?,
+            ))
+        } else {
+            Ok(serde_json::Value::String(raw_number))
+        }
     } else {
         Ok(serde_json::Value::String(value.to_owned()))
     }
@@ -154,7 +238,7 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidCo
 
 #[cfg(test)]
 mod tests {
-    use super::{InvalidConfigError, ParameterTable};
+    use super::{InvalidConfigError, ParameterTable, ParameterTableDiff};
     use assert_matches::assert_matches;
     use near_primitives_core::parameter::Parameter;
     use std::collections::BTreeMap;
@@ -167,8 +251,8 @@ mod tests {
     ) {
         let mut params = ParameterTable::from_txt(base_config).unwrap();
         for diff in diffs {
-            let diff = ParameterTable::from_txt(diff).unwrap();
-            params.apply_diff(diff);
+            let diff = ParameterTableDiff::from_txt(diff).unwrap();
+            params.apply_diff(diff).unwrap();
         }
 
         let expected_map = BTreeMap::from_iter(expected.into_iter().map(|(param, value)| {
@@ -191,7 +275,7 @@ mod tests {
 
         let result = params.and_then(|params| {
             diffs.iter().try_fold(params, |mut params, diff| {
-                params.apply_diff(ParameterTable::from_txt(diff)?);
+                params.apply_diff(ParameterTableDiff::from_txt(diff)?)?;
                 Ok(params)
             })
         });
@@ -226,16 +310,16 @@ storage_num_extra_bytes_record   :   40
 
     static DIFF_0: &str = r#"
 # Comment line
-registrar_account_id: near
-min_allowed_top_level_account_length: 32000
-wasm_regular_op_cost: 3856371
+registrar_account_id: registrar -> near
+min_allowed_top_level_account_length: 32 -> 32_000
+wasm_regular_op_cost: 3_856_371
 "#;
 
     static DIFF_1: &str = r#"
 # Comment line
-registrar_account_id: near
-storage_num_extra_bytes_record: 77
-wasm_regular_op_cost: 0
+registrar_account_id: near -> registrar
+storage_num_extra_bytes_record: 40 -> 77
+wasm_regular_op_cost: 3_856_371 -> 0
 max_memory_pages: 512
 "#;
 
@@ -305,7 +389,7 @@ max_memory_pages: 512
             BASE_0,
             &[DIFF_0, DIFF_1],
             [
-                (Parameter::RegistrarAccountId, "\"near\""),
+                (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
                 (Parameter::StorageAmountPerByte, "100000000000000000000"),
                 (Parameter::StorageNumBytesAccount, "100"),
@@ -316,12 +400,9 @@ max_memory_pages: 512
         );
     }
 
-    /// Providing no value is also legal, the code that uses the parameter to
-    /// figure out how to interpret it. For example, it could mean this
-    /// parameter no longer exists.
     #[test]
     fn test_parameter_table_with_empty_value() {
-        let diff_with_empty_value = "min_allowed_top_level_account_length:";
+        let diff_with_empty_value = "min_allowed_top_level_account_length: 32 -> ";
         check_parameter_table(
             BASE_0,
             &[diff_with_empty_value],
@@ -372,7 +453,7 @@ max_memory_pages: 512
     fn test_parameter_table_wrong_separator() {
         assert_matches!(
             check_invalid_parameter_table("wasm_regular_op_cost=100", &[]),
-            InvalidConfigError::NoSeparator
+            InvalidConfigError::NoSeparator(1, _)
         );
     }
 
@@ -383,7 +464,40 @@ max_memory_pages: 512
                 "wasm_regular_op_cost: 100",
                 &["wasm_regular_op_cost=100"]
             ),
-            InvalidConfigError::NoSeparator
+            InvalidConfigError::NoSeparator(1, _)
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_wrong_old_value() {
+        assert_matches!(
+            check_invalid_parameter_table(
+                "min_allowed_top_level_account_length: 3_200_000_000",
+                &["min_allowed_top_level_account_length: 3_200_000 -> 1_600_000"]
+            ),
+            InvalidConfigError::WrongOldValue(Parameter::MinAllowedTopLevelAccountLength)
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_no_old_value() {
+        assert_matches!(
+            check_invalid_parameter_table(
+                "min_allowed_top_level_account_length: 3_200_000_000",
+                &["min_allowed_top_level_account_length: 1_600_000"]
+            ),
+            InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength)
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_old_parameter_undefined() {
+        assert_matches!(
+            check_invalid_parameter_table(
+                "min_allowed_top_level_account_length: 3_200_000_000",
+                &["wasm_regular_op_cost: 3_200_000 -> 1_600_000"]
+            ),
+            InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost)
         );
     }
 }
