@@ -231,15 +231,7 @@ pub(crate) trait Database: Sync + Send {
         DBTransaction { ops: Vec::new() }
     }
 
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        let timer =
-            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
-        let result = self.get_internal(col, key);
-        timer.observe_duration();
-        result
-    }
-
-    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
 
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
@@ -261,10 +253,16 @@ pub(crate) trait Database: Sync + Send {
 }
 
 impl Database for RocksDB {
-    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        let timer =
+            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
-        Ok(RocksDB::get_with_rc_logic(col, result))
+        let result = Ok(RocksDB::get_with_rc_logic(col, result));
+
+        timer.observe_duration();
+        result
     }
 
     fn iter_raw_bytes<'a>(
@@ -378,7 +376,7 @@ impl Database for RocksDB {
 }
 
 impl Database for TestDB {
-    fn get_internal(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
         let result = self.db.read().unwrap()[col as usize].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
