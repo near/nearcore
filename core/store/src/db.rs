@@ -232,9 +232,8 @@ pub(crate) trait Database: Sync + Send {
     }
 
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        let timer = metrics::DATABASE_OP_LATENCY_HIST
-            .with_label_values(&["get", col.into()])
-            .start_timer();
+        let timer =
+            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let result = self.get_internal(col, key);
         timer.observe_duration();
         result
