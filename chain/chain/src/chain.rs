@@ -4347,6 +4347,10 @@ impl<'a> ChainUpdate<'a> {
         ),
         Error,
     > {
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "preprocess_block",
+            block_height=block.header().height()).entered();
         debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
 
         // Check that we know the epoch of the block before we try to get the header
