@@ -83,7 +83,8 @@ pub enum Parameter {
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
     WasmGrowMemCost,
-    WasmHostFunctionBase,
+    /// Base cost for a host function
+    WasmBase,
     WasmContractLoadingBase,
     WasmContractLoadingBytes,
     WasmReadMemoryBase,
@@ -210,7 +211,7 @@ impl Parameter {
     /// is treated separately and therefore not included in this list.
     pub fn ext_costs() -> slice::Iter<'static, Parameter> {
         [
-            Parameter::WasmHostFunctionBase,
+            Parameter::WasmBase,
             Parameter::WasmContractLoadingBase,
             Parameter::WasmContractLoadingBytes,
             Parameter::WasmReadMemoryBase,

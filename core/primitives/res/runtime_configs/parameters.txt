@@ -66,7 +66,7 @@ action_delete_key_execution: 94_946_625_000
 # Smart contract dynamic gas costs
 wasm_regular_op_cost: 3_856_371
 wasm_grow_mem_cost: 1
-wasm_host_function_base: 264_768_111
+wasm_base: 264_768_111
 wasm_contract_loading_base: 35_445_963
 wasm_contract_loading_bytes: 216_750
 wasm_read_memory_base: 2_609_863_200

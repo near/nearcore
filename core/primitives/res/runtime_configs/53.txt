@@ -2,5 +2,4 @@ action_deploy_contract_per_byte_execution: 6_812_999 -> 64_572_944
 wasm_read_cached_trie_node: 2_280_000_000
 wasmer2_stack_limit: 204_800
 max_length_storage_key: 4_194_304 -> 2_048
-max_functions_number_per_contract: 10_000
 max_locals_per_contract: 1_000_000

@@ -57,10 +57,10 @@ impl ParameterTable {
             "storage_amount_per_byte": storage_amount_per_byte,
             "transaction_costs": transaction_costs,
             "wasm_config": {
-                "ext_costs": self.json_map(Parameter::ext_costs()),
+                "ext_costs": self.json_map(Parameter::ext_costs(), "wasm_"),
                 "grow_mem_cost": self.get(Parameter::WasmGrowMemCost),
                 "regular_op_cost": self.get(Parameter::WasmRegularOpCost),
-                "limit_config": self.json_map(Parameter::vm_limits()),
+                "limit_config": self.json_map(Parameter::vm_limits(), ""),
             },
             "account_creation_config": {
                 "min_allowed_top_level_account_length": self.get(Parameter::MinAllowedTopLevelAccountLength),
@@ -137,16 +137,26 @@ impl ParameterTable {
         })
     }
 
-    fn json_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_json::Value {
+    fn json_map(
+        &self,
+        params: impl Iterator<Item = &'static Parameter>,
+        remove_prefix: &'static str,
+    ) -> serde_json::Value {
         let mut json = serde_json::Map::new();
         for param in params {
-            json.insert(param.to_string(), self.get(*param).clone());
+            let mut key: &'static str = param.into();
+            if key.starts_with(remove_prefix) {
+                key = &key[remove_prefix.len()..];
+            }
+            if let Some(value) = self.get(*param) {
+                json.insert(key.to_owned(), value.clone());
+            }
         }
         json.into()
     }
 
-    fn get(&self, key: Parameter) -> &serde_json::Value {
-        self.params.get(&key).unwrap_or(&serde_json::Value::Null)
+    fn get(&self, key: Parameter) -> Option<&serde_json::Value> {
+        self.params.get(&key)
     }
 
     fn fee_json(&self, key: FeeParameter) -> serde_json::Value {
@@ -342,7 +352,7 @@ max_memory_pages: 512
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
             ],
@@ -358,7 +368,7 @@ max_memory_pages: 512
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32"),
-                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
             ],
@@ -374,7 +384,7 @@ max_memory_pages: 512
             [
                 (Parameter::RegistrarAccountId, "\"near\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
@@ -391,7 +401,7 @@ max_memory_pages: 512
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, "32000"),
-                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "77"),
                 (Parameter::WasmRegularOpCost, "0"),
@@ -409,7 +419,7 @@ max_memory_pages: 512
             [
                 (Parameter::RegistrarAccountId, "\"registrar\""),
                 (Parameter::MinAllowedTopLevelAccountLength, ""),
-                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageAmountPerByte, "\"100000000000000000000\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
             ],

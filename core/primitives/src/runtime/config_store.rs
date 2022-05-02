@@ -144,13 +144,13 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "HienWJdw69DbweYfSLuvoG6H9hmLyxrSjdjew59PvgZr",
-            "3wJtyFjogsZqx2j6wBwS6nFHc9TG97SZZ6XuE4h6dDSV",
-            "5QQViPqxDuy4Jx4oTLDtjJHRuxJi9Uycjr5CZ7pEb2bi",
-            "3qfeHpTsHD2QjbgD6RXLG1uEdYDT96cx8gAYq22f2ewR",
-            "43mw9K9Uz9iwKio9JgAEuzmX6PnbDin1pR14BNJPnR3G",
-            "h5Z8fdRxxhTpgvf6AE3JtL8k4i8c4KVp3znd8ntLZhR",
-            "UJBggpeNQgzFsj4jaWEfJ5hfMPATfZy8NQXWaD41cHT",
+            "2ysK1QuHLW958qxjfpnNJ9yHicncyyRrczoxtQwrkJ8o",
+            "3Rdnrr1DFxXWeQ7knpHqxnRrNUys9Ke7SUEJ2axjXvVS",
+            "61SPiLLGhNYySP2djfL1Je5LogVTAjroYnAnmzDofkJS",
+            "6cDB3NjHsG3Vq31Yp5of2hxA1FwR6xm6pb3Mc5Mw4xvK",
+            "6TWAHgsm17JdJxVjJQ9TYJERCw9rgDdzzXvopWE5XzoQ",
+            "72BDBPsrXeg23viBMTSekigRxz4jyHNxrEct2VLa1xDc",
+            "CCqfbxH12gAp9VL419FqhZ4JNxhtdimi5ETQ22mmKERH",
         ];
         let actual_hashes = std::iter::once(&(0, BASE_CONFIG))
             .chain(CONFIG_DIFFS)
