@@ -15,6 +15,7 @@ use strum::{EnumCount, IntoEnumIterator};
     BorshSerialize,
     strum::EnumCount,
     strum::EnumIter,
+    strum::IntoStaticStr,
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
@@ -236,6 +237,23 @@ pub enum DBCol {
 }
 
 impl DBCol {
+    /// Whether data in this column is effectively immutable.
+    ///
+    /// Data in such columns is never overwriten, though it can be deleted by gc
+    /// eventually. Specifically, for a given key:
+    ///
+    /// * It's OK to insert a new value.
+    /// * It's also OK to insert a value which is equal to the one already
+    ///   stored.
+    /// * Inserting a different value would crash the node in debug, but not in
+    ///   release.
+    /// * GC (and only GC) is allowed to remove any value.
+    ///
+    /// In some sence, insert-only column acts as an rc-column, where rc is
+    /// always one.
+    pub fn is_insert_only(&self) -> bool {
+        INSERT_ONLY_COLUMNS[*self as usize]
+    }
     /// Whethere this column is reference-counted.
     /// This means, that we're storing additional 8 bytes at the end of the payload with the current RC value.
     /// For such columns you must not use set, set_ser or delete, but 'update_refcount' instead.
@@ -305,6 +323,8 @@ const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
 const RC_COLUMNS: [bool; DBCol::COUNT] =
     col_set(&[DBCol::State, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptIdToShardId]);
 
+const INSERT_ONLY_COLUMNS: [bool; DBCol::COUNT] = col_set(&[DBCol::BlockInfo]);
+
 const fn col_set(cols: &[DBCol]) -> [bool; DBCol::COUNT] {
     let mut res = [false; DBCol::COUNT];
     let mut i = 0;
@@ -370,5 +390,16 @@ impl fmt::Display for DBCol {
             Self::StateChangesForSplitStates => "state changes indexed by block hash and shard id",
         };
         write!(f, "{}", desc)
+    }
+}
+
+#[test]
+fn column_props_sanity() {
+    for col in DBCol::iter() {
+        if col.is_gc_optional() {
+            assert!(col.is_gc())
+        }
+        // Check that rc and write_once are mutually exclusive.
+        assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
     }
 }

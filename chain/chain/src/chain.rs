@@ -3604,7 +3604,7 @@ impl<'a> ChainUpdate<'a> {
             Some(block.hash()),
         )?;
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
-        #[cfg(not(feature = "mock_network"))]
+        #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
@@ -3734,10 +3734,10 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
-                    // if we are running mock_network, ignore this check because
+                    // if we are running mock_node, ignore this check because
                     // this check may require old block headers, which may not exist in storage
                     // of the client in the mock network
-                    #[cfg(not(feature = "mock_network"))]
+                    #[cfg(not(feature = "mock_node"))]
                     if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
                         let transaction_validity_period = self.transaction_validity_period;
                         for transaction in transactions {
