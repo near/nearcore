@@ -470,7 +470,6 @@ impl GenesisJsonHasher {
     }
 }
 
-#[derive(Debug)]
 pub enum GenesisValidationMode {
     Full,
     UnsafeFast,

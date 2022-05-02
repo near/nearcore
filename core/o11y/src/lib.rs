@@ -109,7 +109,8 @@ pub fn default_subscriber(
         opentelemetry_jaeger::new_pipeline().with_service_name("neard").install_simple().unwrap();
     let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let subscriber = subscriber_builder.finish().with(opentelemetry);
+    let mut subscriber = subscriber_builder.finish();
+    subscriber = subscriber.with(opentelemetry);
 
     DefaultSubcriberGuard {
         subscriber: Some(subscriber),
