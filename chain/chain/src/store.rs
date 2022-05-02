@@ -766,6 +766,31 @@ impl ChainStore {
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.store.get_store_statistics()
     }
+
+    /// Check that no blocks on the chain leading to `hash` are challenged
+    pub fn check_height_not_challenged(&mut self, hash: CryptoHash) -> Result<(), Error> {
+        let mut prev_hash = hash;
+        // following the current chain until we find the common ancestor between the current chain
+        // and the canonical chain (previously longest chain)
+        loop {
+            let header = self.get_block_header(&prev_hash)?;
+            let (header_height, header_hash, header_prev_hash) =
+                (header.height(), *header.hash(), *header.prev_hash());
+
+            match self.get_block_hash_by_height(header_height) {
+                Ok(cur_hash) if cur_hash == header_hash => {
+                    // Found common ancestor.
+                    return Ok(());
+                }
+                _ => {
+                    if self.is_block_challenged(&header_hash)? {
+                        return Err(ErrorKind::ChallengedBlockOnChain.into());
+                    }
+                    prev_hash = header_prev_hash;
+                }
+            };
+        }
+    }
 }
 
 impl ChainStoreAccess for ChainStore {

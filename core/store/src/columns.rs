@@ -34,6 +34,7 @@ pub enum DBCol {
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
     BlockHeader = 3,
     /// Column that stores mapping from block height to block hash.
+    /// Only stores blocks on the current longest chain.
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
     BlockHeight = 4,
