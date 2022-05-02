@@ -8,7 +8,9 @@ use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
 use tracing_subscriber::fmt::Layer;
-use tracing_subscriber::layer::{Layered, SubscriberExt};
+use tracing_subscriber::layer::Layered;
+#[cfg(feature = "opentelemetry")]
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Registry};
 
@@ -105,12 +107,17 @@ pub fn default_subscriber(
     let reload_handle = subscriber_builder.reload_handle();
     ENV_FILTER_RELOAD_HANDLE.set(reload_handle).unwrap();
 
-    let tracer =
-        opentelemetry_jaeger::new_pipeline().with_service_name("neard").install_simple().unwrap();
-    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    let subscriber = subscriber_builder.finish();
 
-    let mut subscriber = subscriber_builder.finish();
-    subscriber = subscriber.with(opentelemetry);
+    #[cfg(feature = "opentelemetry")]
+    let subscriber = {
+        let tracer = opentelemetry_jaeger::new_pipeline()
+            .with_service_name("neard")
+            .install_simple()
+            .unwrap();
+        let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        subscriber.with(opentelemetry)
+    };
 
     DefaultSubcriberGuard {
         subscriber: Some(subscriber),
