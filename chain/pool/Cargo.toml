@@ -14,7 +14,7 @@ once_cell = "1.5.2"
 rand = "0.7"
 tracing = "0.1"
 
+near-client-primitives = { path = "../client-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
-near-client-primitives = { path = "../client-primitives" }

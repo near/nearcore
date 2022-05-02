@@ -189,6 +189,10 @@ pub(crate) static TRANSACTION_RECEIVED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| 
     try_create_int_gauge("near_transaction_received_validator", "Validator received a transaction")
         .unwrap()
 });
+pub(crate) static TRANSACTION_DROPPED: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_transaction_dropped", "Validator received and dropped a transaction")
+        .unwrap()
+});
 pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_transaction_received_non_validator",

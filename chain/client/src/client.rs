@@ -1674,16 +1674,29 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
-                    self.shards_mgr.insert_transaction(shard_id, tx.clone())?;
-                    debug!(target: "client", "Recording a transaction. I'm {:?}, {} is_forwarded: {}", me, shard_id, is_forwarded);
+                    match self.shards_mgr.insert_transaction(shard_id, tx.clone()) {
+                        Ok(inserted) => {
+                            debug!(target: "client", account=?me, shard_id, is_forwarded, inserted, "Recorded a transaction.");
+                            metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
+                        }
+                        Err(err) => {
+                            debug!(target: "client", account=?me, shard_id, is_forwarded, "Dropped a received transaction: {:?}.", err);
+                            metrics::TRANSACTION_DROPPED.inc();
+                        }
+                    }
+
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(NetworkClientResponses::ValidTx)
                 } else if !is_forwarded {
+                    debug!(target: "client", shard_id, "Forwarding a transaction.");
+                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(NetworkClientResponses::RequestRouted)
                 } else {
+                    debug!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
+                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(NetworkClientResponses::NoResponse)
                 }
             }
