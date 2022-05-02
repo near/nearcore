@@ -41,6 +41,7 @@ pub use crate::trie::{
 
 mod columns;
 pub mod db;
+mod metrics;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
