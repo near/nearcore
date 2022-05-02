@@ -142,7 +142,7 @@ impl StoreValidator {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
-                DBCol::ColBlockHeader => {
+                DBCol::BlockHeader => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let header = BlockHeader::try_from_slice(value_ref)?;
                     // Block Header Hash is valid
@@ -152,7 +152,7 @@ impl StoreValidator {
                     // Block Header can be indexed by Height
                     self.check(&validate::header_hash_indexed_by_height, &block_hash, &header, col);
                 }
-                DBCol::ColBlock => {
+                DBCol::Block => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let block = Block::try_from_slice(value_ref)?;
                     // Block Hash is valid
@@ -174,7 +174,7 @@ impl StoreValidator {
                     // Increase Block Refcount
                     self.check(&validate::block_increase_refcount, &block_hash, &block, col);
                 }
-                DBCol::ColBlockHeight => {
+                DBCol::BlockHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;
                     let hash = CryptoHash::try_from(value_ref)?;
                     // Block on the Canonical Chain is stored properly
@@ -183,7 +183,7 @@ impl StoreValidator {
                     // there are no Blocks in range (prev_height, height) on the Canonical Chain
                     self.check(&validate::canonical_prev_block_validity, &height, &hash, col);
                 }
-                DBCol::ColChunks => {
+                DBCol::Chunks => {
                     let chunk_hash = ChunkHash::try_from_slice(key_ref)?;
                     let shard_chunk = ShardChunk::try_from_slice(value_ref)?;
                     // Chunk Hash is valid
@@ -200,7 +200,7 @@ impl StoreValidator {
                     // Check that all Txs in Chunk exist
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
                 }
-                DBCol::ColChunkExtra => {
+                DBCol::ChunkExtra => {
                     let (block_hash, shard_uid) = get_block_shard_uid_rev(key_ref)?;
                     let chunk_extra = ChunkExtra::try_from_slice(value_ref)?;
                     self.check(
@@ -210,7 +210,7 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColTrieChanges => {
+                DBCol::TrieChanges => {
                     let (block_hash, shard_uid) = get_block_shard_uid_rev(key_ref)?;
                     let trie_changes = TrieChanges::try_from_slice(value_ref)?;
                     // ShardChunk should exist for current TrieChanges
@@ -221,13 +221,13 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColChunkHashesByHeight => {
+                DBCol::ChunkHashesByHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;
                     let chunk_hashes = HashSet::<ChunkHash>::try_from_slice(value_ref)?;
                     // ShardChunk which can be indexed by Height exists
                     self.check(&validate::chunk_of_height_exists, &height, &chunk_hashes, col);
                 }
-                DBCol::ColHeaderHashesByHeight => {
+                DBCol::HeaderHashesByHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;
                     let header_hashes = HashSet::<CryptoHash>::try_from_slice(value_ref)?;
                     // Headers which can be indexed by Height exists
@@ -238,7 +238,7 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColOutcomeIds => {
+                DBCol::OutcomeIds => {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
                     // TransactionResult which can be indexed by Outcome id exists
@@ -251,7 +251,7 @@ impl StoreValidator {
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
                 }
-                DBCol::ColTransactionResult => {
+                DBCol::TransactionResult => {
                     let outcome_id = CryptoHash::try_from_slice(key_ref)?;
                     let outcomes =
                         <Vec<ExecutionOutcomeWithIdAndProof>>::try_from_slice(value_ref)?;
@@ -263,7 +263,7 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColStateDlInfos => {
+                DBCol::StateDlInfos => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let state_sync_info = StateSyncInfo::try_from_slice(value_ref)?;
                     // StateSyncInfo is valid
@@ -281,7 +281,7 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColBlockInfo => {
+                DBCol::BlockInfo => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let block_info = BlockInfo::try_from_slice(value_ref)?;
                     // Block which can be indexed by BlockInfo exists
@@ -292,7 +292,7 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColEpochInfo => {
+                DBCol::EpochInfo => {
                     if key_ref != AGGREGATOR_KEY {
                         let epoch_id = EpochId::try_from_slice(key_ref)?;
                         let epoch_info = EpochInfo::try_from_slice(value_ref)?;
@@ -300,32 +300,32 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
-                DBCol::ColGCCount => {
+                DBCol::GCCount => {
                     let col = DBCol::try_from_slice(key_ref)?;
                     let count = GCCount::try_from_slice(value_ref)?;
                     self.check(&validate::gc_col_count, &col, &count, col);
                 }
-                DBCol::ColTransactions => {
+                DBCol::Transactions => {
                     let (_value, rc) = decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::tx_refcount, &tx_hash, &(rc as u64), col);
                 }
-                DBCol::ColReceipts => {
+                DBCol::Receipts => {
                     let (_value, rc) = decode_value_with_rc(value_ref);
                     let receipt_id = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::receipt_refcount, &receipt_id, &(rc as u64), col);
                 }
-                DBCol::ColBlockRefCount => {
+                DBCol::BlockRefCount => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
                     let refcount = u64::try_from_slice(value_ref)?;
                     self.check(&validate::block_refcount, &block_hash, &refcount, col);
                 }
-                DBCol::ColStateHeaders => {
+                DBCol::StateHeaders => {
                     let key = StateHeaderKey::try_from_slice(key_ref)?;
                     let header = ShardStateSyncResponseHeader::try_from_slice(value_ref)?;
                     self.check(&validate::state_header_block_exists, &key, &header, col);
                 }
-                DBCol::ColStateParts => {
+                DBCol::StateParts => {
                     let key = StatePartKey::try_from_slice(key_ref)?;
                     let part = value_ref.to_vec();
                     self.check(&validate::state_part_header_exists, &key, &part, col);
@@ -347,7 +347,7 @@ impl StoreValidator {
         // Init checks
         // Check Head-Tail validity and fill cache with their values
         if let Err(e) = validate::head_tail_validity(self) {
-            self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::ColBlockMisc)
+            self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::BlockMisc)
         }
 
         // Main loop
@@ -373,7 +373,7 @@ impl StoreValidator {
         // Final checks
         // There is no more than one Block which Height is lower than Tail and not equal to Genesis
         if let Err(e) = validate::block_height_cmp_tail_final(self) {
-            self.process_error(e, "TAIL", DBCol::ColBlockMisc)
+            self.process_error(e, "TAIL", DBCol::BlockMisc)
         }
         // Check GC counters
         if let Err(_) = validate::gc_col_count_final(self) {
@@ -381,14 +381,14 @@ impl StoreValidator {
         }
         // Check that all refs are counted
         if let Err(e) = validate::tx_refcount_final(self) {
-            self.process_error(e, "TX_REFCOUNT", DBCol::ColTransactions)
+            self.process_error(e, "TX_REFCOUNT", DBCol::Transactions)
         }
         if let Err(e) = validate::receipt_refcount_final(self) {
-            self.process_error(e, "RECEIPT_REFCOUNT", DBCol::ColReceipts)
+            self.process_error(e, "RECEIPT_REFCOUNT", DBCol::Receipts)
         }
         // Check that all Block Refcounts are counted
         if let Err(e) = validate::block_refcount_final(self) {
-            self.process_error(e, "BLOCK_REFCOUNT", DBCol::ColBlockRefCount)
+            self.process_error(e, "BLOCK_REFCOUNT", DBCol::BlockRefCount)
         }
     }
 
@@ -436,16 +436,16 @@ mod tests {
     fn test_io_error() {
         let (mut chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
-        assert!(sv.validate_col(DBCol::ColBlock).is_ok());
+        assert!(sv.validate_col(DBCol::Block).is_ok());
         store_update
             .set_ser::<Vec<u8>>(
-                DBCol::ColBlock,
+                DBCol::Block,
                 chain.get_block_by_height(0).unwrap().hash().as_ref(),
                 &vec![123],
             )
             .unwrap();
         store_update.commit().unwrap();
-        match sv.validate_col(DBCol::ColBlock) {
+        match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
             _ => assert!(false),
         }
@@ -455,10 +455,10 @@ mod tests {
     fn test_db_corruption() {
         let (chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
-        assert!(sv.validate_col(DBCol::ColTrieChanges).is_ok());
-        store_update.set_ser::<Vec<u8>>(DBCol::ColTrieChanges, "567".as_ref(), &vec![123]).unwrap();
+        assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
+        store_update.set_ser::<Vec<u8>>(DBCol::TrieChanges, "567".as_ref(), &vec![123]).unwrap();
         store_update.commit().unwrap();
-        match sv.validate_col(DBCol::ColTrieChanges) {
+        match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}
             _ => assert!(false),
         }

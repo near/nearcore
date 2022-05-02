@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::DBCol::ColStateParts;
+use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -346,7 +346,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::DBCol::ColBlock) {
+                        for _ in store.iter(DBCol::Block) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -828,24 +828,20 @@ impl Handler<Status> for ClientActor {
                     .chain
                     .blocks_with_missing_chunks
                     .list_blocks_by_height(),
-                epoch_info: EpochInfoView {
-                    epoch_id: head.epoch_id.0,
-                    height: epoch_start_height,
-                    first_block_hash: self
-                        .client
-                        .chain
-                        .get_block_by_height(epoch_start_height)?
-                        .header()
-                        .hash()
-                        .clone(),
-                    start_time: self
-                        .client
-                        .chain
-                        .get_block_by_height(epoch_start_height)?
-                        .header()
-                        .timestamp()
-                        .to_rfc3339(),
-                    validators: validators.to_vec(),
+                epoch_info: {
+                    EpochInfoView {
+                        epoch_id: head.epoch_id.0,
+                        height: epoch_start_height,
+                        first_block: self
+                            .client
+                            .chain
+                            .get_block_by_height(epoch_start_height)
+                            .ok()
+                            .map(|block| {
+                                (block.header().hash().clone(), block.header().timestamp())
+                            }),
+                        validators: validators.to_vec(),
+                    }
                 },
             })
         } else {
@@ -1838,7 +1834,7 @@ impl SyncJobsActor {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(ColStateParts, &key)?.unwrap();
+            let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime.apply_state_part(
                 msg.shard_id,
