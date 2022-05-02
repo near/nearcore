@@ -364,7 +364,7 @@ pub struct PeerInfoView {
 pub struct KnownProducerView {
     pub account_id: AccountId,
     pub peer_id: PublicKey,
-    pub next_hops: Option<Vec<PublicKey>>
+    pub next_hops: Option<Vec<PublicKey>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
