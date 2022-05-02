@@ -181,7 +181,7 @@ impl StoreUpdate {
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
     pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(column.is_insert_only());
+        assert!(column.is_insert_only(), "can't insert: {column:?}");
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
@@ -191,6 +191,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
+        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
         let data = value.try_to_vec()?;
         self.insert(column, key, &data);
         Ok(())
@@ -202,7 +203,7 @@ impl StoreUpdate {
     /// It is a programming error if `update_refcount` supplies a different
     /// value than the one stored in te database. Use it for rc columns.
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
-        assert!(column.is_rc());
+        assert!(column.is_rc(), "can't update refcount: {column:?}");
         let value = encode_value_with_rc(value, rc_delta);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
@@ -212,7 +213,7 @@ impl StoreUpdate {
     /// Unlike `insert` or `update_refcount`, arbitrary modifications are
     /// allowed, and extra care must be taken to aviod consistency anomalies.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()));
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
@@ -224,7 +225,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(!column.is_rc());
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -243,7 +244,7 @@ impl StoreUpdate {
     /// Deletes the given key from the database.
     /// Must not be used for RC columns (use update_refcount instead).
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc());
+        assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());
     }
 
