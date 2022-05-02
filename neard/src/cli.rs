@@ -6,15 +6,15 @@ use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::{fs};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, debug_span, error, info, warn};
 
 /// NEAR Protocol Node
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
@@ -108,7 +108,7 @@ pub(crate) enum RunError {
     RayonInstall(#[source] rayon::ThreadPoolBuildError),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
@@ -146,7 +146,7 @@ struct NeardOpts {
     pub color: ColorOutput,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
@@ -204,7 +204,7 @@ pub(super) enum NeardSubCommand {
     RecompressStorage(RecompressStorageSubCommand),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -312,7 +312,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -476,7 +476,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
@@ -512,7 +512,7 @@ impl LocalnetCmd {
     }
 }
 
-#[derive(Args, Debug)]
+#[derive(Args)]
 #[clap(arg_required_else_help = true)]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
