@@ -12,7 +12,7 @@ use nearcore::{get_store_path, load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub enum StateViewerSubCommand {
     Peers,
@@ -98,7 +98,7 @@ impl StateViewerSubCommand {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct DumpStateCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -122,7 +122,7 @@ impl DumpStateCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -135,7 +135,7 @@ impl DumpStateRedisCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ChainCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -149,7 +149,7 @@ impl ChainCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ReplayCmd {
     #[clap(long)]
     start_index: BlockHeight,
@@ -163,7 +163,7 @@ impl ReplayCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
     start_index: Option<BlockHeight>,
@@ -198,7 +198,7 @@ impl ApplyRangeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ApplyCmd {
     #[clap(long)]
     height: BlockHeight,
@@ -212,7 +212,7 @@ impl ApplyCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -228,7 +228,7 @@ impl ViewChainCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
@@ -242,7 +242,7 @@ impl DumpCodeCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct DumpAccountStorageCmd {
     #[clap(long)]
     account_id: String,
@@ -267,7 +267,7 @@ impl DumpAccountStorageCmd {
         );
     }
 }
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
     epoch_selection: epoch_info::EpochSelection,
@@ -288,7 +288,7 @@ impl EpochInfoCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
     #[clap(long, parse(from_os_str))]
@@ -301,7 +301,7 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ReceiptsCmd {
     #[clap(long)]
     receipt_id: String,
@@ -313,7 +313,7 @@ impl ReceiptsCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ChunksCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -325,7 +325,7 @@ impl ChunksCmd {
         get_chunk(chunk_hash, near_config, store)
     }
 }
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct PartialChunksCmd {
     #[clap(long)]
     partial_chunk_hash: String,
@@ -339,7 +339,7 @@ impl PartialChunksCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ApplyChunkCmd {
     #[clap(long)]
     chunk_hash: String,
@@ -354,7 +354,7 @@ impl ApplyChunkCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
@@ -367,7 +367,7 @@ impl ApplyTxCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,

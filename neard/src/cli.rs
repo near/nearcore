@@ -6,15 +6,19 @@ use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
-use std::fs;
+use opentelemetry::trace::{Span, Tracer};
+use opentelemetry::{global, KeyValue};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use std::{fs, thread};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, debug_span, error, info, info_span, span, trace, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// NEAR Protocol Node
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
@@ -106,7 +110,7 @@ pub(crate) enum RunError {
     EnvFilter(#[source] BuildEnvFilterError),
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
@@ -141,7 +145,7 @@ struct NeardOpts {
     pub unsafe_fast_startup: bool,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
@@ -199,7 +203,7 @@ pub(super) enum NeardSubCommand {
     RecompressStorage(RecompressStorageSubCommand),
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -307,7 +311,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub(super) struct RunCmd {
     /// Keep old blocks in the storage (default false).
     #[clap(long)]
@@ -352,6 +356,9 @@ pub(super) struct RunCmd {
 
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+        let root = info_span!("I am groot", i_am_key = "I-am-value");
+        let _enter = root.enter();
+
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -417,7 +424,12 @@ impl RunCmd {
 
         let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
+        let z = root.context();
         sys.block_on(async move {
+            let span = info_span!("block_on");
+            //            span.set_parent(z);
+            let _entered = span.enter();
+
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
@@ -469,7 +481,7 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(long = "n", default_value = "0")]
@@ -505,7 +517,7 @@ impl LocalnetCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[clap(arg_required_else_help = true)]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
