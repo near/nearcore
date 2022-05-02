@@ -4191,7 +4191,7 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
         let _span =
-            tracing::info_span!(target: "chain", "Process block", "#{}", block.header().height())
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
         debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
 

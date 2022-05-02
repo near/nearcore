@@ -6,16 +6,12 @@ use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
-use opentelemetry::trace::{Span, Tracer};
-use opentelemetry::{global, KeyValue};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::{fs, thread};
+use std::{fs};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tracing::{debug, debug_span, error, info, info_span, span, trace, warn};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{debug, debug_span, error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(Parser, Debug)]
@@ -358,8 +354,7 @@ pub(super) struct RunCmd {
 
 impl RunCmd {
     pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
-        let root = info_span!("I am groot", i_am_key = "I-am-value");
-        let _enter = root.enter();
+        let _span = debug_span!("run command root span").entered();
 
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
@@ -426,12 +421,7 @@ impl RunCmd {
 
         let (tx, rx) = oneshot::channel::<()>();
         let sys = actix::System::new();
-        let z = root.context();
         sys.block_on(async move {
-            let span = info_span!("block_on");
-            //            span.set_parent(z);
-            let _entered = span.enter();
-
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");

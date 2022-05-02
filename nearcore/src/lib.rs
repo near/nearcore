@@ -29,7 +29,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tracing::{debug_span, error, info, info_span, trace};
+use tracing::{error, info, trace};
 
 pub mod append_only_map;
 pub mod config;
@@ -266,7 +266,6 @@ pub fn start_with_config_and_synchronization(
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let _span = info_span!("start_with_config_and_synchronization").entered();
     let store = init_and_migrate_store(home_dir, &config)?;
 
     let runtime = Arc::new(NightshadeRuntime::with_config(
