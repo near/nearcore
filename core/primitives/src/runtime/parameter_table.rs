@@ -133,13 +133,17 @@ impl ParameterTable {
 /// Parses a value from the custom format for runtime parameter definitions.
 ///
 /// A value can be a positive integer or a string, both written without quotes.
+/// Integers can use underlines as separators (for readability).
 fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidConfigError> {
     if value.is_empty() {
         return Ok(serde_json::Value::Null);
     }
-    if value.chars().all(char::is_numeric) {
+    if value.chars().all(|c| c.is_numeric() || c == '_') {
         Ok(serde_json::Value::Number(
             value
+                .chars()
+                .filter(|c| c.is_numeric())
+                .collect::<String>()
                 .parse()
                 .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))?,
         ))
@@ -202,7 +206,7 @@ mod tests {
 # Comment line
 registrar_account_id: registrar
 min_allowed_top_level_account_length: 32
-storage_amount_per_byte: 100000000000000000000
+storage_amount_per_byte: 100_000_000_000_000_000_000
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 "#;

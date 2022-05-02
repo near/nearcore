@@ -1,1 +1,1 @@
-storage_amount_per_byte: 10000000000000000000
+storage_amount_per_byte: 10_000_000_000_000_000_000
