@@ -52,12 +52,15 @@ impl RuntimeConfigStore {
             ParameterTable::from_txt(BASE_CONFIG).expect("Failed parsing base parameter file.");
 
         let mut store = BTreeMap::new();
-        store.insert(0, Arc::new(RuntimeConfig::from_parameters(&params)));
+        store.insert(0, Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"))));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff = ParameterTable::from_txt(diff_bytes);
-            params.apply_diff(diff.unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}")));
-            store.insert(*protocol_version, Arc::new(RuntimeConfig::from_parameters(&params)));
+            let diff = ParameterTable::from_txt(diff_bytes).unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff);
+            store.insert(
+                *protocol_version,
+                Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
+            );
         }
 
         if let Some(runtime_config) = genesis_runtime_config {
@@ -315,7 +318,8 @@ Old config hashes changed. \n
 
         let new_genesis_runtime_config = RuntimeConfig::from_parameters(
             &ParameterTable::from_txt(INITIAL_TESTNET_CONFIG).unwrap(),
-        );
+        )
+        .unwrap();
         let new_testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
         check_store(old_testnet_store, new_testnet_store);
     }

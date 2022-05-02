@@ -1,11 +1,10 @@
 //! Settings of the parameters of the runtime.
-use near_primitives_core::parameter::Parameter;
 use serde::{Deserialize, Serialize};
 
 use crate::config::VMConfig;
 use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
-use crate::runtime::parameter_table::{FromParameterTable, ParameterTable};
+use crate::runtime::parameter_table::ParameterTable;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 
@@ -28,13 +27,8 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub(crate) fn from_parameters(params: &ParameterTable) -> Self {
-        Self {
-            storage_amount_per_byte: params.get(Parameter::StorageAmountPerByte),
-            transaction_costs: RuntimeFeesConfig::from_parameters(&params),
-            wasm_config: VMConfig::from_parameters(&params),
-            account_creation_config: AccountCreationConfig::from_parameters(&params),
-        }
+    pub(crate) fn from_parameters(params: &ParameterTable) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(params.runtime_config_json())
     }
 
     pub fn initial_testnet_config() -> RuntimeConfig {
@@ -43,7 +37,8 @@ impl RuntimeConfig {
     }
 
     pub(crate) fn from_parameters_txt(txt_file: &str) -> Result<RuntimeConfig, InvalidConfigError> {
-        Ok(Self::from_parameters(&ParameterTable::from_txt(txt_file)?))
+        Self::from_parameters(&ParameterTable::from_txt(txt_file)?)
+            .map_err(InvalidConfigError::WrongStructure)
     }
 
     pub fn test() -> Self {
@@ -81,15 +76,6 @@ impl Default for AccountCreationConfig {
         Self {
             min_allowed_top_level_account_length: 0,
             registrar_account_id: "registrar".parse().unwrap(),
-        }
-    }
-}
-impl AccountCreationConfig {
-    fn from_parameters(params: &ParameterTable) -> Self {
-        Self {
-            min_allowed_top_level_account_length: params
-                .get(Parameter::MinAllowedTopLevelAccountLength),
-            registrar_account_id: params.get(Parameter::RegistrarAccountId),
         }
     }
 }

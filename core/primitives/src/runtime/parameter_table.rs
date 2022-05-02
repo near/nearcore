@@ -1,33 +1,24 @@
-use near_primitives_core::config::{
-    wasmer2_stack_limit_default, ExtCostsConfig, StackLimiterVersion, VMConfig, VMLimitConfig,
-};
-use near_primitives_core::parameter::Parameter;
-use near_primitives_core::runtime::fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
-    RuntimeFeesConfig, StorageUsageConfig,
-};
-use num_rational::Rational;
+use near_primitives_core::parameter::{FeeParameter, Parameter};
+use serde_json::json;
 use std::collections::BTreeMap;
-use std::str::FromStr;
 use thiserror::Error;
 
-pub(crate) trait FromParameterTable {
-    fn from_parameters(params: &ParameterTable) -> Self;
-}
-
 pub(crate) struct ParameterTable {
-    params: BTreeMap<Parameter, String>,
+    params: BTreeMap<Parameter, serde_json::Value>,
 }
 
 /// Error returned by ParameterTable::from_txt() that parses a runtime
 /// configuration TXT file.
 #[derive(Error, Debug)]
-#[cfg_attr(test, derive(PartialEq))]
 pub(crate) enum InvalidConfigError {
-    #[error("Unknown parameter `{0}`")]
-    UnknownParameter(String),
-    #[error("Parameter name and value must be separated by a ':'")]
+    #[error("could not parse `{1}` as a parameter")]
+    UnknownParameter(#[source] strum::ParseError, String),
+    #[error("Unable to parse value: `{1}`")]
+    ValueParseError(#[source] serde_json::Error, String),
+    #[error("Parameter name and value must be separated by a `:`")]
     NoSeparator,
+    #[error("Intermediate JSON created by parser does not match `RuntimeConfig`")]
+    WrongStructure(#[source] serde_json::Error),
 }
 
 impl ParameterTable {
@@ -49,224 +40,149 @@ impl ParameterTable {
                 let typed_key: Parameter = key
                     .trim()
                     .parse()
-                    .map_err(|_| InvalidConfigError::UnknownParameter(key.to_owned()))?;
-                Ok((typed_key, value.trim().to_owned()))
+                    .map_err(|err| InvalidConfigError::UnknownParameter(err, key.to_owned()))?;
+                Ok((typed_key, parse_parameter_txt_value(value.trim())?))
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ParameterTable { params: BTreeMap::from_iter(parameters) })
     }
 
-    pub(crate) fn get<F: std::str::FromStr>(&self, key: Parameter) -> F {
-        self.get_optional(key).unwrap_or_else(|| panic!("Missing parameter `{key}`"))
-    }
-
-    pub(crate) fn get_optional<F: std::str::FromStr>(&self, key: Parameter) -> Option<F> {
-        Some(self.params.get(&key)?.parse().unwrap_or_else(|_err| {
-            panic!("Could not parse parameter `{key}` as `{}`.", std::any::type_name::<F>())
-        }))
-    }
-
-    fn fee(&self, key: &str) -> Fee {
-        Fee {
-            send_sir: self.get(Parameter::from_str(&(key.to_owned() + "_send_sir")).unwrap()),
-            send_not_sir: self
-                .get(Parameter::from_str(&(key.to_owned() + "_send_not_sir")).unwrap()),
-            execution: self.get(Parameter::from_str(&(key.to_owned() + "_execution")).unwrap()),
-        }
+    /// Transforms parameters stored in the table into a JSON representation of `RuntimeConfig`.
+    pub(crate) fn runtime_config_json(&self) -> serde_json::Value {
+        let storage_amount_per_byte = self.get(Parameter::StorageAmountPerByte);
+        let transaction_costs = self.transaction_costs_json();
+        json!({
+            "storage_amount_per_byte": storage_amount_per_byte,
+            "transaction_costs": transaction_costs,
+            "wasm_config": {
+                "ext_costs": self.json_map(Parameter::ext_costs()),
+                "grow_mem_cost": self.get(Parameter::WasmGrowMemCost),
+                "regular_op_cost": self.get(Parameter::WasmRegularOpCost),
+                "limit_config": self.json_map(Parameter::vm_limits()),
+            },
+            "account_creation_config": {
+                "min_allowed_top_level_account_length": self.get(Parameter::MinAllowedTopLevelAccountLength),
+                "registrar_account_id": self.get(Parameter::RegistrarAccountId),
+            }
+        })
     }
 
     pub(crate) fn apply_diff(&mut self, diff: ParameterTable) {
         self.params.extend(diff.params)
     }
-}
 
-impl FromParameterTable for VMConfig {
-    fn from_parameters(params: &ParameterTable) -> VMConfig {
-        VMConfig {
-            ext_costs: ExtCostsConfig::from_parameters(params),
-            grow_mem_cost: params.get(Parameter::WasmGrowMemCost),
-            regular_op_cost: params.get(Parameter::WasmRegularOpCost),
-            limit_config: VMLimitConfig::from_parameters(params),
-        }
-    }
-}
-
-impl FromParameterTable for VMLimitConfig {
-    fn from_parameters(params: &ParameterTable) -> VMLimitConfig {
-        Self {
-            max_gas_burnt: params.get(Parameter::MaxGasBurnt),
-            max_stack_height: params.get(Parameter::MaxStackHeight),
-            stack_limiter_version: StackLimiterVersion::from_repr(
-                params.get(Parameter::StackLimiterVersion),
-            )
-            .expect("Invalid stack limiter version config"),
-            initial_memory_pages: params.get(Parameter::InitialMemoryPages),
-            max_memory_pages: params.get(Parameter::MaxMemoryPages),
-            registers_memory_limit: params.get(Parameter::RegistersMemoryLimit),
-            max_register_size: params.get(Parameter::MaxRegisterSize),
-            max_number_registers: params.get(Parameter::MaxNumberRegisters),
-            max_number_logs: params.get(Parameter::MaxNumberLogs),
-            max_total_log_length: params.get(Parameter::MaxTotalLogLength),
-            max_total_prepaid_gas: params.get(Parameter::MaxTotalPrepaidGas),
-            max_actions_per_receipt: params.get(Parameter::MaxActionsPerReceipt),
-            max_number_bytes_method_names: params.get(Parameter::MaxNumberBytesMethodNames),
-            max_length_method_name: params.get(Parameter::MaxLengthMethodName),
-            max_arguments_length: params.get(Parameter::MaxArgumentsLength),
-            max_length_returned_data: params.get(Parameter::MaxLengthReturnedData),
-            max_contract_size: params.get(Parameter::MaxContractSize),
-            max_transaction_size: params.get(Parameter::MaxTransactionSize),
-            max_length_storage_key: params.get(Parameter::MaxLengthStorageKey),
-            max_length_storage_value: params.get(Parameter::MaxLengthStorageValue),
-            max_promises_per_function_call_action: params
-                .get(Parameter::MaxPromisesPerFunctionCallAction),
-            max_number_input_data_dependencies: params
-                .get(Parameter::MaxNumberInputDataDependencies),
-            max_functions_number_per_contract: params
-                .get_optional(Parameter::MaxFunctionsNumberPerContract),
-            wasmer2_stack_limit: params
-                .get_optional(Parameter::Wasmer2StackLimit)
-                .unwrap_or_else(wasmer2_stack_limit_default),
-            max_locals_per_contract: params.get_optional(Parameter::MaxLocalsPerContract),
-        }
-    }
-}
-
-impl FromParameterTable for ExtCostsConfig {
-    fn from_parameters(params: &ParameterTable) -> ExtCostsConfig {
-        ExtCostsConfig {
-            base: params.get(Parameter::WasmHostFunctionBase),
-            contract_loading_base: params.get(Parameter::WasmContractLoadingBase),
-            contract_loading_bytes: params.get(Parameter::WasmContractLoadingBytes),
-            read_memory_base: params.get(Parameter::WasmReadMemoryBase),
-            read_memory_byte: params.get(Parameter::WasmReadMemoryByte),
-            write_memory_base: params.get(Parameter::WasmWriteMemoryBase),
-            write_memory_byte: params.get(Parameter::WasmWriteMemoryByte),
-            read_register_base: params.get(Parameter::WasmReadRegisterBase),
-            read_register_byte: params.get(Parameter::WasmReadRegisterByte),
-            write_register_base: params.get(Parameter::WasmWriteRegisterBase),
-            write_register_byte: params.get(Parameter::WasmWriteRegisterByte),
-            utf8_decoding_base: params.get(Parameter::WasmUtf8DecodingBase),
-            utf8_decoding_byte: params.get(Parameter::WasmUtf8DecodingByte),
-            utf16_decoding_base: params.get(Parameter::WasmUtf16DecodingBase),
-            utf16_decoding_byte: params.get(Parameter::WasmUtf16DecodingByte),
-            sha256_base: params.get(Parameter::WasmSha256Base),
-            sha256_byte: params.get(Parameter::WasmSha256Byte),
-            keccak256_base: params.get(Parameter::WasmKeccak256Base),
-            keccak256_byte: params.get(Parameter::WasmKeccak256Byte),
-            keccak512_base: params.get(Parameter::WasmKeccak512Base),
-            keccak512_byte: params.get(Parameter::WasmKeccak512Byte),
-            ripemd160_base: params.get(Parameter::WasmRipemd160Base),
-            ripemd160_block: params.get(Parameter::WasmRipemd160Block),
-            ecrecover_base: params.get(Parameter::WasmEcrecoverBase),
-            log_base: params.get(Parameter::WasmLogBase),
-            log_byte: params.get(Parameter::WasmLogByte),
-            storage_write_base: params.get(Parameter::WasmStorageWriteBase),
-            storage_write_key_byte: params.get(Parameter::WasmStorageWriteKeyByte),
-            storage_write_value_byte: params.get(Parameter::WasmStorageWriteValueByte),
-            storage_write_evicted_byte: params.get(Parameter::WasmStorageWriteEvictedByte),
-            storage_read_base: params.get(Parameter::WasmStorageReadBase),
-            storage_read_key_byte: params.get(Parameter::WasmStorageReadKeyByte),
-            storage_read_value_byte: params.get(Parameter::WasmStorageReadValueByte),
-            storage_remove_base: params.get(Parameter::WasmStorageRemoveBase),
-            storage_remove_key_byte: params.get(Parameter::WasmStorageRemoveKeyByte),
-            storage_remove_ret_value_byte: params.get(Parameter::WasmStorageRemoveRetValueByte),
-            storage_has_key_base: params.get(Parameter::WasmStorageHasKeyBase),
-            storage_has_key_byte: params.get(Parameter::WasmStorageHasKeyByte),
-            storage_iter_create_prefix_base: params.get(Parameter::WasmStorageIterCreatePrefixBase),
-            storage_iter_create_prefix_byte: params.get(Parameter::WasmStorageIterCreatePrefixByte),
-            storage_iter_create_range_base: params.get(Parameter::WasmStorageIterCreateRangeBase),
-            storage_iter_create_from_byte: params.get(Parameter::WasmStorageIterCreateFromByte),
-            storage_iter_create_to_byte: params.get(Parameter::WasmStorageIterCreateToByte),
-            storage_iter_next_base: params.get(Parameter::WasmStorageIterNextBase),
-            storage_iter_next_key_byte: params.get(Parameter::WasmStorageIterNextKeyByte),
-            storage_iter_next_value_byte: params.get(Parameter::WasmStorageIterNextValueByte),
-            touching_trie_node: params.get(Parameter::WasmTouchingTrieNode),
-            read_cached_trie_node: params.get(Parameter::WasmReadCachedTrieNode),
-            promise_and_base: params.get(Parameter::WasmPromiseAndBase),
-            promise_and_per_promise: params.get(Parameter::WasmPromiseAndPerPromise),
-            promise_return: params.get(Parameter::WasmPromiseReturn),
-            validator_stake_base: params.get(Parameter::WasmValidatorStakeBase),
-            validator_total_stake_base: params.get(Parameter::WasmValidatorTotalStakeBase),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_base: params.get(Parameter::WasmAltBn128G1MultiexpBase),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_element: params.get(Parameter::WasmAltBn128G1MultiexpElement),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_base: params.get(Parameter::WasmAltBn128PairingCheckBase),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_element: params.get(Parameter::WasmAltBn128PairingCheckElement),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_base: params.get(Parameter::WasmAltBn128G1SumBase),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_element: params.get(Parameter::WasmAltBn128G1SumElement),
-        }
-    }
-}
-
-impl FromParameterTable for RuntimeFeesConfig {
-    fn from_parameters(params: &ParameterTable) -> Self {
-        Self {
-            action_receipt_creation_config: params.fee("action_receipt_creation"),
-            data_receipt_creation_config: DataReceiptCreationConfig {
-                base_cost: params.fee("data_receipt_creation_base"),
-                cost_per_byte: params.fee("data_receipt_creation_per_byte"),
+    fn transaction_costs_json(&self) -> serde_json::Value {
+        json!( {
+            "action_receipt_creation_config": self.fee_json(FeeParameter::ActionReceiptCreation),
+            "data_receipt_creation_config": {
+                "base_cost": self.fee_json(FeeParameter::DataReceiptCreationBase),
+                "cost_per_byte": self.fee_json(FeeParameter::DataReceiptCreationPerByte),
             },
-            action_creation_config: ActionCreationConfig {
-                create_account_cost: params.fee("action_create_account"),
-                deploy_contract_cost: params.fee("action_deploy_contract"),
-                deploy_contract_cost_per_byte: params.fee("action_deploy_contract_per_byte"),
-                function_call_cost: params.fee("action_function_call"),
-                function_call_cost_per_byte: params.fee("action_function_call_per_byte"),
-                transfer_cost: params.fee("action_transfer"),
-                stake_cost: params.fee("action_stake"),
-                add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: params.fee("action_add_full_access_key"),
-                    function_call_cost: params.fee("action_add_function_call_key"),
-                    function_call_cost_per_byte: params
-                        .fee("action_add_function_call_key_per_byte"),
+            "action_creation_config": {
+                "create_account_cost": self.fee_json(FeeParameter::ActionCreateAccount),
+                "deploy_contract_cost": self.fee_json(FeeParameter::ActionDeployContract),
+                "deploy_contract_cost_per_byte": self.fee_json(FeeParameter::ActionDeployContractPerByte),
+                "function_call_cost": self.fee_json(FeeParameter::ActionFunctionCall),
+                "function_call_cost_per_byte": self.fee_json(FeeParameter::ActionFunctionCallPerByte),
+                "transfer_cost": self.fee_json(FeeParameter::ActionTransfer),
+                "stake_cost": self.fee_json(FeeParameter::ActionStake),
+                "add_key_cost": {
+                    "full_access_cost": self.fee_json(FeeParameter::ActionAddFullAccessKey),
+                    "function_call_cost": self.fee_json(FeeParameter::ActionAddFunctionCallKey),
+                    "function_call_cost_per_byte": self.fee_json(FeeParameter::ActionAddFunctionCallKeyPerByte),
                 },
-                delete_key_cost: params.fee("action_delete_key"),
-                delete_account_cost: params.fee("action_delete_account"),
+                "delete_key_cost": self.fee_json(FeeParameter::ActionDeleteKey),
+                "delete_account_cost": self.fee_json(FeeParameter::ActionDeleteAccount),
             },
-            storage_usage_config: StorageUsageConfig {
-                num_bytes_account: params.get(Parameter::StorageNumBytesAccount),
-                num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord),
+            "storage_usage_config": {
+                "num_bytes_account": self.get(Parameter::StorageNumBytesAccount),
+                "num_extra_bytes_record": self.get(Parameter::StorageNumExtraBytesRecord),
             },
-            burnt_gas_reward: Rational::new(
-                params.get(Parameter::BurntGasRewardNumerator),
-                params.get(Parameter::BurntGasRewardDenominator),
-            ),
-            pessimistic_gas_price_inflation_ratio: Rational::new(
-                params.get(Parameter::PessimisticGasPriceInflationNumerator),
-                params.get(Parameter::PessimisticGasPriceInflationDenominator),
-            ),
+            "burnt_gas_reward": [
+                self.get(Parameter::BurntGasRewardNumerator),
+                self.get(Parameter::BurntGasRewardDenominator)
+            ],
+            "pessimistic_gas_price_inflation_ratio": [
+                self.get(Parameter::PessimisticGasPriceInflationNumerator),
+                self.get(Parameter::PessimisticGasPriceInflationDenominator)
+            ]
+        })
+    }
+
+    fn json_map(&self, params: impl Iterator<Item = &'static Parameter>) -> serde_json::Value {
+        let mut json = serde_json::Map::new();
+        for param in params {
+            json.insert(param.to_string(), self.get(*param).clone());
         }
+        json.into()
+    }
+
+    fn get(&self, key: Parameter) -> &serde_json::Value {
+        self.params.get(&key).unwrap_or(&serde_json::Value::Null)
+    }
+
+    fn fee_json(&self, key: FeeParameter) -> serde_json::Value {
+        json!( {
+            "send_sir": self.get(format!("{key}_send_sir").parse().unwrap()),
+            "send_not_sir": self.get(format!("{key}_send_not_sir").parse().unwrap()),
+            "execution": self.get(format!("{key}_execution").parse().unwrap()),
+        })
+    }
+}
+
+/// Parses a value from the custom format for runtime parameter definitions.
+///
+/// A value can be a positive integer or a string, both written without quotes.
+fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidConfigError> {
+    if value.is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+    if value.chars().all(char::is_numeric) {
+        Ok(serde_json::Value::Number(
+            value
+                .parse()
+                .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))?,
+        ))
+    } else {
+        Ok(serde_json::Value::String(value.to_owned()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{InvalidConfigError, ParameterTable};
+    use assert_matches::assert_matches;
     use near_primitives_core::parameter::Parameter;
     use std::collections::BTreeMap;
 
     #[track_caller]
-    fn check_parameter_table(base_config: &str, diffs: &[&str], expected: &ParameterTable) {
+    fn check_parameter_table(
+        base_config: &str,
+        diffs: &[&str],
+        expected: impl IntoIterator<Item = (Parameter, &'static str)>,
+    ) {
         let mut params = ParameterTable::from_txt(base_config).unwrap();
         for diff in diffs {
             let diff = ParameterTable::from_txt(diff).unwrap();
             params.apply_diff(diff);
         }
 
-        assert_eq!(params.params, expected.params);
+        let expected_map = BTreeMap::from_iter(expected.into_iter().map(|(param, value)| {
+            (
+                param,
+                if value.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::from_str(value).expect("Test data has invalid JSON")
+                },
+            )
+        }));
+
+        assert_eq!(params.params, expected_map);
     }
 
     #[track_caller]
-    fn check_invalid_parameter_table(
-        base_config: &str,
-        diffs: &[&str],
-        expected: InvalidConfigError,
-    ) {
+    fn check_invalid_parameter_table(base_config: &str, diffs: &[&str]) -> InvalidConfigError {
         let params = ParameterTable::from_txt(base_config);
 
         let result = params.and_then(|params| {
@@ -278,16 +194,11 @@ mod tests {
 
         match result {
             Ok(_) => panic!("Input should have parser error"),
-            Err(err) => assert_eq!(err, expected),
+            Err(err) => err,
         }
     }
 
-    /// Tests synthetic small example configurations. For tests with "real"
-    /// input data, we already have
-    /// `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
-    #[test]
-    fn test_correct_parameter_tables() {
-        let base_0 = r#"
+    static BASE_0: &str = r#"
 # Comment line
 registrar_account_id: registrar
 min_allowed_top_level_account_length: 32
@@ -295,7 +206,8 @@ storage_amount_per_byte: 100000000000000000000
 storage_num_bytes_account: 100
 storage_num_extra_bytes_record: 40
 "#;
-        let base_1 = r#"
+
+    static BASE_1: &str = r#"
 registrar_account_id: registrar
 # Comment line
 min_allowed_top_level_account_length: 32
@@ -308,13 +220,14 @@ storage_num_extra_bytes_record   :   40
 
 "#;
 
-        let diff_0 = r#"
+    static DIFF_0: &str = r#"
 # Comment line
 registrar_account_id: near
 min_allowed_top_level_account_length: 32000
 wasm_regular_op_cost: 3856371
 "#;
-        let diff_1 = r#"
+
+    static DIFF_1: &str = r#"
 # Comment line
 registrar_account_id: near
 storage_num_extra_bytes_record: 77
@@ -322,130 +235,151 @@ wasm_regular_op_cost: 0
 max_memory_pages: 512
 "#;
 
-        // Check empty input
-        check_parameter_table("", &[], &ParameterTable { params: BTreeMap::new() });
+    // Tests synthetic small example configurations. For tests with "real"
+    // input data, we already have
+    // `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
 
-        // Reading reading a normally formatted base parameter file with no diffs
+    /// Check empty input
+    #[test]
+    fn test_empty_parameter_table() {
+        check_parameter_table("", &[], []);
+    }
+
+    /// Reading reading a normally formatted base parameter file with no diffs
+    #[test]
+    fn test_basic_parameter_table() {
         check_parameter_table(
-            base_0,
+            BASE_0,
             &[],
-            &ParameterTable {
-                params: BTreeMap::from_iter([
-                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
-                    (Parameter::MinAllowedTopLevelAccountLength, "32".to_owned()),
-                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
-                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
-                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
-                ]),
-            },
-        );
-
-        // Reading reading a slightly funky formatted base parameter file with no diffs
-        check_parameter_table(
-            base_1,
-            &[],
-            &ParameterTable {
-                params: BTreeMap::from_iter([
-                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
-                    (Parameter::MinAllowedTopLevelAccountLength, "32".to_owned()),
-                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
-                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
-                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
-                ]),
-            },
-        );
-
-        // Apply one diff
-        check_parameter_table(
-            base_0,
-            &[diff_0],
-            &ParameterTable {
-                params: BTreeMap::from_iter([
-                    (Parameter::RegistrarAccountId, "near".to_owned()),
-                    (Parameter::MinAllowedTopLevelAccountLength, "32000".to_owned()),
-                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
-                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
-                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
-                    (Parameter::WasmRegularOpCost, "3856371".to_owned()),
-                ]),
-            },
-        );
-
-        // Apply two diffs
-        check_parameter_table(
-            base_0,
-            &[diff_0, diff_1],
-            &ParameterTable {
-                params: BTreeMap::from_iter([
-                    (Parameter::RegistrarAccountId, "near".to_owned()),
-                    (Parameter::MinAllowedTopLevelAccountLength, "32000".to_owned()),
-                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
-                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
-                    (Parameter::StorageNumExtraBytesRecord, "77".to_owned()),
-                    (Parameter::WasmRegularOpCost, "0".to_owned()),
-                    (Parameter::MaxMemoryPages, "512".to_owned()),
-                ]),
-            },
-        );
-
-        // Providing no value is also legal, the code that uses the parameter to
-        // figure out how to interpret it. For example, it could mean this
-        // parameter no longer exists.
-        let diff_with_empty_value = "min_allowed_top_level_account_length:";
-        check_parameter_table(
-            base_0,
-            &[diff_with_empty_value],
-            &ParameterTable {
-                params: BTreeMap::from_iter([
-                    (Parameter::RegistrarAccountId, "registrar".to_owned()),
-                    (Parameter::MinAllowedTopLevelAccountLength, "".to_owned()),
-                    (Parameter::StorageAmountPerByte, "100000000000000000000".to_owned()),
-                    (Parameter::StorageNumBytesAccount, "100".to_owned()),
-                    (Parameter::StorageNumExtraBytesRecord, "40".to_owned()),
-                ]),
-            },
+            [
+                (Parameter::RegistrarAccountId, "\"registrar\""),
+                (Parameter::MinAllowedTopLevelAccountLength, "32"),
+                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageNumBytesAccount, "100"),
+                (Parameter::StorageNumExtraBytesRecord, "40"),
+            ],
         );
     }
 
-    /// Tests synthetic small example configurations. For tests with "real"
-    /// input data, we already have
-    /// `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
+    /// Reading reading a slightly funky formatted base parameter file with no diffs
     #[test]
-    fn test_invalid_parameter_tables() {
+    fn test_basic_parameter_table_weird_syntax() {
+        check_parameter_table(
+            BASE_1,
+            &[],
+            [
+                (Parameter::RegistrarAccountId, "\"registrar\""),
+                (Parameter::MinAllowedTopLevelAccountLength, "32"),
+                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageNumBytesAccount, "100"),
+                (Parameter::StorageNumExtraBytesRecord, "40"),
+            ],
+        );
+    }
+
+    /// Apply one diff
+    #[test]
+    fn test_parameter_table_with_diff() {
+        check_parameter_table(
+            BASE_0,
+            &[DIFF_0],
+            [
+                (Parameter::RegistrarAccountId, "\"near\""),
+                (Parameter::MinAllowedTopLevelAccountLength, "32000"),
+                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageNumBytesAccount, "100"),
+                (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::WasmRegularOpCost, "3856371"),
+            ],
+        );
+    }
+
+    /// Apply two diffs
+    #[test]
+    fn test_parameter_table_with_diffs() {
+        check_parameter_table(
+            BASE_0,
+            &[DIFF_0, DIFF_1],
+            [
+                (Parameter::RegistrarAccountId, "\"near\""),
+                (Parameter::MinAllowedTopLevelAccountLength, "32000"),
+                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageNumBytesAccount, "100"),
+                (Parameter::StorageNumExtraBytesRecord, "77"),
+                (Parameter::WasmRegularOpCost, "0"),
+                (Parameter::MaxMemoryPages, "512"),
+            ],
+        );
+    }
+
+    /// Providing no value is also legal, the code that uses the parameter to
+    /// figure out how to interpret it. For example, it could mean this
+    /// parameter no longer exists.
+    #[test]
+    fn test_parameter_table_with_empty_value() {
+        let diff_with_empty_value = "min_allowed_top_level_account_length:";
+        check_parameter_table(
+            BASE_0,
+            &[diff_with_empty_value],
+            [
+                (Parameter::RegistrarAccountId, "\"registrar\""),
+                (Parameter::MinAllowedTopLevelAccountLength, ""),
+                (Parameter::StorageAmountPerByte, "100000000000000000000"),
+                (Parameter::StorageNumBytesAccount, "100"),
+                (Parameter::StorageNumExtraBytesRecord, "40"),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_invalid_key() {
         // Key that is not a `Parameter`
-        check_invalid_parameter_table(
-            "invalid_key: 100",
-            &[],
-            InvalidConfigError::UnknownParameter("invalid_key".to_owned()),
+        assert_matches!(
+            check_invalid_parameter_table("invalid_key: 100", &[]),
+            InvalidConfigError::UnknownParameter(_, _)
         );
-        check_invalid_parameter_table(
-            "wasm_regular_op_cost: 100",
-            &["invalid_key: 100"],
-            InvalidConfigError::UnknownParameter("invalid_key".to_owned()),
-        );
+    }
 
-        // No key
-        check_invalid_parameter_table(
-            ": 100",
-            &[],
-            InvalidConfigError::UnknownParameter("".to_owned()),
+    #[test]
+    fn test_parameter_table_invalid_key_in_diff() {
+        assert_matches!(
+            check_invalid_parameter_table("wasm_regular_op_cost: 100", &["invalid_key: 100"]),
+            InvalidConfigError::UnknownParameter(_, _)
         );
-        check_invalid_parameter_table(
-            "wasm_regular_op_cost: 100",
-            &[": 100"],
-            InvalidConfigError::UnknownParameter("".to_owned()),
-        );
+    }
 
-        // Wrong separator
-        check_invalid_parameter_table(
-            "wasm_regular_op_cost=100",
-            &[],
-            InvalidConfigError::NoSeparator,
+    #[test]
+    fn test_parameter_table_no_key() {
+        assert_matches!(
+            check_invalid_parameter_table(": 100", &[]),
+            InvalidConfigError::UnknownParameter(_, _)
         );
-        check_invalid_parameter_table(
-            "wasm_regular_op_cost: 100",
-            &["wasm_regular_op_cost=100"],
-            InvalidConfigError::NoSeparator,
+    }
+
+    #[test]
+    fn test_parameter_table_no_key_in_diff() {
+        assert_matches!(
+            check_invalid_parameter_table("wasm_regular_op_cost: 100", &[": 100"]),
+            InvalidConfigError::UnknownParameter(_, _)
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_wrong_separator() {
+        assert_matches!(
+            check_invalid_parameter_table("wasm_regular_op_cost=100", &[]),
+            InvalidConfigError::NoSeparator
+        );
+    }
+
+    #[test]
+    fn test_parameter_table_wrong_separator_in_diff() {
+        assert_matches!(
+            check_invalid_parameter_table(
+                "wasm_regular_op_cost: 100",
+                &["wasm_regular_op_cost=100"]
+            ),
+            InvalidConfigError::NoSeparator
         );
     }
 }

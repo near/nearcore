@@ -1,3 +1,5 @@
+use std::slice;
+
 /// Protocol configuration parameter which may change between protocol versions.
 #[derive(
     Clone,
@@ -168,4 +170,156 @@ pub enum Parameter {
     MaxFunctionsNumberPerContract,
     Wasmer2StackLimit,
     MaxLocalsPerContract,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    Debug,
+    strum::Display,
+)]
+#[strum(serialize_all = "snake_case")]
+pub enum FeeParameter {
+    ActionReceiptCreation,
+    DataReceiptCreationBase,
+    DataReceiptCreationPerByte,
+    ActionCreateAccount,
+    ActionDeleteAccount,
+    ActionDeployContract,
+    ActionDeployContractPerByte,
+    ActionFunctionCall,
+    ActionFunctionCallPerByte,
+    ActionTransfer,
+    ActionStake,
+    ActionAddFullAccessKey,
+    ActionAddFunctionCallKey,
+    ActionAddFunctionCallKeyPerByte,
+    ActionDeleteKey,
+}
+
+impl Parameter {
+    /// Iterate through all parameters that define external gas costs that may
+    /// be charged during WASM execution. These are essentially all costs from
+    /// host function calls. Note that the gas cost for regular WASM operation
+    /// is treated separately and therefore not included in this list.
+    pub fn ext_costs() -> slice::Iter<'static, Parameter> {
+        [
+            Parameter::WasmHostFunctionBase,
+            Parameter::WasmContractLoadingBase,
+            Parameter::WasmContractLoadingBytes,
+            Parameter::WasmReadMemoryBase,
+            Parameter::WasmReadMemoryByte,
+            Parameter::WasmWriteMemoryBase,
+            Parameter::WasmWriteMemoryByte,
+            Parameter::WasmReadRegisterBase,
+            Parameter::WasmReadRegisterByte,
+            Parameter::WasmWriteRegisterBase,
+            Parameter::WasmWriteRegisterByte,
+            Parameter::WasmUtf8DecodingBase,
+            Parameter::WasmUtf8DecodingByte,
+            Parameter::WasmUtf16DecodingBase,
+            Parameter::WasmUtf16DecodingByte,
+            Parameter::WasmSha256Base,
+            Parameter::WasmSha256Byte,
+            Parameter::WasmKeccak256Base,
+            Parameter::WasmKeccak256Byte,
+            Parameter::WasmKeccak512Base,
+            Parameter::WasmKeccak512Byte,
+            Parameter::WasmRipemd160Base,
+            Parameter::WasmRipemd160Block,
+            Parameter::WasmEcrecoverBase,
+            Parameter::WasmLogBase,
+            Parameter::WasmLogByte,
+            Parameter::WasmStorageWriteBase,
+            Parameter::WasmStorageWriteKeyByte,
+            Parameter::WasmStorageWriteValueByte,
+            Parameter::WasmStorageWriteEvictedByte,
+            Parameter::WasmStorageReadBase,
+            Parameter::WasmStorageReadKeyByte,
+            Parameter::WasmStorageReadValueByte,
+            Parameter::WasmStorageRemoveBase,
+            Parameter::WasmStorageRemoveKeyByte,
+            Parameter::WasmStorageRemoveRetValueByte,
+            Parameter::WasmStorageHasKeyBase,
+            Parameter::WasmStorageHasKeyByte,
+            Parameter::WasmStorageIterCreatePrefixBase,
+            Parameter::WasmStorageIterCreatePrefixByte,
+            Parameter::WasmStorageIterCreateRangeBase,
+            Parameter::WasmStorageIterCreateFromByte,
+            Parameter::WasmStorageIterCreateToByte,
+            Parameter::WasmStorageIterNextBase,
+            Parameter::WasmStorageIterNextKeyByte,
+            Parameter::WasmStorageIterNextValueByte,
+            Parameter::WasmTouchingTrieNode,
+            Parameter::WasmReadCachedTrieNode,
+            Parameter::WasmPromiseAndBase,
+            Parameter::WasmPromiseAndPerPromise,
+            Parameter::WasmPromiseReturn,
+            Parameter::WasmValidatorStakeBase,
+            Parameter::WasmValidatorTotalStakeBase,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128G1MultiexpBase,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128G1MultiexpElement,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128PairingCheckBase,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128PairingCheckElement,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128G1SumBase,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            Parameter::WasmAltBn128G1SumElement,
+        ]
+        .iter()
+    }
+
+    /// Iterate through all parameters that define numerical limits for
+    /// contracts that are executed in the WASM VM.
+    pub fn vm_limits() -> slice::Iter<'static, Parameter> {
+        [
+            Parameter::MaxGasBurnt,
+            Parameter::MaxStackHeight,
+            Parameter::StackLimiterVersion,
+            Parameter::InitialMemoryPages,
+            Parameter::MaxMemoryPages,
+            Parameter::RegistersMemoryLimit,
+            Parameter::MaxRegisterSize,
+            Parameter::MaxNumberRegisters,
+            Parameter::MaxNumberLogs,
+            Parameter::MaxTotalLogLength,
+            Parameter::MaxTotalPrepaidGas,
+            Parameter::MaxActionsPerReceipt,
+            Parameter::MaxNumberBytesMethodNames,
+            Parameter::MaxLengthMethodName,
+            Parameter::MaxArgumentsLength,
+            Parameter::MaxLengthReturnedData,
+            Parameter::MaxContractSize,
+            Parameter::MaxTransactionSize,
+            Parameter::MaxLengthStorageKey,
+            Parameter::MaxLengthStorageValue,
+            Parameter::MaxPromisesPerFunctionCallAction,
+            Parameter::MaxNumberInputDataDependencies,
+            Parameter::MaxFunctionsNumberPerContract,
+            Parameter::Wasmer2StackLimit,
+            Parameter::MaxLocalsPerContract,
+        ]
+        .iter()
+    }
+}
+
+impl FeeParameter {
+    pub fn to_flat_parameters(
+        &self,
+    ) -> impl Iterator<Item = Result<Parameter, <Parameter as std::str::FromStr>::Err>> {
+        let prefix = self.to_string();
+        ["send_sir", "send_not_sir", "execution"]
+            .iter()
+            .map(move |suffix| format!("{prefix}_{suffix}").parse())
+    }
 }
