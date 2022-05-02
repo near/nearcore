@@ -234,9 +234,7 @@ pub(crate) trait Database: Sync + Send {
     fn transaction(&self) -> DBTransaction {
         DBTransaction { ops: Vec::new() }
     }
-
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
-
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
         &'a self,
