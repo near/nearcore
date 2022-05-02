@@ -185,6 +185,25 @@ static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static TRANSACTION_RECEIVED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_transaction_received_validator", "Validator received a transaction")
+        .unwrap()
+});
+pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_transaction_received_non_validator",
+        "Non-validator received a transaction",
+    )
+    .unwrap()
+});
+pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_transaction_received_non_validator_forwarded",
+        "Non-validator received a forwarded transaction",
+    )
+    .unwrap()
+});
+
 /// Exports neard, protocol and database versions via Prometheus metrics.
 ///
 /// Sets metrics which export node’s max supported protocol version, used
