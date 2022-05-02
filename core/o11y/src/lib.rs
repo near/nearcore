@@ -8,9 +8,9 @@ use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
 use tracing_subscriber::fmt::Layer;
-use tracing_subscriber::layer::Layered;
 #[cfg(feature = "opentelemetry")]
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::layer::Layered;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Registry};
 
