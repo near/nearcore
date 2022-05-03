@@ -2332,11 +2332,13 @@ impl Chain {
             let block = self.store.get_block(&pending_block)?.clone();
             let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
+            let receipts_by_shard = self.collect_incoming_receipts_from_block(me, block)?;
             let mut chain_update = self.chain_update();
             let work = chain_update.apply_chunks_preprocessing(
                 me,
                 &block,
                 &prev_block,
+                receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
             )?;
             blocks_catch_up_state
