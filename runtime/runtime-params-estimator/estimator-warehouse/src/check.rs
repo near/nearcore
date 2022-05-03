@@ -42,12 +42,12 @@ pub(crate) enum Status {
     // Critical = 2,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Notice {
     RelativeChange(RelativeChange),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct RelativeChange {
     pub estimation: String,
     pub before: f64,
@@ -55,28 +55,7 @@ pub(crate) struct RelativeChange {
 }
 
 pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
-    let (commit_a, commit_b) = match (&config.commit_a, &config.commit_b) {
-        (Some(a), Some(b)) => (a.clone(), b.clone()),
-        (None, None) => {
-            let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
-            if commits.len() < 2 {
-                anyhow::bail!("Need data for at least 2 commits to perform comparison.");
-            }
-            (commits.pop().unwrap().0, commits.pop().unwrap().0)
-        }
-        _ => anyhow::bail!("You have to either specify both commits for comparison or neither."),
-    };
-
-    let estimations = if config.estimations.len() > 0 {
-        config.estimations.clone()
-    } else {
-        let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_a, config.metric)?;
-        let rows_b = EstimationRow::select_by_commit_and_metric(db, &commit_b, config.metric)?;
-        let estimations_a = rows_a.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
-        let estimations_b = rows_b.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
-        estimations_a.intersection(&estimations_b).cloned().collect()
-    };
-    let warnings = estimation_changes(db, &estimations, &commit_a, &commit_b, 0.1, Metric::Time)?;
+    let (commit_before, commit_after, warnings) = inner_check(config, db)?;
     for warning in &warnings {
         println!("{warning:?}");
     }
@@ -92,34 +71,171 @@ pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     };
 
     if let Some(zulip) = zulip_receiver {
-        let mut report = ZulipReport::new(commit_a, commit_b);
+        let mut report = ZulipReport::new(commit_before, commit_after);
         warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
         zulip.post(&report)?;
     }
     Ok(())
 }
 
+fn inner_check(
+    config: &CheckConfig,
+    db: &Db,
+) -> Result<(String, String, Vec<Notice>), anyhow::Error> {
+    let (commit_after, commit_before) = match (&config.commit_a, &config.commit_b) {
+        (Some(a), Some(b)) => (a.clone(), b.clone()),
+        (None, None) => {
+            let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
+            if commits.len() < 2 {
+                anyhow::bail!("Need data for at least 2 commits to perform comparison.");
+            }
+            (commits.pop().unwrap().0, commits.pop().unwrap().0)
+        }
+        _ => anyhow::bail!("You have to either specify both commits for comparison or neither."),
+    };
+    let estimations = if config.estimations.len() > 0 {
+        config.estimations.clone()
+    } else {
+        let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_after, config.metric)?;
+        let rows_b = EstimationRow::select_by_commit_and_metric(db, &commit_before, config.metric)?;
+        let estimations_a = rows_a.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        let estimations_b = rows_b.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        estimations_a.intersection(&estimations_b).cloned().collect()
+    };
+    let warnings =
+        estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
+    Ok((commit_before, commit_after, warnings))
+}
+
 fn estimation_changes(
     db: &Db,
     estimation_names: &[String],
-    commit_a: &str,
-    commit_b: &str,
+    commit_before: &str,
+    commit_after: &str,
     tolerance: f64,
     metric: Metric,
 ) -> anyhow::Result<Vec<Notice>> {
     let mut warnings = Vec::new();
     for name in estimation_names {
-        let a = &EstimationRow::get(db, name, commit_a, metric)?[0];
-        let b = &EstimationRow::get(db, name, commit_b, metric)?[0];
-        let rel_change = if a.gas == 0.0 { 100.0 } else { (a.gas - b.gas).abs() / a.gas };
+        let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
+        let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
+        let rel_change = if a.gas == 0.0 { 100.0 } else { (b.gas - a.gas).abs() / b.gas };
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),
-                before: a.gas,
-                after: b.gas,
+                before: b.gas,
+                after: a.gas,
             }))
         }
     }
 
     Ok(warnings)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::db::{Db, EstimationRow};
+    use crate::Metric;
+
+    use super::{inner_check, CheckConfig, Notice, RelativeChange};
+
+    #[track_caller]
+    fn check_estimation_changes(
+        db: &Db,
+        estimation_names: impl Iterator<Item = &'static str>,
+        commit_before: &str,
+        commit_after: &str,
+        tolerance: f64,
+        metric: Metric,
+        expected: Vec<Notice>,
+    ) {
+        let output = super::estimation_changes(
+            &db,
+            &estimation_names.map(|s| s.to_owned()).collect::<Vec<_>>(),
+            commit_before,
+            commit_after,
+            tolerance,
+            metric,
+        )
+        .unwrap();
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn test_estimation_changes() {
+        let db = Db::test();
+        // Data with large difference between commits
+        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e9, Metric::ICount, 3);
+        // Data with virtually no difference between commits
+        EstimationRow::insert_test_data_set(&db, "LogByte", 1e9, 1.0, Metric::ICount, 3);
+        EstimationRow::insert_test_data_set(&db, "LogBase", 2e9, 0.0, Metric::Time, 3);
+        EstimationRow::insert_test_data_set(&db, "LogByte", 2e9, 0.0, Metric::Time, 3);
+
+        let expected_icount_notice = Notice::RelativeChange(RelativeChange {
+            estimation: "LogBase".to_owned(),
+            before: 2e9,
+            after: 3e9,
+        });
+
+        // The difference is exactly 50%, therefore 49.9% is breached.
+        check_estimation_changes(
+            &db,
+            ["LogBase", "LogByte"].into_iter(),
+            "0001beef",
+            "0002beef",
+            0.499,
+            Metric::ICount,
+            vec![expected_icount_notice],
+        );
+
+        // Tolerate 50% and check there is no notice.
+        check_estimation_changes(
+            &db,
+            ["LogBase", "LogByte"].into_iter(),
+            "0001beef",
+            "0002beef",
+            0.5,
+            Metric::ICount,
+            vec![],
+        );
+
+        // Time based estimation has no gas difference, thus no notice.
+        check_estimation_changes(
+            &db,
+            ["LogBase", "LogByte"].into_iter(),
+            "0001beef",
+            "0002beef",
+            0.001,
+            Metric::Time,
+            vec![],
+        );
+    }
+
+    /// One test that calls `inner_check`.
+    #[test]
+    fn test_check_command() {
+        let db = Db::test();
+        // Data with large difference between commits
+        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e9, Metric::ICount, 5);
+        EstimationRow::insert_test_data_set(&db, "LogByte", 1e9, 3e9, Metric::ICount, 5);
+
+        let config = CheckConfig {
+            zulip_stream: None,
+            zulip_user: None,
+            metric: Metric::ICount,
+            commit_a: None,
+            commit_b: None,
+            estimations: vec!["LogBase".to_owned()],
+        };
+
+        let expected_notices = [Notice::RelativeChange(RelativeChange {
+            estimation: "LogBase".to_owned(),
+            before: 4e9,
+            after: 5e9,
+        })];
+        let (commit_before, commit_after, notices) = inner_check(&config, &db).unwrap();
+        assert_eq!("0003beef", commit_before);
+        assert_eq!("0004beef", commit_after);
+        assert_eq!(expected_notices.as_slice(), &notices);
+    }
 }
