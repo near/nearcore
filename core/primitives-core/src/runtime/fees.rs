@@ -3,7 +3,6 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
-
 use serde::{Deserialize, Serialize};
 
 use crate::num_rational::Rational;

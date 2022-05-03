@@ -313,14 +313,3 @@ impl Parameter {
         .iter()
     }
 }
-
-impl FeeParameter {
-    pub fn to_flat_parameters(
-        &self,
-    ) -> impl Iterator<Item = Result<Parameter, <Parameter as std::str::FromStr>::Err>> {
-        let prefix = self.to_string();
-        ["send_sir", "send_not_sir", "execution"]
-            .iter()
-            .map(move |suffix| format!("{prefix}_{suffix}").parse())
-    }
-}

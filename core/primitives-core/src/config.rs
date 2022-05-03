@@ -94,7 +94,7 @@ pub struct VMLimitConfig {
     pub max_locals_per_contract: Option<u64>,
 }
 
-pub fn wasmer2_stack_limit_default() -> i32 {
+fn wasmer2_stack_limit_default() -> i32 {
     100 * 1024
 }
 
@@ -123,7 +123,7 @@ impl StackLimiterVersion {
             StackLimiterVersion::V1 => 1,
         }
     }
-    pub fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
+    fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
         let res = match repr {
             0 => StackLimiterVersion::V0,
             1 => StackLimiterVersion::V1,
