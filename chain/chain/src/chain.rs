@@ -3437,13 +3437,13 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    pub fn save_incoming_receipts_from_block(
+    pub fn collect_incoming_receipts_from_block(
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
-    ) -> Result<(), Error> {
+    ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
-            return Ok(());
+            return Ok(HashMap::new());
         }
         let height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
@@ -3463,15 +3463,7 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        for (shard_id, mut receipt_proofs) in receipt_proofs_by_shard_id {
-            let mut slice = [0u8; 32];
-            slice.copy_from_slice(block.hash().as_ref());
-            let mut rng: StdRng = SeedableRng::from_seed(slice);
-            receipt_proofs.shuffle(&mut rng);
-            self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
-        }
-
-        Ok(())
+        Ok(receipt_proofs_by_shard_id)
     }
 
     pub fn create_chunk_state_challenge(
@@ -3592,6 +3584,7 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
+        incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
     ) -> Result<Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>, Error>
     {
@@ -3709,13 +3702,16 @@ impl<'a> ChainUpdate<'a> {
                             Err(err) => err,
                         }
                     })?;
-                    let receipt_proof_response: Vec<ReceiptProofResponse> =
-                        self.chain_store_update.get_incoming_receipts_for_shard(
+                    // we can't use hash from the current block here yet because the incoming receipts
+                    // for this block is not stored yet
+                    let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+                    receipts.extend(collect_receipts_from_response(
+                        &self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
-                            *block.hash(),
+                            prev_hash.clone(),
                             prev_chunk_height_included,
-                        )?;
-                    let receipts = collect_receipts_from_response(&receipt_proof_response);
+                        )?,
+                    ));
                     let chunk = self
                         .chain_store_update
                         .get_chunk_clone_from_header(&chunk_header.clone())?;
@@ -4315,7 +4311,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-        self.save_incoming_receipts_from_block(me, block)?;
+        let receipts_by_shard = self.collect_incoming_receipts_from_block(me, block)?;
 
         // Do basic validation of chunks before applying the transactions
         let prev_chunk_headers =
@@ -4338,14 +4334,34 @@ impl<'a> ChainUpdate<'a> {
         // for these states as well
         // otherwise put the block into the permanent storage, waiting for be caught up
         let apply_chunk_work = if is_caught_up {
-            self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::IsCaughtUp)?
+            self.apply_chunks_preprocessing(
+                me,
+                block,
+                &prev_block,
+                receipts_by_shard,
+                ApplyChunksMode::IsCaughtUp,
+            )?
         } else {
             debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
-            self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
+            self.apply_chunks_preprocessing(
+                me,
+                block,
+                &prev_block,
+                receipts_by_shard,
+                ApplyChunksMode::NotCaughtUp,
+            )?
         };
 
         self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
+
+        for (shard_id, mut receipt_proofs) in receipts_by_shard {
+            let mut slice = [0u8; 32];
+            slice.copy_from_slice(block.hash().as_ref());
+            let mut rng: StdRng = SeedableRng::from_seed(slice);
+            receipt_proofs.shuffle(&mut rng);
+            self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
+        }
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
