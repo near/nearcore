@@ -79,6 +79,7 @@ fn send_tx(
     });
 }
 
+#[derive(Debug)]
 enum ReceiptsSyncPhases {
     WaitingForFirstBlock,
     WaitingForSecondBlock,
@@ -118,7 +119,9 @@ fn test_catchup_receipts_sync_hold() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_receipts_sync_last_block() {
-    test_catchup_receipts_sync_common(13, 5, false)
+    // `send` needs to be different from `epoch_length`, which is set to 5.
+    // If `send` happens at the end of an epoch and there are no validators in common between epochs, then the transaction doesn't get forwarded to the next epoch.
+    test_catchup_receipts_sync_common(13, 4, false)
 }
 
 #[test]
@@ -394,7 +397,7 @@ fn test_catchup_random_single_part_sync_skip_15() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_random_single_part_sync_send_15() {
-    test_catchup_random_single_part_sync_common(false, false, 15)
+    test_catchup_random_single_part_sync_common(false, false, 16)
 }
 
 // Make sure that transactions are at least applied.
