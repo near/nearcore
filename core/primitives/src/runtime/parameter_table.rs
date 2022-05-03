@@ -18,24 +18,20 @@ pub(crate) struct ParameterTableDiff {
 pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
     UnknownParameter(#[source] strum::ParseError, String),
-    #[error("Unable to parse value: `{1}`")]
+    #[error("could not parse `{1}` as a value")]
     ValueParseError(#[source] serde_json::Error, String),
-    #[error("Parameter name and value must be separated by a `:`. Line {0}: `{1}`")]
+    #[error("expected a `:` separator between name and value of a parameter `{1}` on line {0}")]
     NoSeparator(usize, String),
-    #[error("Intermediate JSON created by parser does not match `RuntimeConfig`")]
+    #[error("intermediate JSON created by parser does not match `RuntimeConfig`")]
     WrongStructure(#[source] serde_json::Error),
+    #[error("config diff expected to contain old value `{1}` for parameter `{0}`")]
+    OldValueExists(Parameter, String),
     #[error(
-        "Invalid diff. An old value for parameter {0} exists but the diff did not contain it."
+        "unexpected old value `{1}` for parameter `{0}` in config diff, previous version does not have such a value"
     )]
-    OldValueExists(Parameter),
-    #[error(
-        "Invalid diff. An old value for parameter {0} was specified in the diff but the previous version does not contain it."
-    )]
-    NoOldValueExists(Parameter),
-    #[error(
-        "Invalid diff. The old value for parameter {0} in the diff is not the same as found in the previous version."
-    )]
-    WrongOldValue(Parameter),
+    NoOldValueExists(Parameter, String),
+    #[error("expected old value `{1}` but found `{2}` for parameter `{0}` in config diff")]
+    WrongOldValue(Parameter, String, String),
 }
 
 impl ParameterTable {
@@ -79,16 +75,22 @@ impl ParameterTable {
                     Some(serde_json::Value::Null) | None => {
                         self.params.insert(key, after);
                     }
-                    Some(_) => return Err(InvalidConfigError::OldValueExists(key)),
+                    Some(old_value) => {
+                        return Err(InvalidConfigError::OldValueExists(key, old_value.to_string()))
+                    }
                 }
             } else {
                 match self.params.get(&key) {
                     Some(serde_json::Value::Null) | None => {
-                        return Err(InvalidConfigError::NoOldValueExists(key))
+                        return Err(InvalidConfigError::NoOldValueExists(key, before.to_string()))
                     }
-                    Some(value) => {
-                        if *value != before {
-                            return Err(InvalidConfigError::WrongOldValue(key));
+                    Some(old_value) => {
+                        if *old_value != before {
+                            return Err(InvalidConfigError::WrongOldValue(
+                                key,
+                                old_value.to_string(),
+                                before.to_string(),
+                            ));
                         } else {
                             self.params.insert(key, after);
                         }
@@ -145,9 +147,7 @@ impl ParameterTable {
         let mut json = serde_json::Map::new();
         for param in params {
             let mut key: &'static str = param.into();
-            if key.starts_with(remove_prefix) {
-                key = &key[remove_prefix.len()..];
-            }
+            key = key.strip_prefix(remove_prefix).unwrap_or(key);
             if let Some(value) = self.get(*param) {
                 json.insert(key.to_owned(), value.clone());
             }
@@ -227,8 +227,9 @@ fn parse_parameter_txt_value(value: &str) -> Result<serde_json::Value, InvalidCo
     if value.is_empty() {
         return Ok(serde_json::Value::Null);
     }
-    if value.chars().all(|c| c.is_numeric() || c == '_') {
-        let raw_number = value.chars().filter(|c| c.is_numeric()).collect::<String>();
+    if value.bytes().all(|c| c.is_ascii_digit() || c == '_' as u8) {
+        let mut raw_number = value.to_owned();
+        raw_number.retain(char::is_numeric);
         // We do not have "arbitrary_precision" serde feature enabled, thus we
         // can only store up to `u64::MAX`, which is `18446744073709551615` and
         // has 20 characters.
@@ -485,7 +486,14 @@ max_memory_pages: 512
                 "min_allowed_top_level_account_length: 3_200_000_000",
                 &["min_allowed_top_level_account_length: 3_200_000 -> 1_600_000"]
             ),
-            InvalidConfigError::WrongOldValue(Parameter::MinAllowedTopLevelAccountLength)
+            InvalidConfigError::WrongOldValue(
+                Parameter::MinAllowedTopLevelAccountLength,
+                expected,
+                found
+            ) => {
+                assert_eq!(expected, "3200000000");
+                assert_eq!(found, "3200000");
+            }
         );
     }
 
@@ -496,7 +504,9 @@ max_memory_pages: 512
                 "min_allowed_top_level_account_length: 3_200_000_000",
                 &["min_allowed_top_level_account_length: 1_600_000"]
             ),
-            InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength)
+            InvalidConfigError::OldValueExists(Parameter::MinAllowedTopLevelAccountLength, expected) => {
+                assert_eq!(expected, "3200000000");
+            }
         );
     }
 
@@ -507,7 +517,9 @@ max_memory_pages: 512
                 "min_allowed_top_level_account_length: 3_200_000_000",
                 &["wasm_regular_op_cost: 3_200_000 -> 1_600_000"]
             ),
-            InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost)
+            InvalidConfigError::NoOldValueExists(Parameter::WasmRegularOpCost, found) => {
+                assert_eq!(found, "3200000");
+            }
         );
     }
 }
