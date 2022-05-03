@@ -3465,6 +3465,12 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
         }
+        for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
+            let mut slice = [0u8; 32];
+            slice.copy_from_slice(block.hash().as_ref());
+            let mut rng: StdRng = SeedableRng::from_seed(slice);
+            receipt_proofs.shuffle(&mut rng);
+        }
 
         Ok(receipt_proofs_by_shard_id)
     }
@@ -4358,11 +4364,7 @@ impl<'a> ChainUpdate<'a> {
 
         self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
 
-        for (shard_id, mut receipt_proofs) in receipts_by_shard {
-            let mut slice = [0u8; 32];
-            slice.copy_from_slice(block.hash().as_ref());
-            let mut rng: StdRng = SeedableRng::from_seed(slice);
-            receipt_proofs.shuffle(&mut rng);
+        for (shard_id, receipt_proofs) in receipts_by_shard {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
         }
 
