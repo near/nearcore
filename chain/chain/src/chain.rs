@@ -4381,20 +4381,13 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        for shard_id in 0..block.chunks().len() {
-            if self.runtime_adapter.cares_about_shard(
-                me.as_ref(),
-                &prev_hash,
-                shard_id as ShardId,
-                true,
-            ) {
-                self.chain_store_update.save_receipt_id_to_shard_id(
-                    self.runtime_adapter.as_ref(),
-                    block.hash(),
-                    shard_id as ShardId,
-                )?;
-            }
-        }
+        self.chain_store_update.save_receipt_id_to_shard_id(
+            me,
+            self.runtime_adapter.as_ref(),
+            block.hash(),
+            &prev_hash,
+            block.chunks().len() as NumShards,
+        )?;
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;

@@ -27,8 +27,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId,
-    StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
+    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, NumShards,
+    ShardId, StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
     StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
@@ -1000,7 +1000,7 @@ impl ChainStoreAccess for ChainStore {
                 &mut self.outgoing_receipts,
                 &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
+            &format!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
     }
 
@@ -1817,24 +1817,49 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), outgoing_receipts);
     }
 
-    /// Save a mapping from receipt ids to destination shard ids for all the outgoing receipts
-    /// generated in block `hash` in shard `shard_id`.
+    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
+    /// in this epoch,
+    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
+    /// to in the next block.
     /// Note that this function should be called after `save_block` is called on this block because
     /// it requires that the block info is available in EpochManager.
     pub fn save_receipt_id_to_shard_id(
         &mut self,
+        me: &Option<AccountId>,
         runtime_adapter: &dyn RuntimeAdapter,
         hash: &CryptoHash,
-        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        num_shards: NumShards,
     ) -> Result<(), Error> {
-        let outgoing_receipts = self.get_outgoing_receipts(hash, shard_id)?;
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(hash)?;
-        for receipt in outgoing_receipts {
-            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
-            self.chain_store_cache_update
-                .receipt_id_to_shard_id
-                .insert(receipt.receipt_id, to_shard_id);
+        for shard_id in 0..num_shards {
+            if runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id as ShardId, true)
+            {
+                let receipt_id_to_shard_id: HashMap<_, _> = {
+                    // it can be empty if there is no new chunk for this shard
+                    if let Ok(outgoing_receipts) = self.get_outgoing_receipts(hash, shard_id) {
+                        let shard_layout =
+                            runtime_adapter.get_shard_layout_from_prev_block(hash)?;
+                        outgoing_receipts
+                            .into_iter()
+                            .map(|receipt| {
+                                (
+                                    receipt.receipt_id,
+                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
+                                )
+                            })
+                            .collect()
+                    } else {
+                        HashMap::new()
+                    }
+                };
+                for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                    self.chain_store_cache_update
+                        .receipt_id_to_shard_id
+                        .insert(receipt_id, shard_id);
+                }
+            }
         }
+
         Ok(())
     }
 
