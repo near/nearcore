@@ -1817,20 +1817,18 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), outgoing_receipts);
     }
 
+    /// Save a mapping from receipt ids to destination shard ids for all the outgoing receipts
+    /// generated in block `hash` in shard `shard_id`.
+    /// Note that this function should be called after `save_block` is called on this block because
+    /// it requires that the block info is available in EpochManager.
     pub fn save_receipt_id_to_shard_id(
         &mut self,
         runtime_adapter: &dyn RuntimeAdapter,
-        prev_hash: &CryptoHash,
+        hash: &CryptoHash,
         shard_id: ShardId,
-        last_height_included: BlockHeight,
     ) -> Result<(), Error> {
-        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
-            runtime_adapter,
-            *prev_hash,
-            shard_id,
-            last_height_included,
-        )?;
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
+        let outgoing_receipts = self.get_outgoing_receipts(hash, shard_id)?;
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(hash)?;
         for receipt in outgoing_receipts {
             let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
             self.chain_store_cache_update
