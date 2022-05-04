@@ -2,7 +2,6 @@
 pub use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
@@ -83,7 +82,7 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::AsStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -323,7 +322,6 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 
     // IbfMessage
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     IbfMessage {
         peer_id: PeerId,
         ibf_msg: RoutingSyncV2,

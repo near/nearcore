@@ -1201,6 +1201,10 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    /// Collect incoming receipts for shard `shard_id` from
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
+    /// This is because the chunks for the shard are empty for the blocks in between,
+    /// so the receipts from these blocks are propagated
     pub fn get_incoming_receipts_for_shard(
         &mut self,
         shard_id: ShardId,
