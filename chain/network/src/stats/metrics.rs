@@ -121,7 +121,7 @@ pub(crate) enum MessageDropped {
 
 impl MessageDropped {
     pub fn inc(self, msg: &RoutedMessageBody) {
-        self.inc_msg_type(msg.as_ref())
+        self.inc_msg_type(msg.into())
     }
 
     pub fn inc_unknown_msg(self) {

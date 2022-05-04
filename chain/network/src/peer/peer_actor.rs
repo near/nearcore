@@ -246,11 +246,8 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            return Err(IOError::Send {
-                tid,
-                message_type: msg.as_ref().to_string(),
-                size: bytes_len,
-            });
+            let msg_type: &str = msg.into();
+            return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
         Ok(())
     }

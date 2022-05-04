@@ -76,7 +76,7 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::AsRefStr, strum::EnumVariantNames)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
@@ -159,10 +159,10 @@ impl PeerMessage {
         })
     }
 
-    pub(crate) fn msg_variant(&self) -> &str {
+    pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
-            PeerMessage::Routed(routed_message) => routed_message.body.as_ref(),
-            _ => self.as_ref(),
+            PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
+            _ => self.into(),
         }
     }
 
