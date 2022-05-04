@@ -2014,21 +2014,16 @@ impl Client {
     }
 
     pub fn detailed_upcoming_blocks_info_as_web(&self) -> ChunkInfoView {
-        let height_status_map = match self.detailed_upcoming_blocks_info() {
-            Ok(m) => m,
-            Err(_) => HashMap::new(),
-        };
-
+        let height_status_map = self.detailed_upcoming_blocks_info().unwrap_or_default();
         let next_blocks_log = height_status_map
             .keys()
             .sorted()
             .map(|height| {
                 let val = height_status_map.get(height).unwrap();
 
-                let block_debug = val
+                let mut block_debug = val
                     .iter()
-                    .map(|entry| {
-                        let block_info = entry.1;
+                    .map(|(block_hash, block_info)| {
                         let chunk_status = block_info
                             .chunk_hashes
                             .iter()
@@ -2056,11 +2051,9 @@ impl Client {
 
                         format!(
                             "{} {} {} Chunks:({}))",
-                            entry.0, in_progress_str, in_orphan_str, chunk_status.join(""),
+                            block_hash, in_progress_str, in_orphan_str, chunk_status.join(""),
                         )
-                    })
-                    .collect::<Vec<String>>();
-
+                    });
                 format!("{} {}", height, block_debug.join("\n"))
             })
             .collect::<Vec<String>>();

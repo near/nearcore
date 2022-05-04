@@ -42,7 +42,7 @@
                     $('.js-chunk-count').text(chunk_info.num_of_chunks_in_progress);
                     $('.js-orphan-count').text(chunk_info.num_of_orphans);
                     chunk_info.next_blocks_log.forEach((log, index) =>
-                        $('.js-tbody-validators').append($('<tr>')
+                        $('.js-tbody-log').append($('<tr>')
                             .append($('<td>').append(log))
                         )
                     );
