@@ -1,6 +1,6 @@
 /// Contains protobuf <-> network_protocol conversions.
 use crate::network_protocol::proto;
-use crate::network_protocol::proto::peer_message::MessageType as ProtoMT;
+use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PeerMessage, RoutingSyncV2, RoutingTableUpdate,
 };
@@ -15,6 +15,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
+use protobuf::MessageField as MF;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -44,14 +45,16 @@ pub enum ParseRequiredError<E> {
 }
 
 fn try_from_required<'a, X, Y: TryFrom<&'a X>>(
-    x: &'a Option<X>,
+    x: &'a MF<X>,
 ) -> Result<Y, ParseRequiredError<Y::Error>> {
     x.as_ref().ok_or(ParseRequiredError::Missing)?.try_into().map_err(ParseRequiredError::Other)
 }
 
 impl From<&CryptoHash> for proto::CryptoHash {
     fn from(x: &CryptoHash) -> Self {
-        Self { hash: x.0.into() }
+        let mut y = Self::new();
+        y.hash = x.0.into();
+        y
     }
 }
 
@@ -68,7 +71,7 @@ impl TryFrom<&proto::CryptoHash> for CryptoHash {
 
 impl From<&GenesisId> for proto::GenesisId {
     fn from(x: &GenesisId) -> Self {
-        Self { chain_id: x.chain_id.clone(), hash: Some((&x.hash).into()) }
+        Self { chain_id: x.chain_id.clone(), hash: MF::some((&x.hash).into()), ..Self::default() }
     }
 }
 
@@ -93,10 +96,11 @@ impl TryFrom<&proto::GenesisId> for GenesisId {
 impl From<&PeerChainInfoV2> for proto::PeerChainInfo {
     fn from(x: &PeerChainInfoV2) -> Self {
         Self {
-            genesis_id: Some((&x.genesis_id).into()),
+            genesis_id: MF::some((&x.genesis_id).into()),
             height: x.height,
             tracked_shards: x.tracked_shards.clone(),
             archival: x.archival,
+            ..Self::default()
         }
     }
 }
@@ -123,7 +127,7 @@ impl TryFrom<&proto::PeerChainInfo> for PeerChainInfoV2 {
 
 impl From<&PeerId> for proto::PublicKey {
     fn from(x: &PeerId) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -140,7 +144,7 @@ impl TryFrom<&proto::PublicKey> for PeerId {
 
 impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     fn from(x: &PartialEdgeInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -157,7 +161,7 @@ impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
 
 impl From<&PeerInfo> for proto::PeerInfo {
     fn from(x: &PeerInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -177,11 +181,12 @@ impl From<&Handshake> for proto::Handshake {
         Self {
             protocol_version: x.protocol_version,
             oldest_supported_version: x.oldest_supported_version,
-            sender_peer_id: Some((&x.sender_peer_id).into()),
-            target_peer_id: Some((&x.target_peer_id).into()),
+            sender_peer_id: MF::some((&x.sender_peer_id).into()),
+            target_peer_id: MF::some((&x.target_peer_id).into()),
             sender_listen_port: x.sender_listen_port.unwrap_or(0).into(),
-            sender_chain_info: Some((&x.sender_chain_info).into()),
-            partial_edge_info: Some((&x.partial_edge_info).into()),
+            sender_chain_info: MF::some((&x.sender_chain_info).into()),
+            partial_edge_info: MF::some((&x.partial_edge_info).into()),
+            ..Self::default()
         }
     }
 }
@@ -236,20 +241,20 @@ impl From<(&PeerInfo, &HandshakeFailureReason)> for proto::HandshakeFailure {
                 version,
                 oldest_supported_version,
             } => Self {
-                peer_info: Some(pi.into()),
+                peer_info: MF::some(pi.into()),
                 reason: proto::handshake_failure::Reason::ProtocolVersionMismatch.into(),
                 version: *version,
                 oldest_supported_version: *oldest_supported_version,
                 ..Default::default()
             },
             HandshakeFailureReason::GenesisMismatch(genesis_id) => Self {
-                peer_info: Some(pi.into()),
+                peer_info: MF::some(pi.into()),
                 reason: proto::handshake_failure::Reason::GenesisMismatch.into(),
-                genesis_id: Some(genesis_id.into()),
+                genesis_id: MF::some(genesis_id.into()),
                 ..Default::default()
             },
             HandshakeFailureReason::InvalidTarget => Self {
-                peer_info: Some(pi.into()),
+                peer_info: MF::some(pi.into()),
                 reason: proto::handshake_failure::Reason::InvalidTarget.into(),
                 ..Default::default()
             },
@@ -271,9 +276,7 @@ impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
     type Error = ParseHandshakeFailureError;
     fn try_from(x: &proto::HandshakeFailure) -> Result<Self, Self::Error> {
         let pi = try_from_required(&x.peer_info).map_err(Self::Error::PeerInfo)?;
-        let hfr = match proto::handshake_failure::Reason::from_i32(x.reason)
-            .unwrap_or(proto::handshake_failure::Reason::Unknown)
-        {
+        let hfr = match x.reason.enum_value_or_default() {
             proto::handshake_failure::Reason::ProtocolVersionMismatch => {
                 HandshakeFailureReason::ProtocolVersionMismatch {
                     version: x.version,
@@ -288,7 +291,7 @@ impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
             proto::handshake_failure::Reason::InvalidTarget => {
                 HandshakeFailureReason::InvalidTarget
             }
-            proto::handshake_failure::Reason::Unknown => return Err(Self::Error::UnknownReason),
+            proto::handshake_failure::Reason::UNKNOWN => return Err(Self::Error::UnknownReason),
         };
         Ok((pi, hfr))
     }
@@ -298,7 +301,7 @@ impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
 
 impl From<&Edge> for proto::Edge {
     fn from(x: &Edge) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -315,7 +318,7 @@ impl TryFrom<&proto::Edge> for Edge {
 
 impl From<&AnnounceAccount> for proto::AnnounceAccount {
     fn from(x: &AnnounceAccount) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -335,6 +338,7 @@ impl From<&RoutingTableUpdate> for proto::RoutingTableUpdate {
         Self {
             edges: x.edges.iter().map(Into::into).collect(),
             accounts: x.accounts.iter().map(Into::into).collect(),
+            ..Self::default()
         }
     }
 }
@@ -361,7 +365,7 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
 
 impl From<&BlockHeader> for proto::BlockHeader {
     fn from(x: &BlockHeader) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -378,7 +382,7 @@ impl TryFrom<&proto::BlockHeader> for BlockHeader {
 
 impl From<&Block> for proto::Block {
     fn from(x: &Block) -> Self {
-        Self { borsh: x.try_to_vec().unwrap() }
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
@@ -401,76 +405,93 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::HandshakeFailure(pi, hfr) => {
                     ProtoMT::HandshakeFailure((pi, hfr).into())
                 }
-                PeerMessage::LastEdge(e) => {
-                    ProtoMT::LastEdge(proto::LastEdge { edge: Some(e.into()) })
-                }
+                PeerMessage::LastEdge(e) => ProtoMT::LastEdge(proto::LastEdge {
+                    edge: MF::some(e.into()),
+                    ..Default::default()
+                }),
                 PeerMessage::SyncRoutingTable(rtu) => ProtoMT::SyncRoutingTable(rtu.into()),
                 PeerMessage::RequestUpdateNonce(pei) => {
                     ProtoMT::UpdateNonceRequest(proto::UpdateNonceRequest {
-                        partial_edge_info: Some(pei.into()),
+                        partial_edge_info: MF::some(pei.into()),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::ResponseUpdateNonce(e) => {
                     ProtoMT::UpdateNonceResponse(proto::UpdateNonceResponse {
-                        edge: Some(e.into()),
+                        edge: MF::some(e.into()),
+                        ..Default::default()
                     })
                 }
-                PeerMessage::PeersRequest => ProtoMT::PeersRequest(proto::PeersRequest {}),
+                PeerMessage::PeersRequest => ProtoMT::PeersRequest(proto::PeersRequest::new()),
                 PeerMessage::PeersResponse(pis) => ProtoMT::PeersResponse(proto::PeersResponse {
                     peers: pis.iter().map(Into::into).collect(),
+                    ..Default::default()
                 }),
                 PeerMessage::BlockHeadersRequest(bhs) => {
                     ProtoMT::BlockHeadersRequest(proto::BlockHeadersRequest {
                         block_hashes: bhs.iter().map(Into::into).collect(),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::BlockHeaders(bhs) => {
                     ProtoMT::BlockHeadersResponse(proto::BlockHeadersResponse {
                         block_headers: bhs.iter().map(Into::into).collect(),
+                        ..Default::default()
                     })
                 }
-                PeerMessage::BlockRequest(bh) => {
-                    ProtoMT::BlockRequest(proto::BlockRequest { block_hash: Some(bh.into()) })
-                }
-                PeerMessage::Block(b) => {
-                    ProtoMT::BlockResponse(proto::BlockResponse { block: Some(b.into()) })
-                }
+                PeerMessage::BlockRequest(bh) => ProtoMT::BlockRequest(proto::BlockRequest {
+                    block_hash: MF::some(bh.into()),
+                    ..Default::default()
+                }),
+                PeerMessage::Block(b) => ProtoMT::BlockResponse(proto::BlockResponse {
+                    block: MF::some(b.into()),
+                    ..Default::default()
+                }),
                 PeerMessage::Transaction(t) => ProtoMT::Transaction(proto::SignedTransaction {
                     borsh: t.try_to_vec().unwrap(),
+                    ..Default::default()
                 }),
-                PeerMessage::Routed(r) => {
-                    ProtoMT::Routed(proto::RoutedMessage { borsh: r.try_to_vec().unwrap() })
-                }
-                PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect {}),
-                PeerMessage::Challenge(r) => {
-                    ProtoMT::Challenge(proto::Challenge { borsh: r.try_to_vec().unwrap() })
-                }
+                PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
+                    borsh: r.try_to_vec().unwrap(),
+                    ..Default::default()
+                }),
+                PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
+                PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
+                    borsh: r.try_to_vec().unwrap(),
+                    ..Default::default()
+                }),
                 PeerMessage::EpochSyncRequest(epoch_id) => {
                     ProtoMT::EpochSyncRequest(proto::EpochSyncRequest {
-                        epoch_id: Some((&epoch_id.0).into()),
+                        epoch_id: MF::some((&epoch_id.0).into()),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::EpochSyncResponse(esr) => {
                     ProtoMT::EpochSyncResponse(proto::EpochSyncResponse {
                         borsh: esr.try_to_vec().unwrap(),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
                     ProtoMT::EpochSyncFinalizationRequest(proto::EpochSyncFinalizationRequest {
-                        epoch_id: Some((&epoch_id.0).into()),
+                        epoch_id: MF::some((&epoch_id.0).into()),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::EpochSyncFinalizationResponse(esfr) => {
                     ProtoMT::EpochSyncFinalizationResponse(proto::EpochSyncFinalizationResponse {
                         borsh: esfr.try_to_vec().unwrap(),
+                        ..Default::default()
                     })
                 }
                 PeerMessage::RoutingTableSyncV2(rs) => {
                     ProtoMT::RoutingTableSyncV2(proto::RoutingSyncV2 {
                         borsh: rs.try_to_vec().unwrap(),
+                        ..Default::default()
                     })
                 }
             }),
+            ..Default::default()
         }
     }
 }

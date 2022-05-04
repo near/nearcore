@@ -8,19 +8,16 @@ rust-version = "1.60.0"
 publish = false
 
 [build-dependencies]
-prost-build = { version = "0.10", optional = true }
-sha2 = "0.9"
-base64 = "0.11"
 anyhow = "1.0.55"
+protobuf-codegen = "3.0.1"
 
 [dependencies]
+protobuf = "3.0.1"
 actix = "0.13.0"
 anyhow = "1.0.55"
 chrono = "0.4.4"
 crossbeam-channel = "0.5"
 parking_lot = "0.11.2"
-prost = "0.10"
-prost-types = "0.10"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"

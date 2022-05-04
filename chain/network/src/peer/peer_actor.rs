@@ -126,7 +126,7 @@ impl Debug for PeerActor {
 #[derive(Error, Debug)]
 pub enum IOError {
     #[error("{tid} Failed to send message {message_type} of size {size}")]
-    Send { tid: i32, message_type: String, size: usize },
+    Send { tid: usize, message_type: String, size: usize },
 }
 
 impl PeerActor {

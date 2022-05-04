@@ -3,12 +3,13 @@ mod borsh;
 mod borsh_conv;
 mod proto_conv;
 
-#[path = "./generated/network.rs"]
-#[rustfmt::skip]
-mod proto;
+mod _proto {
+    include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
+}
+
+pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
-use ::prost::Message as _;
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
 };
@@ -20,6 +21,7 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
+use protobuf::Message as _;
 use std::fmt;
 use thiserror::Error;
 
@@ -128,7 +130,7 @@ pub enum ParsePeerMessageError {
     #[error("BorshConv")]
     BorshConv(borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
-    ProtoDecode(prost::DecodeError),
+    ProtoDecode(protobuf::Error),
     #[error("ProtoConv")]
     ProtoConv(proto_conv::ParsePeerMessageError),
 }
@@ -137,7 +139,7 @@ impl PeerMessage {
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
-            Encoding::Proto => proto::PeerMessage::from(self).encode_to_vec(),
+            Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
         }
     }
 
@@ -150,7 +152,7 @@ impl PeerMessage {
                 .map_err(ParsePeerMessageError::BorshDecode)?)
                 .try_into()
                 .map_err(ParsePeerMessageError::BorshConv)?,
-            Encoding::Proto => (&proto::PeerMessage::decode(data)
+            Encoding::Proto => (&proto::PeerMessage::parse_from_bytes(data)
                 .map_err(ParsePeerMessageError::ProtoDecode)?)
                 .try_into()
                 .map_err(ParsePeerMessageError::ProtoConv)?,
