@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, info_span, trace_span, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -1106,30 +1106,21 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
-            let now = Clock::instant();
-            let result = if self.config.archive {
-                self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
-            } else {
-                let tries = self.runtime_adapter.get_tries();
-                self.chain.clear_data(tries, &self.config.gc)
-            };
-            if let Err(err) = result {
-                error!(target: "client", "Can't clear old data, {:?}", err);
-                debug_assert!(false);
-            };
-            let gc_time = now.elapsed();
-            metrics::GC_TIME.observe(gc_time.as_secs_f64());
-            // it's safe to unwrap here because block is already accepted
-            if block.header().height()
-                - self.runtime_adapter.get_epoch_start_height(block.hash()).unwrap()
-                < EPOCH_START_INFO_BLOCKS
             {
-                info!(
-                    "spent {:?} on gc after processing block {:?} at height {}",
-                    gc_time,
-                    block.hash(),
-                    block.header().height()
-                );
+                let _span = info_span!(target: "client", "GC collection",block_hash=?block.hash(), height=block.header().height()).entered();
+                let _gc_timer = metrics::GC_TIME.start_timer();
+
+                let result = if self.config.archive {
+                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
+                } else {
+                    let tries = self.runtime_adapter.get_tries();
+                    self.chain.clear_data(tries, &self.config.gc)
+                };
+                let _trace_span = trace_span!(target: "client", "GC collection trace",block_hash=?block.hash(), height=block.header().height()).entered();
+                if let Err(err) = result {
+                    error!(target: "client", "Can't clear old data, {:?}", err);
+                    debug_assert!(false);
+                };
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
