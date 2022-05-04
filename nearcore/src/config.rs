@@ -1493,14 +1493,15 @@ fn test_init_config_localnet() {
 /// correctly parsed and defaults being applied correctly applied.
 #[test]
 fn test_config_from_file() {
-    lazy_static_include::lazy_static_include_bytes! {
-        EXAMPLE_CONFIG_GC => "res/example-config-gc.json",
-        EXAMPLE_CONFIG_NO_GC => "res/example-config-no-gc.json",
-    };
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    for (has_gc, data) in [(true, &EXAMPLE_CONFIG_GC[..]), (false, &EXAMPLE_CONFIG_NO_GC[..])] {
+    for (has_gc, path) in
+        [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
+    {
+        let path = base.join(path);
+        let data = std::fs::read(path).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        tmp.as_file().write_all(data).unwrap();
+        tmp.as_file().write_all(&data).unwrap();
 
         let config = Config::from_file(&tmp.into_temp_path()).unwrap();
 

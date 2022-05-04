@@ -42,7 +42,7 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-#[cfg(feature = "mock_network")]
+#[cfg(feature = "mock_node")]
 use std::sync::Arc;
 
 /// lru cache size
@@ -2525,7 +2525,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Only used in mock network
     /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
     /// from `source_store` to the current store.
-    #[cfg(feature = "mock_network")]
+    #[cfg(feature = "mock_node")]
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
@@ -3621,7 +3621,9 @@ mod tests {
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
-            store_update.set_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info).unwrap();
+            store_update
+                .insert_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
+                .unwrap();
             store_update.commit().unwrap();
         }
         for i in 1..1000 {
@@ -3636,7 +3638,9 @@ mod tests {
             {
                 let mut store_update = store_update.store().store_update();
                 let block_info = BlockInfo::default();
-                store_update.set_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
+                store_update
+                    .insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info)
+                    .unwrap();
                 store_update.commit().unwrap();
             }
             store_update

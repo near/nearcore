@@ -15,6 +15,7 @@ use strum::{EnumCount, IntoEnumIterator};
     BorshSerialize,
     strum::EnumCount,
     strum::EnumIter,
+    strum::IntoStaticStr,
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.

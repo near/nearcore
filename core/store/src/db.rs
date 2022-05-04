@@ -1,6 +1,6 @@
 use super::StoreConfig;
 use crate::db::refcount::merge_refcounted_records;
-use crate::DBCol;
+use crate::{metrics, DBCol};
 use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
 use rocksdb::checkpoint::Checkpoint;
@@ -42,6 +42,8 @@ impl From<DBError> for io::Error {
     }
 }
 
+pub const VERSION_KEY: &[u8; 7] = b"VERSION";
+
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
@@ -50,9 +52,11 @@ pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
-pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
+/// Boolean stored in DBCol::BlockMisc indicating whether the database is for an
+/// archival node.  The default value (if missing) is false.
+pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
 pub(crate) struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
@@ -252,9 +256,15 @@ pub(crate) trait Database: Sync + Send {
 
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        let timer =
+            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
-        Ok(RocksDB::get_with_rc_logic(col, result))
+        let result = Ok(RocksDB::get_with_rc_logic(col, result));
+
+        timer.observe_duration();
+        result
     }
 
     fn iter_raw_bytes<'a>(
