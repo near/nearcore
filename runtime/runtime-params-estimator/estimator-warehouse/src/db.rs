@@ -196,6 +196,8 @@ impl Metric {
 mod test {
     use crate::db::{Db, EstimationRow};
     use crate::Metric;
+    use chrono::NaiveDateTime;
+    use rusqlite::params;
 
     #[track_caller]
     fn check_get_single(db: &Db, name: &str, commit: &str, metric: Metric, expected_gas: f64) {
@@ -336,6 +338,23 @@ mod test {
             None,
             &["0000beef", "0001beef", "0002beef", "0003beef", "0004beef"],
         );
+
+        // Add an extra estimation with a later timestamp than all previous estimations
+        EstimationRow::insert_test_data_set_ex(
+            &db,
+            "LogByte",
+            2e7,
+            5e4,
+            Metric::ICount,
+            1,
+            "cafe",
+            9,
+        );
+        check_commits_sorted_by_date(
+            &db,
+            None,
+            &["0000beef", "0001beef", "0002beef", "0003beef", "0004beef", "0000cafe"],
+        );
     }
 
     #[test]
@@ -359,6 +378,11 @@ mod test {
         }
 
         /// Create estimation rows with differing gas values and commit hashes.
+        ///
+        /// Commit hashes are "0000beef", "0001beef" and so on. The timestamps
+        /// are one second apart from each other.
+        ///
+        /// Gas values go up by the defined step size.
         pub(crate) fn insert_test_data_set(
             db: &Db,
             name: &str,
@@ -367,8 +391,27 @@ mod test {
             metric: Metric,
             num: usize,
         ) {
+            Self::insert_test_data_set_ex(db, name, gas, gas_step_size, metric, num, "beef", 0)
+        }
+
+        /// Exhaustive arguments for `insert_test_data_set`.
+        ///
+        /// `commit_suffix` allows to change the commit hashes that data is associated with.
+        /// `timestamp_offset_seconds` adds a constant to the generated timestamps.
+        pub(crate) fn insert_test_data_set_ex(
+            db: &Db,
+            name: &str,
+            gas: f64,
+            gas_step_size: f64,
+            metric: Metric,
+            num: usize,
+            commit_suffix: &str,
+            timestamp_offset_seconds: i64,
+        ) {
             for i in 0..num {
                 let gas = gas + i as f64 * gas_step_size;
+                let timestamp =
+                    NaiveDateTime::from_timestamp(i as i64 + timestamp_offset_seconds, 0);
 
                 let mut wall_clock_time = None;
                 let mut icount = None;
@@ -394,11 +437,34 @@ mod test {
                     io_read,
                     io_write,
                     uncertain_reason: None,
-                    commit_hash: format!("{i:04}beef"),
+                    commit_hash: format!("{i:04}{commit_suffix}"),
                 }
-                .insert(db)
+                .insert_with_timestamp(db, timestamp)
                 .unwrap();
             }
+        }
+
+        fn insert_with_timestamp(
+            &self,
+            db: &Db,
+            timestamp: chrono::NaiveDateTime,
+        ) -> anyhow::Result<()> {
+            db.conn.execute(
+                "INSERT INTO estimation(name,gas,parameter,wall_clock_time,icount,io_read,io_write,uncertain_reason,commit_hash,date) values (?1,?2,?3,?4,?,?6,?7,?8,?9,?10)",
+                params![
+                    self.name,
+                    self.gas,
+                    self.parameter,
+                    self.wall_clock_time,
+                    self.icount,
+                    self.io_read,
+                    self.io_write,
+                    self.uncertain_reason,
+                    self.commit_hash,
+                    timestamp,
+                ],
+            )?;
+            Ok(())
         }
     }
 }

@@ -1,12 +1,8 @@
-use std::collections::BTreeSet;
-
+use crate::db::{Db, EstimationRow};
+use crate::zulip::{ZulipEndpoint, ZulipReport};
+use crate::Metric;
 use clap::Parser;
-
-use crate::{
-    db::{Db, EstimationRow},
-    zulip::{ZulipEndpoint, ZulipReport},
-    Metric,
-};
+use std::collections::BTreeSet;
 
 #[derive(Parser, Debug)]
 pub(crate) struct CheckConfig {
@@ -134,10 +130,9 @@ fn estimation_changes(
 
 #[cfg(test)]
 mod test {
+    use super::{inner_check, CheckConfig, Notice, RelativeChange};
     use crate::db::{Db, EstimationRow};
     use crate::Metric;
-
-    use super::{inner_check, CheckConfig, Notice, RelativeChange};
 
     #[track_caller]
     fn check_estimation_changes(
@@ -211,31 +206,88 @@ mod test {
         );
     }
 
-    /// One test that calls `inner_check`.
+    /// Checker function for tests involving the check command
+    #[track_caller]
+    fn check_check_command(
+        db: &Db,
+        metric: Metric,
+        checked_estimations: &[&str],
+        expected_notices: &[Notice],
+        expected_commit_before: &str,
+        expected_commit_after: &str,
+    ) {
+        let config = CheckConfig {
+            zulip_stream: None,
+            zulip_user: None,
+            metric,
+            commit_a: None,
+            commit_b: None,
+            estimations: checked_estimations.iter().map(|&s| s.to_owned()).collect(),
+        };
+
+        let (commit_before, commit_after, notices) = inner_check(&config, db).unwrap();
+        assert_eq!(expected_commit_before, commit_before);
+        assert_eq!(expected_commit_after, commit_after);
+        assert_eq!(expected_notices, &notices);
+    }
+
     #[test]
     fn test_check_command() {
         let db = Db::test();
         // Data with large difference between commits
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e9, Metric::ICount, 5);
-        EstimationRow::insert_test_data_set(&db, "LogByte", 1e9, 3e9, Metric::ICount, 5);
+        EstimationRow::insert_test_data_set_ex(&db, "LogBase", 1e9, 1e9, Metric::ICount, 5, "a", 0);
+        // Data with insignificant difference between commits
+        EstimationRow::insert_test_data_set_ex(&db, "LogByte", 1e9, 2e6, Metric::ICount, 5, "a", 0);
 
-        let config = CheckConfig {
-            zulip_stream: None,
-            zulip_user: None,
-            metric: Metric::ICount,
-            commit_a: None,
-            commit_b: None,
-            estimations: vec!["LogBase".to_owned()],
-        };
+        check_check_command(
+            &db,
+            Metric::ICount,
+            &["LogBase", "LogByte"],
+            &[Notice::RelativeChange(RelativeChange {
+                estimation: "LogBase".to_owned(),
+                before: 4e9,
+                after: 5e9,
+            })],
+            "0003a",
+            "0004a",
+        );
 
-        let expected_notices = [Notice::RelativeChange(RelativeChange {
-            estimation: "LogBase".to_owned(),
-            before: 4e9,
-            after: 5e9,
-        })];
-        let (commit_before, commit_after, notices) = inner_check(&config, &db).unwrap();
-        assert_eq!("0003beef", commit_before);
-        assert_eq!("0004beef", commit_after);
-        assert_eq!(expected_notices.as_slice(), &notices);
+        // Add more data and verify the notifications are updated
+        EstimationRow::insert_test_data_set_ex(&db, "LogBase", 6e9, 0., Metric::ICount, 1, "b", 10);
+        EstimationRow::insert_test_data_set_ex(&db, "LogByte", 7e9, 0., Metric::ICount, 1, "b", 10);
+
+        check_check_command(
+            &db,
+            Metric::ICount,
+            &["LogBase", "LogByte"],
+            &[
+                Notice::RelativeChange(RelativeChange {
+                    estimation: "LogBase".to_owned(),
+                    before: 5e9,
+                    after: 6e9,
+                }),
+                Notice::RelativeChange(RelativeChange {
+                    estimation: "LogByte".to_owned(),
+                    before: 1.008e9,
+                    after: 7e9,
+                }),
+            ],
+            "0004a",
+            "0000b",
+        );
+
+        // Verify that filter for specific estimations also works
+        check_check_command(
+            &db,
+            Metric::ICount,
+            &["LogBase"],
+            &[Notice::RelativeChange(RelativeChange {
+                estimation: "LogBase".to_owned(),
+                before: 5e9,
+                after: 6e9,
+            })],
+            "0004a",
+            "0000b",
+        );
     }
 }
