@@ -27,6 +27,7 @@ pub fn state_dump(
     last_block_header: BlockHeader,
     near_config: &NearConfig,
     records_path: Option<&Path>,
+    select_account_ids: Option<&Vec<AccountId>>,
 ) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -91,6 +92,7 @@ pub fn state_dump(
                 last_block_header,
                 &validators,
                 &mut |sr| seq.serialize_element(&sr).unwrap(),
+                select_account_ids,
             );
             seq.end().unwrap();
             // `total_supply` is expected to change due to the natural processes of burning tokens and
@@ -109,6 +111,7 @@ pub fn state_dump(
                 last_block_header,
                 &validators,
                 &mut |sr| records.push(sr),
+                select_account_ids,
             );
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
@@ -196,6 +199,7 @@ fn iterate_over_records(
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
     mut callback: impl FnMut(StateRecord),
+    select_account_ids: Option<&Vec<AccountId>>,
 ) -> Balance {
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
@@ -205,15 +209,47 @@ fn iterate_over_records(
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
-                if let StateRecord::Account { account_id, account } = &mut sr {
-                    total_supply += account.amount() + account.locked();
-                    if account.locked() > 0 {
-                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.set_amount(account.amount() + account.locked() - stake);
-                        account.set_locked(stake);
+                if let Some(specified_ids) = select_account_ids {
+                    let current_account_id = match &mut sr {
+                        StateRecord::Account { account_id, account } => {
+                            total_supply += if specified_ids.contains(account_id)
+                                || validators.contains_key(account_id)
+                            {
+                                account.amount() + account.locked()
+                            } else {
+                                0
+                            };
+                            if account.locked() > 0 {
+                                let stake =
+                                    *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                                account.set_amount(account.amount() + account.locked() - stake);
+                                account.set_locked(stake);
+                            }
+                            Some(account_id)
+                        }
+                        StateRecord::AccessKey { account_id, .. } => Some(account_id),
+                        StateRecord::Contract { account_id, .. } => Some(account_id),
+                        _ => None,
+                    };
+                    if let Some(account_id) = current_account_id {
+                        if specified_ids.contains(account_id) || validators.contains_key(account_id)
+                        {
+                            callback(sr);
+                        }
+                    } else {
+                        callback(sr);
                     }
+                } else {
+                    if let StateRecord::Account { account_id, account } = &mut sr {
+                        total_supply += account.amount() + account.locked();
+                        if account.locked() > 0 {
+                            let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                            account.set_amount(account.amount() + account.locked() - stake);
+                            account.set_locked(stake);
+                        }
+                    }
+                    callback(sr);
                 }
-                callback(sr);
             }
         }
     }
@@ -348,6 +384,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -388,8 +425,14 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
-        let new_near_config =
-            state_dump(runtime, &state_roots, last_block.header().clone(), &near_config, None);
+        let new_near_config = state_dump(
+            runtime,
+            &state_roots,
+            last_block.header().clone(),
+            &near_config,
+            None,
+            None,
+        );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
@@ -428,6 +471,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(
@@ -471,6 +515,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
         );
         let new_genesis = new_near_config.genesis;
 
@@ -552,6 +597,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
         );
     }
 
@@ -620,6 +666,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
         );
         let new_genesis = new_near_config.genesis;
 

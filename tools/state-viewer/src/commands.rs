@@ -58,6 +58,7 @@ pub(crate) fn dump_state(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
+    account_ids: Option<&Vec<AccountId>>,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -71,12 +72,19 @@ pub(crate) fn dump_state(
     if stream {
         let output_dir = file.unwrap_or(home_dir.join("output"));
         let records_path = output_dir.join("records.json");
-        let new_near_config =
-            state_dump(runtime, &state_roots, header, &near_config, Some(&records_path));
+        let new_near_config = state_dump(
+            runtime,
+            &state_roots,
+            header,
+            &near_config,
+            Some(&records_path),
+            account_ids,
+        );
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
         new_near_config.save_to_dir(&output_dir);
     } else {
-        let new_near_config = state_dump(runtime, &state_roots, header, &near_config, None);
+        let new_near_config =
+            state_dump(runtime, &state_roots, header, &near_config, None, account_ids);
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
