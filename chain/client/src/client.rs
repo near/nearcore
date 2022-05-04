@@ -1880,8 +1880,9 @@ impl Client {
     }
 
     // Helper function to prepare the debug info about detailed upcoming blocks.
-    fn detailed_upcoming_blocks_info(&self)
-        -> Result<HashMap<BlockHeight, HashMap<CryptoHash, UpcomingBlockDebugStatus>>, Error> {
+    fn detailed_upcoming_blocks_info(
+        &self,
+    ) -> Result<HashMap<BlockHeight, HashMap<CryptoHash, UpcomingBlockDebugStatus>>, Error> {
         let now = Instant::now();
         let mut height_status_map: HashMap<
             BlockHeight,
@@ -2020,40 +2021,38 @@ impl Client {
             .sorted()
             .map(|height| {
                 let val = height_status_map.get(height).unwrap();
-
-                let mut block_debug = val
-                    .iter()
-                    .map(|(block_hash, block_info)| {
-                        let chunk_status = block_info
-                            .chunk_hashes
-                            .iter()
-                            .map(|it| {
-                                if block_info.chunks_completed.contains(it) {
-                                    "(done)"
-                                } else if block_info.chunks_received.contains(it) {
-                                    "(received)"
-                                } else if block_info.chunks_requested.contains(it) {
-                                    "(requested)"
-                                } else {
-                                    "."
-                                }
-                            })
-                            .collect::<Vec<&str>>();
-
-                        let in_progress_str = match block_info.in_progress_for {
-                            Some(duration) => format!("in progress for: {:?}", duration),
-                            None => "".to_string(),
-                        };
-                        let in_orphan_str = match block_info.in_orphan_for {
-                            Some(duration) => format!("orphan for {:?}", duration),
-                            None => "".to_string(),
-                        };
-
-                        format!(
-                            "{} {} {} Chunks:({}))",
-                            block_hash, in_progress_str, in_orphan_str, chunk_status.join(""),
-                        )
-                    });
+                let mut block_debug = val.iter().map(|(block_hash, block_info)| {
+                    let chunk_status = block_info
+                        .chunk_hashes
+                        .iter()
+                        .map(|it| {
+                            if block_info.chunks_completed.contains(it) {
+                                "(done)"
+                            } else if block_info.chunks_received.contains(it) {
+                                "(received)"
+                            } else if block_info.chunks_requested.contains(it) {
+                                "(requested)"
+                            } else {
+                                "."
+                            }
+                        })
+                        .collect::<Vec<&str>>();
+                    let in_progress_str = match block_info.in_progress_for {
+                        Some(duration) => format!("in progress for: {:?}", duration),
+                        None => "".to_string(),
+                    };
+                    let in_orphan_str = match block_info.in_orphan_for {
+                        Some(duration) => format!("orphan for {:?}", duration),
+                        None => "".to_string(),
+                    };
+                    format!(
+                        "{} {} {} Chunks:({}))",
+                        block_hash,
+                        in_progress_str,
+                        in_orphan_str,
+                        chunk_status.join(""),
+                    )
+                });
                 format!("{} {}", height, block_debug.join("\n"))
             })
             .collect::<Vec<String>>();
