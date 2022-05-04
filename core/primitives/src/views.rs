@@ -359,6 +359,8 @@ pub struct PeerInfoView {
     pub peer_id: PublicKey,
 }
 
+/// Information about a Producer: its account name, peer_id and a list of connected peers that
+/// the node can use to send message for this producer.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct KnownProducerView {
