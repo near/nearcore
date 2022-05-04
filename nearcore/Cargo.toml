@@ -46,6 +46,7 @@ near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-store = { path = "../core/store" }
 near-metrics = { path = "../core/metrics" }
+near-o11y = { path = "../core/o11y" }
 node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
 near-chunks = { path = "../chain/chunks" }
@@ -103,6 +104,7 @@ no_cache = [
 delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
+opentelemetry = ["near-o11y/opentelemetry"]
 protocol_feature_alt_bn128 = [
   "near-primitives/protocol_feature_alt_bn128",
   "node-runtime/protocol_feature_alt_bn128",
