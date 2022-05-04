@@ -28,7 +28,6 @@ num-rational = "0.3"
 prometheus = "0.11"
 thiserror = "1.0"
 tokio = { version = "1.1", features = ["sync"] }
-tracing-opentelemetry = "0.17"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
