@@ -23,7 +23,9 @@ const MAX_GAS: u64 = 300_000_000_000_000;
 
 /// Costs whose amount of `gas_used` may depend on environmental factors.
 const NONDETERMINISTIC_COSTS: [&'static str; 1] = [
-    "CONTRACT_LOADING_BYTES", // bytecode size of compiled contracts may vary
+    // Compiling a contract in different environments may yield bytecode of
+    // different sizes. In that case, the cost of loading the contract varies.
+    "CONTRACT_LOADING_BYTES",
 ];
 
 fn is_nondeterministic_cost(cost: &str) -> bool {
