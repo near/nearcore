@@ -3440,6 +3440,13 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Collect all incoming receipts generated in `block`, return a map from target shard id to the
+    /// list of receipts that the target shard receives.
+    /// The receipts are sorted by the order that they will be processed.
+    /// Note that the receipts returned in this function do not equal all receipts that will be
+    /// processed as incoming receipts in this block, because that may include incoming receipts
+    /// generated in previous blocks too, if some shards in the previous blocks did not produce
+    /// new chunks.
     pub fn collect_incoming_receipts_from_block(
         &mut self,
         me: &Option<AccountId>,
@@ -3465,6 +3472,7 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
         }
+        // sort the receipts deterministically so the order that they will be processed is deterministic
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
             let mut slice = [0u8; 32];
             slice.copy_from_slice(block.hash().as_ref());
