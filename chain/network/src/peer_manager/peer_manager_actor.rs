@@ -2273,7 +2273,7 @@ impl PeerManagerActor {
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
         let _d = delay_detector::DelayDetector::new(|| {
-            format!("routed message from {}", msg.msg.body.as_ref()).into()
+            format!("routed message from {}", msg.msg.body_variant()).into()
         });
         let RoutedMessageFrom { mut msg, from } = msg;
 
