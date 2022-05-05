@@ -4462,12 +4462,12 @@ impl<'a> ChainUpdate<'a> {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
-        let prev_hash = block.header().prev_hash();
-        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
 
         let (apply_chunk_work, BlockPreprocessInfo { state_dl_info, incoming_receipts }) =
             self.preprocess_block(me, block, provenance, on_challenge)?;
 
+        let prev_hash = block.header().prev_hash();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
 
         for (shard_id, receipt_proofs) in incoming_receipts {
