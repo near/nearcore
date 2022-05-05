@@ -17,14 +17,15 @@ pub(crate) struct CheckConfig {
     /// Checks have to be done on one specific metric.
     #[clap(long, arg_enum)]
     metric: Metric,
-    /// Base commit for comparisons. If not specified, the latest two commits
-    /// are compared.
+    /// First git commit hash used for comparisons, used as base to calculate
+    /// the relative changes. If left unspecified, the two commits that were
+    /// inserted most recently are compared.
     #[clap(long)]
-    commit_a: Option<String>,
-    /// Second commit for comparisons. If not specified, the latest two commits
-    /// are compared.
+    commit_before: Option<String>,
+    /// Second git commit hash used for comparisons. If left unspecified, the
+    /// two commits that were inserted most recently are compared.
     #[clap(long)]
-    commit_b: Option<String>,
+    commit_after: Option<String>,
     /// Names of estimations that should be checked. Leave empty to perform
     /// comparison on all available estimations.
     #[clap(long)]
@@ -78,7 +79,7 @@ fn inner_check(
     config: &CheckConfig,
     db: &Db,
 ) -> Result<(String, String, Vec<Notice>), anyhow::Error> {
-    let (commit_after, commit_before) = match (&config.commit_a, &config.commit_b) {
+    let (commit_after, commit_before) = match (&config.commit_after, &config.commit_before) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
         (None, None) => {
             let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
@@ -115,7 +116,7 @@ fn estimation_changes(
     for name in estimation_names {
         let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
         let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
-        let rel_change = if a.gas == 0.0 { 100.0 } else { (b.gas - a.gas).abs() / b.gas };
+        let rel_change = if b.gas == 0.0 { 1.0 } else { (b.gas - a.gas).abs() / b.gas };
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),
@@ -220,8 +221,8 @@ mod test {
             zulip_stream: None,
             zulip_user: None,
             metric,
-            commit_a: None,
-            commit_b: None,
+            commit_before: None,
+            commit_after: None,
             estimations: checked_estimations.iter().map(|&s| s.to_owned()).collect(),
         };
 
