@@ -4235,6 +4235,50 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    /// Do basic validation of the information that we can get from the chunk headers in `block`
+    fn validate_chunk_headers(&mut self, block: &Block, prev_block: &Block) -> Result<(), Error> {
+        let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
+        for (chunk_header, prev_chunk_header) in
+            block.chunks().iter().zip(prev_chunk_headers.iter())
+        {
+            if chunk_header.height_included() == block.header().height() {
+                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            } else {
+                if prev_chunk_header != chunk_header {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
+            }
+        }
+
+        // Verify that proposals from chunks match block header proposals.
+        let block_height = block.header().height();
+        for pair in block
+            .chunks()
+            .iter()
+            .filter(|chunk| block_height == chunk.height_included())
+            .flat_map(|chunk| chunk.validator_proposals())
+            .zip_longest(block.header().validator_proposals())
+        {
+            match pair {
+                itertools::EitherOrBoth::Both(cp, hp) => {
+                    if hp != cp {
+                        // Proposals differed!
+                        return Err(ErrorKind::InvalidValidatorProposals.into());
+                    }
+                }
+                _ => {
+                    // Can only occur if there were a different number of proposals in the header
+                    // and chunks
+                    return Err(ErrorKind::InvalidValidatorProposals.into());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
     /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
     ///    fetching state for the next epoch.
@@ -4369,25 +4413,10 @@ impl<'a> ChainUpdate<'a> {
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
+        self.validate_chunk_headers(&block, &prev_block)?;
+
         self.ping_missing_chunks(me, prev_hash, block)?;
         let receipts_by_shard = self.collect_incoming_receipts_from_block(me, block)?;
-
-        // Do basic validation of chunks before applying the transactions
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
-        for (chunk_header, prev_chunk_header) in
-            block.chunks().iter().zip(prev_chunk_headers.iter())
-        {
-            if chunk_header.height_included() == block.header().height() {
-                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
-                    return Err(ErrorKind::InvalidChunk.into());
-                }
-            } else {
-                if prev_chunk_header != chunk_header {
-                    return Err(ErrorKind::InvalidChunk.into());
-                }
-            }
-        }
 
         // If we have the state for shards in the next epoch already downloaded, apply the state transition
         // for these states as well
@@ -4416,30 +4445,6 @@ impl<'a> ChainUpdate<'a> {
 
         for (shard_id, receipt_proofs) in receipts_by_shard {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
-        }
-
-        // Verify that proposals from chunks match block header proposals.
-        let block_height = block.header().height();
-        for pair in block
-            .chunks()
-            .iter()
-            .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .zip_longest(block.header().validator_proposals())
-        {
-            match pair {
-                itertools::EitherOrBoth::Both(cp, hp) => {
-                    if hp != cp {
-                        // Proposals differed!
-                        return Err(ErrorKind::InvalidValidatorProposals.into());
-                    }
-                }
-                _ => {
-                    // Can only occur if there were a different number of proposals in the header
-                    // and chunks
-                    return Err(ErrorKind::InvalidValidatorProposals.into());
-                }
-            }
         }
 
         // If block checks out, record validator proposals for given block.
