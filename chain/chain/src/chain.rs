@@ -3520,28 +3520,28 @@ impl<'a> ChainUpdate<'a> {
             chunk_shard_id,
         )?;
         // TODO (#6316): enable storage proof generation
-        let apply_result = self
-            .runtime_adapter
-            .apply_transactions_with_optional_storage_proof(
-                chunk_shard_id,
-                prev_chunk_inner.prev_state_root(),
-                prev_chunk.height_included(),
-                prev_block.header().raw_timestamp(),
-                prev_chunk_inner.prev_block_hash(),
-                prev_block.hash(),
-                &receipts,
-                prev_chunk.transactions(),
-                prev_chunk_inner.validator_proposals(),
-                prev_block.header().gas_price(),
-                prev_chunk_inner.gas_limit(),
-                &challenges_result,
-                *block.header().random_value(),
-                false,
-                true,
-                is_first_block_with_chunk_of_version,
-                None,
-            )
-            .unwrap();
+        // let apply_result = self
+        //     .runtime_adapter
+        //     .apply_transactions_with_optional_storage_proof(
+        //         chunk_shard_id,
+        //         prev_chunk_inner.prev_state_root(),
+        //         prev_chunk.height_included(),
+        //         prev_block.header().raw_timestamp(),
+        //         prev_chunk_inner.prev_block_hash(),
+        //         prev_block.hash(),
+        //         &receipts,
+        //         prev_chunk.transactions(),
+        //         prev_chunk_inner.validator_proposals(),
+        //         prev_block.header().gas_price(),
+        //         prev_chunk_inner.gas_limit(),
+        //         &challenges_result,
+        //         *block.header().random_value(),
+        //         true,
+        //         true,
+        //         is_first_block_with_chunk_of_version,
+        //         None,
+        //     )
+        //     .unwrap();
         // let partial_state = apply_result.proof.unwrap().nodes;
         Ok(ChunkState {
             prev_block_header: prev_block.header().try_to_vec()?,
