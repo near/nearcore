@@ -336,10 +336,14 @@ pub struct StoreConfig {
     #[serde(skip)]
     pub read_only: bool,
 
-    /// Re-export storage layer statistics as prometheus metrics.
+    /// Collect internal storage layer statistics.
     /// Minor performance impact is expected.
     #[serde(default)]
     pub enable_statistics: bool,
+
+    /// Re-export storage layer statistics as prometheus metrics.
+    #[serde(default = "default_enable_statistics_export")]
+    pub enable_statistics_export: bool,
 
     /// Maximum number of store files being opened simultaneously.
     /// Default value: 512.
@@ -365,6 +369,10 @@ pub struct StoreConfig {
     /// the performance of the storage
     #[serde(default = "default_block_size")]
     pub block_size: usize,
+}
+
+fn default_enable_statistics_export() -> bool {
+    true
 }
 
 fn default_max_open_files() -> u32 {
@@ -407,6 +415,7 @@ impl StoreConfig {
         StoreConfig {
             read_only: false,
             enable_statistics: false,
+            enable_statistics_export: true,
             max_open_files: default_max_open_files(),
             col_state_cache_size: default_col_state_cache_size(),
             block_size: default_block_size(),
