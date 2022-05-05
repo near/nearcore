@@ -58,7 +58,11 @@ impl TransactionPool {
         signed_transaction: SignedTransaction,
     ) -> Result<bool, Error> {
         if self.unique_transactions.len() >= self.max_unique_transactions {
-            return Err(Error::TransactionPoolFull);
+            return if self.unique_transactions.contains(&signed_transaction.get_hash()) {
+                Ok(false)
+            } else {
+                Err(Error::TransactionPoolFull)
+            };
         }
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
             // The hash of this transaction was already seen, skip it.
@@ -122,7 +126,7 @@ impl TransactionPool {
             }
         }
         if dropped_transactions > 0 {
-            debug!(target: "txpool", "Dropped {dropped_transactions} transactions while reintroducing transactions.");
+            debug!(target: "txpool", "Dropped {} transactions while reintroducing transactions.", dropped_transactions);
         }
     }
 
@@ -275,7 +279,7 @@ mod tests {
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
-            assert!(pool.insert_transaction(tx).is_ok());
+            pool.insert_transaction(tx).unwrap();
         }
         (
             prepare_transactions(&mut pool, expected_weight)
@@ -387,7 +391,7 @@ mod tests {
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
-            assert!(pool.insert_transaction(tx).is_ok());
+            pool.insert_transaction(tx).unwrap();
         }
         assert_eq!(pool.len(), n as usize);
 
@@ -439,7 +443,7 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            assert!(pool.insert_transaction(tx).is_ok());
+            pool.insert_transaction(tx).unwrap();
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
@@ -473,7 +477,7 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            assert!(pool.insert_transaction(tx).is_ok());
+            pool.insert_transaction(tx).unwrap();
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 5);
@@ -487,22 +491,32 @@ mod tests {
     /// Test transaction pool size restrictions.
     #[test]
     fn test_pool_size_restriction() {
-        let pool_size = 9;
-        let num_transactions = pool_size + 3;
-        let transactions = generate_transactions("alice.near", "alice.near", 1, num_transactions);
+        const POOL_SIZE: usize = 9;
+        const OVER_LIMIT: usize = 3;
+        let transactions =
+            generate_transactions("alice.near", "alice.near", 1, (POOL_SIZE + OVER_LIMIT) as u64);
 
-        let mut pool = TransactionPool::new(TEST_SEED, pool_size as usize);
-        let mut num_inserted_tx = 0;
+        let mut pool = TransactionPool::new(TEST_SEED, POOL_SIZE);
+
+        let mut inserted = 0;
+        let mut duplicates = 0;
+        let mut errors = 0;
         for tx in transactions {
             match pool.insert_transaction(tx) {
-                Ok(_) => {
-                    num_inserted_tx += 1;
+                Ok(true) => {
+                    inserted += 1;
+                }
+                Ok(false) => {
+                    duplicates += 1;
+                }
+                Err(TransactionPoolFull) => {
+                    errors += 1;
                 }
                 Err(err) => {
-                    assert!(matches!(err, TransactionPoolFull));
+                    panic!("Unexpected error: {:?}", err);
                 }
             }
         }
-        assert_eq!(num_inserted_tx, pool_size);
+        assert_eq!((inserted, duplicates, errors), (POOL_SIZE, 0, OVER_LIMIT));
     }
 }

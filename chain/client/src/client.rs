@@ -1681,7 +1681,7 @@ impl Client {
                         }
                         Err(err) => {
                             debug!(target: "client", account=?me, shard_id, is_forwarded, "Dropped a received transaction: {:?}.", err);
-                            metrics::TRANSACTION_DROPPED.inc();
+                            metrics::TRANSACTION_DROPPED_VALIDATOR.inc();
                         }
                     }
 

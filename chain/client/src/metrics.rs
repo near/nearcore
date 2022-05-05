@@ -186,17 +186,23 @@ static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 pub(crate) static TRANSACTION_RECEIVED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_transaction_received_validator", "Validator received a transaction")
-        .unwrap()
+    try_create_int_gauge(
+        "near_transaction_received_validator",
+        "Validator received and recorded a transaction",
+    )
+    .unwrap()
 });
-pub(crate) static TRANSACTION_DROPPED: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_transaction_dropped", "Validator received and dropped a transaction")
-        .unwrap()
+pub(crate) static TRANSACTION_DROPPED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_transaction_dropped_validator",
+        "Validator received and dropped a transaction",
+    )
+    .unwrap()
 });
 pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_transaction_received_non_validator",
-        "Non-validator received a transaction",
+        "Non-validator received and forwarded a transaction",
     )
     .unwrap()
 });
