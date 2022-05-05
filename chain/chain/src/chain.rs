@@ -3553,6 +3553,56 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
+    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
+    /// in this epoch,
+    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
+    /// to in the next block.
+    /// Note that this function should be called after `save_block` is called on this block because
+    /// it requires that the block info is available in EpochManager, otherwise it will return an
+    /// error.
+    pub fn save_receipt_id_to_shard_id(
+        &mut self,
+        me: &Option<AccountId>,
+        hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+        num_shards: NumShards,
+    ) -> Result<(), Error> {
+        for shard_id in 0..num_shards {
+            if self.runtime_adapter.cares_about_shard(
+                me.as_ref(),
+                &prev_hash,
+                shard_id as ShardId,
+                true,
+            ) {
+                let receipt_id_to_shard_id: HashMap<_, _> = {
+                    // it can be empty if there is no new chunk for this shard
+                    if let Ok(outgoing_receipts) =
+                        self.chain_store_update.get_outgoing_receipts(hash, shard_id)
+                    {
+                        let shard_layout =
+                            self.runtime_adapter.get_shard_layout_from_prev_block(hash)?;
+                        outgoing_receipts
+                            .into_iter()
+                            .map(|receipt| {
+                                (
+                                    receipt.receipt_id,
+                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
+                                )
+                            })
+                            .collect()
+                    } else {
+                        HashMap::new()
+                    }
+                };
+                for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                    self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Applies chunks and processes results
     fn apply_chunks_and_process_results(
         &mut self,
@@ -4410,9 +4460,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        self.chain_store_update.save_receipt_id_to_shard_id(
+        self.save_receipt_id_to_shard_id(
             me,
-            self.runtime_adapter.as_ref(),
             block.hash(),
             &prev_hash,
             block.chunks().len() as NumShards,

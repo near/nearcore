@@ -27,8 +27,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, NumShards,
-    ShardId, StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
+    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId,
+    StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
     StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
@@ -1821,51 +1821,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), outgoing_receipts);
     }
 
-    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
-    /// in this epoch,
-    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
-    /// to in the next block.
-    /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager, otherwise it will return an
-    /// error.
-    pub fn save_receipt_id_to_shard_id(
-        &mut self,
-        me: &Option<AccountId>,
-        runtime_adapter: &dyn RuntimeAdapter,
-        hash: &CryptoHash,
-        prev_hash: &CryptoHash,
-        num_shards: NumShards,
-    ) -> Result<(), Error> {
-        for shard_id in 0..num_shards {
-            if runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id as ShardId, true)
-            {
-                let receipt_id_to_shard_id: HashMap<_, _> = {
-                    // it can be empty if there is no new chunk for this shard
-                    if let Ok(outgoing_receipts) = self.get_outgoing_receipts(hash, shard_id) {
-                        let shard_layout =
-                            runtime_adapter.get_shard_layout_from_prev_block(hash)?;
-                        outgoing_receipts
-                            .into_iter()
-                            .map(|receipt| {
-                                (
-                                    receipt.receipt_id,
-                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
-                                )
-                            })
-                            .collect()
-                    } else {
-                        HashMap::new()
-                    }
-                };
-                for (receipt_id, shard_id) in receipt_id_to_shard_id {
-                    self.chain_store_cache_update
-                        .receipt_id_to_shard_id
-                        .insert(receipt_id, shard_id);
-                }
-            }
-        }
-
-        Ok(())
+    pub fn save_receipt_id_to_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
+        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
     }
 
     pub fn save_incoming_receipt(
