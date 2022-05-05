@@ -16,7 +16,7 @@ use near_chain_primitives::error::{BlockKnownError, Error, ErrorKind, LogTransie
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, SlashedValidator,
+    MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
@@ -3519,6 +3519,7 @@ impl<'a> ChainUpdate<'a> {
             prev_block.hash(),
             chunk_shard_id,
         )?;
+        // TODO (#6316): enable storage proof generation
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
@@ -3535,13 +3536,13 @@ impl<'a> ChainUpdate<'a> {
                 prev_chunk_inner.gas_limit(),
                 &challenges_result,
                 *block.header().random_value(),
-                true,
+                false,
                 true,
                 is_first_block_with_chunk_of_version,
                 None,
             )
             .unwrap();
-        let partial_state = apply_result.proof.unwrap().nodes;
+        // let partial_state = apply_result.proof.unwrap().nodes;
         Ok(ChunkState {
             prev_block_header: prev_block.header().try_to_vec()?,
             block_header: block.header().try_to_vec()?,
@@ -3549,7 +3550,7 @@ impl<'a> ChainUpdate<'a> {
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
             chunk_header: chunk_header.clone(),
-            partial_state,
+            partial_state: PartialState(vec![]),
         })
     }
 
