@@ -19,7 +19,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -404,7 +404,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         // TODO (#6316): enable storage proof generation
-        assert_eq!(challenge_body.partial_state.0, vec![]);
+        assert_eq!(challenge_body.partial_state.0, Vec::<StateItem>::new());
         // assert_eq!(
         //     challenge_body.partial_state.0,
         //     vec![
