@@ -4290,7 +4290,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
         // Check the header is valid before we proceed with the full block.
-        self.validate_header(header, provenance, on_challenge)?;
+        self.validate_header(block.header(), provenance, on_challenge)?;
 
         self.runtime_adapter.verify_block_vrf(
             block.header().epoch_id(),
@@ -4376,8 +4376,8 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
         }
 
-        self.chain_store_update.save_block_header(header.clone())?;
-        self.update_header_head_if_not_challenged(header)?;
+        self.chain_store_update.save_block_header(block.header().clone())?;
+        self.update_header_head_if_not_challenged(block.header())?;
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
