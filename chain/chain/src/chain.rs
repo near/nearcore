@@ -4279,19 +4279,14 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Runs the block processing, including validation and finding a place for the new block in the chain.
-    /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
-    ///    fetching state for the next epoch.
-    fn process_block(
+    fn preprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
-    ) -> Result<Option<Tip>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
-                .entered();
+    ) -> Result<Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>, Error>
+    {
         debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
 
         // Check that we know the epoch of the block before we try to get the header
@@ -4347,7 +4342,6 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
         let prev_gas_price = prev.gas_price();
-        let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
@@ -4441,6 +4435,26 @@ impl<'a> ChainUpdate<'a> {
             )?
         };
 
+        Ok(apply_chunk_work)
+    }
+
+    /// Runs the block processing, including validation and finding a place for the new block in the chain.
+    /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
+    ///    fetching state for the next epoch.
+    fn process_block(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+        provenance: &Provenance,
+        on_challenge: &mut dyn FnMut(ChallengeBody),
+    ) -> Result<Option<Tip>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+                .entered();
+
+        let apply_chunk_work = self.preprocess_block(me, block, provenance, on_challenge)?;
+        let prev_hash = block.header().prev_hash();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
 
         for (shard_id, receipt_proofs) in receipts_by_shard {
@@ -4471,7 +4485,7 @@ impl<'a> ChainUpdate<'a> {
         self.save_receipt_id_to_shard_id_for_block(
             me,
             block.hash(),
-            &prev_hash,
+            prev_hash,
             block.chunks().len() as NumShards,
         )?;
 
@@ -4488,8 +4502,9 @@ impl<'a> ChainUpdate<'a> {
             // Presently the epoch boundary is defined by the height, and the fork choice rule
             // is also just height, so the very first block to cross the epoch end is guaranteed
             // to be the head of the chain, and result in the light client block produced.
+            let prev = self.get_previous_header(block.header())?.clone();
+            let prev_epoch_id = prev.epoch_id().clone();
             if block.header().epoch_id() != &prev_epoch_id {
-                let prev = self.get_previous_header(block.header())?.clone();
                 if prev.last_final_block() != &CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;
                     self.chain_store_update
