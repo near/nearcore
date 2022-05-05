@@ -134,6 +134,7 @@ pub fn setup(
         num_validator_seats,
         archive,
         epoch_sync_enabled,
+        epoch_length,
     );
 
     #[cfg(feature = "test_features")]
@@ -227,6 +228,7 @@ pub fn setup_only_view(
         num_validator_seats,
         archive,
         epoch_sync_enabled,
+        10,
     );
 
     #[cfg(feature = "test_features")]
@@ -1082,7 +1084,7 @@ pub fn setup_client_with_runtime(
         Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
             as Arc<dyn ValidatorSigner>
     });
-    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true, 10);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,

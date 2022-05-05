@@ -164,6 +164,7 @@ impl ClientConfig {
         num_block_producer_seats: NumSeats,
         archive: bool,
         epoch_sync_enabled: bool,
+        epoch_length: BlockHeightDelta,
     ) -> Self {
         ClientConfig {
             version: Default::default(),
@@ -189,7 +190,7 @@ impl ClientConfig {
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
-            epoch_length: 10,
+            epoch_length: epoch_length,
             num_block_producer_seats,
             announce_account_horizon: 5,
             ttl_account_id_router: Duration::from_secs(60 * 60),
