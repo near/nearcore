@@ -8,7 +8,7 @@ use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
-    PeerResponse, PeersResponse,
+    PeerResponse, PeerStatsResult, PeersResponse, QueryPeerStats,
 };
 use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
@@ -18,9 +18,8 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerInfo, PeerManagerRequest, PeerType, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
@@ -175,32 +174,43 @@ impl PeerActor {
         }
     }
 
-    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        if let Some(e) = self.force_encoding {
-            return PeerMessage::deserialize(e, msg);
+    // Determines the encoding to use for communication with the peer.
+    // It can be None while Handshake with the peer has not been finished yet.
+    // In case it is None, both encodings are attempted for parsing, and each message
+    // is sent twice.
+    fn encoding(&self) -> Option<Encoding> {
+        if self.force_encoding.is_some() {
+            return self.force_encoding;
         }
         if self.peer_status == PeerStatus::Connecting {
-            if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
-                self.protocol_buffers_supported = true;
-                return Ok(msg);
+            return None;
+        }
+        if self.protocol_buffers_supported {
+            return Some(Encoding::Proto);
+        }
+        return Some(Encoding::Borsh);
+    }
+
+    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+        if let Some(e) = self.encoding() {
+            return PeerMessage::deserialize(e, msg);
+        }
+        if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
+            self.protocol_buffers_supported = true;
+            return Ok(msg);
+        }
+        match PeerMessage::deserialize(Encoding::Borsh, msg) {
+            Ok(msg) => Ok(msg),
+            Err(err) => {
+                self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.my_node_info.clone(),
+                    HandshakeFailureReason::ProtocolVersionMismatch {
+                        version: PROTOCOL_VERSION,
+                        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                    },
+                ));
+                Err(err)
             }
-            match PeerMessage::deserialize(Encoding::Borsh, msg) {
-                Ok(msg) => Ok(msg),
-                Err(err) => {
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: PROTOCOL_VERSION,
-                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                        },
-                    ));
-                    Err(err)
-                }
-            }
-        } else if self.protocol_buffers_supported {
-            PeerMessage::deserialize(Encoding::Proto, msg)
-        } else {
-            PeerMessage::deserialize(Encoding::Borsh, msg)
         }
     }
 
@@ -211,17 +221,11 @@ impl PeerActor {
     }
 
     fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
-        if let Some(enc) = self.force_encoding {
+        if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
-        if self.peer_status == PeerStatus::Connecting {
-            self.send_message_with_encoding(msg, Encoding::Proto)?;
-            self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        } else if self.protocol_buffers_supported {
-            self.send_message_with_encoding(msg, Encoding::Proto)?;
-        } else {
-            self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        }
+        self.send_message_with_encoding(msg, Encoding::Proto)?;
+        self.send_message_with_encoding(msg, Encoding::Borsh)?;
         Ok(())
     }
 
@@ -1100,6 +1104,7 @@ impl Handler<QueryPeerStats> for PeerActor {
             sent_bytes_per_sec: sent.bytes_per_min / 60,
             is_abusive,
             message_counts: (sent.count_per_min, received.count_per_min),
+            encoding: self.encoding(),
         }
     }
 }
