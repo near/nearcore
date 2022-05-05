@@ -3490,7 +3490,6 @@ impl<'a> ChainUpdate<'a> {
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkState, Error> {
         let chunk_shard_id = chunk_header.shard_id();
-        let prev_chunk_header = &prev_block.chunks()[chunk_shard_id as usize];
         let prev_merkle_proofs = Block::compute_chunk_headers_root(prev_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         let prev_chunk = self
@@ -3498,28 +3497,30 @@ impl<'a> ChainUpdate<'a> {
             .get_chain_store()
             .get_chunk_clone_from_header(&prev_block.chunks()[chunk_shard_id as usize].clone())
             .unwrap();
-        let receipt_proof_response: Vec<ReceiptProofResponse> =
-            self.chain_store_update.get_incoming_receipts_for_shard(
-                chunk_shard_id,
-                *prev_block.hash(),
-                prev_chunk_header.height_included(),
-            )?;
-        let receipts = collect_receipts_from_response(&receipt_proof_response);
 
-        let challenges_result = self.verify_challenges(
-            block.challenges(),
-            block.header().epoch_id(),
-            block.header().prev_hash(),
-            Some(block.hash()),
-        )?;
-        let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &mut self.chain_store_update,
-            self.runtime_adapter.as_ref(),
-            prev_block.hash(),
-            chunk_shard_id,
-        )?;
         // TODO (#6316): enable storage proof generation
+        // let prev_chunk_header = &prev_block.chunks()[chunk_shard_id as usize];
+        // let receipt_proof_response: Vec<ReceiptProofResponse> =
+        //     self.chain_store_update.get_incoming_receipts_for_shard(
+        //         chunk_shard_id,
+        //         *prev_block.hash(),
+        //         prev_chunk_header.height_included(),
+        //     )?;
+        // let receipts = collect_receipts_from_response(&receipt_proof_response);
+        //
+        // let challenges_result = self.verify_challenges(
+        //     block.challenges(),
+        //     block.header().epoch_id(),
+        //     block.header().prev_hash(),
+        //     Some(block.hash()),
+        // )?;
+        // let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
+        // let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+        //     &mut self.chain_store_update,
+        //     self.runtime_adapter.as_ref(),
+        //     prev_block.hash(),
+        //     chunk_shard_id,
+        // )?;
         // let apply_result = self
         //     .runtime_adapter
         //     .apply_transactions_with_optional_storage_proof(
