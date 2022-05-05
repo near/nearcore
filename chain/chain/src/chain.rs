@@ -2909,8 +2909,8 @@ impl Chain {
     pub fn get_shard_id_for_receipt_id(
         &mut self,
         receipt_id: &CryptoHash,
-    ) -> Result<&ShardId, Error> {
-        self.store.get_shard_id_for_receipt_id(receipt_id)
+    ) -> Result<ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id).cloned()
     }
 
     /// Get next block hash for which there is a new chunk for the shard.

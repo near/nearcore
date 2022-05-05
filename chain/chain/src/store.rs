@@ -1826,7 +1826,8 @@ impl<'a> ChainStoreUpdate<'a> {
     /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
     /// to in the next block.
     /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager.
+    /// it requires that the block info is available in EpochManager, otherwise it will return an
+    /// error.
     pub fn save_receipt_id_to_shard_id(
         &mut self,
         me: &Option<AccountId>,
