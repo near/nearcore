@@ -4290,7 +4290,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
         // Check the header is valid before we proceed with the full block.
-        self.process_header_for_block(block.header(), provenance, on_challenge)?;
+        self.validate_header(header, provenance, on_challenge)?;
 
         self.runtime_adapter.verify_block_vrf(
             block.header().epoch_id(),
@@ -4375,6 +4375,9 @@ impl<'a> ChainUpdate<'a> {
         for (shard_id, receipt_proofs) in receipts_by_shard {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
         }
+
+        self.chain_store_update.save_block_header(header.clone())?;
+        self.update_header_head_if_not_challenged(header)?;
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
@@ -4469,20 +4472,6 @@ impl<'a> ChainUpdate<'a> {
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
         Ok(!self.chain_store_update.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
-    }
-
-    /// Process a block header as part of processing a full block.
-    /// We want to be sure the header is valid before processing the full block.
-    fn process_header_for_block(
-        &mut self,
-        header: &BlockHeader,
-        provenance: &Provenance,
-        on_challenge: &mut dyn FnMut(ChallengeBody),
-    ) -> Result<(), Error> {
-        self.validate_header(header, provenance, on_challenge)?;
-        self.chain_store_update.save_block_header(header.clone())?;
-        self.update_header_head_if_not_challenged(header)?;
-        Ok(())
     }
 
     fn validate_header(
