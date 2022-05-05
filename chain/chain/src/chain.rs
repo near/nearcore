@@ -2909,8 +2909,8 @@ impl Chain {
     pub fn get_shard_id_for_receipt_id(
         &mut self,
         receipt_id: &CryptoHash,
-    ) -> Result<&ShardId, Error> {
-        self.store.get_shard_id_for_receipt_id(receipt_id)
+    ) -> Result<ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id).cloned()
     }
 
     /// Get next block hash for which there is a new chunk for the shard.
@@ -3553,6 +3553,56 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
+    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
+    /// in this epoch,
+    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
+    /// to in the next block.
+    /// Note that this function should be called after `save_block` is called on this block because
+    /// it requires that the block info is available in EpochManager, otherwise it will return an
+    /// error.
+    pub fn save_receipt_id_to_shard_id_for_block(
+        &mut self,
+        me: &Option<AccountId>,
+        hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+        num_shards: NumShards,
+    ) -> Result<(), Error> {
+        for shard_id in 0..num_shards {
+            if self.runtime_adapter.cares_about_shard(
+                me.as_ref(),
+                &prev_hash,
+                shard_id as ShardId,
+                true,
+            ) {
+                let receipt_id_to_shard_id: HashMap<_, _> = {
+                    // it can be empty if there is no new chunk for this shard
+                    if let Ok(outgoing_receipts) =
+                        self.chain_store_update.get_outgoing_receipts(hash, shard_id)
+                    {
+                        let shard_layout =
+                            self.runtime_adapter.get_shard_layout_from_prev_block(hash)?;
+                        outgoing_receipts
+                            .into_iter()
+                            .map(|receipt| {
+                                (
+                                    receipt.receipt_id,
+                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
+                                )
+                            })
+                            .collect()
+                    } else {
+                        HashMap::new()
+                    }
+                };
+                for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                    self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Applies chunks and processes results
     fn apply_chunks_and_process_results(
         &mut self,
@@ -3680,14 +3730,6 @@ impl<'a> ChainUpdate<'a> {
             if should_apply_transactions {
                 if is_new_chunk {
                     let prev_chunk_height_included = prev_chunk_header.height_included();
-                    if cares_about_shard_this_epoch {
-                        self.chain_store_update.save_receipt_id_to_shard_id(
-                            &*self.runtime_adapter,
-                            prev_hash,
-                            shard_id,
-                            prev_chunk_height_included,
-                        )?;
-                    }
                     // Validate state root.
                     let prev_chunk_extra =
                         self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?.clone();
@@ -4421,6 +4463,14 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone().into_inner());
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
+
+        // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
+        self.save_receipt_id_to_shard_id_for_block(
+            me,
+            block.hash(),
+            &prev_hash,
+            block.chunks().len() as NumShards,
+        )?;
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
