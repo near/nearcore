@@ -4404,6 +4404,13 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidGasPrice.into());
         }
 
+        let challenges_result = self.verify_challenges(
+            block.challenges(),
+            block.header().epoch_id(),
+            block.header().prev_hash(),
+            Some(block.hash()),
+        )?;
+
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
         self.validate_chunk_headers(&block, &prev_block)?;
