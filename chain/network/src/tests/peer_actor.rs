@@ -163,7 +163,8 @@ impl Handler<NetworkClientMessages> for FakeActor {
 impl Handler<PeerManagerMessageRequest> for FakeActor {
     type Result = PeerManagerMessageResponse;
     fn handle(&mut self, msg: PeerManagerMessageRequest, _ctx: &mut Self::Context) -> Self::Result {
-        println!("{}: PeerManager message {}", self.cfg.id(), strum::AsStaticRef::as_static(&msg));
+        let msg_type: &str = (&msg).into();
+        println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
             PeerManagerMessageRequest::RegisterPeer(msg) => {
                 self.responses.send(Response::HandshakeDone).unwrap();

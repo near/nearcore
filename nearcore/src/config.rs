@@ -700,6 +700,7 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                enable_statistics_export: config.store.enable_statistics_export,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
