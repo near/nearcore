@@ -3560,7 +3560,7 @@ impl<'a> ChainUpdate<'a> {
     /// Note that this function should be called after `save_block` is called on this block because
     /// it requires that the block info is available in EpochManager, otherwise it will return an
     /// error.
-    pub fn save_receipt_id_to_shard_id(
+    pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
         hash: &CryptoHash,
@@ -4460,7 +4460,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        self.save_receipt_id_to_shard_id(
+        self.save_receipt_id_to_shard_id_for_block(
             me,
             block.hash(),
             &prev_hash,

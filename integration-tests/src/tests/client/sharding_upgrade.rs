@@ -310,7 +310,7 @@ impl TestShardUpgradeEnv {
         successful_txs
     }
 
-    // Check the receipt_id_to_shard_id maapings are correct for all outgoing receipts in the
+    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
     // latest block
     fn check_receipt_id_to_shard_id(&mut self) {
         let env = &mut self.env;
