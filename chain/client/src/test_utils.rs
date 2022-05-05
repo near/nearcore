@@ -993,7 +993,12 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                             if let Some(ind) = ind {
-                                connectors1.read().unwrap()[ind].0.do_send(NetworkClientMessages::Transaction{transaction: tx.clone(), is_forwarded: true, check_only: false}) ;
+                                let msg = NetworkClientMessages::Transaction {
+                                    transaction: tx.clone(),
+                                    is_forwarded: true,
+                                    check_only: false,
+                                };
+                                connectors1.read().unwrap()[ind].0.do_send(msg);
                             } else {
                                 info!("Cannot forward a transaction, peer {:?} not found", target);
                             }
