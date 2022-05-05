@@ -337,46 +337,48 @@ fn validate_chunk_state_challenge(
     }
 
     // Apply state transition and check that the result state and other data doesn't match.
-    let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
-    let result = runtime_adapter
-        .check_state_transition(
-            partial_storage,
-            prev_chunk_header.shard_id(),
-            &prev_chunk_header.prev_state_root(),
-            block_header.height(),
-            block_header.raw_timestamp(),
-            block_header.prev_hash(),
-            block_header.hash(),
-            chunk_state.prev_chunk.receipts(),
-            chunk_state.prev_chunk.transactions(),
-            ValidatorStakeIter::empty(),
-            prev_block_header.gas_price(),
-            prev_chunk_header.gas_limit(),
-            &ChallengesResult::default(),
-            *block_header.random_value(),
-            // TODO: set it properly when challenges are enabled
-            true,
-            false,
-        )
-        .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
-    let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    let proposals_match = result.validator_proposals.len()
-        == chunk_state.chunk_header.validator_proposals().len()
-        && result
-            .validator_proposals
-            .iter()
-            .zip(chunk_state.chunk_header.validator_proposals())
-            .all(|(x, y)| x == &y);
-    if result.new_root != chunk_state.chunk_header.prev_state_root()
-        || outcome_root != chunk_state.chunk_header.outcome_root()
-        || !proposals_match
-        || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
-    {
-        Ok((*block_header.hash(), vec![chunk_producer]))
-    } else {
-        // If all the data matches, this is actually valid chunk and challenge is malicious.
-        Err(ErrorKind::MaliciousChallenge.into())
-    }
+    // TODO (#6316): enable storage proof generation
+    // let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
+    // let result = runtime_adapter
+    //     .check_state_transition(
+    //         partial_storage,
+    //         prev_chunk_header.shard_id(),
+    //         &prev_chunk_header.prev_state_root(),
+    //         block_header.height(),
+    //         block_header.raw_timestamp(),
+    //         block_header.prev_hash(),
+    //         block_header.hash(),
+    //         chunk_state.prev_chunk.receipts(),
+    //         chunk_state.prev_chunk.transactions(),
+    //         ValidatorStakeIter::empty(),
+    //         prev_block_header.gas_price(),
+    //         prev_chunk_header.gas_limit(),
+    //         &ChallengesResult::default(),
+    //         *block_header.random_value(),
+    //         // TODO: set it properly when challenges are enabled
+    //         true,
+    //         false,
+    //     )
+    //     .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
+    // let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
+    // let proposals_match = result.validator_proposals.len()
+    //     == chunk_state.chunk_header.validator_proposals().len()
+    //     && result
+    //         .validator_proposals
+    //         .iter()
+    //         .zip(chunk_state.chunk_header.validator_proposals())
+    //         .all(|(x, y)| x == &y);
+    // if result.new_root != chunk_state.chunk_header.prev_state_root()
+    //     || outcome_root != chunk_state.chunk_header.outcome_root()
+    //     || !proposals_match
+    //     || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
+    // {
+    //     Ok((*block_header.hash(), vec![chunk_producer]))
+    // } else {
+    //     // If all the data matches, this is actually valid chunk and challenge is malicious.
+    //     Err(ErrorKind::MaliciousChallenge.into())
+    // }
+    Ok((*block_header.hash(), vec![chunk_producer]))
 }
 
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
