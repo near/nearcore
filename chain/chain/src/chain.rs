@@ -3607,13 +3607,6 @@ impl<'a> ChainUpdate<'a> {
     {
         let mut result: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>> =
             Vec::new();
-        let challenges_result = self.verify_challenges(
-            block.challenges(),
-            block.header().epoch_id(),
-            block.header().prev_hash(),
-            Some(block.hash()),
-        )?;
-        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
         #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
@@ -4347,6 +4340,13 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
+        let challenges_result = self.verify_challenges(
+            block.challenges(),
+            block.header().epoch_id(),
+            block.header().prev_hash(),
+            Some(block.hash()),
+        )?;
+
         // If we have the state for shards in the next epoch already downloaded, apply the state transition
         // for these states as well
         // otherwise put the block into the permanent storage, waiting for be caught up
@@ -4375,6 +4375,8 @@ impl<'a> ChainUpdate<'a> {
         for (shard_id, receipt_proofs) in receipts_by_shard {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
         }
+
+        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
