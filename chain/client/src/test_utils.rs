@@ -982,8 +982,23 @@ pub fn setup_mock_all_validators(
                                 }
                             };
                         }
-                        NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::SyncRoutingTable { .. }
+                        NetworkRequests::ForwardTx(target, tx) => {
+                            let mut ind = None;
+                            for (i, name) in validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate() {
+                                if let Some(name) = name {
+                                    if &name == target {
+                                        ind = Some(i);
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(ind) = ind {
+                                connectors1.read().unwrap()[ind].0.do_send(NetworkClientMessages::Transaction{transaction: tx.clone(), is_forwarded: true, check_only: false}) ;
+                            } else {
+                                info!("Cannot forward a transaction, peer {:?} not found", target);
+                            }
+                        }
+                        NetworkRequests::SyncRoutingTable { .. }
                         | NetworkRequests::FetchRoutingTable
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
@@ -993,7 +1008,7 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::Challenge(_)
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::ReceiptOutComeRequest(_, _)
                         | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
