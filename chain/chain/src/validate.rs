@@ -5,8 +5,7 @@ use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
@@ -15,11 +14,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
-use near_store::PartialStorage;
 
-use crate::types::ApplyTransactionResult;
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
 
