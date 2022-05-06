@@ -1758,6 +1758,14 @@ impl ClientActor {
         };
 
         let validator_epoch_stats = if is_syncing {
+            // EpochManager::get_validator_info method (which is what runtime
+            // adapter calls) is expensive when node is syncing so we’re simply
+            // not collecting the statistics.  The statistics are used to update
+            // a few Prometheus metrics only so we prefer to leave the metrics
+            // unset until node finishes synchronising.  TODO(#6763): If we
+            // manage to get get_validator_info fasts again (or return an error
+            // if computation would be too slow), remove the ‘if is_syncing’
+            // check.
             Default::default()
         } else {
             let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
