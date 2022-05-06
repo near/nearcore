@@ -1361,6 +1361,10 @@ impl Chain {
         orphan_misses_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+                .entered();
+
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
 
@@ -4471,13 +4475,9 @@ impl<'a> ChainUpdate<'a> {
         preprocess_block_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
-                .entered();
-
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
-        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results);
+        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
 
         let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
             preprocess_block_info;
