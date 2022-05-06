@@ -4682,7 +4682,7 @@ impl<'a> ChainUpdate<'a> {
                 return Err(ErrorKind::InvalidBlockMerkleRoot.into());
             }
 
-            /// Check that challenges root is trivial to ensure later that block doesn't contain challenges.
+            /// Check that challenges root is empty to ensure later that block doesn't contain challenges.
             /// TODO (#2445): Enable challenges when they are working correctly.
             if header.challenges_root() != &MerkleHash::default() {
                 return Err(ErrorKind::InvalidChallengeRoot.into());
