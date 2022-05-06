@@ -3,7 +3,7 @@ use borsh::BorshSerialize;
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
 };
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -11,7 +11,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -308,6 +308,38 @@ impl TestShardUpgradeEnv {
             }
         }
         successful_txs
+    }
+
+    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
+    // latest block
+    fn check_receipt_id_to_shard_id(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let shard_layout = env.clients[0]
+            .runtime_adapter
+            .get_shard_layout_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.height_included() == block.header().height() {
+                let outgoing_receipts = env.clients[0]
+                    .chain
+                    .mut_store()
+                    .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
+                    .unwrap()
+                    .clone();
+                for receipt in outgoing_receipts {
+                    let target_shard_id = env.clients[0]
+                        .chain
+                        .get_shard_id_for_receipt_id(&receipt.receipt_id)
+                        .unwrap();
+                    assert_eq!(
+                        target_shard_id,
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -628,6 +660,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     for _ in 1..5 * epoch_length {
         test_env.step(0.);
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
@@ -658,6 +691,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     // make sure all included transactions finished processing
@@ -667,6 +701,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);

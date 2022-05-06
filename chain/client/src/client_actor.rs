@@ -1764,6 +1764,11 @@ impl ClientActor {
             .get_validator_info(epoch_identifier)
             .map(get_validator_epoch_stats)
             .unwrap_or_default();
+        let statistics = if self.client.config.enable_statistics_export {
+            self.client.chain.store().get_store_statistics()
+        } else {
+            None
+        };
         self.info_helper.info(
             self.client.chain.store().get_genesis_height(),
             &head,
@@ -1781,7 +1786,7 @@ impl ClientActor {
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
-            self.client.chain.store().get_store_statistics(),
+            statistics,
         );
         debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info().unwrap_or(String::from("Upcoming block info failed.")));
     }

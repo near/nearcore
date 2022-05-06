@@ -154,6 +154,8 @@ pub struct ClientConfig {
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
+    /// Re-export storage layer statistics as prometheus metrics.
+    pub enable_statistics_export: bool,
 }
 
 impl ClientConfig {
@@ -212,6 +214,7 @@ impl ClientConfig {
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
+            enable_statistics_export: true,
         }
     }
 }

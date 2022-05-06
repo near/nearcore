@@ -355,7 +355,7 @@ impl ViewClientActor {
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> Result<(), TxStatusError> {
-        if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
+        if let Ok(dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
             let shard_uid = self
                 .runtime_adapter
                 .shard_id_to_uid(dst_shard_id, epoch_id)
