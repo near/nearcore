@@ -40,12 +40,10 @@ use nearcore::NightshadeRuntime;
 /// TODO (#2445): Enable challenges when they are working correctly.
 #[test]
 fn test_block_with_challenges() {
-    init_test_logger();
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
-    let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
+    let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
 
     {

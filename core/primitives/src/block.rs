@@ -524,13 +524,10 @@ impl Block {
         }
 
         // Check that challenges root stored in the header matches the challenges root of the challenges
-        eprintln!("1");
         let challenges_root = Block::compute_challenges_root(self.challenges());
-        eprintln!("2");
         if self.header().challenges_root() != &challenges_root {
             return Err(InvalidChallengeRoot);
         }
-        eprintln!("3");
 
         Ok(())
     }
