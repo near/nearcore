@@ -1323,6 +1323,7 @@ impl Chain {
         let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
+        let block_height = block.header().height();
         let res = self.process_block_single_impl(
             me,
             block,
@@ -1333,11 +1334,17 @@ impl Chain {
             on_challenge,
         );
 
-        if res.is_ok() {
-            metrics::BLOCK_PROCESSED_TOTAL.inc();
-            success_timer.stop_and_record();
-        } else {
-            success_timer.stop_and_discard();
+        match &res {
+            Ok(_) => {
+                metrics::BLOCK_PROCESSED_TOTAL.inc();
+                success_timer.stop_and_record();
+            }
+            Err(_) => {
+                if let Err(e) = self.save_block_height_processed(block_height) {
+                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+                }
+                success_timer.stop_and_discard();
+            }
         }
         res
     }
@@ -1356,46 +1363,11 @@ impl Chain {
     ) -> Result<Option<Tip>, Error> {
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
-        let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
+
+        let preprocess_res = chain_update.preprocess_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
-
-        match maybe_new_head {
-            Ok(head) => {
-                chain_update.chain_store_update.save_block_height_processed(block_height);
-                chain_update.commit()?;
-
-                self.pending_states_to_patch = None;
-
-                match &head {
-                    Some(tip) => {
-                        if let Ok(producers) = self
-                            .runtime_adapter
-                            .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-                        {
-                            let mut count = 0;
-                            let mut stake = 0;
-                            for (info, is_slashed) in producers.iter() {
-                                if !*is_slashed {
-                                    stake += info.stake();
-                                    count += 1;
-                                }
-                            }
-                            stake /= NEAR_BASE;
-                            metrics::VALIDATOR_AMOUNT_STAKED
-                                .set(i64::try_from(stake).unwrap_or(i64::MAX));
-                            metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
-                        }
-                    }
-                    None => {}
-                }
-
-                let status = self.determine_status(head.clone(), prev_head);
-
-                // Notify other parts of the system of the update.
-                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
-
-                Ok(head)
-            }
+        let preprocess_res = match preprocess_res {
+            Ok(preprocess_res) => preprocess_res,
             Err(e) => {
                 match e.kind() {
                     ErrorKind::Orphan => {
@@ -1469,11 +1441,51 @@ impl Chain {
                     }
                     _ => {}
                 }
-                if let Err(e) = self.save_block_height_processed(block_height) {
-                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
-                }
-                Err(e)
+                return Err(e);
             }
+        };
+
+        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+        let prev_hash = block.header().prev_hash();
+        let prev_block = chain_update.chain_store_update.get_block(prev_hash)?.clone();
+        chain_update.apply_chunks_and_process_results(&block, &prev_block, apply_chunk_work)?;
+
+        let maybe_new_head = chain_update.postprocess_block(me, &block, block_preprocess_info);
+        match maybe_new_head {
+            Ok(head) => {
+                chain_update.chain_store_update.save_block_height_processed(block_height);
+                chain_update.commit()?;
+
+                self.pending_states_to_patch = None;
+
+                if let Some(tip) = &head {
+                    if let Ok(producers) = self
+                        .runtime_adapter
+                        .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+                    {
+                        let mut count = 0;
+                        let mut stake = 0;
+                        for (info, is_slashed) in producers.iter() {
+                            if !*is_slashed {
+                                stake += info.stake();
+                                count += 1;
+                            }
+                        }
+                        stake /= NEAR_BASE;
+                        metrics::VALIDATOR_AMOUNT_STAKED
+                            .set(i64::try_from(stake).unwrap_or(i64::MAX));
+                        metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+                    }
+                };
+
+                let status = self.determine_status(head.clone(), prev_head);
+
+                // Notify other parts of the system of the update.
+                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
+
+                Ok(head)
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -4458,27 +4470,18 @@ impl<'a> ChainUpdate<'a> {
         ))
     }
 
-    /// Runs the block processing, including validation and finding a place for the new block in the chain.
-    /// Returns new head if chain head updated
-    fn process_block(
+    fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
-        provenance: &Provenance,
-        on_challenge: &mut dyn FnMut(ChallengeBody),
+        preprocess_block_info: BlockPreprocessInfo,
     ) -> Result<Option<Tip>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
 
-        let (
-            apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
-        ) = self.preprocess_block(me, block, provenance, on_challenge)?;
-
-        let prev_hash = block.header().prev_hash();
-        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
-        self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
+        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
+            preprocess_block_info;
 
         for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
@@ -4513,7 +4516,7 @@ impl<'a> ChainUpdate<'a> {
         self.save_receipt_id_to_shard_id_for_block(
             me,
             block.hash(),
-            prev_hash,
+            block.header().prev_hash(),
             block.chunks().len() as NumShards,
         )?;
 
