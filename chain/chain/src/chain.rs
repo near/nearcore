@@ -119,7 +119,7 @@ enum ApplyChunksMode {
 }
 
 /// Contains information from preprocessing a block
-struct BlockPreprocessInfo {
+struct BlockPreprocessResult {
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     challenges_result: ChallengesResult,
@@ -4296,7 +4296,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<
         (
             Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
-            BlockPreprocessInfo,
+            BlockPreprocessResult,
         ),
         Error,
     > {
@@ -4458,7 +4458,7 @@ impl<'a> ChainUpdate<'a> {
 
         Ok((
             apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+            BlockPreprocessResult { state_dl_info, incoming_receipts, challenges_result },
         ))
     }
 
@@ -4468,7 +4468,7 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
-        preprocess_block_info: BlockPreprocessInfo,
+        preprocess_block_info: BlockPreprocessResult,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let _span =
@@ -4477,9 +4477,9 @@ impl<'a> ChainUpdate<'a> {
 
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
-        self.apply_chunk_postprocessing(block, prev_block, apply_chunks_results);
+        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results);
 
-        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
+        let BlockPreprocessResult { state_dl_info, incoming_receipts, challenges_result } =
             preprocess_block_info;
 
         for (shard_id, receipt_proofs) in incoming_receipts {
