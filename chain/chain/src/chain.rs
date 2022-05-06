@@ -4476,7 +4476,7 @@ impl<'a> ChainUpdate<'a> {
                 .entered();
 
         let prev_hash = block.header().prev_hash();
-        let prev_block = chain_update.chain_store_update.get_block(prev_hash)?.clone();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunk_postprocessing(block, prev_block, apply_chunks_results);
 
         let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
