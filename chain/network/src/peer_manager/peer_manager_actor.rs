@@ -1,3 +1,4 @@
+use crate::network_protocol::Encoding;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::PeerStore;
@@ -15,7 +16,7 @@ use crate::stats::metrics::{NetworkMetrics, PARTIAL_ENCODED_CHUNK_REQUEST_DELAY}
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
-    PeersResponse, RoutingTableUpdate,
+    PeersResponse, QueryPeerStats, RoutingTableUpdate,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -26,9 +27,8 @@ use futures::FutureExt;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    StateResponseInfo,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong, RawRoutedMessage,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
@@ -115,6 +115,8 @@ struct ConnectedPeer {
     peer_type: PeerType,
     /// A helper data structure for limiting reading, reporting stats.
     throttle_controller: ThrottleController,
+    /// Encoding used for communication.
+    encoding: Option<Encoding>,
 }
 
 #[derive(Default)]
@@ -647,6 +649,7 @@ impl PeerManagerActor {
                 connection_established_time: Clock::instant(),
                 peer_type,
                 throttle_controller: throttle_controller.clone(),
+                encoding: None,
             },
         );
 
@@ -1107,6 +1110,16 @@ impl PeerManagerActor {
 
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats_trigger(&self, ctx: &mut Context<Self>, interval: Duration) {
+        // Recompute the PEER_CONNECTIONS gauge metric.
+        // TODO: it sucks that we have to wait for the next monitor_peer_stats_trigger to recompute
+        // it. Actix doesn't support response message aggregation, so we would have
+        // to implement it by hand (or share state between manager actor and peer actors).
+        let mut m = HashMap::new();
+        for (_, p) in self.connected_peers.iter() {
+            *m.entry((p.peer_type, p.encoding)).or_insert(0) += 1;
+        }
+        metrics::set_peer_connections(m);
+
         for (peer_id, connected_peer) in self.connected_peers.iter() {
             let peer_id1 = peer_id.clone();
             (connected_peer.addr.send(QueryPeerStats {}).into_actor(self))
@@ -1125,6 +1138,7 @@ impl PeerManagerActor {
                                 connected_peer.full_peer_info.chain_info = res.chain_info;
                                 connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
                                 connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
+                                connected_peer.encoding = res.encoding;
                             }
                         }
                         Err(err) => {

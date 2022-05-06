@@ -117,7 +117,7 @@ impl fmt::Display for PeerMessage {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, strum::IntoStaticStr)]
 pub enum Encoding {
     Borsh,
     Proto,
