@@ -122,6 +122,7 @@ enum ApplyChunksMode {
 struct BlockPreprocessInfo {
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
+    challenges_result: ChallengesResult,
 }
 
 /// Orphan is a block whose previous block is not accepted (in store) yet.
@@ -4451,7 +4452,10 @@ impl<'a> ChainUpdate<'a> {
             )?
         };
 
-        Ok((apply_chunk_work, BlockPreprocessInfo { state_dl_info, incoming_receipts }))
+        Ok((
+            apply_chunk_work,
+            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+        ))
     }
 
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
@@ -4467,8 +4471,10 @@ impl<'a> ChainUpdate<'a> {
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
 
-        let (apply_chunk_work, BlockPreprocessInfo { state_dl_info, incoming_receipts }) =
-            self.preprocess_block(me, block, provenance, on_challenge)?;
+        let (
+            apply_chunk_work,
+            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+        ) = self.preprocess_block(me, block, provenance, on_challenge)?;
 
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
