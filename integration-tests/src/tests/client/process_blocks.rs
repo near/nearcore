@@ -1731,7 +1731,6 @@ fn test_tx_forward_around_epoch_boundary() {
 /// Blocks that have already been gc'ed should not be accepted again.
 #[test]
 fn test_not_resync_old_blocks() {
-    init_integration_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
@@ -1750,7 +1749,6 @@ fn test_not_resync_old_blocks() {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        println!("{:?}", res);
         assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }

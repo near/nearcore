@@ -4193,6 +4193,8 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
+    /// in the next epoch.
     fn get_state_dl_info(
         &mut self,
         me: &Option<AccountId>,
@@ -4284,6 +4286,9 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Preprocess a block before applying chunks, verify that we have the necessary information
+    /// to process the block an the block is valid.
+    //  Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
         &mut self,
         me: &Option<AccountId>,
@@ -4450,8 +4455,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
-    /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
-    ///    fetching state for the next epoch.
+    /// Returns new head if chain head updated
     fn process_block(
         &mut self,
         me: &Option<AccountId>,
