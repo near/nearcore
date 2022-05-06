@@ -1757,13 +1757,16 @@ impl ClientActor {
             None
         };
 
-        let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
-        let validator_epoch_stats = self
-            .client
-            .runtime_adapter
-            .get_validator_info(epoch_identifier)
-            .map(get_validator_epoch_stats)
-            .unwrap_or_default();
+        let validator_epoch_stats = if is_syncing {
+            Default::default()
+        } else {
+            let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+            self.client
+                .runtime_adapter
+                .get_validator_info(epoch_identifier)
+                .map(get_validator_epoch_stats)
+                .unwrap_or_default()
+        };
         let statistics = if self.client.config.enable_statistics_export {
             self.client.chain.store().get_store_statistics()
         } else {
