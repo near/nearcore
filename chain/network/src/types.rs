@@ -1,6 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
@@ -28,6 +28,28 @@ use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
+
+/// Peer stats query.
+#[derive(actix::Message)]
+#[rtype(result = "PeerStatsResult")]
+pub struct QueryPeerStats {}
+
+/// Peer stats result
+#[derive(Debug, actix::MessageResponse)]
+pub struct PeerStatsResult {
+    /// Chain info.
+    pub chain_info: PeerChainInfoV2,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Returns if this peer is abusive and should be banned.
+    pub is_abusive: bool,
+    /// Counts of incoming/outgoing messages from given peer.
+    pub message_counts: (usize, usize),
+    /// Encoding used for communication.
+    pub encoding: Option<Encoding>,
+}
 
 /// Message from peer to peer manager
 #[derive(actix::Message, strum::AsRefStr, Clone, Debug)]

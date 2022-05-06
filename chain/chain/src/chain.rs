@@ -3663,13 +3663,6 @@ impl<'a> ChainUpdate<'a> {
     {
         let mut result: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>> =
             Vec::new();
-        let challenges_result = self.verify_challenges(
-            block.challenges(),
-            block.header().epoch_id(),
-            block.header().prev_hash(),
-            Some(block.hash()),
-        )?;
-        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
         #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
@@ -4421,6 +4414,13 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidGasPrice.into());
         }
 
+        let challenges_result = self.verify_challenges(
+            block.challenges(),
+            block.header().epoch_id(),
+            block.header().prev_hash(),
+            Some(block.hash()),
+        )?;
+
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
         self.validate_chunk_headers(&block, &prev_block)?;
@@ -4480,6 +4480,8 @@ impl<'a> ChainUpdate<'a> {
         if let Some(state_dl_info) = state_dl_info {
             self.chain_store_update.add_state_dl_info(state_dl_info);
         }
+
+        self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
 
         self.chain_store_update.save_block_header(block.header().clone())?;
         self.update_header_head_if_not_challenged(block.header())?;
