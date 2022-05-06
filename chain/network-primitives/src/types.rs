@@ -25,7 +25,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
 use std::time::Duration;
-use strum::AsStaticStr;
 use tokio::net::TcpStream;
 
 /// Exported types, which are part of network protocol.
@@ -289,7 +288,7 @@ pub enum SandboxResponse {
     SandboxFastForwardFailed(String),
 }
 
-#[derive(actix::Message, AsStaticStr)]
+#[derive(actix::Message, strum::IntoStaticStr)]
 #[rtype(result = "NetworkViewClientResponses")]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]

@@ -12,7 +12,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-wasm-smith = "0.9.1"
+wasm-smith = "0.10.0"
 wasmprinter = "0.2"
 arbitrary = "1"
 

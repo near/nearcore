@@ -269,7 +269,7 @@ fn main_docker(
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.58.1"; //< Update this when Dockerfile changes
+    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
@@ -289,13 +289,19 @@ fn main_docker(
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
         buf.push_str("cd /host/nearcore;\n");
-        buf.push_str(
-            "\
-cargo build --manifest-path /host/nearcore/Cargo.toml \
-  --package runtime-params-estimator --bin runtime-params-estimator \
-  --features required --release;
-",
-        );
+        buf.push_str("cargo build --manifest-path /host/nearcore/Cargo.toml");
+        buf.push_str(" --package runtime-params-estimator --bin runtime-params-estimator");
+
+        // Feature "required" is always necessary for accurate measurements.
+        buf.push_str(" --features required");
+
+        // Also add nightly protocol features to docker build if they are enabled.
+        #[cfg(feature = "nightly_protocol_features")]
+        buf.push_str(",nightly_protocol_features");
+        #[cfg(feature = "nightly_protocol")]
+        buf.push_str(",nightly_protocol");
+
+        buf.push_str(" --release;");
 
         let mut qemu_cmd_builder = QemuCommandBuilder::default();
 

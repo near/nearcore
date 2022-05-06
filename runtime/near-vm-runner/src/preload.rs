@@ -131,7 +131,7 @@ impl ContractCaller {
             Some(call) => {
                 let call_data = call.rx.recv().unwrap();
                 match call_data.result {
-                    Err(err) => VMResult::NotRun(err),
+                    Err(err) => VMResult::nop_outcome(err),
                     Ok(module) => match (&module, &mut self.vm_data_private) {
                         #[cfg(feature = "wasmer0_vm")]
                         (VMModule::Wasmer0(module), VMDataPrivate::Wasmer0(memory)) => {

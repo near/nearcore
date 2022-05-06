@@ -41,6 +41,6 @@ nightly_protocol_features = [
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
 ]
-mock_network = []
+mock_node = []
 nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cache = []

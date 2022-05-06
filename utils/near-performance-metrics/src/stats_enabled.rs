@@ -13,7 +13,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
-use strum::AsStaticRef;
 use tracing::{info, warn};
 
 static MEMORY_LIMIT: u64 = 512 * bytesize::MIB;
@@ -298,9 +297,9 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: AsStaticRef<str>,
+    for<'a> &'a Message: Into<&'static str>,
 {
-    let msg_text: &'static str = msg.as_static();
+    let msg_text = (&msg).into();
     measure_performance_internal(class_name, msg, f, Some(msg_text))
 }
 

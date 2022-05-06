@@ -47,6 +47,8 @@ skip = [
     { name = "region", version = "=2.2.0" },
     # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
     { name = "wasmparser", version = "=0.81.0" },
+    # wasm-smith relies on 0.84.0
+    { name = "wasmparser", version = "=0.84.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
@@ -103,4 +105,10 @@ skip = [
     { name = "itoa", version = "=0.4.8" },
     { name = "time", version = "=0.2.27" },
     { name = "tokio-util", version = "=0.6.9" },
+
+    # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
+    { name = "hashbrown", version = "0.11.0" },
+
+    # prometheus depends on an old version of protobuf
+    { name = "protobuf", version = "=2.25.1" },
 ]

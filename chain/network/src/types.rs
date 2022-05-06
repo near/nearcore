@@ -2,7 +2,6 @@
 pub use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
@@ -29,7 +28,6 @@ use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use strum::AsStaticStr;
 
 /// Message from peer to peer manager
 #[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
@@ -84,7 +82,7 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -324,7 +322,6 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 
     // IbfMessage
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     IbfMessage {
         peer_id: PeerId,
         ibf_msg: RoutingSyncV2,
@@ -391,7 +388,7 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkClientResponses")]
