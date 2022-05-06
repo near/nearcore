@@ -1364,6 +1364,8 @@ impl Chain {
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
 
+        // 1) preprocess the block where we verify that the block is valid and ready to be processed
+        //    No chain updates are applied at this step.
         let preprocess_res = chain_update.preprocess_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
         let preprocess_res = match preprocess_res {
@@ -1445,12 +1447,13 @@ impl Chain {
             }
         };
 
+        // 2) apply chunks
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
-        let prev_hash = block.header().prev_hash();
-        let prev_block = chain_update.chain_store_update.get_block(prev_hash)?.clone();
-        chain_update.apply_chunks_and_process_results(&block, &prev_block, apply_chunk_work)?;
+        let apply_results = do_apply_chunks(apply_chunk_work);
 
-        let maybe_new_head = chain_update.postprocess_block(me, &block, block_preprocess_info);
+        // 3) finally, store the block on chain
+        let maybe_new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
         match maybe_new_head {
             Ok(head) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
@@ -3622,17 +3625,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Applies chunks and processes results
-    fn apply_chunks_and_process_results(
-        &mut self,
-        block: &Block,
-        prev_block: &Block,
-        work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
-    ) -> Result<(), Error> {
-        let apply_results = do_apply_chunks(work);
-        self.apply_chunk_postprocessing(block, prev_block, apply_results)
-    }
-
     fn apply_chunk_postprocessing(
         &mut self,
         block: &Block,
@@ -4470,15 +4462,22 @@ impl<'a> ChainUpdate<'a> {
         ))
     }
 
+    /// This is the last step of process_block_single, where we take the preprocess block info
+    /// apply chunk results and store the results on chain.
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         preprocess_block_info: BlockPreprocessInfo,
+        apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
+
+        let prev_hash = block.header().prev_hash();
+        let prev_block = chain_update.chain_store_update.get_block(prev_hash)?.clone();
+        self.apply_chunk_postprocessing(block, prev_block, apply_chunks_results);
 
         let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
             preprocess_block_info;
@@ -4510,7 +4509,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone().into_inner());
-        self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
+        self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
         self.save_receipt_id_to_shard_id_for_block(
