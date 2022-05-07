@@ -40,6 +40,7 @@ def test_protocol_versions() -> None:
     skipped.  See <https://github.com/near/nearcore/issues/4956>.
     """
     executables = get_executables()
+    testnet = branches.get_executables_for('testnet')
 
     def get_proto_version(exe: pathlib.Path) -> int:
         line = subprocess.check_output((exe, '--version'), text=True)
@@ -48,15 +49,22 @@ def test_protocol_versions() -> None:
                    f'Got {line.rstrip()} on standard output')
         return m.group(1), int(m.group(2))
 
-    stable_release, stable_proto = get_proto_version(executables.stable.neard)
-    curr_release, curr_proto = get_proto_version(executables.current.neard)
-    assert stable_proto == curr_proto or stable_proto + 1 == curr_proto, (
-        f'If changed, protocol version of a new release can increase by at '
-        'most one.\n'
-        f'Got protocol {stable_proto} version in release {stable_release}\n'
-        f'but protocol {curr_proto} version in {curr_release}')
-    logger.info(f'Got proto {stable_proto} in release {stable_release} and '
-                f'and proto {curr_proto} in {curr_release}')
+    main_release, main_proto = get_proto_version(executables.stable.neard)
+    test_release, test_proto = get_proto_version(testnet.neard)
+    _, head_proto = get_proto_version(executables.current.neard)
+
+    lines = (
+        f'Got protocol {main_proto} in release {main_release} on mainnet.',
+        f'Got protocol {test_proto} in release {test_release} on testnet.',
+        f'Got protocol {head_proto} on master branch.',
+    )
+
+    ok = (head_proto in (test_proto, test_proto + 1) and
+          test_proto in (main_proto, main_proto + 1))
+    assert ok, ('If changed, protocol version of a new release can increase by '
+                'at most one.\n' + '\n'.join(lines))
+    for line in lines:
+        logger.info(line)
 
 
 def test_upgrade() -> None:
