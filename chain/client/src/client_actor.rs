@@ -904,7 +904,6 @@ impl Handler<Status> for ClientActor {
                     .config
                     .min_block_production_delay
                     .as_millis() as u64,
-                },
                 chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
             })
         } else {

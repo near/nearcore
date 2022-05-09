@@ -41,9 +41,12 @@
                     $('.js-block-count').text(chunk_info.num_of_blocks_in_progress);
                     $('.js-chunk-count').text(chunk_info.num_of_chunks_in_progress);
                     $('.js-orphan-count').text(chunk_info.num_of_orphans);
-                    chunk_info.next_blocks_log.forEach((log, index) =>
+                    chunk_info.next_blocks_by_chunks.forEach((line, index) =>
                         $('.js-tbody-log').append($('<tr>')
-                            .append($('<td>').append(log))
+                            .append($('<td>').append(line.height))
+                            .append($('<td>').append(line.hash))
+                            .append($('<td>').append(line.block_status))
+                            .append($('<td>').append($('<pre>').append(line.chunk_status)))
                         )
                     );
                 },
@@ -75,13 +78,16 @@
             <span class="js-orphan-count"></span>
         </p>
         <p>
-            Blocks log:
+            Upcoming Blocks
         </p>
     </h2>
 
     <table>
         <thead><tr>
-            <th>Blocks</th>
+            <th>Height</th>
+            <th>Hash</th>
+            <th>Block Status</th>
+            <th>Chunk Status</th>
         </tr></thead>
         <tbody class="js-tbody-log">
         </tbody>

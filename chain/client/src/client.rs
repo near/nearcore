@@ -38,7 +38,9 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::ChunkInfoView;
+use near_primitives::views::{
+    BlockByChunksView, ChunkInfoView,
+};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
@@ -1984,7 +1986,7 @@ impl Client {
                             };
 
                         let in_progress_str = match block_info.in_progress_for {
-                            Some(duration) => format!("in progress for: {:?}", duration),
+                            Some(duration) => format!("in progress for {:?}", duration),
                             None => "".to_string(),
                         };
                         let in_orphan_str = match block_info.in_orphan_for {
@@ -2016,24 +2018,24 @@ impl Client {
 
     pub fn detailed_upcoming_blocks_info_as_web(&self) -> ChunkInfoView {
         let height_status_map = self.detailed_upcoming_blocks_info().unwrap_or_default();
-        let next_blocks_log = height_status_map
+        let next_blocks_by_chunks = height_status_map
             .keys()
             .sorted()
             .map(|height| {
                 let val = height_status_map.get(height).unwrap();
-                let mut block_debug = val.iter().map(|(block_hash, block_info)| {
+                val.iter().map(|(block_hash, block_info)| {
                     let chunk_status = block_info
                         .chunk_hashes
                         .iter()
                         .map(|it| {
                             if block_info.chunks_completed.contains(it) {
-                                "(done)"
+                                "(OK)"
                             } else if block_info.chunks_received.contains(it) {
-                                "(received)"
+                                "(\\/)"
                             } else if block_info.chunks_requested.contains(it) {
-                                "(requested)"
+                                "(/\\)"
                             } else {
-                                "."
+                                "(..)"
                             }
                         })
                         .collect::<Vec<&str>>();
@@ -2045,22 +2047,21 @@ impl Client {
                         Some(duration) => format!("orphan for {:?}", duration),
                         None => "".to_string(),
                     };
-                    format!(
-                        "{} {} {} Chunks:({}))",
-                        block_hash,
-                        in_progress_str,
-                        in_orphan_str,
-                        chunk_status.join(""),
-                    )
-                });
-                format!("{} {}", height, block_debug.join("\n"))
+                    BlockByChunksView {
+                        height: height.clone(),
+                        hash: block_hash.clone(),
+                        block_status: format!("{} {}", in_progress_str, in_orphan_str),
+                        chunk_status: chunk_status.join(""),
+                    }
+                }).collect::<Vec<BlockByChunksView>>()
             })
-            .collect::<Vec<String>>();
+            .flatten()
+            .collect::<Vec<BlockByChunksView>>();
         ChunkInfoView {
             num_of_blocks_in_progress: self.chain.blocks_delay_tracker.blocks_in_progress.len(),
             num_of_chunks_in_progress: self.chain.blocks_delay_tracker.chunks_in_progress.len(),
             num_of_orphans: self.chain.orphans().len(),
-            next_blocks_log,
+            next_blocks_by_chunks,
         }
     }
 }

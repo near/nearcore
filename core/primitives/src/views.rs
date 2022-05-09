@@ -409,11 +409,20 @@ pub struct EpochInfoView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
+pub struct BlockByChunksView {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+    pub block_status: String,
+    pub chunk_status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkInfoView {
     pub num_of_blocks_in_progress: usize,
     pub num_of_chunks_in_progress: usize,
     pub num_of_orphans: usize,
-    pub next_blocks_log: Vec<String>,
+    pub next_blocks_by_chunks: Vec<BlockByChunksView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
