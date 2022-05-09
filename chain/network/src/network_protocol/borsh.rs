@@ -14,11 +14,8 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use std::fmt;
 use std::fmt::Formatter;
-use std::{fmt, io};
-
-const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
@@ -65,28 +62,7 @@ struct HandshakeAutoDes {
 // If the version is supported then fallback to standard deserializer.
 impl BorshDeserialize for Handshake {
     fn deserialize(buf: &mut &[u8]) -> std::io::Result<Self> {
-        // Detect the current and oldest supported version from the header
-        if buf.len() < 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                ERROR_UNEXPECTED_LENGTH_OF_INPUT,
-            ));
-        }
-
-        let version = u32::from_le_bytes(buf[..4].try_into().unwrap());
-
-        if PEER_MIN_ALLOWED_PROTOCOL_VERSION <= version && version <= PROTOCOL_VERSION {
-            // If we support this version, then try to deserialize with custom deserializer
-            <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                HandshakeFailureReason::ProtocolVersionMismatch {
-                    version,
-                    oldest_supported_version: version,
-                },
-            ))
-        }
+        <HandshakeAutoDes as BorshDeserialize>::deserialize(buf).map(Into::into)
     }
 }
 

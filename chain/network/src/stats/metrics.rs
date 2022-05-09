@@ -1,10 +1,29 @@
+use crate::network_protocol::Encoding;
 use near_metrics::{
     do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
-    IntGauge,
+    IntGauge, IntGaugeVec,
 };
-use near_network_primitives::types::RoutedMessageBody;
+use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+
+static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_peer_connections",
+        "Number of connected peers",
+        &["peer_type", "encoding"],
+    )
+    .unwrap()
+});
+
+pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
+    for ((pt, enc), v) in values {
+        PEER_CONNECTIONS
+            .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
+            .set(v);
+    }
+}
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
@@ -121,7 +140,7 @@ pub(crate) enum MessageDropped {
 
 impl MessageDropped {
     pub fn inc(self, msg: &RoutedMessageBody) {
-        self.inc_msg_type(msg.as_ref())
+        self.inc_msg_type(msg.into())
     }
 
     pub fn inc_unknown_msg(self) {
