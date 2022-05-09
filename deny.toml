@@ -109,4 +109,6 @@ skip = [
     # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "hashbrown", version = "0.11.0" },
 
+    # prometheus depends on an old version of protobuf
+    { name = "protobuf", version = "=2.25.1" },
 ]

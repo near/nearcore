@@ -46,7 +46,6 @@ pub struct RoutingTableActor {
     /// Data structure with all edges. It's guaranteed that `peer.0` < `peer.1`.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     pub peer_ibf_set: crate::routing::ibf_peer_set::IbfPeerSet,
     /// Current view of the network represented by undirected graph.
     /// Nodes are Peers and edges are active connections.
@@ -89,7 +88,6 @@ impl RoutingTableActor {
         let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             peer_ibf_set: Default::default(),
             raw_graph: Graph::new(my_peer_id),
             peer_forwarding: Default::default(),
@@ -469,7 +467,6 @@ pub enum RoutingTableMessages {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RemovePeer(PeerId),
     /// Do new routing table exchange algorithm.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     ProcessIbfMessage { peer_id: PeerId, ibf_msg: crate::types::RoutingVersion2 },
     /// Start new routing table sync.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -489,7 +486,6 @@ pub enum RoutingTableMessagesResponse {
         seed: u64,
     },
     Empty,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     ProcessIbfMessageResponse {
         ibf_msg: Option<crate::types::RoutingVersion2>,
     },
@@ -510,7 +506,6 @@ pub enum RoutingTableMessagesResponse {
     },
 }
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
@@ -609,7 +604,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 self.peer_ibf_set.remove_peer(&peer_id);
                 RoutingTableMessagesResponse::Empty
             }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
                 match ibf_msg.routing_state {
                     crate::types::RoutingState::PartialSync(partial_sync) => {

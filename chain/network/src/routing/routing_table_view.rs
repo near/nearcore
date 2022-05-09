@@ -119,6 +119,10 @@ impl RoutingTableView {
         }
     }
 
+    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
+        self.peer_forwarding.get(peer_id)
+    }
+
     /// Find peer that owns this AccountId.
     pub(crate) fn account_owner(
         &mut self,

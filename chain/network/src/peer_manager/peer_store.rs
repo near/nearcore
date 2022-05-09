@@ -734,7 +734,7 @@ mod test {
             let blacklist = Blacklist::from_iter(
                 ["127.0.0.1:2".to_string(), "127.0.0.1:5".to_string()].into_iter(),
             );
-            let mut peer_store = PeerStore::new(store.clone(), &[], blacklist).unwrap();
+            let mut peer_store = PeerStore::new(store, &[], blacklist).unwrap();
             // Peer 127.0.0.1:2 is there but is banned.
             assert_peers(&peer_store, &[&ids[1], &ids[2]], &[&ids[2]]);
 

@@ -1000,7 +1000,7 @@ impl ChainStoreAccess for ChainStore {
                 &mut self.outgoing_receipts,
                 &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
+            &format!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
     }
 
@@ -1201,6 +1201,10 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    /// Collect incoming receipts for shard `shard_id` from
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
+    /// This is because the chunks for the shard are empty for the blocks in between,
+    /// so the receipts from these blocks are propagated
     pub fn get_incoming_receipts_for_shard(
         &mut self,
         shard_id: ShardId,
@@ -1817,27 +1821,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), outgoing_receipts);
     }
 
-    pub fn save_receipt_id_to_shard_id(
-        &mut self,
-        runtime_adapter: &dyn RuntimeAdapter,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-        last_height_included: BlockHeight,
-    ) -> Result<(), Error> {
-        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
-            runtime_adapter,
-            *prev_hash,
-            shard_id,
-            last_height_included,
-        )?;
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
-        for receipt in outgoing_receipts {
-            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
-            self.chain_store_cache_update
-                .receipt_id_to_shard_id
-                .insert(receipt.receipt_id, to_shard_id);
-        }
-        Ok(())
+    pub fn save_receipt_id_to_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
+        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
     }
 
     pub fn save_incoming_receipt(
