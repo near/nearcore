@@ -1,14 +1,13 @@
 ---
 source: integration-tests/src/tests/runtime/sanity_checks.rs
 expression: receipts_gas_profile
-
 ---
 [
     [
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "ADD_KEY",
-            gas_used: 101765125000,
+            gas_used: 203992376655,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -33,7 +32,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "FUNCTION_CALL",
-            gas_used: 20981188693517,
+            gas_used: 20878961441862,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
