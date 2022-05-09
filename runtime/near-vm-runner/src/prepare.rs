@@ -3,8 +3,8 @@
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
-use pwasm_utils::parity_wasm::builder;
-use pwasm_utils::parity_wasm::elements::{self, External, MemorySection};
+use parity_wasm::builder;
+use parity_wasm::elements::{self, External, MemorySection};
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
@@ -131,7 +131,7 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        let module = pwasm_utils::parity_wasm::deserialize_buffer(original_code)
+        let module = parity_wasm::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
     }
@@ -177,18 +177,20 @@ impl<'a> ContractModule<'a> {
         if config.regular_op_cost == 0 {
             return Ok(Self { module, config });
         }
-        let gas_rules = pwasm_utils::rules::Set::new(1, Default::default())
+        let gas_rules = crate::instrument::rules::Set::new(1, Default::default())
             .with_grow_cost(config.grow_mem_cost);
-        let module = pwasm_utils::inject_gas_counter(module, &gas_rules, "env")
+        let module = crate::instrument::gas::inject_gas_counter(module, &gas_rules, "env")
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
     }
 
     fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let module =
-            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
-                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
+        let module = crate::instrument::stack_height::inject_limiter(
+            module,
+            config.limit_config.max_stack_height,
+        )
+        .map_err(|_| PrepareError::StackHeightInstrumentation)?;
         Ok(Self { module, config })
     }
 
