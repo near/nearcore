@@ -211,6 +211,17 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
+    fn delete_from_db(
+        store: &Store,
+        peer_ids: &[PeerId],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut store_update = store.store_update();
+        for peer_id in peer_ids {
+            store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
+        }
+        store_update.commit().map_err(|err| err.into())
+    }
+
     pub(crate) fn peer_unban(
         &mut self,
         peer_id: &PeerId,
@@ -280,12 +291,10 @@ impl PeerStore {
                 to_remove.push(peer_id.clone());
             }
         }
-        let mut store_update = self.store.store_update();
-        for peer_id in to_remove {
-            self.peer_states.remove(&peer_id);
-            store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
+        for peer_id in &to_remove {
+            self.peer_states.remove(peer_id);
         }
-        store_update.commit().map_err(|err| err.into())
+        Self::delete_from_db(&self.store, &to_remove)
     }
 
     fn touch(&self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
