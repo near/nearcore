@@ -84,11 +84,11 @@ fn inner_check(
         (None, None) => {
             let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
             if commits.len() < 2 {
-                anyhow::bail!("Need data for at least 2 commits to perform comparison.");
+                anyhow::bail!("need data for at least 2 commits to perform comparison");
             }
             (commits.pop().unwrap().0, commits.pop().unwrap().0)
         }
-        _ => anyhow::bail!("You have to either specify both commits for comparison or neither."),
+        _ => anyhow::bail!("you have to either specify both commits for comparison or neither"),
     };
     let estimations = if config.estimations.len() > 0 {
         config.estimations.clone()
@@ -130,7 +130,7 @@ fn estimation_changes(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::{inner_check, CheckConfig, Notice, RelativeChange};
     use crate::db::{Db, EstimationRow};
     use crate::Metric;
