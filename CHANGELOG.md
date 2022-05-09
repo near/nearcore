@@ -27,6 +27,7 @@
 * Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
 * Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
+* Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
 ## 1.25.0 [2022-03-16]
 
