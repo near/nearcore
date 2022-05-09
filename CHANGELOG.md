@@ -4,6 +4,8 @@
 
 ### Protocol Changes
 
+* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672)
+
 ### Non-protocol Changes
 
 * Added `near_peer_message_received_by_type_bytes` [#6661](https://github.com/near/nearcore/pull/6661) and `near_dropped_message_by_type_and_reason_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
@@ -12,7 +14,6 @@
 * Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
 * Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
-* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672)
 
 ## 1.26.0 [2022-05-18]
 
