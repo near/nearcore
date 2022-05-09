@@ -1031,7 +1031,8 @@ impl Chain {
         Ok(())
     }
 
-    pub fn mark_block_as_challenged(
+    #[cfg(test)]
+    pub(crate) fn mark_block_as_challenged(
         &mut self,
         block_hash: &CryptoHash,
         challenger_hash: &CryptoHash,
@@ -1092,7 +1093,7 @@ impl Chain {
         ) {
             Ok((_, challenged_blocks)) => {
                 for block_hash in challenged_blocks {
-                    chain_update.mark_block_as_challenged(&block_hash, None);
+                    chain_update.mark_block_as_challenged(&block_hash, None)?;
                 }
             }
             Err(err) => {
@@ -4513,7 +4514,7 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
         for block_hash in challenged_blocks {
-            self.mark_block_as_challenged(&block_hash, Some(block.hash()));
+            self.mark_block_as_challenged(&block_hash, Some(block.hash()))?;
         }
 
         self.chain_store_update.save_block_header(block.header().clone())?;
