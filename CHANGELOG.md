@@ -12,6 +12,7 @@
 * Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
 * Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
+* Replaced borsh encoding with protobuf encoding as the network protocol [#6672](https://github.com/near/nearcore/pull/6672)
 
 ## 1.26.0 [2022-05-18]
 
