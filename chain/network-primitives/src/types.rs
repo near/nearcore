@@ -250,6 +250,7 @@ pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
     pub peer_id: PeerId,
+    pub next_hops: Option<Vec<PeerId>>,
 }
 
 #[cfg(feature = "deepsize_feature")]
