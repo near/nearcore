@@ -1370,11 +1370,10 @@ impl Chain {
                 .entered();
 
         let prev_head = self.store.head()?;
-        let mut chain_update = self.chain_update();
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let preprocess_res = chain_update.preprocess_block(me, &block, &provenance, on_challenge);
+        let preprocess_res = self.preprocess_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
@@ -1462,6 +1461,7 @@ impl Chain {
 
         // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
         //    which will be committed to storage all at once.
+        let mut chain_update = self.chain_update();
         let maybe_new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
         match maybe_new_head {
@@ -1500,6 +1500,28 @@ impl Chain {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Preprocess a block before applying chunks, verify that we have the necessary information
+    /// to process the block an the block is valid.
+    //  Note that this function does NOT introduce any changes to chain state.
+    fn preprocess_block(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+        provenance: &Provenance,
+        on_challenge: &mut dyn FnMut(ChallengeBody),
+    ) -> Result<
+        (
+            Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            BlockPreprocessInfo,
+        ),
+        Error,
+    > {
+        // We are still in the process of refactoring this code to move everything in
+        // ChainUpdate::process_block to this function.
+        let mut chain_update = self.chain_update();
+        chain_update.preprocess_block(me, block, provenance, on_challenge)
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
