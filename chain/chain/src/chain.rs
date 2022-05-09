@@ -120,6 +120,7 @@ enum ApplyChunksMode {
 
 /// Contains information from preprocessing a block
 struct BlockPreprocessInfo {
+    is_caught_up: bool,
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     challenges_result: ChallengesResult,
@@ -1370,11 +1371,10 @@ impl Chain {
                 .entered();
 
         let prev_head = self.store.head()?;
-        let mut chain_update = self.chain_update();
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let preprocess_res = chain_update.preprocess_block(me, &block, &provenance, on_challenge);
+        let preprocess_res = self.preprocess_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
@@ -1462,6 +1462,7 @@ impl Chain {
 
         // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
         //    which will be committed to storage all at once.
+        let mut chain_update = self.chain_update();
         let maybe_new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
         match maybe_new_head {
@@ -1500,6 +1501,28 @@ impl Chain {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Preprocess a block before applying chunks, verify that we have the necessary information
+    /// to process the block an the block is valid.
+    //  Note that this function does NOT introduce any changes to chain state.
+    fn preprocess_block(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+        provenance: &Provenance,
+        on_challenge: &mut dyn FnMut(ChallengeBody),
+    ) -> Result<
+        (
+            Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            BlockPreprocessInfo,
+        ),
+        Error,
+    > {
+        // We are still in the process of refactoring this code to move everything in
+        // ChainUpdate::process_block to this function.
+        let mut chain_update = self.chain_update();
+        chain_update.preprocess_block(me, block, provenance, on_challenge)
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
@@ -4459,8 +4482,6 @@ impl<'a> ChainUpdate<'a> {
                 ApplyChunksMode::IsCaughtUp,
             )?
         } else {
-            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
-            self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
             self.apply_chunks_preprocessing(
                 me,
                 block,
@@ -4472,7 +4493,12 @@ impl<'a> ChainUpdate<'a> {
 
         Ok((
             apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+            BlockPreprocessInfo {
+                is_caught_up,
+                state_dl_info,
+                incoming_receipts,
+                challenges_result,
+            },
         ))
     }
 
@@ -4489,8 +4515,17 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
 
-        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
-            preprocess_block_info;
+        let BlockPreprocessInfo {
+            is_caught_up,
+            state_dl_info,
+            incoming_receipts,
+            challenges_result,
+        } = preprocess_block_info;
+
+        if !is_caught_up {
+            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
+        }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
