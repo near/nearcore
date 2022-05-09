@@ -426,8 +426,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
     let runtime_adapter = client.chain.runtime_adapter.clone();
-    /// Invalidate chunk state challenges because they are not supported yet.
-    /// TODO (#2445): Enable challenges when they are working correctly.
+    // Invalidate chunk state challenges because they are not supported yet.
+    // TODO (#2445): Enable challenges when they are working correctly.
     assert_eq!(
         validate_challenge(
             &*runtime_adapter,
@@ -435,8 +435,9 @@ fn test_verify_chunk_invalid_state_challenge() {
             block.header().prev_hash(),
             &challenge,
         )
-        .unwrap_err(),
-        ErrorKind::MaliciousChallenge.into()
+        .unwrap_err()
+        .kind(),
+        ErrorKind::MaliciousChallenge
     );
     // assert_eq!(
     //     validate_challenge(
