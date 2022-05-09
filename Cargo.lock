@@ -3013,6 +3013,7 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
+ "near-logger-utils",
  "near-metrics",
  "near-network-primitives",
  "near-performance-metrics",
