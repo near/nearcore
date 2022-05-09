@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -1534,7 +1534,7 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            debug!(target: "client",
+            trace!(target: "client",
                    "I'm {:?}, routing a transaction {:?} to {}, shard_id = {}",
                    self.validator_signer.as_ref().map(|bp| bp.validator_id()),
                    tx,
@@ -1673,7 +1673,7 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
-                    debug!(target: "client", account=?me, shard_id, is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account=?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
                     self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
@@ -1682,12 +1682,12 @@ impl Client {
                     }
                     Ok(NetworkClientResponses::ValidTx)
                 } else if !is_forwarded {
-                    debug!(target: "client", shard_id, "Forwarding a transaction.");
+                    trace!(target: "client", shard_id, "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(NetworkClientResponses::RequestRouted)
                 } else {
-                    debug!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
+                    trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(NetworkClientResponses::NoResponse)
                 }
