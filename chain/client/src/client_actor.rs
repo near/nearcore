@@ -1356,7 +1356,9 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
-        let _span = debug_span!(target: "client", "Process block", ?peer_id, ?provenance).entered();
+        let _span = debug_span!(target: "client", "Process block", height=block.header().height())
+            .entered();
+        debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
