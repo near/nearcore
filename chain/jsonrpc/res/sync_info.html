@@ -89,12 +89,12 @@
                         let row = $('.js-tbody-peers').append($('<tr>')
                             .append($('<td>').append(peer.addr))
                             .append($('<td>').append(validator.join(",")))
-                            .append($('<td>').append(JSON.stringify(peer.peer_id.substr(9, 5) + "..."))
-                                .append($('<td>').append(JSON.stringify(peer.height)))
-                                .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
-                                .append($('<td>').append(JSON.stringify(peer.archival)))
-                                .append($('<td>').append(routedValidator.join(",")))
-                            )
+                            .append($('<td>').append(peer.peer_id.substr(9, 5) + "..."))
+                            .append($('<td>').append(JSON.stringify(peer.height)))
+                            .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
+                            .append($('<td>').append(JSON.stringify(peer.archival)))
+                            .append($('<td>').append(routedValidator.join(",")))
+                        )
                     });
 
 
