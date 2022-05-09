@@ -245,9 +245,10 @@ fn test_limit_locals() {
         }
         .make();
         let res = make_simple_contract_call_vm(&wasm_err, "main", vm_kind);
+        let expected_gas = super::prepaid_loading_gas(wasm_err.len());
         gas_and_error_match(
             res,
-            None,
+            expected_gas,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization),
             ))),

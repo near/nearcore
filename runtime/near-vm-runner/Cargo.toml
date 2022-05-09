@@ -97,10 +97,14 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
+protocol_feature_fix_contract_loading_cost = [
+    "near-primitives/protocol_feature_fix_contract_loading_cost",
+]
 
 nightly_protocol_features = [
     "near-primitives/nightly_protocol_features",
     "protocol_feature_alt_bn128",
+    "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 

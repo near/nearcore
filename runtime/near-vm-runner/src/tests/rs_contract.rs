@@ -52,13 +52,15 @@ pub fn test_read_write() {
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let gas_counter = context.new_gas_counter(&config);
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "write_key_value",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
@@ -66,12 +68,14 @@ pub fn test_read_write() {
         assert_run_result(result, 0);
 
         let context = create_context(encode(&[10u64]));
+        let gas_counter = context.new_gas_counter(&config);
         let result = runtime.run(
             &code,
             "read_value",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
@@ -91,25 +95,28 @@ pub fn test_stablized_host_function() {
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "do_ripemd",
             &mut fake_external,
             context.clone(),
             &fees,
+            context.new_gas_counter(&config),
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
         );
         assert_eq!(result.error(), None);
 
+        let gas_counter = context.new_gas_counter(&config);
         let result = runtime.run(
             &code,
             "do_ripemd",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             ProtocolFeature::MathExtension.protocol_version() - 1,
             None,
@@ -162,10 +169,21 @@ fn run_test_ext(
     let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
+    let gas_counter = context.new_gas_counter(&config);
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
     let (outcome, err) = runtime
-        .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
+        .run(
+            &code,
+            method,
+            &mut fake_external,
+            context,
+            &fees,
+            gas_counter,
+            &[],
+            LATEST_PROTOCOL_VERSION,
+            None,
+        )
         .outcome_error();
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -258,6 +276,7 @@ pub fn test_out_of_memory() {
         let context = create_context(Vec::new());
         let config = VMConfig::free();
         let fees = RuntimeFeesConfig::free();
+        let gas_counter = context.new_gas_counter(&config);
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
         let promise_results = vec![];
@@ -267,6 +286,7 @@ pub fn test_out_of_memory() {
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
@@ -299,6 +319,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
         let prepaid_gas = 100 * 10u64.pow(12);
         context.prepaid_gas = prepaid_gas;
         config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let gas_counter = context.new_gas_counter(&config);
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
         let (outcome, err) = runtime
@@ -308,6 +329,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
                 &mut external,
                 context,
                 &fees,
+                gas_counter,
                 &[],
                 LATEST_PROTOCOL_VERSION,
                 None,
@@ -342,6 +364,7 @@ fn attach_unspent_gas_but_use_all_gas() {
 
         context.prepaid_gas = 100 * 10u64.pow(12);
         config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let gas_counter = context.new_gas_counter(&config);
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
         let (outcome, err) = runtime
@@ -351,6 +374,7 @@ fn attach_unspent_gas_but_use_all_gas() {
                 &mut external,
                 context,
                 &fees,
+                gas_counter,
                 &[],
                 LATEST_PROTOCOL_VERSION,
                 None,

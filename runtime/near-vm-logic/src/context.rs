@@ -1,4 +1,6 @@
+use crate::gas_counter::GasCounter;
 use crate::types::PublicKey;
+use near_primitives::config::VMConfig;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
@@ -66,5 +68,18 @@ pub struct VMContext {
 impl VMContext {
     pub fn is_view(&self) -> bool {
         self.view_config.is_some()
+    }
+    pub fn new_gas_counter(&self, wasm_config: &VMConfig) -> GasCounter {
+        let max_gas_burnt = match self.view_config {
+            Some(ViewConfig { max_gas_burnt: max_gas_burnt_view }) => max_gas_burnt_view,
+            None => wasm_config.limit_config.max_gas_burnt,
+        };
+        GasCounter::new(
+            wasm_config.ext_costs.clone(),
+            max_gas_burnt,
+            wasm_config.regular_op_cost,
+            self.prepaid_gas,
+            self.is_view(),
+        )
     }
 }

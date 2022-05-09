@@ -4,12 +4,13 @@ use crate::prepare::WASM_FEATURES;
 use crate::runner::VMResult;
 use crate::{cache, imports};
 use memoffset::offset_of;
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
-use near_vm_logic::gas_counter::FastGasCounter;
+use near_vm_logic::gas_counter::{FastGasCounter, GasCounter};
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic};
 use std::hash::{Hash, Hasher};
@@ -416,6 +417,7 @@ impl Wasmer2VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &'a RuntimeFeesConfig,
+        gas_counter: GasCounter,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
     ) -> VMResult {
@@ -425,6 +427,7 @@ impl Wasmer2VM {
             context,
             &self.config,
             fees_config,
+            gas_counter,
             promise_results,
             memory,
             current_protocol_version,
@@ -512,6 +515,7 @@ impl crate::runner::VM for Wasmer2VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
+        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
@@ -523,19 +527,6 @@ impl crate::runner::VM for Wasmer2VM {
             %method_name
         )
         .entered();
-
-        if method_name.is_empty() {
-            let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ));
-            return VMResult::nop_outcome(error);
-        }
-        let artifact =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
-        let artifact = match into_vm_result(artifact) {
-            Ok(it) => it,
-            Err(err) => return VMResult::nop_outcome(err),
-        };
 
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
@@ -551,16 +542,32 @@ impl crate::runner::VM for Wasmer2VM {
             context,
             &self.config,
             fees_config,
+            gas_counter,
             promise_results,
             &mut memory,
             current_protocol_version,
         );
-        // TODO: charge this before artifact is loaded
-        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-            let error = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-            return VMResult::abort(logic, error);
+
+        let artifact =
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
+        let artifact = match into_vm_result(artifact) {
+            Ok(it) => it,
+            Err(err) => {
+                return VMResult::abort(logic, err);
+            }
+        };
+
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
+                let error = VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ));
+                return VMResult::abort(logic, error);
+            }
         }
         let import = imports::wasmer2::build(
             vmmemory,
@@ -569,8 +576,15 @@ impl crate::runner::VM for Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            // TODO: This should return an outcome to account for loading cost
-            return VMResult::nop_outcome(e);
+            if checked_feature!(
+                "protocol_feature_fix_contract_loading_cost",
+                FixContractLoadingCost,
+                current_protocol_version
+            ) {
+                return VMResult::abort(logic, e);
+            } else {
+                return VMResult::nop_outcome(e);
+            }
         }
         match self.run_method(&artifact, import, method_name) {
             Ok(()) => VMResult::ok(logic),

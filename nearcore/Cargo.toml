@@ -133,6 +133,9 @@ protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
 ]
+protocol_feature_fix_contract_loading_cost = [
+  "near-vm-runner/protocol_feature_fix_contract_loading_cost",
+]
 nightly_protocol_features = [
   "nightly_protocol",
   "near-primitives/nightly_protocol_features",
@@ -144,6 +147,7 @@ nightly_protocol_features = [
   "protocol_feature_routing_exchange_algorithm",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_fix_contract_loading_cost",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",

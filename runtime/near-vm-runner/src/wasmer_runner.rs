@@ -4,12 +4,14 @@ use crate::memory::WasmerMemory;
 use crate::prepare::WASM_FEATURES;
 use crate::runner::VMResult;
 use crate::{cache, imports};
+use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
+use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError};
 use wasmer_runtime::{ImportObject, Module};
@@ -231,6 +233,7 @@ pub(crate) fn run_wasmer0_module<'a>(
     context: VMContext,
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
+    gas_counter: GasCounter,
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
 ) -> VMResult {
@@ -248,6 +251,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         context,
         wasm_config,
         fees_config,
+        gas_counter,
         promise_results,
         memory,
         current_protocol_version,
@@ -288,6 +292,7 @@ impl crate::runner::VM for Wasmer0VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
+        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
@@ -311,19 +316,7 @@ impl crate::runner::VM for Wasmer0VM {
         if !is_x86_feature_detected!("avx") {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
-        if method_name.is_empty() {
-            let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ));
-            return VMResult::nop_outcome(err);
-        }
 
-        // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
-        let module = match into_vm_result(module) {
-            Ok(x) => x,
-            Err(err) => return VMResult::nop_outcome(err),
-        };
         let mut memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -337,25 +330,52 @@ impl crate::runner::VM for Wasmer0VM {
             context,
             &self.config,
             fees_config,
+            gas_counter,
             promise_results,
             &mut memory,
             current_protocol_version,
         );
 
-        // TODO: charge this before module is loaded
-        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-            let err = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-            return VMResult::abort(logic, err);
+        // TODO: consider using get_module() here, once we'll go via deployment path.
+        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
+        let module = match into_vm_result(module) {
+            Ok(x) => x,
+            // Note on backwards-compatibility: This error used to be an error
+            // without result, later refactored to NOP outcome. Now this returns
+            // an actual outcome, including gas costs that occurred before this
+            // point. This is compatible with earlier versions because those
+            // version do not have gas costs before reaching this code. (Also
+            // see `test_old_fn_loading_behavior_preserved` for a test that
+            // verifies future changes do not counteract this assumption.)
+            Err(err) => return VMResult::abort(logic, err),
+        };
+
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
+                let err = VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ));
+                return VMResult::abort(logic, err);
+            }
         }
 
         let import_object =
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            // TODO: This should return an outcome to account for loading cost
-            return VMResult::nop_outcome(e);
+            if checked_feature!(
+                "protocol_feature_fix_contract_loading_cost",
+                FixContractLoadingCost,
+                current_protocol_version
+            ) {
+                return VMResult::abort(logic, e);
+            } else {
+                return VMResult::nop_outcome(e);
+            }
         }
 
         match run_method(&module, &import_object, method_name) {

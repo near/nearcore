@@ -9,7 +9,7 @@ use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -106,6 +106,7 @@ impl<'a> VMLogic<'a> {
         context: VMContext,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
+        gas_counter: GasCounter,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
         current_protocol_version: ProtocolVersion,
@@ -113,19 +114,8 @@ impl<'a> VMLogic<'a> {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
-        let max_gas_burnt = match context.view_config {
-            Some(ViewConfig { max_gas_burnt: max_gas_burnt_view }) => max_gas_burnt_view,
-            None => config.limit_config.max_gas_burnt,
-        };
 
         let current_account_locked_balance = context.account_locked_balance;
-        let gas_counter = GasCounter::new(
-            config.ext_costs.clone(),
-            max_gas_burnt,
-            config.regular_op_cost,
-            context.prepaid_gas,
-            context.is_view(),
-        );
         Self {
             ext,
             context,
@@ -2663,6 +2653,7 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    #[cfg(not(feature = "protocol_feature_fix_contract_loading_cost"))]
     pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
         self.gas_counter.pay_base(contract_loading_base)

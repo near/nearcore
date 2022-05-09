@@ -20,13 +20,15 @@ pub fn test_ts_contract() {
 
         // Call method that panics.
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let gas_counter = context.new_gas_counter(&config);
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "try_panic",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
@@ -40,12 +42,14 @@ pub fn test_ts_contract() {
 
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
+        let gas_counter = context.new_gas_counter(&config);
         runtime.run(
             &code,
             "try_storage_write",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
@@ -61,12 +65,14 @@ pub fn test_ts_contract() {
 
         // Call method that reads the value from storage using registers.
         let context = create_context(b"foo".to_vec());
+        let gas_counter = context.new_gas_counter(&config);
         let result = runtime.run(
             &code,
             "try_storage_read",
             &mut fake_external,
             context,
             &fees,
+            gas_counter,
             &promise_results,
             LATEST_PROTOCOL_VERSION,
             None,
