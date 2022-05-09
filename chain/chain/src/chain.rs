@@ -120,6 +120,7 @@ enum ApplyChunksMode {
 
 /// Contains information from preprocessing a block
 struct BlockPreprocessInfo {
+    is_caught_up: bool,
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     challenges_result: ChallengesResult,
@@ -4481,8 +4482,6 @@ impl<'a> ChainUpdate<'a> {
                 ApplyChunksMode::IsCaughtUp,
             )?
         } else {
-            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
-            self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
             self.apply_chunks_preprocessing(
                 me,
                 block,
@@ -4494,7 +4493,12 @@ impl<'a> ChainUpdate<'a> {
 
         Ok((
             apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+            BlockPreprocessInfo {
+                is_caught_up,
+                state_dl_info,
+                incoming_receipts,
+                challenges_result,
+            },
         ))
     }
 
@@ -4511,8 +4515,17 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
 
-        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
-            preprocess_block_info;
+        let BlockPreprocessInfo {
+            is_caught_up,
+            state_dl_info,
+            incoming_receipts,
+            challenges_result,
+        } = preprocess_block_info;
+
+        if !is_caught_up {
+            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
+        }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
