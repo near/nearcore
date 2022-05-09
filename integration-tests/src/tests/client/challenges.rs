@@ -19,7 +19,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -433,27 +433,31 @@ fn test_verify_chunk_invalid_state_challenge() {
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
-        assert_eq!(
-            challenge_body.partial_state.0,
-            vec![
-                vec![
-                    1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
-                    227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
-                    171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
-                    148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
-                    0, 0, 0
-                ],
-                vec![
-                    3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
-                    236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
-                    133, 232, 213, 5, 0, 0, 0, 0, 0, 0
-                ]
-            ],
-        );
+        // TODO (#6316): enable storage proof generation
+        assert_eq!(challenge_body.partial_state.0, Vec::<StateItem>::new());
+        // assert_eq!(
+        //     challenge_body.partial_state.0,
+        //     vec![
+        //         vec![
+        //             1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
+        //             227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
+        //             171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
+        //             148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
+        //             0, 0, 0
+        //         ],
+        //         vec![
+        //             3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
+        //             236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
+        //             133, 232, 213, 5, 0, 0, 0, 0, 0, 0
+        //         ]
+        //     ],
+        // );
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
     let runtime_adapter = client.chain.runtime_adapter.clone();
+    // Invalidate chunk state challenges because they are not supported yet.
+    // TODO (#2445): Enable challenges when they are working correctly.
     assert_eq!(
         validate_challenge(
             &*runtime_adapter,
@@ -461,9 +465,20 @@ fn test_verify_chunk_invalid_state_challenge() {
             block.header().prev_hash(),
             &challenge,
         )
-        .unwrap(),
-        (*block.hash(), vec!["test0".parse().unwrap()])
+        .unwrap_err()
+        .kind(),
+        ErrorKind::MaliciousChallenge
     );
+    // assert_eq!(
+    //     validate_challenge(
+    //         &*runtime_adapter,
+    //         block.header().epoch_id(),
+    //         block.header().prev_hash(),
+    //         &challenge,
+    //     )
+    //     .unwrap(),
+    //     (*block.hash(), vec!["test0".parse().unwrap()])
+    // );
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
