@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::routing::ibf_set::IbfSet;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::types::{Edge, SimpleEdge};

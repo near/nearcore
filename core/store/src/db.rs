@@ -1,6 +1,6 @@
 use super::StoreConfig;
 use crate::db::refcount::merge_refcounted_records;
-use crate::DBCol;
+use crate::{metrics, DBCol};
 use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
 use rocksdb::checkpoint::Checkpoint;
@@ -42,6 +42,8 @@ impl From<DBError> for io::Error {
     }
 }
 
+pub const VERSION_KEY: &[u8; 7] = b"VERSION";
+
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
@@ -50,22 +52,36 @@ pub const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 pub const FINAL_HEAD_KEY: &[u8; 10] = b"FINAL_HEAD";
 pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
-pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
+/// Boolean stored in DBCol::BlockMisc indicating whether the database is for an
+/// archival node.  The default value (if missing) is false.
+pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
 pub(crate) struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
 pub(crate) enum DBOp {
+    /// Sets `key` to `value`, without doing any checks.
+    Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Sets `key` to `value`, and additionally debug-checks that the value is
+    /// not overwritten.
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Modifies a reference-counted column. `value` includes both the value per
+    /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Deletes sepecific `key`.
     Delete { col: DBCol, key: Vec<u8> },
+    /// Deletes all data from a column.
     DeleteAll { col: DBCol },
 }
 
 impl DBTransaction {
+    pub(crate) fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        self.ops.push(DBOp::Set { col, key, value });
+    }
+
     pub(crate) fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
@@ -132,14 +148,21 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     })?;
     if required <= soft {
         Ok(())
-    } else {
+    } else if required <= hard {
         rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
             DBError(format!(
-                "Unable to set limit for the number of open files (NOFILE) to \
-                 {required} (for configured max_open_files={max_open_files}): \
-                 {err}"
+                "Unable to change limit for the number of open files (NOFILE) \
+                 from ({soft}, {hard}) to ({required}, {hard}) (for configured \
+                 max_open_files={max_open_files}): {err}"
             ))
         })
+    } else {
+        Err(DBError(format!(
+            "Hard limit for the number of open files (NOFILE) is too low \
+             ({hard}).  At least {required} is required (for configured \
+             max_open_files={max_open_files}).  Set ‘ulimit -Hn’ accordingly \
+             and restart the node."
+        )))
     }
 }
 
@@ -240,9 +263,15 @@ pub(crate) trait Database: Sync + Send {
 
 impl Database for RocksDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+        let timer =
+            metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
+
         let read_options = rocksdb_read_options();
         let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
-        Ok(RocksDB::get_with_rc_logic(col, result))
+        let result = Ok(RocksDB::get_with_rc_logic(col, result));
+
+        timer.observe_duration();
+        result
     }
 
     fn iter_raw_bytes<'a>(
@@ -303,9 +332,17 @@ impl Database for RocksDB {
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
-                DBOp::Insert { col, key, value } => unsafe {
+                DBOp::Set { col, key, value } => unsafe {
                     batch.put_cf(&*self.cfs[col as usize], key, value);
                 },
+                DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Ok(Some(old_value)) = self.get(col, &key) {
+                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                        }
+                    }
+                    batch.put_cf(unsafe { &*self.cfs[col as usize] }, key, value);
+                }
                 DBOp::UpdateRefcount { col, key, value } => unsafe {
                     batch.merge_cf(&*self.cfs[col as usize], key, value);
                 },
@@ -384,7 +421,15 @@ impl Database for TestDB {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
+                DBOp::Set { col, key, value } => {
+                    db[col as usize].insert(key, value);
+                }
                 DBOp::Insert { col, key, value } => {
+                    if cfg!(debug_assertions) {
+                        if let Some(old_value) = db[col as usize].get(&key) {
+                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                        }
+                    }
                     db[col as usize].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
@@ -404,6 +449,19 @@ impl Database for TestDB {
         }
         Ok(())
     }
+}
+
+fn assert_no_ovewrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+    assert_eq!(
+        value, old_value,
+        "\
+write once column overwritten
+col: {col}
+key: {key:?}
+old value: {old_value:?}
+new value: {value:?}
+"
+    )
 }
 
 fn set_compression_options(opts: &mut Options) {

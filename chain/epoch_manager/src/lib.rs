@@ -161,13 +161,13 @@ impl EpochManager {
         Ok(epoch_manager)
     }
 
-    /// Only used in mock network
+    /// Only used in mock node
     /// Copy the necessary epoch info related to `block_hash` from `source_epoch_manager` to
     /// the current epoch manager.
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    #[cfg(feature = "mock_network")]
+    #[cfg(feature = "mock_node")]
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -1369,7 +1369,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let block_hash = *block_info.hash();
         store_update
-            .set_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
+            .insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
         self.blocks_info.put(block_hash, block_info);
         Ok(())

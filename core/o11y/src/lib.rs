@@ -5,11 +5,12 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 use once_cell::sync::OnceCell;
 use std::borrow::Cow;
 use tracing_appender::non_blocking::NonBlocking;
-
 use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
 use tracing_subscriber::fmt::Layer;
 use tracing_subscriber::layer::Layered;
+#[cfg(feature = "opentelemetry")]
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Registry};
 
@@ -107,6 +108,17 @@ pub fn default_subscriber(
     ENV_FILTER_RELOAD_HANDLE.set(reload_handle).unwrap();
 
     let subscriber = subscriber_builder.finish();
+
+    #[cfg(feature = "opentelemetry")]
+    let subscriber = {
+        let tracer = opentelemetry_jaeger::new_pipeline()
+            .with_service_name("neard")
+            .install_simple()
+            .unwrap();
+        let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        subscriber.with(opentelemetry)
+    };
+
     DefaultSubcriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,

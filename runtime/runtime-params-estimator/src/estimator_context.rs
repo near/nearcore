@@ -1,6 +1,8 @@
+use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
+use near_store::{TrieCache, TrieCachingStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -104,6 +106,24 @@ impl<'c> Testbed<'c> {
         }
 
         res
+    }
+
+    pub(crate) fn process_block<'a>(
+        &'a mut self,
+        block: Vec<SignedTransaction>,
+        block_latency: usize,
+    ) {
+        let allow_failures = false;
+        self.inner.process_block(&block, allow_failures);
+        let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
+        assert_eq!(block_latency, extra_blocks);
+    }
+
+    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+        let store = self.inner.store();
+        let caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        caching_storage
     }
 
     fn clear_caches(&mut self) {

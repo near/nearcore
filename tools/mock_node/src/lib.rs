@@ -266,7 +266,7 @@ impl ChainHistoryAccess {
 
 #[cfg(test)]
 mod test {
-    use crate::mock_network::ChainHistoryAccess;
+    use crate::ChainHistoryAccess;
     use near_chain::ChainGenesis;
     use near_chain::{Chain, RuntimeAdapter};
     use near_chain_configs::Genesis;

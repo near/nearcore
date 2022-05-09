@@ -49,9 +49,9 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 [rust-sdk]: https://github.com/near/near-sdk-rs
 [as-sdk]: https://github.com/near/near-sdk-as
 [examples-url]: https://near.dev
-[docs-url]: http://docs.nearprotocol.com
-[tutorials-url]: https://docs.nearprotocol.com/docs/roles/developer/tutorials/introduction
-[api-docs-url]: https://docs.nearprotocol.com/docs/roles/developer/examples/nearlib/introduction
+[docs-url]: https://docs.near.org
+[tutorials-url]: https://docs.near.org/docs/tutorials/overview
+[api-docs-url]: https://docs.near.org/docs/api/overview
 
 ## Join the Network
 

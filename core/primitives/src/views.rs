@@ -345,6 +345,7 @@ pub struct DebugBlockStatus {
     pub processing_time_ms: Option<u64>,
     // Time between this block and the next one in chain.
     pub timestamp_delta: u64,
+    pub gas_price_ratio: f64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -355,6 +356,17 @@ pub struct PeerInfoView {
     pub height: BlockHeight,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
+    pub peer_id: PublicKey,
+}
+
+/// Information about a Producer: its account name, peer_id and a list of connected peers that
+/// the node can use to send message for this producer.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct KnownProducerView {
+    pub account_id: AccountId,
+    pub peer_id: PublicKey,
+    pub next_hops: Option<Vec<PublicKey>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -363,6 +375,7 @@ pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
+    pub known_producers: Vec<KnownProducerView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -389,9 +402,9 @@ impl From<Tip> for BlockStatusView {
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
-    pub first_block_hash: CryptoHash,
-    pub start_time: String,
+    pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
+    pub protocol_version: u32,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -404,7 +417,9 @@ pub struct DetailedDebugStatus {
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
     pub blocks_with_missing_chunks: Vec<BlockStatusView>,
-    pub epoch_info: EpochInfoView,
+    // List of epochs - in descending order (next epoch is first).
+    pub epochs_info: Vec<EpochInfoView>,
+    pub block_production_delay_millis: u64,
 }
 
 // TODO: add more information to status.

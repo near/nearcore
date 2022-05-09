@@ -42,7 +42,7 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-#[cfg(feature = "mock_network")]
+#[cfg(feature = "mock_node")]
 use std::sync::Arc;
 
 /// lru cache size
@@ -1000,7 +1000,7 @@ impl ChainStoreAccess for ChainStore {
                 &mut self.outgoing_receipts,
                 &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
+            &format!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
     }
 
@@ -1201,6 +1201,10 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    /// Collect incoming receipts for shard `shard_id` from
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
+    /// This is because the chunks for the shard are empty for the blocks in between,
+    /// so the receipts from these blocks are propagated
     pub fn get_incoming_receipts_for_shard(
         &mut self,
         shard_id: ShardId,
@@ -1817,27 +1821,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), outgoing_receipts);
     }
 
-    pub fn save_receipt_id_to_shard_id(
-        &mut self,
-        runtime_adapter: &dyn RuntimeAdapter,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-        last_height_included: BlockHeight,
-    ) -> Result<(), Error> {
-        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
-            runtime_adapter,
-            *prev_hash,
-            shard_id,
-            last_height_included,
-        )?;
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
-        for receipt in outgoing_receipts {
-            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
-            self.chain_store_cache_update
-                .receipt_id_to_shard_id
-                .insert(receipt.receipt_id, to_shard_id);
-        }
-        Ok(())
+    pub fn save_receipt_id_to_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
+        self.chain_store_cache_update.receipt_id_to_shard_id.insert(receipt_id, shard_id);
     }
 
     pub fn save_incoming_receipt(
@@ -2521,7 +2506,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Only used in mock network
     /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
     /// from `source_store` to the current store.
-    #[cfg(feature = "mock_network")]
+    #[cfg(feature = "mock_node")]
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
@@ -3617,7 +3602,9 @@ mod tests {
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
-            store_update.set_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info).unwrap();
+            store_update
+                .insert_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
+                .unwrap();
             store_update.commit().unwrap();
         }
         for i in 1..1000 {
@@ -3632,7 +3619,9 @@ mod tests {
             {
                 let mut store_update = store_update.store().store_update();
                 let block_info = BlockInfo::default();
-                store_update.set_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
+                store_update
+                    .insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info)
+                    .unwrap();
                 store_update.commit().unwrap();
             }
             store_update
