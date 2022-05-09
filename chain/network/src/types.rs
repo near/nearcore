@@ -25,7 +25,7 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -369,6 +369,7 @@ impl From<&FullPeerInfo> for PeerInfoView {
             height: full_peer_info.chain_info.height,
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
+            peer_id: full_peer_info.peer_info.id.public_key().clone(),
         }
     }
 }
@@ -396,6 +397,18 @@ impl From<NetworkInfo> for NetworkInfoView {
                 .iter()
                 .map(|full_peer_info| full_peer_info.into())
                 .collect::<Vec<_>>(),
+            known_producers: network_info
+                .known_producers
+                .iter()
+                .map(|it| KnownProducerView {
+                    account_id: it.account_id.clone(),
+                    peer_id: it.peer_id.public_key().clone(),
+                    next_hops: it
+                        .next_hops
+                        .as_ref()
+                        .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
+                })
+                .collect(),
         }
     }
 }
