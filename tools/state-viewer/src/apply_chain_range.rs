@@ -338,6 +338,7 @@ pub fn apply_chain_range(
     only_contracts: bool,
     sequential: bool,
 ) {
+    let parent_span = tracing::debug_span!(target: "state_viewer", "Apply a chain range", ?start_height, ?end_height, ?shard_id, only_contracts, sequential).entered();
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -377,9 +378,17 @@ pub fn apply_chain_range(
     };
 
     if sequential {
-        range.into_iter().for_each(process_height);
+        range.into_iter().for_each(|height| {
+            let _span =
+                tracing::debug_span!(target: "state_viewer", parent: &parent_span, "Process a block in order", height)
+                    .entered();
+            process_height(height)
+        });
     } else {
-        range.into_par_iter().for_each(process_height);
+        range.into_par_iter().for_each(|height| {
+            let _span = tracing::debug_span!(target: "mock_node", parent: &parent_span, "Process a block in parallel", height).entered();
+            process_height(height)
+        });
     }
 
     println!(
