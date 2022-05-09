@@ -1,4 +1,5 @@
 <html>
+
 <head>
     <style>
         table {
@@ -31,27 +32,74 @@
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        function convertTime(millis) {
+            let total_seconds = Math.floor(millis / 1000);
+            let hours = Math.floor(total_seconds / 3600)
+            let minutes = Math.floor((total_seconds - (hours * 3600)) / 60)
+            let seconds = total_seconds - (hours * 3600) - (minutes * 60)
+            if (hours > 0) {
+                if (minutes > 0) {
+                    return `${hours}h ${minutes}m ${seconds}s`
+                } else {
+                    return `${hours}h ${seconds}s`
+                }
+            }
+            if (minutes > 0) {
+                return `${minutes}m ${seconds}s`
+            }
+            return `${seconds}s`
+        }
         $(document).ready(() => {
-            $('span').text("Loading...");
             $.ajax({
                 type: "GET",
                 url: "/debug/api/status",
                 success: data => {
-                    let epoch_info = data.detailed_debug_status.epoch_info;
-                    $('.js-epoch-id').text(epoch_info.epoch_id);
-                    $('.js-epoch-height').text(epoch_info.height);
-                    if (epoch_info.first_block === null) {
-                        $('.js-epoch-first-block-hash').text("Not yet available");
-                        $('.js-epoch-start-time').text("Not yet available");
-                    } else {
-                        $('.js-epoch-first-block-hash').text(epoch_info.first_block[0]);
-                        $('.js-epoch-start-time').text(epoch_info.first_block[1]);
-                    }
-                    epoch_info.validators.forEach((validator, index) =>
-                        $('.js-tbody-validators').append($('<tr>')
-                            .append($('<td>').append(validator.account_id))
-                        )
-                    );
+                    let validatorMap = new Map();
+                    data.detailed_debug_status.epochs_info.forEach((epoch, index) => {
+                        let row = $('<tr>');
+                        row.append($('<td>').append(epoch.epoch_id));
+                        row.append($('<td>').append(epoch.height));
+                        row.append($('<td>').append(epoch.protocol_version));
+                        if (epoch.first_block === null) {
+                            if (index == 0) {
+                                let blocks_remaining = (epoch.height - data.sync_info.latest_block_height);
+                                let milliseconds_remaining = blocks_remaining * data.detailed_debug_status.block_production_delay_millis;
+                                row.append($('<td>').append("Next epoch - in " + blocks_remaining + " blocks "));
+                                $('.js-next-epoch').append("Next epoch in " + convertTime(milliseconds_remaining));
+                            } else {
+                                row.append($('<td>'));
+                            }
+                            row.append($('<td>'));
+                        } else {
+                            row.append($('<td>').append(epoch.first_block[0]));
+                            row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
+                        }
+                        $('.js-tbody-epochs').append(row);
+
+                        $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
+                        epoch.validators.forEach((validator, validator_index) => {
+                            let account_id = validator.account_id;
+                            console.log(account_id);
+                            if (validatorMap.has(account_id)) {
+                                validatorMap.set(account_id, validatorMap.get(account_id) + 2 ** index);
+                            } else {
+                                validatorMap.set(account_id, 2 ** index);
+                            }
+                        });
+                    });
+                    validatorMap.forEach((value, key) => {
+                        let row = $('<tr>').append($('<td>').append(key));
+                        for (i = 0; i < data.detailed_debug_status.epochs_info.length; i = i + 1) {
+                            let cell = $('<td>');
+                            if (value & 2 ** i) {
+                                cell.append('1');
+                            } else {
+                                cell.append('0');
+                            }
+                            row.append(cell);
+                        }
+                        $('.js-tbody-validators').append(row);
+                    });
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -63,32 +111,35 @@
         });
     </script>
 </head>
+
 <body>
-    <h1>
-        Welcome to the Epoch Status page!
-    </h1>
-    <h2>
-        <p>
-            Current Epoch ID:
-            <span class="js-epoch-id"></span>
-        </p>
-        <p>
-            First block (height at <span class="js-epoch-height"></span>) hash:
-            <span class="js-epoch-first-block-hash"></span>
-        </p>
-        <p>
-            Started at:
-            <span class="js-epoch-start-time"></span>
-        </p>
-        <p>
-            Validators
-        </p>
-    </h2>
+
+    <h2>Epochs </h2>
+    <h3><span class="js-next-epoch"></span></h3>
 
     <table>
-        <thead><tr>
-            <th>Account ID</th>
-        </tr></thead>
+        <thead>
+            <tr>
+                <th>Epoch id</th>
+                <th>Start height</th>
+                <th>Protocol version</th>
+                <th>First block</th>
+                <th>Epoch start</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-epochs">
+        </tbody>
+    </table>
+
+
+    <h2> Validators </h2>
+
+    <table>
+        <thead>
+            <tr class="js-head-validators">
+                <th>Account ID</th>
+            </tr>
+        </thead>
         <tbody class="js-tbody-validators">
         </tbody>
     </table>
