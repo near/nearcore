@@ -351,8 +351,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validators = &self.validators
-            [self.get_epoch_and_valset(*header.prev_hash()).map_err(|err| err.to_string())?.1];
+        let validators = &self.validators[self.get_epoch_and_valset(*header.prev_hash())?.1];
         let validator = &validators[(header.height() as usize) % validators.len()];
         Ok(header.verify_block_producer(validator.public_key()))
     }
