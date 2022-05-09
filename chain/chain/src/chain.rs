@@ -123,6 +123,7 @@ struct BlockPreprocessInfo {
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     challenges_result: ChallengesResult,
+    challenged_blocks: Vec<CryptoHash>,
 }
 
 /// Orphan is a block whose previous block is not accepted (in store) yet.
@@ -1088,9 +1089,12 @@ impl Chain {
             &vec![challenge.clone()],
             &head.epoch_id,
             &head.last_block_hash,
-            None,
         ) {
-            Ok(_) => {}
+            Ok((_, challenged_blocks)) => {
+                for block_hash in challenged_blocks {
+                    chain_update.mark_block_as_challenged(&block_hash, None);
+                }
+            }
             Err(err) => {
                 warn!(target: "chain", "Invalid challenge: {}\nChallenge: {:#?}", err, challenge);
             }
@@ -4433,11 +4437,10 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidGasPrice.into());
         }
 
-        let challenges_result = self.verify_challenges(
+        let (challenges_result, challenged_blocks) = self.verify_challenges(
             block.challenges(),
             block.header().epoch_id(),
             block.header().prev_hash(),
-            Some(block.hash()),
         )?;
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
@@ -4472,7 +4475,12 @@ impl<'a> ChainUpdate<'a> {
 
         Ok((
             apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+            BlockPreprocessInfo {
+                state_dl_info,
+                incoming_receipts,
+                challenges_result,
+                challenged_blocks,
+            },
         ))
     }
 
@@ -4489,8 +4497,12 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
 
-        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
-            preprocess_block_info;
+        let BlockPreprocessInfo {
+            state_dl_info,
+            incoming_receipts,
+            challenges_result,
+            challenged_blocks,
+        } = preprocess_block_info;
 
         for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
@@ -4500,6 +4512,9 @@ impl<'a> ChainUpdate<'a> {
         }
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
+        for block_hash in challenged_blocks {
+            self.mark_block_as_challenged(&block_hash, Some(block.hash()));
+        }
 
         self.chain_store_update.save_block_header(block.header().clone())?;
         self.update_header_head_if_not_challenged(block.header())?;
@@ -5043,16 +5058,22 @@ impl<'a> ChainUpdate<'a> {
         Ok(true)
     }
 
-    /// Returns correct / malicious challenges or Error if any challenge is invalid.
+    /// Verify that `challenges` are valid
+    /// If all challenges are valid, returns ChallengesResult, which comprises of the list of
+    /// validators that need to be slashed and the list of blocks that are challenged.
+    /// Returns Error if any challenge is invalid.
+    /// Note: you might be wondering why the list of challenged blocks is not part of ChallengesResult.
+    /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
+    /// upgrade.
     pub fn verify_challenges(
         &mut self,
         challenges: &Vec<Challenge>,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        block_hash: Option<&CryptoHash>,
-    ) -> Result<ChallengesResult, Error> {
+    ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
         debug!(target: "chain", "Verifying challenges {:?}", challenges);
         let mut result = vec![];
+        let mut challenged_blocks = vec![];
         for challenge in challenges.iter() {
             match validate_challenge(&*self.runtime_adapter, epoch_id, prev_block_hash, challenge) {
                 Ok((hash, account_ids)) => {
@@ -5060,7 +5081,7 @@ impl<'a> ChainUpdate<'a> {
                         // If it's double signed block, we don't invalidate blocks just slash.
                         ChallengeBody::BlockDoubleSign(_) => true,
                         _ => {
-                            self.mark_block_as_challenged(&hash, block_hash)?;
+                            challenged_blocks.push(hash);
                             false
                         }
                     };
@@ -5076,7 +5097,7 @@ impl<'a> ChainUpdate<'a> {
                 Err(err) => return Err(err),
             }
         }
-        Ok(result)
+        Ok((result, challenged_blocks))
     }
 
     /// Verify header signature when the epoch is known, but not the whole chain.
