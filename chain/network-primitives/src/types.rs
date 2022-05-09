@@ -52,7 +52,7 @@ pub const MAX_NUM_PEERS: usize = 128;
 
 /// Peer type.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, strum::IntoStaticStr)]
 pub enum PeerType {
     /// Inbound session
     Inbound,
@@ -356,26 +356,6 @@ pub enum NetworkViewClientResponses {
     NoResponse,
 }
 
-/// Peer stats query.
-#[derive(actix::Message)]
-#[rtype(result = "PeerStatsResult")]
-pub struct QueryPeerStats {}
-
-/// Peer stats result
-#[derive(Debug, actix::MessageResponse)]
-pub struct PeerStatsResult {
-    /// Chain info.
-    pub chain_info: PeerChainInfoV2,
-    /// Number of bytes we've received from the peer.
-    pub received_bytes_per_sec: u64,
-    /// Number of bytes we've sent to the peer.
-    pub sent_bytes_per_sec: u64,
-    /// Returns if this peer is abusive and should be banned.
-    pub is_abusive: bool,
-    /// Counts of incoming/outgoing messages from given peer.
-    pub message_counts: (usize, usize),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,7 +400,6 @@ mod tests {
         assert_size!(OutboundTcpConnect);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
-        assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
     }
 

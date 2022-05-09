@@ -44,6 +44,7 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/delay_detector",
     "tools/indexer/example",
+    "tools/mock_node",
     "tools/restaked",
     "tools/restored-receipts-verifier",
     "tools/rpctypegen/core",

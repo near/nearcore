@@ -52,7 +52,7 @@ fn dont_load_on_build() {
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
-        peer_id: peer_id0.clone(),
+        peer_id: peer_id0,
         epoch_id: epoch_id0,
         signature: Signature::default(),
     };

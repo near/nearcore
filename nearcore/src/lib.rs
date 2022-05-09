@@ -228,6 +228,23 @@ fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
+
+    // Check if the storage is an archive and if it is make sure we are too.
+    // If the store is not marked as archive but we are an archival node that is
+    // fine and we just need to mark the store as archival.
+    let store_is_archive: bool =
+        store.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
+    let client_is_archive = near_config.client_config.archive;
+    anyhow::ensure!(
+        !store_is_archive || client_is_archive,
+        "The node is configured as non-archival but is using database of an archival node."
+    );
+    if !store_is_archive && client_is_archive {
+        let mut update = store.store_update();
+        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
+        update.commit()?;
+    }
+
     Ok(store)
 }
 

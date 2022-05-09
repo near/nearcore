@@ -992,7 +992,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
-                        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                         | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }

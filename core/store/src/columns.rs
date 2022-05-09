@@ -15,6 +15,7 @@ use strum::{EnumCount, IntoEnumIterator};
     BorshSerialize,
     strum::EnumCount,
     strum::EnumIter,
+    strum::IntoStaticStr,
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
@@ -127,7 +128,7 @@ pub enum DBCol {
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: LightClientBlockView
     EpochLightClientBlocks = 26,
-    /// Mapping from Receipt id to Shard id
+    /// Mapping from Receipt id to destination Shard Id, i.e, the shard that this receipt is sent to.
     /// - *Rows*: ReceiptId (CryptoHash)
     /// - *Content type*: Shard Id || ref_count (u64 || u64)
     ReceiptIdToShardId = 27,
