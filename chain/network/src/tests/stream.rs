@@ -53,7 +53,7 @@ impl Stream {
                 if let Ok(msg) = PeerMessage::deserialize(enc, &buf[..]) {
                     // If deserialize() succeeded but we expected different encoding, ignore the
                     // message.
-                    if !self.encoding().map(|want| want == enc).unwrap_or(true) {
+                    if self.encoding().unwrap_or(enc) != enc {
                         println!("unexpected encoding, ignoring message");
                         continue 'read;
                     }

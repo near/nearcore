@@ -3000,6 +3000,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "assert_matches",
  "borsh",
  "bytes",
  "bytesize",

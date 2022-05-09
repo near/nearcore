@@ -783,7 +783,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
                     || handshake.protocol_version > PROTOCOL_VERSION
                 {
-                    debug!(target: "network", "Received connection from node with unsupported PROTOCOL_VERSION.");
+                    debug!(target: "network", version=handshake.protocol_version, "Received connection from node with unsupported PROTOCOL_VERSION.");
                     self.send_message_or_log(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::ProtocolVersionMismatch {

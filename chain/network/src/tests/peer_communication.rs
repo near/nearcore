@@ -5,13 +5,14 @@ use crate::tests::stream::Stream;
 use crate::tests::util::{make_rng, FakeClock};
 use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
+use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
 use near_network_primitives::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
-use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
+use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
 async fn test_peer_communication(
@@ -155,7 +156,7 @@ async fn peer_communication() -> anyhow::Result<()> {
     for outbound in &encodings {
         for inbound in &encodings {
             if let (Some(a), Some(b)) = (outbound, inbound) {
-                if *a != *b {
+                if a != b {
                     continue;
                 }
             }
@@ -203,50 +204,38 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
-
     let resp = outbound.read().await;
-    let resp_type: &'static str = (&resp).into();
-    let reason = if let PeerMessage::HandshakeFailure(_, reason) = resp {
-        reason
-    } else {
-        panic!("want HandshakeFailure, got {}", resp_type);
-    };
-    let reason_type: &'static str = (&reason).into();
-    let version = if let HandshakeFailureReason::ProtocolVersionMismatch { version, .. } = reason {
-        version
-    } else {
-        panic!("want ProtocolVersionMismatch, got {}", reason_type);
-    };
+    assert_matches!(
+        resp,
+        PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
+    );
+
+    // Send too new PROTOCOL_VERSION, expect ProtocolVersionMismatch
+    handshake.protocol_version = PROTOCOL_VERSION + 1;
+    handshake.oldest_supported_version = PROTOCOL_VERSION + 1;
+    outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
+    let resp = outbound.read().await;
+    assert_matches!(
+        resp,
+        PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
+    );
 
     // Send mismatching chain_id, expect GenesisMismatch.
     // We fix protocol_version, but chain_id is still mismatching.
-    handshake.protocol_version = version;
-    handshake.oldest_supported_version = version;
+    handshake.protocol_version = PROTOCOL_VERSION;
+    handshake.oldest_supported_version = PROTOCOL_VERSION;
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
     let resp = outbound.read().await;
-    let resp_type: &'static str = (&resp).into();
-    let reason = if let PeerMessage::HandshakeFailure(_, reason) = resp {
-        reason
-    } else {
-        panic!("want HandshakeFailure, got {}", resp_type);
-    };
-    let reason_type: &'static str = (&reason).into();
-    let genesis_id = if let HandshakeFailureReason::GenesisMismatch(genesis_id) = reason {
-        genesis_id
-    } else {
-        panic!("want GenesisMismatch, got {}", reason_type);
-    };
+    assert_matches!(
+        resp,
+        PeerMessage::HandshakeFailure(_, HandshakeFailureReason::GenesisMismatch(_))
+    );
 
     // Send a correct Handshake, expect a matching Handshake response.
-    handshake.sender_chain_info.genesis_id.chain_id = genesis_id.chain_id;
+    handshake.sender_chain_info = chain.get_info();
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
     let resp = outbound.read().await;
-    let resp_type: &'static str = (&resp).into();
-    let _resp = if let PeerMessage::Handshake(handshake) = resp {
-        handshake
-    } else {
-        panic!("want Handshake, got {}", resp_type);
-    };
+    assert_matches!(resp, PeerMessage::Handshake(_));
 }
 
 #[tokio::test]
@@ -258,7 +247,7 @@ async fn handshake() -> anyhow::Result<()> {
         for inbound in &encodings {
             println!("oubound = {:?}, inbound = {:?}", outbound, inbound);
             if let (Some(a), Some(b)) = (outbound, inbound) {
-                if *a != *b {
+                if a != b {
                     continue;
                 }
             }
