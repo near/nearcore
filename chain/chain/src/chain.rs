@@ -1340,6 +1340,10 @@ impl Chain {
                 success_timer.stop_and_record();
             }
             Err(_) => {
+                // Save the block as processed even if it failed. This is used to filter out the
+                // incoming blocks that are not requested on heights which we already processed.
+                // If there is a new incoming block that we didn't request and we already have height
+                // processed 'marked as true' - then we'll not even attempt to process it
                 if let Err(e) = self.save_block_height_processed(block_height) {
                     warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
                 }
@@ -1451,11 +1455,13 @@ impl Chain {
             }
         };
 
-        // 2) apply chunks
+        // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
+        //    there still no change to ChainStore.
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
         let apply_results = do_apply_chunks(apply_chunk_work);
 
-        // 3) finally, store the block on chain
+        // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
+        //    which will be committed to storage all at once.
         let maybe_new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
         match maybe_new_head {
