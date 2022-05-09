@@ -3,6 +3,7 @@ use borsh::BorshSerialize;
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
 };
+use near_chain::near_chain_primitives::ErrorKind;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -15,7 +16,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
@@ -341,6 +342,27 @@ impl TestShardUpgradeEnv {
             }
         }
     }
+
+    /// Check that after split state is finished, the artifacts stored in storage is removed
+    fn check_split_states_artifacts(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        for height in 0..head.height {
+            let (block_hash, num_shards) = {
+                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                (*block.hash(), block.chunks().len() as NumShards)
+            };
+            for shard_id in 0..num_shards {
+                let res = env.clients[0]
+                    .chain
+                    .store()
+                    .get_state_changes_for_split_states(&block_hash, shard_id);
+                assert_matches!(res, Err(error) => {
+                    assert_matches!(error.kind(), ErrorKind::DBNotFoundErr(_));
+                })
+            }
+        }
+    }
 }
 
 /// Checks that account exists in the state after `block` is processed
@@ -485,6 +507,8 @@ fn test_shard_layout_upgrade_simple() {
     // sharding upgrade
     test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     test_env.check_accounts(accounts_to_check.iter().collect());
+
+    test_env.check_split_states_artifacts();
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -667,6 +691,8 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 // Test cross contract calls
@@ -708,6 +734,8 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 #[test]

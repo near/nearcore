@@ -3955,8 +3955,6 @@ impl<'a> ChainUpdate<'a> {
                 let state_changes = self
                     .chain_store_update
                     .get_state_changes_for_split_states(block.hash(), shard_id)?;
-                self.chain_store_update
-                    .remove_state_changes_for_split_states(*block.hash(), shard_id);
                 let runtime_adapter = self.runtime_adapter.clone();
                 let block_hash = *block.hash();
                 result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
@@ -4178,6 +4176,10 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
+                self.chain_store_update.remove_state_changes_for_split_states(
+                    block_hash.clone(),
+                    shard_uid.shard_id(),
+                );
                 self.process_split_state(
                     &block_hash,
                     &prev_block_hash,
