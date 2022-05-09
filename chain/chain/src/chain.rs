@@ -1323,6 +1323,7 @@ impl Chain {
         let _timer = CryptoHashTimer::new(block_hash);
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
+        let block_height = block.header().height();
         let res = self.process_block_single_impl(
             me,
             block,
@@ -1333,11 +1334,21 @@ impl Chain {
             on_challenge,
         );
 
-        if res.is_ok() {
-            metrics::BLOCK_PROCESSED_TOTAL.inc();
-            success_timer.stop_and_record();
-        } else {
-            success_timer.stop_and_discard();
+        match &res {
+            Ok(_) => {
+                metrics::BLOCK_PROCESSED_TOTAL.inc();
+                success_timer.stop_and_record();
+            }
+            Err(_) => {
+                // Save the block as processed even if it failed. This is used to filter out the
+                // incoming blocks that are not requested on heights which we already processed.
+                // If there is a new incoming block that we didn't request and we already have height
+                // processed 'marked as true' - then we'll not even attempt to process it
+                if let Err(e) = self.save_block_height_processed(block_height) {
+                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+                }
+                success_timer.stop_and_discard();
+            }
         }
         res
     }
@@ -1354,48 +1365,19 @@ impl Chain {
         orphan_misses_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+                .entered();
+
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
-        let maybe_new_head = chain_update.process_block(me, &block, &provenance, on_challenge);
+
+        // 1) preprocess the block where we verify that the block is valid and ready to be processed
+        //    No chain updates are applied at this step.
+        let preprocess_res = chain_update.preprocess_block(me, &block, &provenance, on_challenge);
         let block_height = block.header().height();
-
-        match maybe_new_head {
-            Ok(head) => {
-                chain_update.chain_store_update.save_block_height_processed(block_height);
-                chain_update.commit()?;
-
-                self.pending_states_to_patch = None;
-
-                match &head {
-                    Some(tip) => {
-                        if let Ok(producers) = self
-                            .runtime_adapter
-                            .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-                        {
-                            let mut count = 0;
-                            let mut stake = 0;
-                            for (info, is_slashed) in producers.iter() {
-                                if !*is_slashed {
-                                    stake += info.stake();
-                                    count += 1;
-                                }
-                            }
-                            stake /= NEAR_BASE;
-                            metrics::VALIDATOR_AMOUNT_STAKED
-                                .set(i64::try_from(stake).unwrap_or(i64::MAX));
-                            metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
-                        }
-                    }
-                    None => {}
-                }
-
-                let status = self.determine_status(head.clone(), prev_head);
-
-                // Notify other parts of the system of the update.
-                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
-
-                Ok(head)
-            }
+        let preprocess_res = match preprocess_res {
+            Ok(preprocess_res) => preprocess_res,
             Err(e) => {
                 match e.kind() {
                     ErrorKind::Orphan => {
@@ -1469,11 +1451,54 @@ impl Chain {
                     }
                     _ => {}
                 }
-                if let Err(e) = self.save_block_height_processed(block_height) {
-                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
-                }
-                Err(e)
+                return Err(e);
             }
+        };
+
+        // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
+        //    there still no change to ChainStore.
+        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+        let apply_results = do_apply_chunks(apply_chunk_work);
+
+        // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
+        //    which will be committed to storage all at once.
+        let maybe_new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
+        match maybe_new_head {
+            Ok(head) => {
+                chain_update.chain_store_update.save_block_height_processed(block_height);
+                chain_update.commit()?;
+
+                self.pending_states_to_patch = None;
+
+                if let Some(tip) = &head {
+                    if let Ok(producers) = self
+                        .runtime_adapter
+                        .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+                    {
+                        let mut count = 0;
+                        let mut stake = 0;
+                        for (info, is_slashed) in producers.iter() {
+                            if !*is_slashed {
+                                stake += info.stake();
+                                count += 1;
+                            }
+                        }
+                        stake /= NEAR_BASE;
+                        metrics::VALIDATOR_AMOUNT_STAKED
+                            .set(i64::try_from(stake).unwrap_or(i64::MAX));
+                        metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+                    }
+                };
+
+                let status = self.determine_status(head.clone(), prev_head);
+
+                // Notify other parts of the system of the update.
+                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
+
+                Ok(head)
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -3612,17 +3637,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Applies chunks and processes results
-    fn apply_chunks_and_process_results(
-        &mut self,
-        block: &Block,
-        prev_block: &Block,
-        work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
-    ) -> Result<(), Error> {
-        let apply_results = do_apply_chunks(work);
-        self.apply_chunk_postprocessing(block, prev_block, apply_results)
-    }
-
     fn apply_chunk_postprocessing(
         &mut self,
         block: &Block,
@@ -4462,27 +4476,21 @@ impl<'a> ChainUpdate<'a> {
         ))
     }
 
-    /// Runs the block processing, including validation and finding a place for the new block in the chain.
-    /// Returns new head if chain head updated
-    fn process_block(
+    /// This is the last step of process_block_single, where we take the preprocess block info
+    /// apply chunk results and store the results on chain.
+    fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
-        provenance: &Provenance,
-        on_challenge: &mut dyn FnMut(ChallengeBody),
+        preprocess_block_info: BlockPreprocessInfo,
+        apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
-                .entered();
-
-        let (
-            apply_chunk_work,
-            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
-        ) = self.preprocess_block(me, block, provenance, on_challenge)?;
-
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
-        self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
+        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
+
+        let BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result } =
+            preprocess_block_info;
 
         for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
@@ -4511,7 +4519,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone().into_inner());
-        self.chain_store_update.inc_block_refcount(block.header().prev_hash())?;
+        self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
         self.save_receipt_id_to_shard_id_for_block(
