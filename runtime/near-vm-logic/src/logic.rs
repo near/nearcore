@@ -1870,13 +1870,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
 
         self.receipt_manager.append_action_add_key_with_function_call(
