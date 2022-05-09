@@ -1093,7 +1093,12 @@ impl Chain {
         ) {
             Ok((_, challenged_blocks)) => {
                 for block_hash in challenged_blocks {
-                    chain_update.mark_block_as_challenged(&block_hash, None)?;
+                    match chain_update.mark_block_as_challenged(&block_hash, None) {
+                        Ok(()) => {}
+                        Err(err) => {
+                            warn!(target: "chain", "Error saving block as challenged: {:?} {:?}", block_hash, err);
+                        }
+                    }
                 }
             }
             Err(err) => {
