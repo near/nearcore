@@ -37,12 +37,24 @@ pub struct PeerConfig {
     pub signer: InMemorySigner,
     pub chain: Arc<data::Chain>,
     pub peers: Vec<PeerInfo>,
+    pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
 }
 
 impl PeerConfig {
     pub fn id(&self) -> PeerId {
         PeerId::new(self.signer.public_key.clone())
+    }
+
+    pub fn peer_type(&self) -> PeerType {
+        match self.start_handshake_with {
+            Some(_) => PeerType::Outbound,
+            None => PeerType::Inbound,
+        }
+    }
+
+    pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
+        PartialEdgeInfo::new(&self.id(), other, nonce, &self.signer.secret_key)
     }
 }
 
@@ -171,12 +183,10 @@ impl Handler<PeerManagerMessageRequest> for FakeActor {
                 PeerManagerMessageResponse::RegisterPeerResponse(RegisterPeerResponse::Accept(
                     match msg.this_edge_info {
                         Some(_) => None,
-                        None => Some(PartialEdgeInfo::new(
-                            &self.cfg.id(),
-                            &msg.peer_info.id,
-                            msg.other_edge_info.nonce,
-                            &self.cfg.signer.secret_key,
-                        )),
+                        None => Some(
+                            self.cfg
+                                .partial_edge_info(&msg.peer_info.id, msg.other_edge_info.nonce),
+                        ),
                     },
                 ))
             }
@@ -219,7 +229,6 @@ impl Handler<PeerManagerMessageRequest> for FakeActor {
 
 pub struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
-    peer_id: PeerId,
     actix: ActixSystem<PeerActor>,
     responses: tokio::sync::mpsc::UnboundedReceiver<Response>,
 }
@@ -233,28 +242,22 @@ impl PeerHandle {
         self.actix.addr.send(SendMessage { message }).await.unwrap();
     }
 
-    pub fn routed_message(&self, body: RoutedMessageBody) -> Box<RoutedMessage> {
-        RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(self.peer_id.clone()), body }.sign(
+    pub fn routed_message(&self, body: RoutedMessageBody, peer_id: PeerId) -> Box<RoutedMessage> {
+        RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
             &self.cfg.signer.secret_key,
             /*ttl=*/ 1,
         )
     }
 
-    async fn start_endpoint(
-        cfg: PeerConfig,
-        stream: tokio::net::TcpStream,
-        peer_id: PeerId,
-        stream_type: PeerType,
-    ) -> anyhow::Result<PeerHandle> {
+    pub async fn start_endpoint(cfg: PeerConfig, stream: TcpStream) -> PeerHandle {
         let cfg = Arc::new(cfg);
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
 
-        let peer_id_ = peer_id.clone();
         let cfg_ = cfg.clone();
         let actix = ActixSystem::spawn(move || {
-            let my_addr = stream.local_addr()?;
-            let peer_addr = stream.peer_addr()?;
+            let my_addr = stream.local_addr().unwrap();
+            let peer_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
             let handshake_timeout = time::Duration::from_secs(5);
             let fa = FakeActor { cfg: cfg.clone(), responses: send }.start();
@@ -265,67 +268,42 @@ impl PeerHandle {
                     Err(_) => false,
                 })
                 .map(Result::unwrap);
-            Ok(PeerActor::create(move |ctx| {
+            PeerActor::create(move |ctx| {
                 PeerActor::add_stream(read, ctx);
                 PeerActor::new(
                     PeerInfo { id: cfg.id(), addr: Some(my_addr), account_id: None },
                     peer_addr.clone(),
-                    Some(PeerInfo {
-                        id: peer_id.clone(),
+                    cfg.start_handshake_with.as_ref().map(|id| PeerInfo {
+                        id: id.clone(),
                         addr: Some(peer_addr.clone()),
                         account_id: None,
                     }),
-                    stream_type,
+                    cfg.peer_type(),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     handshake_timeout,
                     fa.clone().recipient(),
                     fa.clone().recipient(),
                     fa.clone().recipient(),
                     fa.clone().recipient(),
-                    match stream_type {
-                        PeerType::Inbound => None,
-                        PeerType::Outbound => Some(PartialEdgeInfo::new(
-                            &cfg.id(),
-                            &peer_id,
-                            1,
-                            &cfg.signer.secret_key,
-                        )),
-                    },
+                    cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
                 )
-            }))
+            })
         })
-        .await?;
-        Ok(Self { actix, peer_id: peer_id_, cfg: cfg_, responses: recv })
+        .await;
+        Self { actix, cfg: cfg_, responses: recv }
     }
 
-    pub async fn start(
-        outbound_cfg: PeerConfig,
-        inbound_cfg: PeerConfig,
-    ) -> anyhow::Result<(PeerHandle, PeerHandle)> {
-        // start a TCP connection.
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let connect_future = TcpStream::connect(listener.local_addr()?);
+    pub async fn start_connection() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let connect_future = TcpStream::connect(listener.local_addr().unwrap());
         let accept_future = listener.accept();
         let (connect_result, accept_result) = tokio::join!(connect_future, accept_future);
-        let outbound_stream = connect_result?;
-        let (inbound_stream, _) = accept_result?;
-
-        let outbound_id = outbound_cfg.id();
-        let inbound_id = inbound_cfg.id();
-        let outbound = PeerHandle::start_endpoint(
-            outbound_cfg,
-            outbound_stream,
-            inbound_id,
-            PeerType::Outbound,
-        )
-        .await?;
-        let inbound =
-            PeerHandle::start_endpoint(inbound_cfg, inbound_stream, outbound_id, PeerType::Inbound)
-                .await?;
-        Ok((outbound, inbound))
+        let outbound_stream = connect_result.unwrap();
+        let (inbound_stream, _) = accept_result.unwrap();
+        (outbound_stream, inbound_stream)
     }
 }
