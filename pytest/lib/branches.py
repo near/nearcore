@@ -224,8 +224,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
                          deploy=deploy)
 
 
-def __get_executables_for(
-        chain_id: str = 'mainnet') -> typing.Tuple[str, str, Executables]:
+def __get_executables_for(chain_id: str) -> typing.Tuple[str, str, Executables]:
     """Returns latest deploy at given chain."""
     if chain_id not in ('mainnet', 'testnet', 'betanet'):
         raise ValueError(f'Unexpected chain_id: {chain_id}; '
