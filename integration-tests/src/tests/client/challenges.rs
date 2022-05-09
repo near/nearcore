@@ -36,6 +36,36 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::NightshadeRuntime;
 
+/// Check that block containing a challenge is rejected.
+/// TODO (#2445): Enable challenges when they are working correctly.
+#[test]
+fn test_block_with_challenges() {
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+
+    {
+        let body = match &mut block {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => body.as_mut(),
+        };
+        let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: genesis.header().try_to_vec().unwrap(),
+            right_block_header: genesis.header().try_to_vec().unwrap(),
+        });
+        let challenge = Challenge::produce(challenge_body, &*signer);
+        body.challenges = vec![challenge];
+        block.mut_header().get_mut().inner_rest.challenges_root =
+            Block::compute_challenges_root(&body.challenges);
+        block.mut_header().resign(&*signer);
+    }
+
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidChallengeRoot);
+}
+
 #[test]
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();

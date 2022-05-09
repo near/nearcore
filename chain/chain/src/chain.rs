@@ -118,6 +118,13 @@ enum ApplyChunksMode {
     NotCaughtUp,
 }
 
+/// Contains information from preprocessing a block
+struct BlockPreprocessInfo {
+    state_dl_info: Option<StateSyncInfo>,
+    incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
+    challenges_result: ChallengesResult,
+}
+
 /// Orphan is a block whose previous block is not accepted (in store) yet.
 /// Therefore, they are not ready to be processed yet.
 /// We save these blocks in an in-memory orphan pool to be processed later
@@ -4182,11 +4189,13 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    fn start_downloading_state(
+    /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
+    /// in the next epoch.
+    fn get_state_dl_info(
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<StateSyncInfo>, Error> {
         let prev_hash = *block.header().prev_hash();
         let shards_to_dl =
             Chain::get_shards_to_dl_state(self.runtime_adapter.clone(), me, &prev_hash)?;
@@ -4210,7 +4219,7 @@ impl<'a> ChainUpdate<'a> {
             debug_assert!(false);
         }
         if shards_to_dl.is_empty() {
-            Ok(false)
+            Ok(None)
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
 
@@ -4225,8 +4234,7 @@ impl<'a> ChainUpdate<'a> {
                     .collect(),
             };
 
-            self.chain_store_update.add_state_dl_info(state_dl_info);
-            Ok(true)
+            Ok(Some(state_dl_info))
         }
     }
 
@@ -4274,19 +4282,22 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Runs the block processing, including validation and finding a place for the new block in the chain.
-    /// Returns new head if chain head updated, as well as a boolean indicating if we need to start
-    ///    fetching state for the next epoch.
-    fn process_block(
+    /// Preprocess a block before applying chunks, verify that we have the necessary information
+    /// to process the block an the block is valid.
+    //  Note that this function does NOT introduce any changes to chain state.
+    fn preprocess_block(
         &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
-    ) -> Result<Option<Tip>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
-                .entered();
+    ) -> Result<
+        (
+            Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            BlockPreprocessInfo,
+        ),
+        Error,
+    > {
         debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
 
         // Check that we know the epoch of the block before we try to get the header
@@ -4342,7 +4353,6 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
         let prev_gas_price = prev.gas_price();
-        let prev_epoch_id = prev.epoch_id().clone();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
@@ -4351,22 +4361,23 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidBlockHeight(prev_height).into());
         }
 
-        let is_caught_up = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
-            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, needs to be orphaned
-                return Err(ErrorKind::Orphan.into());
-            }
+        let (is_caught_up, state_dl_info) =
+            if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+                if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                    // The previous block is not caught up for the next epoch relative to the previous
+                    // block, which is the current epoch for this block, so this block cannot be applied
+                    // at all yet, needs to be orphaned
+                    return Err(ErrorKind::Orphan.into());
+                }
 
-            // For the first block of the epoch we check if we need to start download states for
-            // shards that we will care about in the next epoch. If there is no state to be downloaded,
-            // we consider that we are caught up, otherwise not
-            let has_state_to_download = self.start_downloading_state(me, block)?;
-            !has_state_to_download
-        } else {
-            self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?
-        };
+                // For the first block of the epoch we check if we need to start download states for
+                // shards that we will care about in the next epoch. If there is no state to be downloaded,
+                // we consider that we are caught up, otherwise not
+                let state_dl_info = self.get_state_dl_info(me, block)?;
+                (state_dl_info.is_none(), state_dl_info)
+            } else {
+                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
+            };
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
@@ -4418,7 +4429,7 @@ impl<'a> ChainUpdate<'a> {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-        let receipts_by_shard = self.collect_incoming_receipts_from_block(me, block)?;
+        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
         // If we have the state for shards in the next epoch already downloaded, apply the state transition
         // for these states as well
@@ -4428,7 +4439,7 @@ impl<'a> ChainUpdate<'a> {
                 me,
                 block,
                 &prev_block,
-                &receipts_by_shard,
+                &incoming_receipts,
                 ApplyChunksMode::IsCaughtUp,
             )?
         } else {
@@ -4438,15 +4449,44 @@ impl<'a> ChainUpdate<'a> {
                 me,
                 block,
                 &prev_block,
-                &receipts_by_shard,
+                &incoming_receipts,
                 ApplyChunksMode::NotCaughtUp,
             )?
         };
 
+        Ok((
+            apply_chunk_work,
+            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+        ))
+    }
+
+    /// Runs the block processing, including validation and finding a place for the new block in the chain.
+    /// Returns new head if chain head updated
+    fn process_block(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+        provenance: &Provenance,
+        on_challenge: &mut dyn FnMut(ChallengeBody),
+    ) -> Result<Option<Tip>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+                .entered();
+
+        let (
+            apply_chunk_work,
+            BlockPreprocessInfo { state_dl_info, incoming_receipts, challenges_result },
+        ) = self.preprocess_block(me, block, provenance, on_challenge)?;
+
+        let prev_hash = block.header().prev_hash();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?.clone();
         self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
 
-        for (shard_id, receipt_proofs) in receipts_by_shard {
+        for (shard_id, receipt_proofs) in incoming_receipts {
             self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
+        }
+        if let Some(state_dl_info) = state_dl_info {
+            self.chain_store_update.add_state_dl_info(state_dl_info);
         }
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
@@ -4475,7 +4515,7 @@ impl<'a> ChainUpdate<'a> {
         self.save_receipt_id_to_shard_id_for_block(
             me,
             block.hash(),
-            &prev_hash,
+            prev_hash,
             block.chunks().len() as NumShards,
         )?;
 
@@ -4492,8 +4532,9 @@ impl<'a> ChainUpdate<'a> {
             // Presently the epoch boundary is defined by the height, and the fork choice rule
             // is also just height, so the very first block to cross the epoch end is guaranteed
             // to be the head of the chain, and result in the light client block produced.
+            let prev = self.get_previous_header(block.header())?.clone();
+            let prev_epoch_id = prev.epoch_id().clone();
             if block.header().epoch_id() != &prev_epoch_id {
-                let prev = self.get_previous_header(block.header())?.clone();
                 if prev.last_final_block() != &CryptoHash::default() {
                     let light_client_block = self.create_light_client_block(&prev)?;
                     self.chain_store_update
@@ -4682,6 +4723,12 @@ impl<'a> ChainUpdate<'a> {
             block_merkle_tree.insert(*header.prev_hash());
             if &block_merkle_tree.root() != header.block_merkle_root() {
                 return Err(ErrorKind::InvalidBlockMerkleRoot.into());
+            }
+
+            // Check that challenges root is empty to ensure later that block doesn't contain challenges.
+            // TODO (#2445): Enable challenges when they are working correctly.
+            if header.challenges_root() != &MerkleHash::default() {
+                return Err(ErrorKind::InvalidChallengeRoot.into());
             }
         }
 
