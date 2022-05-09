@@ -303,34 +303,35 @@ fn validate_chunk_proofs_challenge(
 }
 
 fn validate_chunk_state_challenge(
-    runtime_adapter: &dyn RuntimeAdapter,
-    chunk_state: &ChunkState,
+    _runtime_adapter: &dyn RuntimeAdapter,
+    _chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
-    let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
-    let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
-
-    // Validate previous chunk and block header.
-    validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
-    let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
-    if !Block::validate_chunk_header_proof(
-        &prev_chunk_header,
-        prev_block_header.chunk_headers_root(),
-        &chunk_state.prev_merkle_proof,
-    ) {
-        return Err(ErrorKind::MaliciousChallenge.into());
-    }
-
-    // Validate current chunk and block header.
-    validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
-    if !Block::validate_chunk_header_proof(
-        &chunk_state.chunk_header,
-        block_header.chunk_headers_root(),
-        &chunk_state.merkle_proof,
-    ) {
-        return Err(ErrorKind::MaliciousChallenge.into());
-    }
+    // TODO (#2445): Enable challenges when they are working correctly.
+    // let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
+    // let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
+    //
+    // // Validate previous chunk and block header.
+    // validate_header_authorship(runtime_adapter, &prev_block_header)?;
+    // let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
+    // let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
+    // if !Block::validate_chunk_header_proof(
+    //     &prev_chunk_header,
+    //     prev_block_header.chunk_headers_root(),
+    //     &chunk_state.prev_merkle_proof,
+    // ) {
+    //     return Err(ErrorKind::MaliciousChallenge.into());
+    // }
+    //
+    // // Validate current chunk and block header.
+    // validate_header_authorship(runtime_adapter, &block_header)?;
+    // let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
+    // if !Block::validate_chunk_header_proof(
+    //     &chunk_state.chunk_header,
+    //     block_header.chunk_headers_root(),
+    //     &chunk_state.merkle_proof,
+    // ) {
+    //     return Err(ErrorKind::MaliciousChallenge.into());
+    // }
 
     // Apply state transition and check that the result state and other data doesn't match.
     // TODO (#6316): enable storage proof generation
@@ -374,7 +375,9 @@ fn validate_chunk_state_challenge(
     //     // If all the data matches, this is actually valid chunk and challenge is malicious.
     //     Err(ErrorKind::MaliciousChallenge.into())
     // }
-    Ok((*block_header.hash(), vec![chunk_producer]))
+    // Ok((*block_header.hash(), vec![chunk_producer]))
+
+    Err(ErrorKind::MaliciousChallenge.into())
 }
 
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
