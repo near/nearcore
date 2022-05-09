@@ -4521,7 +4521,7 @@ impl<'a> ChainUpdate<'a> {
         self.save_receipt_id_to_shard_id_for_block(
             me,
             block.hash(),
-            block.header().prev_hash(),
+            prev_hash,
             block.chunks().len() as NumShards,
         )?;
 
