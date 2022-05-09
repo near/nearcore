@@ -1406,7 +1406,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
-        let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
+
+        // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
+        if generate_storage_proof {
+            panic!("Storage proof generation is not enabled yet");
+        }
+        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
             *state_root,
