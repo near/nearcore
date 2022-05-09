@@ -643,6 +643,74 @@ impl ClientActor {
         }
     }
 }
+impl ClientActor {
+    /// Gets the information about the epoch that contains a given block.
+    /// Also returns the hash of the last block of the previous epoch.
+    fn get_epoch_info_view(
+        &mut self,
+        current_block: CryptoHash,
+    ) -> Result<(EpochInfoView, CryptoHash), Error> {
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
+
+        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
+        let epoch_id = block.header().epoch_id();
+        let validators: Vec<ValidatorInfo> = self
+            .client
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, &current_block)?
+            .into_iter()
+            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                account_id: validator_stake.take_account_id(),
+                is_slashed,
+            })
+            .collect();
+
+        return Ok((
+            EpochInfoView {
+                epoch_id: epoch_id.0,
+                height: block.header().height(),
+                first_block: Some((block.header().hash().clone(), block.header().timestamp())),
+                validators: validators.to_vec(),
+                protocol_version: self
+                    .client
+                    .runtime_adapter
+                    .get_epoch_protocol_version(epoch_id)
+                    .unwrap_or(0),
+            },
+            // Last block of the previous epoch.
+            *block.header().prev_hash(),
+        ));
+    }
+
+    fn get_next_epoch_view(&mut self) -> Result<EpochInfoView, Error> {
+        let head = self.client.chain.head()?;
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+
+        Ok(EpochInfoView {
+            epoch_id: head.next_epoch_id.0,
+            // Expected height of the next epoch.
+            height: epoch_start_height + self.client.config.epoch_length,
+            first_block: None,
+            validators: self
+                .client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.next_epoch_id, &head.last_block_hash)?
+                .into_iter()
+                .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                    account_id: validator_stake.take_account_id(),
+                    is_slashed,
+                })
+                .collect(),
+            protocol_version: self
+                .client
+                .runtime_adapter
+                .get_epoch_protocol_version(&head.next_epoch_id)?,
+        })
+    }
+}
+
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
@@ -715,6 +783,8 @@ impl Handler<Status> for ClientActor {
             let mut last_block_timestamp: u64 = 0;
             let mut last_block_height = head.height + 1;
 
+            let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+
             // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
             for _ in 0..50 {
                 let block = match self.client.chain.get_block(&last_block_hash) {
@@ -737,6 +807,7 @@ impl Handler<Status> for ClientActor {
                         chunks: vec![],
                         processing_time_ms: None,
                         timestamp_delta: 0,
+                        gas_price_ratio: 1.0,
                     });
                 }
 
@@ -781,10 +852,30 @@ impl Handler<Status> for ClientActor {
                     } else {
                         0
                     },
+                    gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
                 });
                 last_block_hash = block.header().prev_hash().clone();
                 last_block_timestamp = block.header().raw_timestamp();
                 last_block_height = block.header().height();
+            }
+
+            // Next epoch id
+            let mut epochs_info: Vec<EpochInfoView> = Vec::new();
+
+            if let Ok(next_epoch) = self.get_next_epoch_view() {
+                epochs_info.push(next_epoch);
+            }
+
+            let mut current_block = head.last_block_hash;
+            for _ in 0..5 {
+                if let Ok((epoch_view, block_previous_epoch)) =
+                    self.get_epoch_info_view(current_block)
+                {
+                    current_block = block_previous_epoch;
+                    epochs_info.push(epoch_view);
+                } else {
+                    break;
+                }
             }
 
             Some(DetailedDebugStatus {
@@ -807,21 +898,12 @@ impl Handler<Status> for ClientActor {
                     .chain
                     .blocks_with_missing_chunks
                     .list_blocks_by_height(),
-                epoch_info: {
-                    EpochInfoView {
-                        epoch_id: head.epoch_id.0,
-                        height: epoch_start_height,
-                        first_block: self
-                            .client
-                            .chain
-                            .get_block_by_height(epoch_start_height)
-                            .ok()
-                            .map(|block| {
-                                (block.header().hash().clone(), block.header().timestamp())
-                            }),
-                        validators: validators.to_vec(),
-                    }
-                },
+                epochs_info,
+                block_production_delay_millis: self
+                    .client
+                    .config
+                    .min_block_production_delay
+                    .as_millis() as u64,
             })
         } else {
             None
