@@ -1560,6 +1560,10 @@ impl PeerManagerActor {
                     peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
+                    next_hops: self
+                        .routing_table_view
+                        .view_route(&announce_account.peer_id)
+                        .map(|it| it.clone()),
                 })
                 .collect(),
             peer_counter: self.peer_counter.load(Ordering::SeqCst),

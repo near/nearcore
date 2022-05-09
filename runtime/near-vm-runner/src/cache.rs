@@ -399,7 +399,7 @@ pub fn precompile_contract_vm(
         }
         #[cfg(not(all(feature = "wasmer2_vm", target_arch = "x86_64")))]
         VMKind::Wasmer2 => panic!("Wasmer2 is not enabled!"),
-        VMKind::Wasmtime => panic!("Not yet supported"),
+        VMKind::Wasmtime => Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     }
 }
 

@@ -3000,6 +3000,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "assert_matches",
  "borsh",
  "bytes",
  "bytesize",
@@ -3013,6 +3014,7 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
+ "near-logger-utils",
  "near-metrics",
  "near-network-primitives",
  "near-performance-metrics",

@@ -182,11 +182,11 @@ impl PeerActor {
         if self.force_encoding.is_some() {
             return self.force_encoding;
         }
-        if self.peer_status == PeerStatus::Connecting {
-            return None;
-        }
         if self.protocol_buffers_supported {
             return Some(Encoding::Proto);
+        }
+        if self.peer_status == PeerStatus::Connecting {
+            return None;
         }
         return Some(Encoding::Borsh);
     }
@@ -199,19 +199,7 @@ impl PeerActor {
             self.protocol_buffers_supported = true;
             return Ok(msg);
         }
-        match PeerMessage::deserialize(Encoding::Borsh, msg) {
-            Ok(msg) => Ok(msg),
-            Err(err) => {
-                self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                    self.my_node_info.clone(),
-                    HandshakeFailureReason::ProtocolVersionMismatch {
-                        version: PROTOCOL_VERSION,
-                        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                    },
-                ));
-                Err(err)
-            }
-        }
+        return PeerMessage::deserialize(Encoding::Borsh, msg);
     }
 
     fn send_message_or_log(&mut self, msg: &PeerMessage) {
@@ -792,11 +780,20 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
 
-                debug_assert!(
-                    PEER_MIN_ALLOWED_PROTOCOL_VERSION <= handshake.protocol_version
-                        && handshake.protocol_version <= PROTOCOL_VERSION
-                );
-
+                if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
+                    || handshake.protocol_version > PROTOCOL_VERSION
+                {
+                    debug!(target: "network", version=handshake.protocol_version, "Received connection from node with unsupported PROTOCOL_VERSION.");
+                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                        self.my_node_info.clone(),
+                        HandshakeFailureReason::ProtocolVersionMismatch {
+                            version: PROTOCOL_VERSION,
+                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                        },
+                    ));
+                    return;
+                    // Connection will be closed by a handshake timeout
+                }
                 let target_version = std::cmp::min(handshake.protocol_version, PROTOCOL_VERSION);
                 self.protocol_version = target_version;
 
