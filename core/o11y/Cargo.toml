@@ -9,7 +9,9 @@ readme = "README.md"
 rust-version = "1.60.0"
 
 [dependencies]
+atty = "0.2"
 backtrace = "0.3.64"
+clap = { version = "3", features = ["derive"] }
 once_cell = "1.5.2"
 opentelemetry = { version = "0.17", default-features = false, features = ["trace"] }
 opentelemetry-jaeger = "0.16"

@@ -1434,6 +1434,7 @@ lazy_static_include::lazy_static_include_str! {
     SYNC_INFO_HTML => "res/sync_info.html",
     CHAIN_INFO_HTML => "res/chain_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
+    CHUNK_INFO_HTML => "res/chunk_info.html",
 }
 
 #[get("/debug")]
@@ -1459,6 +1460,11 @@ async fn chain_info_html() -> actix_web::Result<impl actix_web::Responder> {
 #[get("/debug/epoch_info")]
 async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
+}
+
+#[get("/debug/chunk_info")]
+async fn chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*CHUNK_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1527,6 +1533,7 @@ pub fn start_http(
             .service(sync_info_html)
             .service(chain_info_html)
             .service(epoch_info_html)
+            .service(chunk_info_html)
     })
     .bind(addr)
     .unwrap()
