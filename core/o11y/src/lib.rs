@@ -120,10 +120,6 @@ pub fn default_subscriber(
 
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
         .with_ansi(ansi)
-        .with_span_events(
-            tracing_subscriber::fmt::format::FmtSpan::ENTER
-                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
-        )
         .with_writer(writer)
         .with_env_filter(log_filter)
         .with_filter_reloading();

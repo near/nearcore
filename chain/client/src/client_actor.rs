@@ -1356,8 +1356,9 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
-        let _span = tracing::debug_span!(target: "client", "process_block", height=block.header().height())
-            .entered();
+        let _span =
+            tracing::debug_span!(target: "client", "process_block", height=block.header().height())
+                .entered();
         debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
@@ -1437,7 +1438,7 @@ impl ClientActor {
         match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                warn!(target: "client", err, "Received bad block");
+                warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
@@ -1446,9 +1447,9 @@ impl ClientActor {
                 if self.client.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    debug!(target: "client", err, "Error on receival of block");
+                    debug!(target: "client", "Error on receival of block: {}", err);
                 } else {
-                    error!(target: "client", err, "Error on receival of block");
+                    error!(target: "client", "Error on receival of block: {}", err);
                 }
             }
             Err(e) => match e.kind() {
@@ -1461,7 +1462,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", e.kind(), "Process block: block refused by chain");
+                    debug!(target: "client", "Process block: refused by chain: {:?}", e.kind());
                 }
             },
         }

@@ -49,6 +49,7 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
 };
+use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1110,7 +1111,7 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             {
-                let _span = tracing::info_span!(target: "client", "Garbage collection", block_hash=?block.hash(), height=block.header().height()).entered();
+                let _span = tracing::info_span!(target: "client", "garbage_collection", block_hash=?block.hash(), height=block.header().height()).entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
 
                 let result = if self.config.archive {
@@ -1119,10 +1120,7 @@ impl Client {
                     let tries = self.runtime_adapter.get_tries();
                     self.chain.clear_data(tries, &self.config.gc)
                 };
-                if let Err(err) = result {
-                    error!(target: "client", "Can't clear old data, {:?}", err);
-                    debug_assert!(false);
-                };
+                log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {

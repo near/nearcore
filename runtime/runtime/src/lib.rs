@@ -1168,9 +1168,11 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span =
-            tracing::debug_span!(target: "runtime", "apply", num_transactions=transactions.len())
-                .entered();
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply",
+            num_transactions=transactions.len())
+        .entered();
 
         if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
             panic!("Can only patch state in sandbox mode");
@@ -1261,7 +1263,12 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "process_receipt", receipt_id = %receipt.receipt_id, node_counter = ?state_update.trie.get_trie_nodes_count()).entered();
+            let _span = tracing::debug_span!(
+                target: "runtime",
+                "process_receipt",
+                receipt_id = %receipt.receipt_id,
+                node_counter = ?state_update.trie.get_trie_nodes_count())
+            .entered();
             let result = self.process_receipt(
                 state_update,
                 apply_state,

@@ -234,7 +234,13 @@ pub fn setup_mock_node(
             (0..num_parts)
                 .into_par_iter()
                 .try_for_each(|part_id| -> anyhow::Result<()> {
-                    let _span = tracing::debug_span!(target: "mock_node", parent: &parent_span, "Obtain and apply state part", part_id, shard_id).entered();
+                    let _span = tracing::debug_span!(
+                        target: "mock_node",
+                        parent: &parent_span,
+                        "obtain_and_apply_state_part",
+                        part_id,
+                        shard_id)
+                    .entered();
 
                     let state_part = mock_network_runtime
                         .obtain_state_part(

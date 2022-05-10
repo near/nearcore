@@ -624,7 +624,11 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "runtime", "precompile_contracts", num_contracts=contract_codes.len()).entered();
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "precompile_contracts",
+            num_contracts=contract_codes.len())
+        .entered();
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
@@ -1360,7 +1364,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 || (block_header_info.proposals.is_empty()
                     && block_header_info.slashed_validators.is_empty())
         );
-        debug!(target: "runtime", height=block_header_info.height, ?block_header_info.proposals, "add_validator_proposals");
+        debug!(target: "runtime",
+            height=block_header_info.height,
+            ?block_header_info.proposals,
+            "add_validator_proposals");
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write();
         let block_info = BlockInfo::new(
