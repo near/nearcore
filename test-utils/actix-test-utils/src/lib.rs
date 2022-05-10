@@ -55,7 +55,7 @@ macro_rules! handle_interrupt {
                         Poll::Pending
                     })
                 }.fuse() => panic!("SIGINT received"),
-                _ = $future.fuse() => {},
+                output = $future.fuse() => output,
             }
         }
     };
@@ -64,7 +64,7 @@ macro_rules! handle_interrupt {
 #[inline]
 pub fn spawn_interruptible<F: std::future::Future + 'static>(
     f: F,
-) -> actix_rt::task::JoinHandle<()> {
+) -> actix_rt::task::JoinHandle<F::Output> {
     actix_rt::spawn(handle_interrupt!(f))
 }
 
@@ -110,7 +110,7 @@ pub fn setup_actix() -> actix_rt::SystemRunner {
 pub fn block_on_interruptible<F: std::future::Future>(
     sys: &actix_rt::SystemRunner,
     f: F,
-) {
+) -> F::Output {
     sys.block_on(handle_interrupt!(f))
 }
 

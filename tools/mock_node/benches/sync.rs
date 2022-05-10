@@ -2,7 +2,9 @@
 extern crate criterion;
 
 use actix::System;
+use anyhow::anyhow;
 use criterion::Criterion;
+use flate2::read::GzDecoder;
 use mock_node::setup::{setup_mock_node, MockNetworkMode};
 use mock_node::GetChainTargetBlockHeight;
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
@@ -10,24 +12,62 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::types::BlockHeight;
+use std::fs::File;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use tar::Archive;
 
-fn do_bench(c: &mut Criterion, home: &str, target_height: Option<BlockHeight>) {
+struct Sys {
+    sys: Option<actix_rt::SystemRunner>,
+    servers: Vec<(&'static str, actix_web::dev::Server)>,
+}
+
+impl Drop for Sys {
+    fn drop(&mut self) {
+        // TODO: we only have to do this because shutdown is not well handled right now. Ideally we would not have
+        // to tear down the whole system, and could just stop the client actor/view client actors each time.
+        let system = System::current();
+        let sys = self.sys.take().unwrap();
+
+        sys.block_on(async move {
+            futures::future::join_all(self.servers.iter().map(|(_name, server)| async move {
+                server.stop(true).await;
+            }))
+            .await;
+        });
+        system.stop();
+        sys.run().unwrap();
+        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+    }
+}
+
+fn extract_home(home_archive: &str) -> anyhow::Result<&Path> {
+    let len = home_archive.len();
+    if len <= 7 || &home_archive[len - 7..] != ".tar.gz" {
+        return Err(anyhow!("{} doesn't end with .tar.gz", home_archive));
+    }
+    let extracted = Path::new(&home_archive[..len - 7]);
+    if extracted.exists() {
+        return Ok(extracted);
+    }
+
+    let tar_gz = File::open(home_archive)?;
+    let tar = GzDecoder::new(tar_gz);
+    let mut archive = Archive::new(tar);
+    archive.unpack(extracted)?;
+    Ok(extracted)
+}
+
+fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHeight>) {
+    let home_dir = extract_home(home_archive).unwrap();
+
     let mut group = c.benchmark_group("mock_node_sync");
     group.sample_size(10);
     group.bench_function("mock_node_sync", |bench| {
         bench.iter_with_setup(|| {
-            // TODO: we only have to do this because shutdown is not well handled right now. Ideally we would not have
-            // to tear down the whole system, and could just stop the client actor/view client actor each time.
-            if let Some(sys) = System::try_current() {
-                sys.stop();
-                near_store::db::RocksDB::block_until_all_instances_are_dropped();
-            }
             setup_actix()
         },
         |sys| {
-            let home_dir = Path::new(home);
             let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
             near_config.validator_signer = None;
@@ -39,8 +79,8 @@ fn do_bench(c: &mut Criterion, home: &str, target_height: Option<BlockHeight>) {
                 (0..near_config.genesis.config.shard_layout.num_shards()).collect();
 
             let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
-            block_on_interruptible(&sys, async move {
-                let (mock_network, _client, view_client) = setup_mock_node(
+            let servers = block_on_interruptible(&sys, async move {
+                let (mock_network, _client, view_client, servers) = setup_mock_node(
                     tempdir.path(),
                     home_dir,
                     near_config,
@@ -62,19 +102,25 @@ fn do_bench(c: &mut Criterion, home: &str, target_height: Option<BlockHeight>) {
                             break;
                         }
                     }
-                    if started.elapsed() > Duration::from_millis(target_height * 5000) {
-                        tracing::error!("mock_node sync bench timed out with home dir {}, target height {:?}", home, target_height);
+                    if started.elapsed() > Duration::from_secs(target_height * 5) {
+                        panic!("mock_node sync bench timed out with home dir {:?}, target height {:?}", home_dir, target_height);
                     }
                 }
-            })
+                servers
+            });
+            Sys{sys: Some(sys), servers: servers.unwrap()}
         })
     });
     group.finish();
 }
 
-fn sync_full_chunks(c: &mut Criterion) {
-    do_bench(c, "./benches/node_full", Some(100))
+fn sync_empty_chunks(c: &mut Criterion) {
+    do_bench(c, "./benches/empty.tar.gz", Some(100))
 }
 
-criterion_group!(benches, sync_full_chunks,);
+fn sync_full_chunks(c: &mut Criterion) {
+    do_bench(c, "./benches/full.tar.gz", Some(100))
+}
+
+criterion_group!(benches, sync_empty_chunks, sync_full_chunks);
 criterion_main!(benches);

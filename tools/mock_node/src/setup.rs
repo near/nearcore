@@ -136,7 +136,12 @@ pub fn setup_mock_node(
     client_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
     in_memory_storage: bool,
-) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (
+    Addr<MockPeerManagerActor>,
+    Addr<ClientActor>,
+    Addr<ViewClientActor>,
+    Option<Vec<(&'static str, actix_web::dev::Server)>>,
+) {
     let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
@@ -310,19 +315,20 @@ pub fn setup_mock_node(
                 !archival,
             )
         });
+    let mut server = None;
     // for some reason, with "test_features", start_http requires PeerManagerActor,
     // we are not going to run start_mock_network with test_features, so let's disable that for now
     #[cfg(not(feature = "test_features"))]
     if let Some(rpc_config) = config.rpc_config {
-        near_jsonrpc::start_http(
+        server = Some(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config,
             client_actor.clone(),
             view_client.clone(),
-        );
+        ));
     }
     network_adapter.set_recipient(mock_network_actor.clone().recipient());
-    (mock_network_actor, client_actor, view_client)
+    (mock_network_actor, client_actor, view_client, server)
 }
 
 #[cfg(test)]
@@ -439,7 +445,7 @@ mod test {
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         run_actix(async move {
-            let (_mock_network, _client, view_client) = setup_mock_node(
+            let (_mock_network, _client, view_client, _) = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,
