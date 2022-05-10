@@ -38,9 +38,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::{
-    BlockByChunksView, ChunkInfoView,
-};
+use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
@@ -2023,37 +2021,39 @@ impl Client {
             .sorted()
             .map(|height| {
                 let val = height_status_map.get(height).unwrap();
-                val.iter().map(|(block_hash, block_info)| {
-                    let chunk_status = block_info
-                        .chunk_hashes
-                        .iter()
-                        .map(|it| {
-                            if block_info.chunks_completed.contains(it) {
-                                "(OK)"
-                            } else if block_info.chunks_received.contains(it) {
-                                "(\\/)"
-                            } else if block_info.chunks_requested.contains(it) {
-                                "(/\\)"
-                            } else {
-                                "(..)"
-                            }
-                        })
-                        .collect::<Vec<&str>>();
-                    let in_progress_str = match block_info.in_progress_for {
-                        Some(duration) => format!("in progress for: {:?}", duration),
-                        None => "".to_string(),
-                    };
-                    let in_orphan_str = match block_info.in_orphan_for {
-                        Some(duration) => format!("orphan for {:?}", duration),
-                        None => "".to_string(),
-                    };
-                    BlockByChunksView {
-                        height: height.clone(),
-                        hash: block_hash.clone(),
-                        block_status: format!("{} {}", in_progress_str, in_orphan_str),
-                        chunk_status: chunk_status.join(""),
-                    }
-                }).collect::<Vec<BlockByChunksView>>()
+                val.iter()
+                    .map(|(block_hash, block_info)| {
+                        let chunk_status = block_info
+                            .chunk_hashes
+                            .iter()
+                            .map(|it| {
+                                if block_info.chunks_completed.contains(it) {
+                                    "(OK)"
+                                } else if block_info.chunks_received.contains(it) {
+                                    "(\\/)"
+                                } else if block_info.chunks_requested.contains(it) {
+                                    "(/\\)"
+                                } else {
+                                    "(..)"
+                                }
+                            })
+                            .collect::<Vec<&str>>();
+                        let in_progress_str = match block_info.in_progress_for {
+                            Some(duration) => format!("in progress for: {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        let in_orphan_str = match block_info.in_orphan_for {
+                            Some(duration) => format!("orphan for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        BlockByChunksView {
+                            height: height.clone(),
+                            hash: block_hash.clone(),
+                            block_status: format!("{} {}", in_progress_str, in_orphan_str),
+                            chunk_status: chunk_status.join(""),
+                        }
+                    })
+                    .collect::<Vec<BlockByChunksView>>()
             })
             .flatten()
             .collect::<Vec<BlockByChunksView>>();
