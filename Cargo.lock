@@ -3117,6 +3117,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
@@ -3139,6 +3140,7 @@ dependencies = [
  "serde_json",
  "smart-default",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
