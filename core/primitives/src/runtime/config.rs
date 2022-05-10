@@ -27,18 +27,16 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub(crate) fn from_parameters(params: &ParameterTable) -> Result<Self, serde_json::Error> {
+    pub(crate) fn new(params: &ParameterTable) -> Result<Self, InvalidConfigError> {
         serde_json::from_value(params.runtime_config_json())
+            .map_err(InvalidConfigError::WrongStructure)
     }
 
     pub fn initial_testnet_config() -> RuntimeConfig {
-        Self::from_parameters_txt(INITIAL_TESTNET_CONFIG)
+        INITIAL_TESTNET_CONFIG
+            .parse()
+            .and_then(|params| RuntimeConfig::new(&params))
             .expect("Failed parsing initial testnet config")
-    }
-
-    pub(crate) fn from_parameters_txt(txt_file: &str) -> Result<RuntimeConfig, InvalidConfigError> {
-        Self::from_parameters(&ParameterTable::from_txt(txt_file)?)
-            .map_err(InvalidConfigError::WrongStructure)
     }
 
     pub fn test() -> Self {

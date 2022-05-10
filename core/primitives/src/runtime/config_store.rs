@@ -48,18 +48,19 @@ impl RuntimeConfigStore {
     /// runtime config by sequential modifications to the genesis runtime config.
     /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
-        let mut params =
-            ParameterTable::from_txt(BASE_CONFIG).expect("Failed parsing base parameter file.");
+        let mut params: ParameterTable =
+            BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
 
         let mut store = BTreeMap::new();
-        store.insert(0, Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"))));
+        let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
+        store.insert(0, Arc::new(initial_config));
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff = ParameterTableDiff::from_txt(diff_bytes).unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
             params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
             store.insert(
                 *protocol_version,
-                Arc::new(RuntimeConfig::from_parameters(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
+                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
             );
         }
 
@@ -316,10 +317,8 @@ Old config hashes changed. \n
             serde_json::from_str(include_config!("legacy_configs/29_testnet.json")).unwrap();
         let old_testnet_store = RuntimeConfigStore::new(Some(&old_genesis_runtime_config));
 
-        let new_genesis_runtime_config = RuntimeConfig::from_parameters(
-            &ParameterTable::from_txt(INITIAL_TESTNET_CONFIG).unwrap(),
-        )
-        .unwrap();
+        let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
+        let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
         let new_testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
         check_store(old_testnet_store, new_testnet_store);
     }

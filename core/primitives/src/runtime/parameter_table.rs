@@ -1,20 +1,19 @@
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use serde_json::json;
 use std::collections::BTreeMap;
-use thiserror::Error;
 
 pub(crate) struct ParameterTable {
-    params: BTreeMap<Parameter, serde_json::Value>,
+    parameters: BTreeMap<Parameter, serde_json::Value>,
 }
 
 /// Changes made to parameters between versions.
 pub(crate) struct ParameterTableDiff {
-    params: BTreeMap<Parameter, (serde_json::Value, serde_json::Value)>,
+    parameters: BTreeMap<Parameter, (serde_json::Value, serde_json::Value)>,
 }
 
 /// Error returned by ParameterTable::from_txt() that parses a runtime
 /// configuration TXT file.
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub(crate) enum InvalidConfigError {
     #[error("could not parse `{1}` as a parameter")]
     UnknownParameter(#[source] strum::ParseError, String),
@@ -34,17 +33,20 @@ pub(crate) enum InvalidConfigError {
     WrongOldValue(Parameter, String, String),
 }
 
-impl ParameterTable {
-    pub(crate) fn from_txt(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
+impl std::str::FromStr for ParameterTable {
+    type Err = InvalidConfigError;
+    fn from_str(arg: &str) -> Result<ParameterTable, InvalidConfigError> {
         let parameters = txt_to_key_values(arg)
             .map(|result| {
                 let (typed_key, value) = result?;
                 Ok((typed_key, parse_parameter_txt_value(value.trim())?))
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ParameterTable { params: BTreeMap::from_iter(parameters) })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        Ok(ParameterTable { parameters })
     }
+}
 
+impl ParameterTable {
     /// Transforms parameters stored in the table into a JSON representation of `RuntimeConfig`.
     pub(crate) fn runtime_config_json(&self) -> serde_json::Value {
         let storage_amount_per_byte = self.get(Parameter::StorageAmountPerByte);
@@ -69,18 +71,18 @@ impl ParameterTable {
         &mut self,
         diff: ParameterTableDiff,
     ) -> Result<(), InvalidConfigError> {
-        for (key, (before, after)) in diff.params {
+        for (key, (before, after)) in diff.parameters {
             if before.is_null() {
-                match self.params.get(&key) {
+                match self.parameters.get(&key) {
                     Some(serde_json::Value::Null) | None => {
-                        self.params.insert(key, after);
+                        self.parameters.insert(key, after);
                     }
                     Some(old_value) => {
                         return Err(InvalidConfigError::OldValueExists(key, old_value.to_string()))
                     }
                 }
             } else {
-                match self.params.get(&key) {
+                match self.parameters.get(&key) {
                     Some(serde_json::Value::Null) | None => {
                         return Err(InvalidConfigError::NoOldValueExists(key, before.to_string()))
                     }
@@ -92,7 +94,7 @@ impl ParameterTable {
                                 before.to_string(),
                             ));
                         } else {
-                            self.params.insert(key, after);
+                            self.parameters.insert(key, after);
                         }
                     }
                 }
@@ -156,7 +158,7 @@ impl ParameterTable {
     }
 
     fn get(&self, key: Parameter) -> Option<&serde_json::Value> {
-        self.params.get(&key)
+        self.parameters.get(&key)
     }
 
     fn fee_json(&self, key: FeeParameter) -> serde_json::Value {
@@ -168,8 +170,9 @@ impl ParameterTable {
     }
 }
 
-impl ParameterTableDiff {
-    pub(crate) fn from_txt(arg: &str) -> Result<ParameterTableDiff, InvalidConfigError> {
+impl std::str::FromStr for ParameterTableDiff {
+    type Err = InvalidConfigError;
+    fn from_str(arg: &str) -> Result<ParameterTableDiff, InvalidConfigError> {
         let parameters = txt_to_key_values(arg)
             .map(|result| {
                 let (typed_key, value) = result?;
@@ -188,8 +191,8 @@ impl ParameterTableDiff {
                     ))
                 }
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ParameterTableDiff { params: BTreeMap::from_iter(parameters) })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        Ok(ParameterTableDiff { parameters })
     }
 }
 
@@ -260,9 +263,9 @@ mod tests {
         diffs: &[&str],
         expected: impl IntoIterator<Item = (Parameter, &'static str)>,
     ) {
-        let mut params = ParameterTable::from_txt(base_config).unwrap();
+        let mut params: ParameterTable = base_config.parse().unwrap();
         for diff in diffs {
-            let diff = ParameterTableDiff::from_txt(diff).unwrap();
+            let diff: ParameterTableDiff = diff.parse().unwrap();
             params.apply_diff(diff).unwrap();
         }
 
@@ -277,16 +280,16 @@ mod tests {
             )
         }));
 
-        assert_eq!(params.params, expected_map);
+        assert_eq!(params.parameters, expected_map);
     }
 
     #[track_caller]
     fn check_invalid_parameter_table(base_config: &str, diffs: &[&str]) -> InvalidConfigError {
-        let params = ParameterTable::from_txt(base_config);
+        let params = base_config.parse();
 
-        let result = params.and_then(|params| {
+        let result = params.and_then(|params: ParameterTable| {
             diffs.iter().try_fold(params, |mut params, diff| {
-                params.apply_diff(ParameterTableDiff::from_txt(diff)?)?;
+                params.apply_diff(diff.parse()?)?;
                 Ok(params)
             })
         });
