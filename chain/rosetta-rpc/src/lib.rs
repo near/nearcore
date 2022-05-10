@@ -124,11 +124,19 @@ async fn network_status(
         .ok()
         .map(|block| (&block.header).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
+
+    let block_id: near_primitives::types::BlockReference = near_primitives::types::BlockReference::Finality
+        (near_primitives::types::Finality::Final);
+    let block: near_primitives::views::BlockView = match get_block_if_final(&block_id, view_client_addr.get_ref()).await? {
+            Some(block) => block,
+            None => return Err(errors::ErrorKind::NotFound("Block not found".into()).into()),
+    };
+    let current_latest_final_block_identifier = models::BlockIdentifier{
+        index: block.header.height.try_into().unwrap(),
+        hash: block.header.hash.to_base(),
+    };
     Ok(Json(models::NetworkStatusResponse {
-        current_block_identifier: models::BlockIdentifier {
-            index: status.sync_info.latest_block_height.try_into().unwrap(),
-            hash: status.sync_info.latest_block_hash.to_base(),
-        },
+        current_block_identifier: current_latest_final_block_identifier,
         current_block_timestamp: status.sync_info.latest_block_time.timestamp_millis(),
         genesis_block_identifier,
         oldest_block_identifier,
@@ -192,28 +200,6 @@ async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
     view_client_addr: &Addr<ViewClientActor>,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
-    let mut is_query_by_height = false;
-    let mut is_query_final = false;
-    match block_id {
-        near_primitives::types::BlockReference::BlockId(
-            near_primitives::types::BlockId::Height(_),
-        ) => {
-            is_query_by_height = true;
-        }
-        near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        ) => {
-            is_query_final = true;
-        }
-        _ => {}
-    }
-    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
-        Ok(block) => block,
-        Err(_) => return Ok(None),
-    };
-    if is_query_final {
-        return Ok(Some(block));
-    }
     let final_block = match view_client_addr
         .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
             near_primitives::types::Finality::Final,
@@ -224,10 +210,29 @@ async fn get_block_if_final(
         Err(_) => {
             return Err(errors::ErrorKind::InternalError("final block not found".to_string()).into())
         }
+    };  
+        let is_query_by_height = match block_id {
+        near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        ) => { return Ok(Some(final_block))},
+        near_primitives::types::BlockReference::BlockId(
+            near_primitives::types::BlockId::Height(height)) => {
+                if height > &final_block.header.height {
+                    return Ok(None);
+                }
+                true
+            },
+            _ => false
+        };
+    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+        Ok(block) => block,
+        Err(_) => return Ok(None),
     };
-    if block.header.height <= final_block.header.height {
-        // if block height is not larger than the last final block height, we just need to check
-        // that this block is on the canonical chain
+    // if block height is larger than the last final block height, then the block is not final
+    if block.header.height > final_block.header.height {
+        return Ok(None);
+    }
+        // check that this block is on the canonical chain
         if is_query_by_height {
             Ok(Some(block))
         } else {
@@ -252,12 +257,7 @@ async fn get_block_if_final(
                 Ok(None)
             }
         }
-    } else {
-        // if block height is larger than the last final block height, it has not been finalized yet
-        // so we return nothing
-        Ok(None)
     }
-}
 
 #[api_v2_operation]
 /// Get a Block
