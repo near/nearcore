@@ -145,10 +145,10 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "2ysK1QuHLW958qxjfpnNJ9yHicncyyRrczoxtQwrkJ8o",
+            "2vrJXcdfBrSVjmgPUi73r3D11Rru9TxsuFGDfqsJyqDz",
             "3Rdnrr1DFxXWeQ7knpHqxnRrNUys9Ke7SUEJ2axjXvVS",
             "61SPiLLGhNYySP2djfL1Je5LogVTAjroYnAnmzDofkJS",
-            "6cDB3NjHsG3Vq31Yp5of2hxA1FwR6xm6pb3Mc5Mw4xvK",
+            "CvP7N36bofKAy1U4nD1nQ36FeRxEX1Hbsdv2fLCWR26B",
             "6TWAHgsm17JdJxVjJQ9TYJERCw9rgDdzzXvopWE5XzoQ",
             "72BDBPsrXeg23viBMTSekigRxz4jyHNxrEct2VLa1xDc",
             "CCqfbxH12gAp9VL419FqhZ4JNxhtdimi5ETQ22mmKERH",
