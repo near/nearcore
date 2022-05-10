@@ -2542,6 +2542,7 @@ dependencies = [
  "actix-rt",
  "anyhow",
  "clap 3.1.6",
+ "criterion",
  "futures",
  "near-actix-test-utils",
  "near-chain",
