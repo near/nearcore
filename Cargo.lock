@@ -3061,7 +3061,9 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "atty",
  "backtrace",
+ "clap 3.1.6",
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",

@@ -76,6 +76,21 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
     }
 }
 
+/// Whether to use colored log format.
+/// Option `Auto` enables color output only if the logging is done to a terminal and
+/// `NO_COLOR` environment variable is not set.
+#[derive(clap::ArgEnum, Debug, Clone)]
+pub enum ColorOutput {
+    Always,
+    Never,
+    Auto,
+}
+
+fn is_terminal() -> bool {
+    // Crate `atty` provides a platform-independent way of checking whether the output is a tty.
+    atty::is(atty::Stream::Stderr)
+}
+
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
@@ -85,18 +100,26 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
 ///
 /// ```rust
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = near_o11y::default_subscriber(filter);
+/// let _subscriber = near_o11y::default_subscriber(filter, near_o11y::ColorOutput::Auto);
 /// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
 /// ```
 pub fn default_subscriber(
     log_filter: EnvFilter,
+    color_output: ColorOutput,
 ) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
+    let ansi = match color_output {
+        ColorOutput::Always => true,
+        ColorOutput::Never => false,
+        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+    };
+
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
+        .with_ansi(ansi)
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
