@@ -489,16 +489,16 @@ struct MultiexpElem([u8; 64], [u8; 32]);
 // Function to measure `alt_bn128_g1_multiexp_base` and `alt_bn128_g1_multiexp_sublinear`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
-// Compute g1_multiexp on 1 element 1k times.
+// Compute g1_multiexp on 1 element 10 times.
 #[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
-pub unsafe fn alt_bn128_g1_multiexp_1_1k() {
+pub unsafe fn alt_bn128_g1_multiexp_1_10() {
     #[rustfmt::skip]
     let buffer: [MultiexpElem; 1] = [
         MultiexpElem([16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220, 8, 45, 14, 153, 125, 217, 227, 87, 238, 238, 31, 138, 226, 8, 238, 185, 12, 155, 93, 126, 144, 248, 200, 177, 46, 245, 40, 162, 169, 80, 150, 211, 157, 13, 10, 36, 44, 232, 173, 32, 32, 115, 123, 2, 9, 47],
                      [190, 148, 181, 91, 69, 6, 83, 40, 65, 222, 251, 70, 81, 73, 60, 142, 130, 217, 176, 20, 69, 75, 40, 167, 41, 180, 244, 5, 142, 215, 135, 35]),
     ];
-    for _ in 0..1_000 {
+    for _ in 0..10 {
         alt_bn128_g1_multiexp(
             mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
@@ -509,10 +509,10 @@ pub unsafe fn alt_bn128_g1_multiexp_1_1k() {
 // Function to measure `alt_bn128_g1_multiexp_base` and `alt_bn128_g1_multiexp_sublinear`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
-// Compute g1_multiexp on 10 elements 1k times.
+// Compute g1_multiexp on 10 elements 10 times.
 #[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
-pub unsafe fn alt_bn128_g1_multiexp_10_1k() {
+pub unsafe fn alt_bn128_g1_multiexp_10_10() {
     #[rustfmt::skip]
     let buffer: [MultiexpElem; 10] = [
         MultiexpElem([160, 75, 88, 1, 39, 49, 57, 54, 144, 97, 157, 53, 186, 197, 3, 255, 101, 190, 210, 68, 165, 67, 219, 118, 134, 41, 207, 184, 16, 195, 15, 6, 248, 45, 160, 73, 157, 19, 206, 183, 155, 145, 214, 79, 111, 126, 176, 149, 80, 249, 68, 90, 62, 163, 162, 67, 252, 47, 4, 54, 29, 49, 53, 22],
@@ -536,7 +536,7 @@ pub unsafe fn alt_bn128_g1_multiexp_10_1k() {
         MultiexpElem([46, 144, 238, 51, 121, 134, 255, 49, 104, 119, 209, 185, 131, 214, 61, 148, 48, 188, 108, 119, 101, 189, 223, 152, 191, 180, 146, 17, 179, 38, 209, 36, 26, 208, 85, 141, 208, 135, 207, 174, 123, 138, 185, 167, 96, 13, 1, 83, 159, 80, 96, 145, 194, 57, 153, 195, 15, 11, 92, 13, 8, 195, 196, 7],
                      [210, 90, 26, 178, 71, 105, 235, 10, 78, 33, 99, 232, 208, 135, 210, 118, 233, 9, 5, 90, 12, 7, 82, 87, 246, 221, 98, 145, 122, 59, 230, 46]),
     ];
-    for _ in 0..1_000 {
+    for _ in 0..10 {
         alt_bn128_g1_multiexp(
             mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
@@ -595,26 +595,29 @@ struct PairingElem([u8; 64], [u8; 128]);
 // Function to measure `alt_bn128_pairing_check_base` and `alt_bn128_pairing_check_element`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
-// Compute pairing_check on 1 element 1k times.
+// Compute pairing_check on 1 element 10 times.
 #[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
-pub unsafe fn alt_bn128_pairing_check_1_1k() {
+pub unsafe fn alt_bn128_pairing_check_1_10() {
     #[rustfmt::skip]
     let buffer: [PairingElem; 1] = [
         PairingElem([80, 12, 4, 181, 61, 254, 153, 52, 127, 228, 174, 24, 144, 95, 235, 26, 197, 188, 219, 91, 4, 47, 98, 98, 202, 199, 94, 67, 211, 223, 197, 21, 65, 221, 184, 75, 69, 202, 13, 56, 6, 233, 217, 146, 159, 141, 116, 208, 81, 224, 146, 124, 150, 114, 218, 196, 192, 233, 253, 31, 130, 152, 144, 29],
                     [34, 54, 229, 82, 80, 13, 200, 53, 254, 193, 250, 1, 205, 60, 38, 172, 237, 29, 18, 82, 187, 98, 113, 152, 184, 251, 223, 42, 104, 148, 253, 25, 79, 39, 165, 18, 195, 165, 215, 155, 168, 251, 250, 2, 215, 214, 193, 172, 187, 84, 54, 168, 27, 100, 161, 155, 144, 95, 199, 238, 88, 238, 202, 46, 247, 97, 33, 56, 78, 174, 171, 15, 245, 5, 121, 144, 88, 81, 102, 133, 118, 222, 81, 214, 74, 169, 27, 91, 27, 23, 80, 55, 43, 97, 101, 24, 168, 29, 75, 136, 229, 2, 55, 77, 60, 200, 227, 210, 172, 194, 232, 45, 151, 46, 248, 206, 193, 250, 145, 84, 78, 176, 74, 210, 0, 106, 168, 30]),
     ];
-    for _ in 0..1_000 {
-        alt_bn128_pairing_check(mem::size_of_val(&buffer) as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10 {
+        alt_bn128_pairing_check(
+            mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+        );
     }
 }
 // Function to measure `alt_bn128_g1_multiexp_base` and `alt_bn128_g1_multiexp_sublinear`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
-// Compute pairing_check on 10 elements 1k times.
+// Compute pairing_check on 10 elements 10 times.
 #[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
-pub unsafe fn alt_bn128_pairing_check_10_1k() {
+pub unsafe fn alt_bn128_pairing_check_10_10() {
     #[rustfmt::skip]
     let buffer: [PairingElem; 10] = [
         PairingElem([223, 6, 200, 33, 166, 188, 103, 53, 200, 168, 35, 109, 73, 23, 33, 99, 238, 116, 162, 85, 150, 159, 255, 82, 85, 22, 102, 22, 188, 22, 105, 12, 248, 15, 147, 127, 39, 16, 214, 51, 106, 17, 235, 64, 94, 132, 235, 26, 178, 3, 134, 136, 133, 222, 114, 36, 21, 172, 70, 82, 39, 198, 18, 25],
@@ -638,8 +641,11 @@ pub unsafe fn alt_bn128_pairing_check_10_1k() {
         PairingElem([45, 111, 148, 191, 42, 226, 238, 248, 78, 94, 26, 9, 239, 9, 15, 13, 10, 170, 97, 8, 195, 153, 36, 144, 198, 4, 224, 209, 40, 187, 94, 48, 201, 232, 156, 89, 230, 160, 89, 200, 132, 202, 38, 57, 183, 180, 218, 67, 213, 155, 217, 208, 70, 148, 7, 255, 123, 35, 71, 215, 131, 153, 39, 21],
                     [205, 30, 22, 107, 59, 81, 254, 153, 39, 49, 130, 112, 16, 111, 159, 119, 66, 72, 251, 247, 86, 214, 89, 173, 104, 226, 32, 13, 82, 209, 195, 2, 207, 8, 240, 251, 117, 92, 41, 206, 209, 141, 185, 60, 24, 218, 2, 249, 161, 52, 128, 224, 52, 152, 5, 227, 58, 198, 54, 248, 183, 181, 28, 8, 159, 184, 36, 32, 149, 142, 86, 69, 184, 53, 85, 214, 224, 181, 36, 44, 114, 27, 177, 213, 179, 159, 135, 52, 213, 192, 251, 150, 85, 145, 118, 6, 218, 177, 105, 20, 215, 89, 47, 78, 157, 25, 81, 85, 123, 18, 86, 88, 137, 86, 89, 39, 173, 144, 10, 175, 215, 79, 121, 252, 106, 13, 91, 31]),
     ];
-    for _ in 0..1_000 {
-        alt_bn128_pairing_check(mem::size_of_val(&buffer) as u64, buffer.as_ptr() as *const u64 as u64);
+    for _ in 0..10 {
+        alt_bn128_pairing_check(
+            mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+        );
     }
 }
 

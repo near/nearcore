@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
+use near_primitives::utils::generate_random_string;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -700,6 +700,7 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                enable_statistics_export: config.store.enable_statistics_export,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -1126,10 +1127,10 @@ pub fn init_configs(
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
-                num_block_producer_seats_per_shard: get_num_seats_per_shard(
-                    num_shards,
-                    NUM_BLOCK_PRODUCER_SEATS,
-                ),
+                num_block_producer_seats_per_shard: vec![
+                    NUM_BLOCK_PRODUCER_SEATS;
+                    num_shards as usize
+                ],
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
@@ -1209,7 +1210,7 @@ pub fn create_testnet_configs_from_seeds(
     let genesis = Genesis::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
-        get_num_seats_per_shard(num_shards, num_validator_seats),
+        vec![num_validator_seats; num_shards as usize],
         shard_layout,
     );
     let mut configs = vec![];
@@ -1493,14 +1494,15 @@ fn test_init_config_localnet() {
 /// correctly parsed and defaults being applied correctly applied.
 #[test]
 fn test_config_from_file() {
-    lazy_static_include::lazy_static_include_bytes! {
-        EXAMPLE_CONFIG_GC => "res/example-config-gc.json",
-        EXAMPLE_CONFIG_NO_GC => "res/example-config-no-gc.json",
-    };
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    for (has_gc, data) in [(true, &EXAMPLE_CONFIG_GC[..]), (false, &EXAMPLE_CONFIG_NO_GC[..])] {
+    for (has_gc, path) in
+        [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
+    {
+        let path = base.join(path);
+        let data = std::fs::read(path).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        tmp.as_file().write_all(data).unwrap();
+        tmp.as_file().write_all(&data).unwrap();
 
         let config = Config::from_file(&tmp.into_temp_path()).unwrap();
 
@@ -1510,7 +1512,7 @@ fn test_config_from_file() {
         let want_gc = if has_gc {
             GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
         } else {
-            GCConfig { gc_blocks_limit: 5, gc_fork_clean_step: 1000, gc_num_epochs_to_keep: 5 }
+            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
         };
         assert_eq!(want_gc, config.gc);
 

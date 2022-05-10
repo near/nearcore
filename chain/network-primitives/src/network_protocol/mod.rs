@@ -165,16 +165,7 @@ pub struct Pong {
 
 // TODO(#1313): Use Box
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    strum::AsRefStr,
-    strum::AsStaticStr,
-    strum::EnumVariantNames,
-)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
@@ -349,6 +340,10 @@ impl RoutedMessage {
     pub fn decrease_ttl(&mut self) -> bool {
         self.ttl = self.ttl.saturating_sub(1);
         self.ttl > 0
+    }
+
+    pub fn body_variant(&self) -> &'static str {
+        (&self.body).into()
     }
 }
 

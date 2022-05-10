@@ -48,7 +48,7 @@ use near_primitives::views::{
 };
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, WrappedTrieChanges,
 };
 use near_vm_runner::precompile_contract;
@@ -72,7 +72,6 @@ use near_primitives::shard_layout::{
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_store::split_state::get_delayed_receipts;
 use node_runtime::near_primitives::shard_layout::ShardLayoutError;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
 
@@ -275,7 +274,9 @@ impl NightshadeRuntime {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
         state_file.push(STATE_DUMP_FILE);
-        store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
+        store
+            .load_from_file(DBCol::State, state_file.as_path())
+            .expect("Failed to read state dump");
         let mut roots_files = home_dir.to_path_buf();
         roots_files.push(GENESIS_ROOTS_FILE);
         let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
@@ -635,21 +636,31 @@ impl NightshadeRuntime {
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
-            .build()
-            .unwrap()
-            .install(|| {
-                contract_codes.par_iter().for_each(|code| {
+        rayon::scope(|scope| {
+            let (slot_sender, slot_receiver) = std::sync::mpsc::channel();
+            // Use up-to half of the threads for the compilation.
+            let max_threads = std::cmp::max(rayon::current_num_threads() / 2, 1);
+            for _ in 0..max_threads {
+                slot_sender.send(()).expect("both sender and receiver are owned here");
+            }
+            for code in contract_codes {
+                slot_receiver.recv().expect("could not receive a slot to compile contract");
+                let contract_cache = compiled_contract_cache.as_ref().map(Arc::clone);
+                let slot_sender = slot_sender.clone();
+                scope.spawn(move |_| {
                     precompile_contract(
-                        code,
+                        &code,
                         &runtime_config.wasm_config,
                         protocol_version,
-                        compiled_contract_cache.as_deref(),
+                        contract_cache.as_deref(),
                     )
                     .ok();
-                })
-            });
+                    // If this fails, it just means there won't be any more attempts to recv the
+                    // slots
+                    let _ = slot_sender.send(());
+                });
+            }
+        });
         Ok(())
     }
 }
@@ -1395,7 +1406,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
-        let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
+
+        // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
+        if generate_storage_proof {
+            panic!("Storage proof generation is not enabled yet");
+        }
+        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
             *state_root,

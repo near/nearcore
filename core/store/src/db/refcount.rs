@@ -79,7 +79,7 @@ pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
 }
 
 impl RocksDB {
-    /// ColState has refcounted values.
+    /// DBCol::State has refcounted values.
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
     pub(crate) fn refcount_merge(
@@ -97,7 +97,7 @@ impl RocksDB {
         Some(result)
     }
 
-    /// Compaction filter for ColState
+    /// Compaction filter for DBCol::State
     pub(crate) fn empty_value_compaction_filter(
         _level: u32,
         _key: &[u8],

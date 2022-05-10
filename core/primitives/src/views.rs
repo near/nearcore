@@ -345,6 +345,7 @@ pub struct DebugBlockStatus {
     pub processing_time_ms: Option<u64>,
     // Time between this block and the next one in chain.
     pub timestamp_delta: u64,
+    pub gas_price_ratio: f64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -355,6 +356,17 @@ pub struct PeerInfoView {
     pub height: BlockHeight,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
+    pub peer_id: PublicKey,
+}
+
+/// Information about a Producer: its account name, peer_id and a list of connected peers that
+/// the node can use to send message for this producer.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct KnownProducerView {
+    pub account_id: AccountId,
+    pub peer_id: PublicKey,
+    pub next_hops: Option<Vec<PublicKey>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -363,6 +375,7 @@ pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
+    pub known_producers: Vec<KnownProducerView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -389,9 +402,27 @@ impl From<Tip> for BlockStatusView {
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
-    pub first_block_hash: CryptoHash,
-    pub start_time: String,
+    pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
+    pub protocol_version: u32,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlockByChunksView {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+    pub block_status: String,
+    pub chunk_status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChunkInfoView {
+    pub num_of_blocks_in_progress: usize,
+    pub num_of_chunks_in_progress: usize,
+    pub num_of_orphans: usize,
+    pub next_blocks_by_chunks: Vec<BlockByChunksView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -404,7 +435,10 @@ pub struct DetailedDebugStatus {
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
     pub blocks_with_missing_chunks: Vec<BlockStatusView>,
-    pub epoch_info: EpochInfoView,
+    // List of epochs - in descending order (next epoch is first).
+    pub epochs_info: Vec<EpochInfoView>,
+    pub block_production_delay_millis: u64,
+    pub chunk_info: ChunkInfoView,
 }
 
 // TODO: add more information to status.
@@ -428,7 +462,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks, sync, epoch and chain info.
+    /// Information about last blocks, sync, epoch, chunk and chain info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }
@@ -917,7 +951,7 @@ impl From<Action> for ActionView {
 }
 
 impl TryFrom<ActionView> for Action {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
         Ok(match action_view {
@@ -1423,7 +1457,7 @@ impl From<Receipt> for ReceiptView {
 }
 
 impl TryFrom<ReceiptView> for Receipt {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
         Ok(Receipt {
