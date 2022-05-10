@@ -70,9 +70,10 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
     near_config.client_config.tracked_shards =
         (0..near_config.genesis.config.shard_layout.num_shards()).collect();
 
-    let mut group = c.benchmark_group("mock_node_sync");
+    let name = String::from("mock_node_sync_") + home_dir.file_name().unwrap().to_str().unwrap();
+    let mut group = c.benchmark_group(name.clone());
     group.sample_size(10);
-    group.bench_function("mock_node_sync", |bench| {
+    group.bench_function(name, |bench| {
         bench.iter_with_setup(|| {
             setup_actix()
         },
