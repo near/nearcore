@@ -77,8 +77,8 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
 }
 
 /// Whether to use colored log format.
-/// Option `Auto` enables color output if the logging is done to a terminal, and disables color
-/// output if logging is done to a non-terminal, such as a file or input of another process.
+/// Option `Auto` enables color output only if the logging is done to a terminal and
+/// `NO_COLOR` environment variable is not set.
 #[derive(clap::ArgEnum, Debug, Clone)]
 pub enum ColorOutput {
     Always,
@@ -115,7 +115,7 @@ pub fn default_subscriber(
     let ansi = match color_output {
         ColorOutput::Always => true,
         ColorOutput::Never => false,
-        ColorOutput::Auto => is_terminal(),
+        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
     };
 
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
