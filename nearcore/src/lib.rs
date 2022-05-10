@@ -180,16 +180,11 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         migrate_30_to_31(path, &near_config);
     }
 
-    #[cfg(feature = "nightly_protocol")]
-    {
+    if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
         let store = create_store(&path);
-
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
-    }
-
-    #[cfg(not(feature = "nightly_protocol"))]
-    {
+    } else {
         let db_version = get_store_version(&path)?;
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }

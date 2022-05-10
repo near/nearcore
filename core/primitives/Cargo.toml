@@ -48,7 +48,7 @@ protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",

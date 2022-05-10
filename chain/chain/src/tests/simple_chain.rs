@@ -11,6 +11,21 @@ use num_rational::Rational;
 use std::str::FromStr;
 use std::time::Instant;
 
+/// Pair of hashes for the test cases.  When converted into [`CryptoHash`]
+/// either one of the string is used depending whether `nightly` feature is
+/// enabled or not.
+struct Hashes {
+    stable: &'static str,
+    nightly: &'static str,
+}
+
+impl Into<CryptoHash> for Hashes {
+    fn into(self) -> CryptoHash {
+        let hash = if cfg!(feature = "nightly") { self.nightly } else { self.stable };
+        CryptoHash::from_str(hash).unwrap()
+    }
+}
+
 #[test]
 fn empty_chain() {
     init_test_logger();
@@ -23,11 +38,26 @@ fn empty_chain() {
 
     assert_eq!(chain.head().unwrap().height, 0);
     let hash = chain.head().unwrap().last_block_hash;
-    // The hashes here will have to be modified after each change to genesis file.
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("3eSPNwhSs9pT2jeG8Y8M14cCqXwZ5ikGA6c4bhubcHWv").unwrap());
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64").unwrap());
+
+    // The hashes here will have to be modified after changes to the protocol.
+    // In particular if you update protocol version or add new protocol
+    // features.  If this assert is failing without you adding any new or
+    // stabilising any existing protocol features, this indicates bug in your
+    // code which unexpectedly changes the protocol.
+    //
+    // To figure out proper values you’ll need to run the test twice.  Once with
+    // default features and once with ‘nightly’ feature enabled:
+    //
+    //     cargo test -p near-chain                    -- tests::simple_chain
+    //     cargo test -p near-chain --features nightly -- tests::simple_chain
+    assert_eq!(
+        hash,
+        Hashes {
+            stable: "8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64",
+            nightly: "3eSPNwhSs9pT2jeG8Y8M14cCqXwZ5ikGA6c4bhubcHWv"
+        }
+        .into()
+    );
     assert_eq!(count_utc, 1);
 }
 
@@ -51,17 +81,7 @@ fn build_chain() {
 
     let (mut chain, _, signer) = setup();
 
-    let prev_hash = *chain.head_header().unwrap().hash();
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC").unwrap()
-    );
+    let initial_hash = *chain.head_header().unwrap().hash();
 
     for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
@@ -75,15 +95,31 @@ fn build_chain() {
     let count_utc = mock_clock_guard.utc_call_count();
     assert_eq!(count_utc, 9);
     assert_eq!(count_instant, 12);
-    #[cfg(feature = "nightly_protocol")]
+
+    // The hashes here will have to be modified after changes to the protocol.
+    // In particular if you update protocol version or add new protocol
+    // features.  If this assert is failing without you adding any new or
+    // stabilising any existing protocol features, this indicates bug in your
+    // code which unexpectedly changes the protocol.
+    //
+    // To figure out proper values you’ll need to run the test twice.  Once with
+    // default features and once with ‘nightly’ feature enabled:
+    //
+    //     cargo test -p near-chain                    -- tests::simple_chain
+    //     cargo test -p near-chain --features nightly -- tests::simple_chain
+    let want_initial_hash = Hashes {
+        stable: "DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC",
+        nightly: "8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk",
+    }
+    .into();
+    let want_last_block_hash = Hashes {
+        stable: "5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7",
+        nightly: "DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC",
+    }
+    .into();
     assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7").unwrap()
+        (initial_hash, chain.head().unwrap().last_block_hash),
+        (want_initial_hash, want_last_block_hash)
     );
 }
 
