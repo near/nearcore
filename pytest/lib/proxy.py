@@ -86,8 +86,14 @@ class ProxyHandler:
         sender_ordinal = port_holder_to_node_ord(sender_port_holder)
         receiver_ordinal = port_holder_to_node_ord(receiver_port_holder)
         try:
-            message = BinarySerializer(schema).deserialize(
-                raw_message, PeerMessage)
+            # TODO(CP-85): when removing borsh support, fix this to use protobufs,
+            # (or preferably reimplement the test in rust).
+            try:
+                message = BinarySerializer(schema).deserialize(
+                    raw_message, PeerMessage)
+            except IndexError:
+                # unparsable message, ignore.
+                return
             assert BinarySerializer(schema).serialize(message) == raw_message
 
             if message.enum == 'Handshake':

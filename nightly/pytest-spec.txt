@@ -1,7 +1,3 @@
 # python spec tests
-pytest spec/network/handshake.py
-pytest spec/network/handshake.py --features nightly_protocol,nightly_protocol_features
-pytest spec/network/future_handshake.py
-pytest spec/network/future_handshake.py --features nightly_protocol,nightly_protocol_features
 pytest spec/network/peers_request.py
 pytest spec/network/peers_request.py --features nightly_protocol,nightly_protocol_features

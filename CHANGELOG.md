@@ -14,6 +14,7 @@
 * Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
 * Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
+* Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
 ## 1.26.0 [2022-05-18]
 
@@ -36,7 +37,6 @@
 * Make RocksDB block_size configurable [#6631](https://github.com/near/nearcore/pull/6631)
 * Increase default max_open_files RocksDB parameter from 512 to 10k [#6607](https://github.com/near/nearcore/pull/6607)
 * Use kebab-case names for neard subcommands to make them consistent with flag names.  snake_case names are still valid for existing subcommands but kebab-case will be used for new commands.
-* Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
 ## 1.25.0 [2022-03-16]
 

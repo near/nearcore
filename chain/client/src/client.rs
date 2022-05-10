@@ -38,6 +38,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
@@ -1878,8 +1879,10 @@ impl Client {
         Ok(())
     }
 
-    // Returns detailed information about the upcoming blocks.
-    pub fn detailed_upcoming_blocks_info(&self) -> Result<String, Error> {
+    // Helper function to prepare the debug info about detailed upcoming blocks.
+    fn detailed_upcoming_blocks_info(
+        &self,
+    ) -> Result<HashMap<BlockHeight, HashMap<CryptoHash, UpcomingBlockDebugStatus>>, Error> {
         let now = Instant::now();
         let mut height_status_map: HashMap<
             BlockHeight,
@@ -1933,6 +1936,12 @@ impl Client {
                 }
             }
         }
+        Ok(height_status_map)
+    }
+
+    // Returns detailed information about the upcoming blocks in the form of printables.
+    pub fn detailed_upcoming_blocks_info_as_printable(&self) -> Result<String, Error> {
+        let height_status_map = self.detailed_upcoming_blocks_info()?;
         let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
             None => ansi_term::Style::default().paint(""),
@@ -1975,7 +1984,7 @@ impl Client {
                             };
 
                         let in_progress_str = match block_info.in_progress_for {
-                            Some(duration) => format!("in progress for: {:?}", duration),
+                            Some(duration) => format!("in progress for {:?}", duration),
                             None => "".to_string(),
                         };
                         let in_orphan_str = match block_info.in_orphan_for {
@@ -2003,5 +2012,56 @@ impl Client {
             if next_blocks_log.len() > 0 { "\n" } else { "" },
             next_blocks_log.join("\n")
         ))
+    }
+
+    pub fn detailed_upcoming_blocks_info_as_web(&self) -> ChunkInfoView {
+        let height_status_map = self.detailed_upcoming_blocks_info().unwrap_or_default();
+        let next_blocks_by_chunks = height_status_map
+            .keys()
+            .sorted()
+            .map(|height| {
+                let val = height_status_map.get(height).unwrap();
+                val.iter()
+                    .map(|(block_hash, block_info)| {
+                        let chunk_status = block_info
+                            .chunk_hashes
+                            .iter()
+                            .map(|it| {
+                                if block_info.chunks_completed.contains(it) {
+                                    "(OK)"
+                                } else if block_info.chunks_received.contains(it) {
+                                    "(\\/)"
+                                } else if block_info.chunks_requested.contains(it) {
+                                    "(/\\)"
+                                } else {
+                                    "(..)"
+                                }
+                            })
+                            .collect::<Vec<&str>>();
+                        let in_progress_str = match block_info.in_progress_for {
+                            Some(duration) => format!("in progress for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        let in_orphan_str = match block_info.in_orphan_for {
+                            Some(duration) => format!("orphan for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        BlockByChunksView {
+                            height: height.clone(),
+                            hash: block_hash.clone(),
+                            block_status: format!("{} {}", in_progress_str, in_orphan_str),
+                            chunk_status: chunk_status.join(""),
+                        }
+                    })
+                    .collect::<Vec<BlockByChunksView>>()
+            })
+            .flatten()
+            .collect::<Vec<BlockByChunksView>>();
+        ChunkInfoView {
+            num_of_blocks_in_progress: self.chain.blocks_delay_tracker.blocks_in_progress.len(),
+            num_of_chunks_in_progress: self.chain.blocks_delay_tracker.chunks_in_progress.len(),
+            num_of_orphans: self.chain.orphans().len(),
+            next_blocks_by_chunks,
+        }
     }
 }

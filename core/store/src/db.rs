@@ -148,14 +148,21 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     })?;
     if required <= soft {
         Ok(())
-    } else {
+    } else if required <= hard {
         rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
             DBError(format!(
-                "Unable to set limit for the number of open files (NOFILE) to \
-                 {required} (for configured max_open_files={max_open_files}): \
-                 {err}"
+                "Unable to change limit for the number of open files (NOFILE) \
+                 from ({soft}, {hard}) to ({required}, {hard}) (for configured \
+                 max_open_files={max_open_files}): {err}"
             ))
         })
+    } else {
+        Err(DBError(format!(
+            "Hard limit for the number of open files (NOFILE) is too low \
+             ({hard}).  At least {required} is required (for configured \
+             max_open_files={max_open_files}).  Set ‘ulimit -Hn’ accordingly \
+             and restart the node."
+        )))
     }
 }
 
