@@ -3061,7 +3061,9 @@ dependencies = [
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "atty",
  "backtrace",
+ "clap 3.1.6",
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
@@ -3115,6 +3117,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
@@ -3137,6 +3140,7 @@ dependencies = [
  "serde_json",
  "smart-default",
  "strum",
+ "thiserror",
 ]
 
 [[package]]

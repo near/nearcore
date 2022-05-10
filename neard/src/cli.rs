@@ -1,7 +1,7 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
+use near_o11y::{default_subscriber, BuildEnvFilterError, ColorOutput, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -37,7 +37,7 @@ impl NeardCmd {
         } else {
             env_filter
         };
-        let _subscriber = default_subscriber(env_filter).global();
+        let _subscriber = default_subscriber(env_filter, neard_cmd.opts.color).global();
 
         info!(
             target: "neard",
@@ -141,6 +141,9 @@ struct NeardOpts {
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     pub unsafe_fast_startup: bool,
+    /// Whether the log needs to be colored.
+    #[clap(long, arg_enum, default_value = "auto")]
+    pub color: ColorOutput,
 }
 
 #[derive(Parser)]
