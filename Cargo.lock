@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.26.0-rc.2"
+version = "1.26.0-rc.3"
 dependencies = [
  "actix",
  "anyhow",
