@@ -1,3 +1,7 @@
+# Initial protocol configuration parameters.
+# Each protocol version can change, add, or removes parameters.
+# The diffs are stored in files named `NN.txt`, where `NN` is the version.
+
 # Gas economics config
 burnt_gas_reward_numerator: 3
 burnt_gas_reward_denominator: 10
