@@ -2039,7 +2039,7 @@ impl Client {
                             })
                             .collect::<Vec<&str>>();
                         let in_progress_str = match block_info.in_progress_for {
-                            Some(duration) => format!("in progress for: {:?}", duration),
+                            Some(duration) => format!("in progress for {:?}", duration),
                             None => "".to_string(),
                         };
                         let in_orphan_str = match block_info.in_orphan_for {
