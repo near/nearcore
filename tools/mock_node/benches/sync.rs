@@ -60,6 +60,15 @@ fn extract_home(home_archive: &str) -> anyhow::Result<&Path> {
 
 fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHeight>) {
     let home_dir = extract_home(home_archive).unwrap();
+    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+    near_config.validator_signer = None;
+    near_config.client_config.min_num_peers = 1;
+    let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
+    near_config.network_config.public_key = signer.public_key;
+    near_config.network_config.secret_key = signer.secret_key;
+    near_config.client_config.tracked_shards =
+        (0..near_config.genesis.config.shard_layout.num_shards()).collect();
 
     let mut group = c.benchmark_group("mock_node_sync");
     group.sample_size(10);
@@ -68,17 +77,8 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
             setup_actix()
         },
         |sys| {
-            let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-            near_config.validator_signer = None;
-            near_config.client_config.min_num_peers = 1;
-            let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
-            near_config.network_config.public_key = signer.public_key;
-            near_config.network_config.secret_key = signer.secret_key;
-            near_config.client_config.tracked_shards =
-                (0..near_config.genesis.config.shard_layout.num_shards()).collect();
-
             let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
+            let near_config = near_config.clone();
             let servers = block_on_interruptible(&sys, async move {
                 let (mock_network, _client, view_client, servers) = setup_mock_node(
                     tempdir.path(),
