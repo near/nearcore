@@ -1,5 +1,5 @@
 # Initial protocol configuration parameters.
-# Each protocol version can change, add, or removes parameters.
+# Each protocol version can change, add, or remove parameters.
 # The diffs are stored in files named `NN.txt`, where `NN` is the version.
 
 # Gas economics config

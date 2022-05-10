@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "2vrJXcdfBrSVjmgPUi73r3D11Rru9TxsuFGDfqsJyqDz",
+            "HUHWZcQuUP7yvgE2VDCbyZQm7p5vbJxtw7n8jq4WTufa",
             "3Rdnrr1DFxXWeQ7knpHqxnRrNUys9Ke7SUEJ2axjXvVS",
             "61SPiLLGhNYySP2djfL1Je5LogVTAjroYnAnmzDofkJS",
             "CvP7N36bofKAy1U4nD1nQ36FeRxEX1Hbsdv2fLCWR26B",
