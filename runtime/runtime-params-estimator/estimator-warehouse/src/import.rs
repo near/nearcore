@@ -1,12 +1,8 @@
-use std::io::prelude::*;
-
+use crate::db::{Db, EstimationRow};
 use anyhow::Context;
-
 use clap::Parser;
 use serde::Deserialize;
 use std::time::Duration;
-
-use crate::db::{Db, EstimationRow};
 
 /// Additional information required for import
 #[derive(Debug, Parser)]
@@ -39,13 +35,9 @@ struct EstimationResult {
 }
 
 impl Db {
-    pub(crate) fn import_json_lines(
-        &self,
-        info: &ImportConfig,
-        input: impl BufRead,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn import_json_lines(&self, info: &ImportConfig, input: &str) -> anyhow::Result<()> {
         for line in input.lines() {
-            self.import(info, &line?)?;
+            self.import(info, &line)?;
         }
         Ok(())
     }
@@ -162,7 +154,7 @@ mod test {
         metric: Metric,
     ) {
         let db = Db::test();
-        db.import_json_lines(info, input.as_bytes()).unwrap();
+        db.import_json_lines(info, input).unwrap();
         let output = EstimationRow::select_by_commit_and_metric(
             &db,
             info.commit_hash.as_ref().unwrap(),
@@ -173,11 +165,34 @@ mod test {
     }
 
     impl Db {
+        /// Create a new in-memory test database.
         pub(crate) fn test() -> Self {
             let conn = Connection::open_in_memory().unwrap();
             let init_sql = include_str!("init.sql");
-            conn.execute(init_sql, []).unwrap();
+            conn.execute_batch(init_sql).unwrap();
             Self::new(conn)
+        }
+
+        /// Create a new in-memory test database with data defined by the input.
+        ///
+        /// The test data is expected to come in blocks of JSON lines with a commit header.
+        /// WAIT statements can be used as barriers to make sure DB timestamps differ.
+        pub(crate) fn test_with_data(input: &str) -> Self {
+            let db = Self::test();
+            for block in input.split("\n\n") {
+                if block.trim() == "WAIT" {
+                    // Wait 1s to ensure the following data is considered to be later
+                    std::thread::sleep(std::time::Duration::new(1, 0));
+                } else {
+                    let (commit_hash, input) = block.split_once("\n").unwrap();
+                    let conf = ImportConfig {
+                        commit_hash: Some(commit_hash.to_string()),
+                        protocol_version: None,
+                    };
+                    db.import_json_lines(&conf, input).unwrap();
+                }
+            }
+            db
         }
     }
 }
