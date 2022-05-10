@@ -338,7 +338,7 @@ pub fn apply_chain_range(
     only_contracts: bool,
     sequential: bool,
 ) {
-    let parent_span = tracing::debug_span!(target: "state_viewer", "Apply a chain range", ?start_height, ?end_height, ?shard_id, only_contracts, sequential).entered();
+    let parent_span = tracing::debug_span!(target: "state_viewer", "apply_chain_range", ?start_height, ?end_height, ?shard_id, only_contracts, sequential).entered();
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);

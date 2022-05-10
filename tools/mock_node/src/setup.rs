@@ -137,7 +137,7 @@ pub fn setup_mock_node(
     target_height: Option<BlockHeight>,
     in_memory_storage: bool,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
-    let parent_span = tracing::debug_span!(target: "mock_node", "Setup a mock node").entered();
+    let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
     let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 

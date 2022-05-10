@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
-use tracing::{debug, error, info, info_span, trace_span, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -1052,6 +1052,9 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "on_block_accepted", ?block_hash, ?status, ?provenance)
+                .entered();
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
@@ -1107,7 +1110,7 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             {
-                let _span = info_span!(target: "client", "GC collection",block_hash=?block.hash(), height=block.header().height()).entered();
+                let _span = tracing::info_span!(target: "client", "Garbage collection", block_hash=?block.hash(), height=block.header().height()).entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
 
                 let result = if self.config.archive {
@@ -1116,7 +1119,6 @@ impl Client {
                     let tries = self.runtime_adapter.get_tries();
                     self.chain.clear_data(tries, &self.config.gc)
                 };
-                let _trace_span = trace_span!(target: "client", "GC collection trace",block_hash=?block.hash(), height=block.header().height()).entered();
                 if let Err(err) = result {
                     error!(target: "client", "Can't clear old data, {:?}", err);
                     debug_assert!(false);

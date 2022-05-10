@@ -87,7 +87,7 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
-use tracing::{debug, debug_span, error, warn};
+use tracing::{debug, error, warn};
 
 use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
@@ -889,7 +889,7 @@ impl ShardsManager {
 
     /// Resends chunk requests if haven't received it within expected time.
     pub fn resend_chunk_requests(&mut self, header_head: &Tip) {
-        let _span = debug_span!(target: "client", "Resend chunk requests", header_head_height=header_head.height).entered();
+        let _span = tracing::debug_span!(target: "client", "resend_chunk_requests", header_head_height=header_head.height).entered();
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -1006,7 +1006,7 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) {
-        let _span = debug_span!(target: "chunks", "Process partial encoded chunk request", chunk_hash=?request.chunk_hash.0).entered();
+        let _span = tracing::debug_span!(target: "chunks", "process_partial_encoded_chunk_request", chunk_hash=?request.chunk_hash.0).entered();
         debug!(target: "chunks", chunk_hash=?request.chunk_hash.0, part_ords=?request.part_ords, shards=?request.tracking_shards, me=?self.me);
 
         let (started, key, response) =

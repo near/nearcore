@@ -612,7 +612,7 @@ pub trait RuntimeAdapter: Send + Sync {
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span =
-            tracing::debug_span!(target: "runtime", "Apply transactions", shard_id).entered();
+            tracing::debug_span!(target: "runtime", "apply_transactions", shard_id).entered();
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,

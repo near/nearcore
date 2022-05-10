@@ -124,7 +124,6 @@ struct BlockPreprocessInfo {
     state_dl_info: Option<StateSyncInfo>,
     incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     challenges_result: ChallengesResult,
-    challenged_blocks: Vec<CryptoHash>,
 }
 
 /// Orphan is a block whose previous block is not accepted (in store) yet.
@@ -1032,8 +1031,7 @@ impl Chain {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn mark_block_as_challenged(
+    pub fn mark_block_as_challenged(
         &mut self,
         block_hash: &CryptoHash,
         challenger_hash: &CryptoHash,
@@ -1091,19 +1089,11 @@ impl Chain {
             &vec![challenge.clone()],
             &head.epoch_id,
             &head.last_block_hash,
+            None,
         ) {
-            Ok((_, challenged_blocks)) => {
-                for block_hash in challenged_blocks {
-                    match chain_update.mark_block_as_challenged(&block_hash, None) {
-                        Ok(()) => {}
-                        Err(err) => {
-                            warn!(target: "chain", ?block_hash, error=?err, "Error saving block as challenged");
-                        }
-                    }
-                }
-            }
+            Ok(_) => {}
             Err(err) => {
-                warn!(target: "chain", error=?err, "Invalid challenge: {:#?}", challenge);
+                warn!(target: "chain", "Invalid challenge: {}\nChallenge: {:#?}", err, challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -1376,8 +1366,9 @@ impl Chain {
         orphan_misses_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
+        let block_height = block.header().height();
         let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+            tracing::debug_span!(target: "chain", "Process single block", height=block_height)
                 .entered();
 
         let prev_head = self.store.head()?;
@@ -3675,6 +3666,7 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chain", "Chunks postprocessing").entered();
         apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
             self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
         })
@@ -3710,6 +3702,7 @@ impl<'a> ChainUpdate<'a> {
         mode: ApplyChunksMode,
     ) -> Result<Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>, Error>
     {
+        let _span = tracing::debug_span!(target: "chain", "Chunks preprocessing").entered();
         let mut result: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>> =
             Vec::new();
         #[cfg(not(feature = "mock_node"))]
@@ -4346,12 +4339,7 @@ impl<'a> ChainUpdate<'a> {
         ),
         Error,
     > {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "preprocess_block",
-            block_height=block.header().height())
-        .entered();
-        debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
+        debug!(target: "chain", approvals=block.header().num_approvals(), "Preprocess block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -4470,10 +4458,11 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidGasPrice.into());
         }
 
-        let (challenges_result, challenged_blocks) = self.verify_challenges(
+        let challenges_result = self.verify_challenges(
             block.challenges(),
             block.header().epoch_id(),
             block.header().prev_hash(),
+            Some(block.hash()),
         )?;
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
@@ -4511,7 +4500,6 @@ impl<'a> ChainUpdate<'a> {
                 state_dl_info,
                 incoming_receipts,
                 challenges_result,
-                challenged_blocks,
             },
         ))
     }
@@ -4534,11 +4522,10 @@ impl<'a> ChainUpdate<'a> {
             state_dl_info,
             incoming_receipts,
             challenges_result,
-            challenged_blocks,
         } = preprocess_block_info;
 
         if !is_caught_up {
-            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            debug!(target: "chain", ?prev_hash, hash=?*block.hash(), "Add block to catch up");
             self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
         }
 
@@ -4550,9 +4537,6 @@ impl<'a> ChainUpdate<'a> {
         }
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
-        for block_hash in challenged_blocks {
-            self.mark_block_as_challenged(&block_hash, Some(block.hash()))?;
-        }
 
         self.chain_store_update.save_block_header(block.header().clone())?;
         self.update_header_head_if_not_challenged(block.header())?;
@@ -5096,22 +5080,17 @@ impl<'a> ChainUpdate<'a> {
         Ok(true)
     }
 
-    /// Verify that `challenges` are valid
-    /// If all challenges are valid, returns ChallengesResult, which comprises of the list of
-    /// validators that need to be slashed and the list of blocks that are challenged.
-    /// Returns Error if any challenge is invalid.
-    /// Note: you might be wondering why the list of challenged blocks is not part of ChallengesResult.
-    /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
-    /// upgrade.
+    /// Returns correct / malicious challenges or Error if any challenge is invalid.
     pub fn verify_challenges(
         &mut self,
         challenges: &Vec<Challenge>,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-    ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
-        debug!(target: "chain", "Verifying challenges {:?}", challenges);
+        block_hash: Option<&CryptoHash>,
+    ) -> Result<ChallengesResult, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "Verifying challenges", ?challenges).entered();
         let mut result = vec![];
-        let mut challenged_blocks = vec![];
         for challenge in challenges.iter() {
             match validate_challenge(&*self.runtime_adapter, epoch_id, prev_block_hash, challenge) {
                 Ok((hash, account_ids)) => {
@@ -5119,7 +5098,7 @@ impl<'a> ChainUpdate<'a> {
                         // If it's double signed block, we don't invalidate blocks just slash.
                         ChallengeBody::BlockDoubleSign(_) => true,
                         _ => {
-                            challenged_blocks.push(hash);
+                            self.mark_block_as_challenged(&hash, block_hash)?;
                             false
                         }
                     };
@@ -5135,7 +5114,7 @@ impl<'a> ChainUpdate<'a> {
                 Err(err) => return Err(err),
             }
         }
-        Ok((result, challenged_blocks))
+        Ok(result)
     }
 
     /// Verify header signature when the epoch is known, but not the whole chain.
@@ -5158,7 +5137,17 @@ impl<'a> ChainUpdate<'a> {
 pub fn do_apply_chunks(
     work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send>>,
 ) -> Vec<Result<ApplyChunkResult, Error>> {
-    work.into_par_iter().map(|task| task()).collect::<Vec<_>>()
+    let parent_span = tracing::debug_span!(target: "chain", "do_apply_chunks").entered();
+    work.into_par_iter()
+        .map(|task| {
+            // As chunks can be processed in parallel, make sure they are all tracked as children of
+            // a single span.
+            let _span =
+                tracing::debug_span!(target: "chain", parent: &parent_span, "Chunk").entered();
+
+            task()
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
