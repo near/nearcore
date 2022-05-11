@@ -2649,6 +2649,7 @@ dependencies = [
  "borsh",
  "chrono",
  "delay-detector",
+ "insta",
  "itertools",
  "lru",
  "near-chain-configs",
@@ -3130,6 +3131,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
@@ -3152,6 +3154,7 @@ dependencies = [
  "serde_json",
  "smart-default",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -3359,8 +3362,8 @@ dependencies = [
  "near-vm-logic",
  "once_cell",
  "parity-wasm 0.41.0",
- "pwasm-utils 0.12.0",
- "pwasm-utils 0.18.2",
+ "parity-wasm 0.42.2",
+ "pwasm-utils",
  "rand 0.8.5",
  "serde",
  "threadpool",
@@ -4248,17 +4251,6 @@ dependencies = [
  "byteorder",
  "log",
  "parity-wasm 0.41.0",
-]
-
-[[package]]
-name = "pwasm-utils"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "880b3384fb00b8f6ecccd5d358b93bd2201900ae3daad213791d1864f6441f5c"
-dependencies = [
- "byteorder",
- "log",
- "parity-wasm 0.42.2",
 ]
 
 [[package]]

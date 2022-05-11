@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
+use node_runtime::config::RuntimeConfig;
 use tracing::{debug, error, info, warn};
 
 use near_chain::types::{
@@ -63,7 +64,7 @@ use crate::migrations::load_migration_data;
 use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -262,8 +263,7 @@ impl NightshadeRuntime {
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
-                let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 RuntimeConfigStore::new(Some(&genesis_runtime_config))
             }
             _ => RuntimeConfigStore::new(None),
