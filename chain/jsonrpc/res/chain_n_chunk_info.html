@@ -55,25 +55,29 @@
                     } else {
                         $('.js-tbody-orphans').append($('<tr>')
                             .append($('<td colspan="2">').append("(None)"))
-                        )
+                        );
                     }
 
-                    let blocks_with_missing_chunks = data.detailed_debug_status.blocks_with_missing_chunks;
-                    if (blocks_with_missing_chunks.length > 0) {
-                        blocks_with_missing_chunks.forEach((orphan, index) => {
-                            $('.js-tbody-blocks-with-missing-chunks').append($('<tr>')
-                                .append($('<td>').append(orphan.hash))
-                                .append($('<td>').append(orphan.height))
+                    let chunk_info = data.detailed_debug_status.chunk_info;
+                    $('.js-block-count').text(chunk_info.num_of_blocks_in_progress);
+                    $('.js-chunk-count').text(chunk_info.num_of_chunks_in_progress);
+                    if (chunk_info.next_blocks_by_chunks.length > 0) {
+                        chunk_info.next_blocks_by_chunks.forEach((line, index) =>
+                            $('.js-tbody-upcoming-blocks').append($('<tr>')
+                                .append($('<td>').append(line.height))
+                                .append($('<td>').append(line.hash))
+                                .append($('<td>').append(line.block_status))
+                                .append($('<td>').append($('<pre>').append(line.chunk_status)))
                             )
-                        });
+                        );
                     } else {
-                        $('.js-tbody-blocks-with-missing-chunks').append($('<tr>')
-                            .append($('<td colspan="2">').append("(None)"))
-                        )
+                        $('.js-tbody-upcoming-blocks').append($('<tr>')
+                            .append($('<td colspan="4">').append("(None)"))
+                        );
                     }
                 },
                 dataType: "json",
-                error: (errMsg, textStatus, errorThrown) => {
+                error: function (errMsg, textStatus, errorThrown) {
                     alert("Failed: " + textStatus + " :" + errorThrown);
                 },
                 contentType: "application/json; charset=utf-8",
@@ -84,9 +88,9 @@
 </head>
 <body>
     <h1>
-        Welcome to the Chain page!
+        Welcome to the Chain & Chunk Status page!
     </h1>
-    <h3>
+    <h2>
         <p>
             Current head:
             <span class="js-current-head-hash"></span>
@@ -99,10 +103,16 @@
             @
             <span class="js-current-header-head-height"></span>
         </p>
-    </h3>
-    <h2>
         <p>
-            Orphan Pool
+            Number of blocks in progress:
+            <span class="js-block-count"></span>
+        </p>
+        <p>
+            Number of chunks in progress:
+            <span class="js-chunk-count"></span>
+        </p>
+        <p>
+            Orphans
         </p>
     </h2>
     <table>
@@ -115,15 +125,17 @@
     </table>
     <h2>
         <p>
-            Missing Chunks Pool
+            Upcoming Blocks
         </p>
     </h2>
     <table>
         <thead><tr>
-            <th>Hash</th>
             <th>Height</th>
+            <th>Hash</th>
+            <th>Block Status</th>
+            <th>Chunk Status</th>
         </tr></thead>
-        <tbody class="js-tbody-blocks-with-missing-chunks">
+        <tbody class="js-tbody-upcoming-blocks">
         </tbody>
     </table>
 </body>
