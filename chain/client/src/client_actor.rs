@@ -1333,7 +1333,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "process_accepted_blocks",
-            num_blocks=accepted_blocks.len())
+            num_blocks = accepted_blocks.len())
         .entered();
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
@@ -1371,7 +1371,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "process_block",
-            height=block.header().height())
+            height = block.header().height())
         .entered();
         debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
@@ -1429,21 +1429,21 @@ impl ClientActor {
         tracing::debug_span!(
             target: "client",
             "receive_block",
-            me=?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-            prev_hash=?block.header().prev_hash(),
-            ?hash,
-            height=block.header().height(),
-            ?peer_id,
-            ?was_requested);
+            me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            prev_hash = ?block.header().prev_hash(),
+            %hash,
+            height = block.header().height(),
+            %peer_id,
+            was_requested);
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
-            debug!(target: "client", head_height=head.height, "Dropping a block that is too far ahead.");
+            debug!(target: "client", head_height = head.height, "Dropping a block that is too far ahead.");
             return;
         }
         let tail = unwrap_or_return!(self.client.chain.tail());
         if block.header().height() < tail {
-            debug!(target: "client", tail_height=tail, "Dropping a block that is too far behind.");
+            debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
         }
         let prev_hash = *block.header().prev_hash();
@@ -1476,7 +1476,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", error=?e, "Process block: refused by chain");
+                    debug!(target: "client", error = %e, "Process block: refused by chain");
                 }
             },
         }

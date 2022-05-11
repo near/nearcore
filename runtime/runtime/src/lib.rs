@@ -1171,7 +1171,7 @@ impl Runtime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
-            num_transactions=transactions.len())
+            num_transactions = transactions.len())
         .entered();
 
         if states_to_patch.is_some() && !cfg!(feature = "sandbox") {

@@ -892,7 +892,7 @@ impl ShardsManager {
         let _span = tracing::debug_span!(
             target: "client",
             "resend_chunk_requests",
-            header_head_height=header_head.height)
+            header_head_height = header_head.height)
         .entered();
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
@@ -1013,13 +1013,13 @@ impl ShardsManager {
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
-            chunk_hash=?request.chunk_hash.0)
+            chunk_hash = %request.chunk_hash.0)
         .entered();
         debug!(target: "chunks",
-            chunk_hash=?request.chunk_hash.0,
-            part_ords=?request.part_ords,
-            shards=?request.tracking_shards,
-            account=?self.me);
+            chunk_hash = %request.chunk_hash.0,
+            part_ords = ?request.part_ords,
+            shards = ?request.tracking_shards,
+            account = ?self.me);
 
         let (started, key, response) =
             self.prepare_partial_encoded_chunk_response(request, chain_store, rs);

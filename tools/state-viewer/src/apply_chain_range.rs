@@ -343,7 +343,7 @@ pub fn apply_chain_range(
         "apply_chain_range",
         ?start_height,
         ?end_height,
-        ?shard_id,
+        %shard_id,
         only_contracts,
         sequential)
     .entered();

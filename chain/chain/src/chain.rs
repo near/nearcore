@@ -1097,13 +1097,13 @@ impl Chain {
                     match chain_update.mark_block_as_challenged(&block_hash, None) {
                         Ok(()) => {}
                         Err(err) => {
-                            warn!(target: "chain", ?block_hash, error=?err, "Error saving block as challenged");
+                            warn!(target: "chain", %block_hash, error = ?err, "Error saving block as challenged");
                         }
                     }
                 }
             }
             Err(err) => {
-                warn!(target: "chain", error=?err, "Invalid challenge: {:#?}", challenge);
+                warn!(target: "chain", error = ?err, "Invalid challenge: {:#?}", challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -1380,7 +1380,7 @@ impl Chain {
         let _span = tracing::debug_span!(
             target: "chain",
             "process_block_single_impl",
-            height=block_height)
+            height = block_height)
         .entered();
 
         let prev_head = self.store.head()?;
@@ -4373,7 +4373,7 @@ impl<'a> ChainUpdate<'a> {
         ),
         Error,
     > {
-        debug!(target: "chain", num_approvals=block.header().num_approvals(), "Preprocess block");
+        debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -4560,7 +4560,7 @@ impl<'a> ChainUpdate<'a> {
         } = preprocess_block_info;
 
         if !is_caught_up {
-            debug!(target: "chain", ?prev_hash, hash=?*block.hash(), "Add block to catch up");
+            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
             self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
         }
 

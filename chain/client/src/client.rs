@@ -1115,7 +1115,12 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             {
-                let _span = tracing::info_span!(target: "client", "garbage_collection", block_hash=?block.hash(), height=block.header().height()).entered();
+                let _span = tracing::info_span!(
+                    target: "client",
+                    "garbage_collection",
+                    block_hash = ?block.hash(),
+                    height = block.header().height())
+                .entered();
                 let _gc_timer = metrics::GC_TIME.start_timer();
 
                 let result = if self.config.archive {
@@ -1669,7 +1674,7 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
-                    trace!(target: "client", account=?me, shard_id, is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
                     self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
