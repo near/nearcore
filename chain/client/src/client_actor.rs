@@ -1426,7 +1426,7 @@ impl ClientActor {
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        tracing::debug_span!(
+        let _span = tracing::debug_span!(
             target: "client",
             "receive_block",
             me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
