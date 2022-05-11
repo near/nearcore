@@ -1367,9 +1367,11 @@ impl Chain {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
         let block_height = block.header().height();
-        let _span =
-            tracing::debug_span!(target: "chain", "process_block_single_impl", height=block_height)
-                .entered();
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "process_block_single_impl",
+            height=block_height)
+        .entered();
 
         let prev_head = self.store.head()?;
 

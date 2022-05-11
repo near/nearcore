@@ -1053,9 +1053,13 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
-        let _span =
-            tracing::debug_span!(target: "client", "on_block_accepted", ?block_hash, ?status, ?provenance)
-                .entered();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "on_block_accepted",
+            ?block_hash,
+            ?status,
+            ?provenance)
+        .entered();
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 

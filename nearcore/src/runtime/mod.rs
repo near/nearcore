@@ -55,6 +55,7 @@ use near_store::{
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -259,8 +260,7 @@ impl NightshadeRuntime {
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
-                let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 RuntimeConfigStore::new(Some(&genesis_runtime_config))
             }
             _ => RuntimeConfigStore::new(None),
