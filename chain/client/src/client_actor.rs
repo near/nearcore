@@ -1322,7 +1322,11 @@ impl ClientActor {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
-        let _span = tracing::debug_span!(target: "client", "process_accepted_blocks", num_blocks=accepted_blocks.len()).entered();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_accepted_blocks",
+            num_blocks=accepted_blocks.len())
+        .entered();
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
                 accepted_block.hash,
@@ -1356,9 +1360,11 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
-        let _span =
-            tracing::debug_span!(target: "client", "process_block", height=block.header().height())
-                .entered();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_block",
+            height=block.header().height())
+        .entered();
         debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
