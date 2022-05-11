@@ -1,8 +1,10 @@
+use assert_matches::assert_matches;
 use std::path::Path;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
+use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
@@ -17,7 +19,7 @@ use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::NetworkRequests;
+use near_network::types::{NetworkClientResponses, NetworkRequests};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
@@ -26,6 +28,7 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, StateRoot};
@@ -64,6 +67,52 @@ fn test_block_with_challenges() {
 
     let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
     assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidChallengeRoot);
+}
+
+#[test]
+fn test_invalid_chunk_state() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    let genesis_hash = env.clients[0].chain.get_block_hash_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    assert_eq!(
+        env.clients[0].process_tx(
+            SignedTransaction::send_money(
+                1,
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
+                &signer,
+                1000,
+                genesis_hash,
+            ),
+            false,
+            false,
+        ),
+        NetworkClientResponses::ValidTx
+    );
+    for i in 1..4 {
+        env.produce_block(0, i);
+    }
+    let block_hash = env.clients[0].chain.get_block_hash_by_height(3).unwrap();
+
+    {
+        let mut chunk_extra = env.clients[0]
+            .chain
+            .get_chunk_extra(&block_hash, &ShardUId::single_shard())
+            .unwrap()
+            .clone();
+        let store = env.clients[0].chain.mut_store();
+        let mut store_update = store.store_update();
+        *chunk_extra.state_root_mut() = CryptoHash::default();
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
+        store_update.commit().unwrap();
+    }
+
+    let block = env.clients[0].produce_block(4).unwrap().unwrap();
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err().kind(), ErrorKind::InvalidChunkState(_));
 }
 
 #[test]
