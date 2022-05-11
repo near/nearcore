@@ -124,8 +124,6 @@ impl PeerStore {
             }
         }
 
-        Self::delete_from_db(&store, &peers_to_delete)?;
-
         for (peer_id, peer_state) in peers_to_keep.into_iter() {
             match peerid_2_state.entry(peer_id) {
                 // Peer is a boot node
@@ -150,7 +148,10 @@ impl PeerStore {
             }
         }
 
-        Ok(PeerStore { store, peer_states: peerid_2_state, addr_peers: addr_2_peer, blacklist })
+        let mut peer_store =
+            PeerStore { store, peer_states: peerid_2_state, addr_peers: addr_2_peer, blacklist };
+        peer_store.delete_peers(&peers_to_delete)?;
+        Ok(peer_store)
     }
 
     pub fn is_blacklisted(&self, addr: &SocketAddr) -> bool {
@@ -215,12 +216,11 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
-    fn delete_from_db(
-        store: &Store,
-        peer_ids: &[PeerId],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut store_update = store.store_update();
+    /// Deletes peers from the internal cache and the persistent store.
+    fn delete_peers(&mut self, peer_ids: &[PeerId]) -> Result<(), Box<dyn std::error::Error>> {
+        let mut store_update = self.store.store_update();
         for peer_id in peer_ids {
+            self.peer_states.remove(peer_id);
             store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
         }
         store_update.commit().map_err(Into::into)
@@ -295,10 +295,7 @@ impl PeerStore {
                 to_remove.push(peer_id.clone());
             }
         }
-        for peer_id in to_remove.iter() {
-            self.peer_states.remove(peer_id);
-        }
-        Self::delete_from_db(&self.store, &to_remove)
+        self.delete_peers(&to_remove)
     }
 
     fn touch(&self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
