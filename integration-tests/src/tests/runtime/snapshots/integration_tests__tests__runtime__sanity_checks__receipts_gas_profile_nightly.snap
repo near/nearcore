@@ -52,32 +52,32 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_G1_MULTIEXP_BASE",
-            gas_used: 713006929500,
+            gas_used: 713000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_G1_MULTIEXP_ELEMENT",
-            gas_used: 3335092461,
+            gas_used: 320000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_G1_SUM_BASE",
-            gas_used: 3175314375,
+            gas_used: 3000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_G1_SUM_ELEMENT",
-            gas_used: 76218543,
+            gas_used: 5000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_PAIRING_CHECK_BASE",
-            gas_used: 9685508901000,
+            gas_used: 9686000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "ALT_BN128_PAIRING_CHECK_ELEMENT",
-            gas_used: 26575188546,
+            gas_used: 5102000000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
