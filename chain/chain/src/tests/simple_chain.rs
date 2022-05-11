@@ -8,36 +8,20 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
-use std::str::FromStr;
 use std::time::Instant;
 
-/// Pair of hashes for the test cases.  When converted into [`CryptoHash`]
-/// either one of the string is used depending whether `nightly` feature is
-/// enabled or not.
-struct Hashes {
-    stable: &'static str,
-    nightly: &'static str,
-}
-
-impl Into<CryptoHash> for Hashes {
-    fn into(self) -> CryptoHash {
-        let hash = if cfg!(feature = "nightly") { self.nightly } else { self.stable };
-        CryptoHash::from_str(hash).unwrap()
-    }
-}
-
 #[test]
-fn empty_chain() {
+fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
-    let now = chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 1, 444);
-    mock_clock_guard.add_utc(now);
 
-    let (chain, _, _) = setup();
-    let count_utc = { mock_clock_guard.utc_call_count() };
+    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
 
+    let (mut chain, _, signer) = setup();
+
+    assert_eq!(mock_clock_guard.utc_call_count(), 1);
+    assert_eq!(mock_clock_guard.instant_call_count(), 0);
     assert_eq!(chain.head().unwrap().height, 0);
-    let hash = chain.head().unwrap().last_block_hash;
 
     // The hashes here will have to be modified after changes to the protocol.
     // In particular if you update protocol version or add new protocol
@@ -45,28 +29,20 @@ fn empty_chain() {
     // stabilising any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
-    // To figure out proper values you’ll need to run the test twice.  Once with
-    // default features and once with ‘nightly’ feature enabled:
+    // To update the hashes you can use cargo-insta.  Note that you’ll need to
+    // run the test twice: once with default features and once with
+    // ‘nightly’ feature enabled:
     //
-    //     cargo test -p near-chain                    -- tests::simple_chain
-    //     cargo test -p near-chain --features nightly -- tests::simple_chain
-    assert_eq!(
-        hash,
-        Hashes {
-            stable: "8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64",
-            nightly: "3eSPNwhSs9pT2jeG8Y8M14cCqXwZ5ikGA6c4bhubcHWv"
-        }
-        .into()
-    );
-    assert_eq!(count_utc, 1);
-}
+    //     cargo install cargo-insta
+    //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
+    } else {
+        insta::assert_display_snapshot!(hash, @"DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC");
+    }
 
-#[test]
-fn build_chain() {
-    init_test_logger();
-    let mock_clock_guard = MockClockGuard::default();
-    // Adding first mock entry for genesis block
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
     for i in 1..5 {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
@@ -77,50 +53,24 @@ fn build_chain() {
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
-    }
 
-    let (mut chain, _, signer) = setup();
-
-    let initial_hash = *chain.head_header().unwrap().hash();
-
-    for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i + 1);
+        assert_eq!(tip.unwrap().height, i as u64);
     }
-    assert_eq!(chain.head().unwrap().height, 4);
-    let count_instant = mock_clock_guard.instant_call_count();
-    let count_utc = mock_clock_guard.utc_call_count();
-    assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 12);
 
-    // The hashes here will have to be modified after changes to the protocol.
-    // In particular if you update protocol version or add new protocol
-    // features.  If this assert is failing without you adding any new or
-    // stabilising any existing protocol features, this indicates bug in your
-    // code which unexpectedly changes the protocol.
-    //
-    // To figure out proper values you’ll need to run the test twice.  Once with
-    // default features and once with ‘nightly’ feature enabled:
-    //
-    //     cargo test -p near-chain                    -- tests::simple_chain
-    //     cargo test -p near-chain --features nightly -- tests::simple_chain
-    let want_initial_hash = Hashes {
-        stable: "DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC",
-        nightly: "8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk",
+    assert_eq!(mock_clock_guard.utc_call_count(), 9);
+    assert_eq!(mock_clock_guard.instant_call_count(), 12);
+    assert_eq!(chain.head().unwrap().height, 4);
+
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
+    } else {
+        insta::assert_display_snapshot!(hash, @"5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7");
     }
-    .into();
-    let want_last_block_hash = Hashes {
-        stable: "5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7",
-        nightly: "DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC",
-    }
-    .into();
-    assert_eq!(
-        (initial_hash, chain.head().unwrap().last_block_hash),
-        (want_initial_hash, want_last_block_hash)
-    );
 }
 
 #[test]

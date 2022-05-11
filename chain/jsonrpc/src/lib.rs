@@ -1431,10 +1431,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 lazy_static_include::lazy_static_include_str! {
     LAST_BLOCKS_HTML => "res/last_blocks.html",
     DEBUG_HTML => "res/debug.html",
-    SYNC_INFO_HTML => "res/sync_info.html",
-    CHAIN_INFO_HTML => "res/chain_info.html",
+    NETWORK_INFO_HTML => "res/network_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
-    CHUNK_INFO_HTML => "res/chunk_info.html",
+    CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
 }
 
 #[get("/debug")]
@@ -1447,14 +1446,9 @@ async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
 }
 
-#[get("/debug/sync_info")]
-async fn sync_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*SYNC_INFO_HTML))
-}
-
-#[get("/debug/chain_info")]
-async fn chain_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHAIN_INFO_HTML))
+#[get("/debug/network_info")]
+async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
 }
 
 #[get("/debug/epoch_info")]
@@ -1462,9 +1456,9 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
 }
 
-#[get("/debug/chunk_info")]
-async fn chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHUNK_INFO_HTML))
+#[get("/debug/chain_n_chunk_info")]
+async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1530,10 +1524,9 @@ pub fn start_http(
             .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
             .service(debug_html)
             .service(last_blocks_html)
-            .service(sync_info_html)
-            .service(chain_info_html)
+            .service(network_info_html)
             .service(epoch_info_html)
-            .service(chunk_info_html)
+            .service(chain_n_chunk_info_html)
     })
     .bind(addr)
     .unwrap()
