@@ -8,35 +8,41 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
-use std::str::FromStr;
 use std::time::Instant;
-
-#[test]
-fn empty_chain() {
-    init_test_logger();
-    let mock_clock_guard = MockClockGuard::default();
-    let now = chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 1, 444);
-    mock_clock_guard.add_utc(now);
-
-    let (chain, _, _) = setup();
-    let count_utc = { mock_clock_guard.utc_call_count() };
-
-    assert_eq!(chain.head().unwrap().height, 0);
-    let hash = chain.head().unwrap().last_block_hash;
-    // The hashes here will have to be modified after each change to genesis file.
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("3eSPNwhSs9pT2jeG8Y8M14cCqXwZ5ikGA6c4bhubcHWv").unwrap());
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("8t6f63ezCoqS2nNxT7KivhvHH5tvNND4dj7RY3Hwhn64").unwrap());
-    assert_eq!(count_utc, 1);
-}
 
 #[test]
 fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
-    // Adding first mock entry for genesis block
+
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+
+    let (mut chain, _, signer) = setup();
+
+    assert_eq!(mock_clock_guard.utc_call_count(), 1);
+    assert_eq!(mock_clock_guard.instant_call_count(), 0);
+    assert_eq!(chain.head().unwrap().height, 0);
+
+    // The hashes here will have to be modified after changes to the protocol.
+    // In particular if you update protocol version or add new protocol
+    // features.  If this assert is failing without you adding any new or
+    // stabilising any existing protocol features, this indicates bug in your
+    // code which unexpectedly changes the protocol.
+    //
+    // To update the hashes you can use cargo-insta.  Note that you’ll need to
+    // run the test twice: once with default features and once with
+    // ‘nightly_protocol_features’ feature enabled:
+    //
+    //     cargo install cargo-insta
+    //     cargo insta test --accept -p near-chain -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain --features nightly_protocol_features -- tests::simple_chain::build_chain
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly_protocol") {
+        insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
+    } else {
+        insta::assert_display_snapshot!(hash, @"DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC");
+    }
+
     for i in 1..5 {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
@@ -47,44 +53,24 @@ fn build_chain() {
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
-    }
 
-    let (mut chain, _, signer) = setup();
-
-    let prev_hash = *chain.head_header().unwrap().hash();
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC").unwrap()
-    );
-
-    for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i + 1);
+        assert_eq!(tip.unwrap().height, i as u64);
     }
+
+    assert_eq!(mock_clock_guard.utc_call_count(), 9);
+    assert_eq!(mock_clock_guard.instant_call_count(), 12);
     assert_eq!(chain.head().unwrap().height, 4);
-    let count_instant = mock_clock_guard.instant_call_count();
-    let count_utc = mock_clock_guard.utc_call_count();
-    assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 12);
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7").unwrap()
-    );
+
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly_protocol") {
+        insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
+    } else {
+        insta::assert_display_snapshot!(hash, @"5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7");
+    }
 }
 
 #[test]
