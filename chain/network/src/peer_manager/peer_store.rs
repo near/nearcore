@@ -117,19 +117,14 @@ impl PeerStore {
             let is_blacklisted =
                 peer_state.peer_info.addr.as_ref().map_or(false, |addr| blacklist.contains(addr));
             if is_blacklisted {
-                peers_to_delete.push((peer_id, peer_state));
+                info!(target: "network", "Removing {:?} because address is blacklisted", peer_state.peer_info);
+                peers_to_delete.push(peer_id);
             } else {
                 peers_to_keep.push((peer_id, peer_state));
             }
         }
 
-        for (_, peer_state) in peers_to_delete.iter() {
-            info!(target: "network", "Removing {:?} because address is blacklisted", peer_state.peer_info);
-        }
-        Self::delete_from_db(
-            &store,
-            &peers_to_delete.into_iter().map(|(peer_id, _)| peer_id).collect::<Vec<_>>(),
-        )?;
+        Self::delete_from_db(&store, &peers_to_delete)?;
 
         for (peer_id, peer_state) in peers_to_keep.into_iter() {
             match peerid_2_state.entry(peer_id) {
@@ -228,7 +223,7 @@ impl PeerStore {
         for peer_id in peer_ids {
             store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
         }
-        store_update.commit().map_err(|err| err.into())
+        store_update.commit().map_err(Into::into)
     }
 
     pub(crate) fn peer_unban(
