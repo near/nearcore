@@ -2775,6 +2775,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -3495,6 +3496,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "opentelemetry",
  "rayon",
  "rustc_version 0.4.0",
  "serde",
@@ -3505,6 +3507,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
