@@ -62,7 +62,3 @@ rusty-tags.vi
 costs-*.txt
 names-to-stats.txt
 data_dump_*.bin
-
-# benchmark sample home directories
-tools/mock_node/benches/empty/
-tools/mock_node/benches/full/

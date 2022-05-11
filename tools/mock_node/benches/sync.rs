@@ -13,10 +13,15 @@ use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::types::BlockHeight;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tar::Archive;
 
+// The point of this is to return this struct from the benchmark
+// function so that we can run the code in its drop() function after the
+// benchmark has been measured. It would be possible to just run all
+// that code in the benchmark function, but we don't really want to
+// include that in the measurements.
 struct Sys {
     sys: Option<actix_rt::SystemRunner>,
     servers: Vec<(&'static str, actix_web::dev::Server)>,
@@ -41,12 +46,26 @@ impl Drop for Sys {
     }
 }
 
-fn extract_home(home_archive: &str) -> anyhow::Result<&Path> {
-    let len = home_archive.len();
-    if len <= 7 || &home_archive[len - 7..] != ".tar.gz" {
+/// "./benches/empty.tar.gz" -> "/tmp/near_mock_node_sync_empty"
+fn extracted_path(home_archive: &str) -> anyhow::Result<PathBuf> {
+    if !home_archive.ends_with(".tar.gz") {
         return Err(anyhow!("{} doesn't end with .tar.gz", home_archive));
     }
-    let extracted = Path::new(&home_archive[..len - 7]);
+    let mut ret = PathBuf::from("/tmp");
+    let dir_name = Path::new(home_archive.strip_suffix(".tar.gz").unwrap())
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let tmp_dir_name = String::from("near_mock_node_sync_") + dir_name;
+    ret.push(tmp_dir_name);
+    Ok(ret)
+}
+
+// Expects home_archive to be a gzipped tar archive and extracts
+// it to a /tmp directory if not already extracted.
+fn extract_home(home_archive: &str) -> anyhow::Result<PathBuf> {
+    let extracted = extracted_path(home_archive)?;
     if extracted.exists() {
         return Ok(extracted);
     }
@@ -54,12 +73,16 @@ fn extract_home(home_archive: &str) -> anyhow::Result<&Path> {
     let tar_gz = File::open(home_archive)?;
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
-    archive.unpack(extracted)?;
+    archive.unpack(&extracted)?;
     Ok(extracted)
 }
 
+// Sets up a mock node with the extracted contents of `home_archive` serving as the equivalent
+// to the `chain_history_home_dir` argument to the `start_mock_node` tool, and measures the time
+// taken to sync to target_height.
 fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHeight>) {
-    let home_dir = extract_home(home_archive).unwrap();
+    let home = extract_home(home_archive).unwrap();
+    let home_dir = home.as_path();
     let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     near_config.validator_signer = None;
@@ -72,6 +95,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
 
     let name = String::from("mock_node_sync_") + home_dir.file_name().unwrap().to_str().unwrap();
     let mut group = c.benchmark_group(name.clone());
+    // The default of 100 is way too big for the longer running ones, and 10 is actually the minimum allowed.
     group.sample_size(10);
     group.bench_function(name, |bench| {
         bench.iter_with_setup(|| {

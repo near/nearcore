@@ -127,6 +127,9 @@ impl FromStr for MockNetworkMode {
 /// `target_height`: height that the simulated peers will produce blocks until. If None, will
 ///                  use the height from the chain head in storage
 /// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
+///
+/// Returns an actix::Addr handle to each of the actors spawned, plus a Vec of Servers representing
+/// the ports that the mock node is currently listening on.
 pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
