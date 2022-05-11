@@ -5130,8 +5130,7 @@ impl<'a> ChainUpdate<'a> {
         challenges: &Vec<Challenge>,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        block_hash: Option<&CryptoHash>,
-    ) -> Result<ChallengesResult, Error> {
+    ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
         let _span = tracing::debug_span!(
             target: "chain",
             "verify_challenges",

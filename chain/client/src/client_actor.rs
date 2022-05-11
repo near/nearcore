@@ -1468,7 +1468,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: refused by chain: {:?}", e.kind());
+                    debug!(target: "client", error=?e, "Process block: refused by chain");
                 }
             },
         }
