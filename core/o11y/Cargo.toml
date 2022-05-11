@@ -23,4 +23,4 @@ tracing-serde = "0.1"
 tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "std"] }
 
 [features]
-opentelemetry = ["dep:tracing-opentelemetry"]
+opentelemetry = []
