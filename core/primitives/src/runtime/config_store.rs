@@ -105,89 +105,12 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::LowerStorageCost;
     use crate::version::ProtocolFeature::{
-        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageKeyLimit,
+        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
-    use near_primitives_core::hash::hash;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
-
-    static OLD_CONFIGS: &[(ProtocolVersion, &str)] = &[
-        (0, include_config!("legacy_configs/29.json")),
-        (42, include_config!("legacy_configs/42.json")),
-        (48, include_config!("legacy_configs/48.json")),
-        (49, include_config!("legacy_configs/49.json")),
-        (50, include_config!("legacy_configs/50.json")),
-        (52, include_config!("legacy_configs/52.json")),
-        (53, include_config!("legacy_configs/53.json")),
-    ];
-
-    fn check_config(protocol_version: ProtocolVersion, config_bytes: &str) {
-        assert_eq!(
-            RuntimeConfigStore::new(None).get_config(protocol_version).as_ref(),
-            &serde_json::from_str::<RuntimeConfig>(config_bytes).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_get_config() {
-        check_config(0, OLD_CONFIGS[0].1);
-        check_config(GENESIS_PROTOCOL_VERSION - 1, OLD_CONFIGS[0].1);
-        check_config(GENESIS_PROTOCOL_VERSION, OLD_CONFIGS[0].1);
-        // First non-trivial version for which runtime config was updated.
-        check_config(LowerStorageCost.protocol_version(), OLD_CONFIGS[1].1);
-        check_config(ProtocolVersion::MAX, OLD_CONFIGS.last().unwrap().1);
-    }
-
-    #[test]
-    fn test_runtime_config_data() {
-        let expected_hashes = vec![
-            "HUHWZcQuUP7yvgE2VDCbyZQm7p5vbJxtw7n8jq4WTufa",
-            "3Rdnrr1DFxXWeQ7knpHqxnRrNUys9Ke7SUEJ2axjXvVS",
-            "61SPiLLGhNYySP2djfL1Je5LogVTAjroYnAnmzDofkJS",
-            "CvP7N36bofKAy1U4nD1nQ36FeRxEX1Hbsdv2fLCWR26B",
-            "6TWAHgsm17JdJxVjJQ9TYJERCw9rgDdzzXvopWE5XzoQ",
-            "72BDBPsrXeg23viBMTSekigRxz4jyHNxrEct2VLa1xDc",
-            "CCqfbxH12gAp9VL419FqhZ4JNxhtdimi5ETQ22mmKERH",
-        ];
-        let actual_hashes = std::iter::once(&(0, BASE_CONFIG))
-            .chain(CONFIG_DIFFS)
-            .map(|(_protocol_version, config_str)| to_base(&hash(config_str.as_bytes())))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            expected_hashes, actual_hashes,
-            "\n
-Config hashes changed. \n
-If you add a new config diff, add a missing hash to the end of `expected_hashes` array.
-"
-        )
-    }
-
-    #[test]
-    fn test_old_runtime_config_data() {
-        let expected_hashes = vec![
-            "C7W1yQiAmmtqtw6nbkwNrJNymhX8SkAJ9PnNUUwWA9z",
-            "D5PuE2rD9yXThbdrACj6B9Ga9EiJVPak6Ejxaxfqb4Ci",
-            "3rVVngZj9mTG8e7YhgTbSoo7rNCpMSGhSYQBa98oFLd5",
-            "B8fL27CPSdug9AQXgS77b3n9aWFUFf7WUjJcuRMvjE6C",
-            "5SneeY6PB8NktERjNq8Gge68cdEgjELiAbhNsmDv1cqY",
-            "EFq13cxe78LdB7bbvYF5s1PYxsDGU1teXYXW2qaJkXwW",
-            "ENnHEU1otcAWjxv4HhNkKb7FsZFZr5FGNhFjRL2W2a68",
-        ];
-        let actual_hashes = OLD_CONFIGS
-            .iter()
-            .map(|(_protocol_version, config_str)| to_base(&hash(config_str.as_bytes())))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            expected_hashes, actual_hashes,
-            "\n
-Old config hashes changed. \n
-"
-        )
-    }
 
     #[test]
     fn test_max_prepaid_gas() {
@@ -247,24 +170,44 @@ Old config hashes changed. \n
     // config store is overridden.
     #[test]
     fn test_override_runtime_config() {
-        let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
+        let store = RuntimeConfigStore::new(None);
         let config = store.get_config(0);
-        assert_eq!(config.as_ref(), &RuntimeConfig::free());
+
+        let mut base_params = BASE_CONFIG.parse().unwrap();
+        let base_config = RuntimeConfig::new(&base_params).unwrap();
+        assert_eq!(config.as_ref(), &base_config);
 
         let config = store.get_config(LowerStorageCost.protocol_version());
-        assert_eq!(config.transaction_costs.action_creation_config.transfer_cost.send_sir, 0);
-        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 0);
+        assert_eq!(base_config.storage_amount_per_byte, 100_000_000_000_000_000_000u128);
+        assert_eq!(config.storage_amount_per_byte, 10_000_000_000_000_000_000u128);
+        assert_eq!(
+            config.transaction_costs.data_receipt_creation_config.base_cost.send_sir,
+            4_697_339_419_375
+        );
+        assert_ne!(config.as_ref(), &base_config);
         assert_ne!(
             config.as_ref(),
-            &serde_json::from_str::<RuntimeConfig>(OLD_CONFIGS[1].1).unwrap()
+            store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
         );
 
+        let expected_config = {
+            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
+            base_params.apply_diff(first_diff).unwrap();
+            RuntimeConfig::new(&base_params).unwrap()
+        };
+        assert_eq!(**config, expected_config);
+
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
-            config.as_ref(),
-            &serde_json::from_str::<RuntimeConfig>(OLD_CONFIGS[2].1).unwrap()
+            config.transaction_costs.data_receipt_creation_config.base_cost.send_sir,
+            36_486_732_312
         );
+        let expected_config = {
+            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
+            base_params.apply_diff(second_diff).unwrap();
+            RuntimeConfig::new(&base_params).unwrap()
+        };
+        assert_eq!(config.as_ref(), &expected_config);
     }
 
     #[test]
@@ -289,37 +232,28 @@ Old config hashes changed. \n
         );
     }
 
-    #[track_caller]
-    fn check_store(old_store: RuntimeConfigStore, new_store: RuntimeConfigStore) {
-        for version in old_store.store.keys() {
-            assert_eq!(
-                **old_store.get_config(*version),
-                **new_store.get_config(*version),
-                "mismatch in version {version}"
-            );
-        }
-    }
-
+    /// Use snapshot testing to check that the JSON representation of the
+    /// configurations of each version is unchanged.
+    /// If tests fail after an intended change, run `cargo insta review` accept
+    /// the new snapshot if it looks right.
     #[test]
-    fn test_old_and_new_runtime_config_format_match() {
-        let old_configs = BTreeMap::from_iter(OLD_CONFIGS.iter().cloned().map(
-            |(protocol_version, config_bytes)| {
-                (protocol_version, Arc::new(serde_json::from_str(config_bytes).unwrap()))
-            },
-        ));
-        let old_store = RuntimeConfigStore { store: old_configs };
-        let new_store = RuntimeConfigStore::new(None);
+    #[cfg(not(feature = "nightly_protocol_features"))]
+    fn test_json_unchanged() {
+        let store = RuntimeConfigStore::new(None);
 
-        check_store(old_store, new_store);
+        for version in store.store.keys() {
+            let snapshot_name = format!("{version}.json");
+            insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
+        }
 
         // Testnet initial config for old version was different, thus needs separate testing
-        let old_genesis_runtime_config =
-            serde_json::from_str(include_config!("legacy_configs/29_testnet.json")).unwrap();
-        let old_testnet_store = RuntimeConfigStore::new(Some(&old_genesis_runtime_config));
-
         let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
         let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
-        let new_testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
-        check_store(old_testnet_store, new_testnet_store);
+        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
+
+        for version in testnet_store.store.keys() {
+            let snapshot_name = format!("testnet_{version}.json");
+            insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
+        }
     }
 }
