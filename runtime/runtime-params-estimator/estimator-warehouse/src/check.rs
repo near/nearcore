@@ -54,6 +54,11 @@ pub(crate) struct RelativeChange {
 pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     let report = create_report(db, config)?;
 
+    // This is the check command output to observe directly in the terminal.
+    for change in report.changes() {
+        println!("{change:?}");
+    }
+
     let zulip_receiver = {
         if let Some(user) = config.zulip_user {
             Some(ZulipEndpoint::to_user(user)?)
@@ -93,11 +98,6 @@ pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<Zul
     };
     let warnings =
         estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
-
-    // This is the check command output to observe directly in the terminal.
-    for warning in &warnings {
-        println!("{warning:?}");
-    }
 
     let mut report = ZulipReport::new(commit_before, commit_after);
     warnings.into_iter().for_each(|w| report.add(w, Status::Warn));

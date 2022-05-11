@@ -66,13 +66,9 @@ impl Db {
 
 #[cfg(test)]
 mod test {
-    use rusqlite::Connection;
-
-    use crate::{
-        db::{Db, EstimationRow},
-        import::ImportConfig,
-        Metric,
-    };
+    use crate::db::{Db, EstimationRow};
+    use crate::import::ImportConfig;
+    use crate::Metric;
 
     #[test]
     fn test_import_time() {
@@ -162,37 +158,5 @@ mod test {
         )
         .unwrap();
         assert_eq!(expected_output, output);
-    }
-
-    impl Db {
-        /// Create a new in-memory test database.
-        pub(crate) fn test() -> Self {
-            let conn = Connection::open_in_memory().unwrap();
-            let init_sql = include_str!("init.sql");
-            conn.execute_batch(init_sql).unwrap();
-            Self::new(conn)
-        }
-
-        /// Create a new in-memory test database with data defined by the input.
-        ///
-        /// The test data is expected to come in blocks of JSON lines with a commit header.
-        /// WAIT statements can be used as barriers to make sure DB timestamps differ.
-        pub(crate) fn test_with_data(input: &str) -> Self {
-            let db = Self::test();
-            for block in input.split("\n\n") {
-                if block.trim() == "WAIT" {
-                    // Wait 1s to ensure the following data is considered to be later
-                    std::thread::sleep(std::time::Duration::new(1, 0));
-                } else {
-                    let (commit_hash, input) = block.split_once("\n").unwrap();
-                    let conf = ImportConfig {
-                        commit_hash: Some(commit_hash.to_string()),
-                        protocol_version: None,
-                    };
-                    db.import_json_lines(&conf, input).unwrap();
-                }
-            }
-            db
-        }
     }
 }

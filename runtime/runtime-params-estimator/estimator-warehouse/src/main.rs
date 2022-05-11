@@ -116,7 +116,6 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
 mod tests {
     use super::generate_stats;
     use crate::db::Db;
-    use regex::Regex;
 
     #[test]
     fn test_stats() {
@@ -135,14 +134,6 @@ mod tests {
         {"computed_in":{"nanos":441,"secs":54},"name":"LogByte","result":{"gas":20000000.0,"instructions":160.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}"#;
 
         let db = Db::test_with_data(input);
-        insta::assert_snapshot!(generate_redacted_stats(&db).unwrap());
-    }
-
-    /// Hack to manually redact timestamps in stats output to make it testable.
-    fn generate_redacted_stats(db: &Db) -> anyhow::Result<String> {
-        let mut stats = generate_stats(&db)?;
-        let re = Regex::new(r#"2\d{3}-\d\d-\d\d \d\d:\d\d:\d\d"#).unwrap();
-        let redacted = re.replace_all(&mut stats, "yyyy-MM-dd HH:mm:ss");
-        Ok(redacted.into())
+        insta::assert_snapshot!(generate_stats(&db).unwrap());
     }
 }
