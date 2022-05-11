@@ -1,3 +1,7 @@
+---
+source: core/primitives/src/runtime/config_store.rs
+expression: store.get_config(*version)
+---
 {
   "storage_amount_per_byte": "100000000000000000000",
   "transaction_costs": {
@@ -144,24 +148,19 @@
       "storage_iter_next_key_byte": 0,
       "storage_iter_next_value_byte": 0,
       "touching_trie_node": 16101955926,
+      "read_cached_trie_node": 2280000000,
       "promise_and_base": 1465013400,
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
-      "validator_total_stake_base": 911834726400,
-      "alt_bn128_g1_multiexp_base": 713006929500,
-      "alt_bn128_g1_multiexp_element": 3335092461,
-      "alt_bn128_pairing_check_base": 9685508901000,
-      "alt_bn128_pairing_check_element": 26575188546,
-      "alt_bn128_g1_sum_base": 3175314375,
-      "alt_bn128_g1_sum_element": 76218543
+      "validator_total_stake_base": 911834726400
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 3856371,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
-      "max_gas_burnt_view": 200000000000000,
       "max_stack_height": 16384,
+      "stack_limiter_version": 0,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,
@@ -180,11 +179,12 @@
       "max_length_storage_key": 4194304,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
-      "max_number_input_data_dependencies": 128
+      "max_number_input_data_dependencies": 128,
+      "wasmer2_stack_limit": 102400
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 0,
+    "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
   }
 }
