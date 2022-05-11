@@ -46,19 +46,19 @@ impl Drop for Sys {
     }
 }
 
+/// "./benches/empty.tar.gz" -> "empty"
+fn test_name(home_archive: &str) -> &str {
+    Path::new(home_archive.strip_suffix(".tar.gz").unwrap()).file_name().unwrap().to_str().unwrap()
+}
+
 /// "./benches/empty.tar.gz" -> "/tmp/near_mock_node_sync_empty"
 fn extracted_path(home_archive: &str) -> anyhow::Result<PathBuf> {
     if !home_archive.ends_with(".tar.gz") {
         return Err(anyhow!("{} doesn't end with .tar.gz", home_archive));
     }
     let mut ret = PathBuf::from("/tmp");
-    let dir_name = Path::new(home_archive.strip_suffix(".tar.gz").unwrap())
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap();
-    let tmp_dir_name = String::from("near_mock_node_sync_") + dir_name;
-    ret.push(tmp_dir_name);
+    let dir_name = String::from("near_mock_node_sync_") + test_name(home_archive);
+    ret.push(dir_name);
     Ok(ret)
 }
 
@@ -81,33 +81,30 @@ fn extract_home(home_archive: &str) -> anyhow::Result<PathBuf> {
 // to the `chain_history_home_dir` argument to the `start_mock_node` tool, and measures the time
 // taken to sync to target_height.
 fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHeight>) {
-    let home = extract_home(home_archive).unwrap();
-    let home_dir = home.as_path();
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    near_config.validator_signer = None;
-    near_config.client_config.min_num_peers = 1;
-    let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
-    near_config.network_config.public_key = signer.public_key;
-    near_config.network_config.secret_key = signer.secret_key;
-    near_config.client_config.tracked_shards =
-        (0..near_config.genesis.config.shard_layout.num_shards()).collect();
-
-    let name = String::from("mock_node_sync_") + home_dir.file_name().unwrap().to_str().unwrap();
+    let name = String::from("mock_node_sync_") + test_name(home_archive);
     let mut group = c.benchmark_group(name.clone());
     // The default of 100 is way too big for the longer running ones, and 10 is actually the minimum allowed.
     group.sample_size(10);
     group.bench_function(name, |bench| {
         bench.iter_with_setup(|| {
-            setup_actix()
+            let home = extract_home(home_archive).unwrap();
+            let mut near_config = nearcore::config::load_config(home.as_path(), GenesisValidationMode::Full)
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+            near_config.validator_signer = None;
+            near_config.client_config.min_num_peers = 1;
+            let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
+            near_config.network_config.public_key = signer.public_key;
+            near_config.network_config.secret_key = signer.secret_key;
+            near_config.client_config.tracked_shards =
+                (0..near_config.genesis.config.shard_layout.num_shards()).collect();
+            (setup_actix(), near_config, home)
         },
-        |sys| {
+        |(sys, near_config, home)| {
             let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
-            let near_config = near_config.clone();
             let servers = block_on_interruptible(&sys, async move {
                 let (mock_network, _client, view_client, servers) = setup_mock_node(
                     tempdir.path(),
-                    home_dir,
+                    home.as_path(),
                     near_config,
                     MockNetworkMode::NoNewBlocks,
                     Duration::from_millis(100),
@@ -128,7 +125,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
                         }
                     }
                     if started.elapsed() > Duration::from_secs(target_height * 5) {
-                        panic!("mock_node sync bench timed out with home dir {:?}, target height {:?}", home_dir, target_height);
+                        panic!("mock_node sync bench timed out with home dir {:?}, target height {:?}", &home, target_height);
                     }
                 }
                 servers
