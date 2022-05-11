@@ -3141,6 +3141,7 @@ dependencies = [
  "derive_more",
  "easy-ext",
  "hex",
+ "insta",
  "near-crypto",
  "near-primitives-core",
  "near-rpc-error-macro",

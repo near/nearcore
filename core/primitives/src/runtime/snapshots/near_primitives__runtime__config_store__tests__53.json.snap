@@ -1,3 +1,7 @@
+---
+source: core/primitives/src/runtime/config_store.rs
+expression: store.get_config(*version)
+---
 {
   "storage_amount_per_byte": "10000000000000000000",
   "transaction_costs": {
@@ -149,19 +153,12 @@
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
-      "validator_total_stake_base": 911834726400,
-      "alt_bn128_g1_multiexp_base": 713006929500,
-      "alt_bn128_g1_multiexp_element": 3335092461,
-      "alt_bn128_pairing_check_base": 9685508901000,
-      "alt_bn128_pairing_check_element": 26575188546,
-      "alt_bn128_g1_sum_base": 3175314375,
-      "alt_bn128_g1_sum_element": 76218543
+      "validator_total_stake_base": 911834726400
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
-      "max_gas_burnt_view": 300000000000000,
       "max_stack_height": 16384,
       "stack_limiter_version": 1,
       "initial_memory_pages": 1024,
