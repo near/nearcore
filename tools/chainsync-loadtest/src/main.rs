@@ -18,6 +18,7 @@ use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
+use near_o11y::ColorOutput;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use nearcore::config;
@@ -134,7 +135,7 @@ fn main() {
         .finish()
         .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let _subscriber = near_o11y::default_subscriber(env_filter).global();
+    let _subscriber = near_o11y::default_subscriber(env_filter, ColorOutput::Auto).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

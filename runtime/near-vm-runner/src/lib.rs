@@ -3,6 +3,7 @@
 mod cache;
 mod errors;
 mod imports;
+mod instrument;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
 #[cfg(target_arch = "x86_64")]

@@ -14,6 +14,7 @@ _IS_DARWIN = _UNAME == 'Darwin'
 _BASEHREF = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
 _REPO_DIR = pathlib.Path(__file__).resolve().parents[2]
 _OUT_DIR = _REPO_DIR / 'target/debug'
+_IS_NAYDUCK = bool(os.getenv('NAYDUCK'))
 
 
 def current_branch() -> str:
@@ -163,6 +164,7 @@ def __download_file_if_missing(filename: pathlib.Path, url: str) -> None:
     proto = '"=https"' if _IS_DARWIN else '=https'
     cmd = ('curl', '--proto', proto, '--tlsv1.2', '-sSfL', url)
     name = None
+    filename.parent.mkdir(parents=True, exist_ok=True)
     try:
         with tempfile.NamedTemporaryFile(dir=filename.parent,
                                          delete=False) as tmp:
@@ -207,29 +209,48 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
         object specify, well, the latest release and deploy running in
         production at the chain.
     """
-    if chain_id not in ('mainnet', 'testnet', 'betanet'):
-        raise ValueError(f'Unexpected chain_id: {chain_id}; '
-                         'expected mainnet, testnet or betanet')
+    release, deploy, stable = __get_executables_for(chain_id)
 
-    is_nayduck = bool(os.getenv('NAYDUCK'))
-    if is_nayduck:
+    if _IS_NAYDUCK:
         # On NayDuck the file is fetched from a builder host so there’s no need
         # to build it.
         current = Executables(_OUT_DIR, _OUT_DIR / 'neard')
     else:
         current = _compile_current(current_branch())
 
-    release, deploy = __get_latest_deploy(chain_id)
-    try:
-        stable = __download_binary(release, deploy)
-    except Exception as e:
-        if is_nayduck:
-            logger.exception('RC binary should be downloaded for NayDuck.', e)
-        else:
-            logger.exception(e)
-        stable = _compile_binary(release)
-
     return ABExecutables(stable=stable,
                          current=current,
                          release=release,
                          deploy=deploy)
+
+
+def __get_executables_for(chain_id: str) -> typing.Tuple[str, str, Executables]:
+    """Returns latest deploy at given chain."""
+    if chain_id not in ('mainnet', 'testnet', 'betanet'):
+        raise ValueError(f'Unexpected chain_id: {chain_id}; '
+                         'expected mainnet, testnet or betanet')
+
+    release, deploy = __get_latest_deploy(chain_id)
+    try:
+        executable = __download_binary(release, deploy)
+    except Exception as e:
+        if _IS_NAYDUCK:
+            logger.exception('RC binary should be downloaded for NayDuck.', e)
+        else:
+            logger.exception(e)
+        executable = _compile_binary(release)
+    return release, deploy, executable
+
+
+def get_executables_for(chain_id: str) -> Executables:
+    """Prepares executable at HEAD and latest deploy at given chain.
+
+    Args:
+        chain_id: Chain id to get latest deployed executable for.  Can be
+            ‘master’, ‘testnet’ or ‘betanet’.
+    Returns:
+        An Executables object where pointing at executable which is deployed in
+        production at given chain.
+    """
+    _, _, executable = __get_executables_for(chain_id)
+    return executable

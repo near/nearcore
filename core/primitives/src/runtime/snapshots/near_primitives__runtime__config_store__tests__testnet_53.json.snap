@@ -1,3 +1,7 @@
+---
+source: core/primitives/src/runtime/config_store.rs
+expression: store.get_config(*version)
+---
 {
   "storage_amount_per_byte": "10000000000000000000",
   "transaction_costs": {
@@ -32,7 +36,7 @@
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
         "send_not_sir": 6812999,
-        "execution": 6812999
+        "execution": 64572944
       },
       "function_call_cost": {
         "send_sir": 2319861500000,
@@ -144,23 +148,17 @@
       "storage_iter_next_key_byte": 0,
       "storage_iter_next_value_byte": 0,
       "touching_trie_node": 16101955926,
+      "read_cached_trie_node": 2280000000,
       "promise_and_base": 1465013400,
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
-      "validator_total_stake_base": 911834726400,
-      "alt_bn128_g1_multiexp_base": 713006929500,
-      "alt_bn128_g1_multiexp_element": 3335092461,
-      "alt_bn128_pairing_check_base": 9685508901000,
-      "alt_bn128_pairing_check_element": 26575188546,
-      "alt_bn128_g1_sum_base": 3175314375,
-      "alt_bn128_g1_sum_element": 76218543
+      "validator_total_stake_base": 911834726400
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "limit_config": {
-      "max_gas_burnt": 200000000000000,
-      "max_gas_burnt_view": 200000000000000,
+      "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,
       "stack_limiter_version": 1,
       "initial_memory_pages": 1024,
@@ -178,11 +176,13 @@
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
-      "max_length_storage_key": 4194304,
+      "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
-      "max_functions_number_per_contract": 10000
+      "max_functions_number_per_contract": 10000,
+      "wasmer2_stack_limit": 204800,
+      "max_locals_per_contract": 1000000
     }
   },
   "account_creation_config": {

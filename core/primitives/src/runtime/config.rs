@@ -2,9 +2,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::VMConfig;
+use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
+use crate::runtime::parameter_table::ParameterTable;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
+
+use super::parameter_table::InvalidConfigError;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -23,6 +27,18 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    pub(crate) fn new(params: &ParameterTable) -> Result<Self, InvalidConfigError> {
+        serde_json::from_value(params.runtime_config_json())
+            .map_err(InvalidConfigError::WrongStructure)
+    }
+
+    pub fn initial_testnet_config() -> RuntimeConfig {
+        INITIAL_TESTNET_CONFIG
+            .parse()
+            .and_then(|params| RuntimeConfig::new(&params))
+            .expect("Failed parsing initial testnet config")
+    }
+
     pub fn test() -> Self {
         RuntimeConfig {
             // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.

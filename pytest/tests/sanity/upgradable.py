@@ -32,14 +32,18 @@ def get_executables() -> branches.ABExecutables:
 
 
 def test_protocol_versions() -> None:
-    """Verify that ‘stable’ and ‘current’ protocol versions differ by at most 1.
+    """Verify that mainnet, testnet and current protocol versions differ by ≤ 1.
 
-    Checks whether the protocol number’s used by the latest release and current
-    binary do not differed by more than one.  This is because some protocol
+    Checks whether the protocol versions used by the latest mainnet, the latest
+    testnet and current binary do not differed by more than one.  Some protocol
     features implementations rely on the fact that no protocol version is
     skipped.  See <https://github.com/near/nearcore/issues/4956>.
+
+    This test downloads the latest official mainnet and testnet binaries.  If
+    that fails for whatever reason, builds each of those executables.
     """
     executables = get_executables()
+    testnet = branches.get_executables_for('testnet')
 
     def get_proto_version(exe: pathlib.Path) -> int:
         line = subprocess.check_output((exe, '--version'), text=True)
@@ -48,15 +52,18 @@ def test_protocol_versions() -> None:
                    f'Got {line.rstrip()} on standard output')
         return m.group(1), int(m.group(2))
 
-    stable_release, stable_proto = get_proto_version(executables.stable.neard)
-    curr_release, curr_proto = get_proto_version(executables.current.neard)
-    assert stable_proto == curr_proto or stable_proto + 1 == curr_proto, (
-        f'If changed, protocol version of a new release can increase by at '
-        'most one.\n'
-        f'Got protocol {stable_proto} version in release {stable_release}\n'
-        f'but protocol {curr_proto} version in {curr_release}')
-    logger.info(f'Got proto {stable_proto} in release {stable_release} and '
-                f'and proto {curr_proto} in {curr_release}')
+    main_release, main_proto = get_proto_version(executables.stable.neard)
+    test_release, test_proto = get_proto_version(testnet.neard)
+    _, head_proto = get_proto_version(executables.current.neard)
+
+    logger.info(f'Got protocol {main_proto} in mainnet release {main_release}.')
+    logger.info(f'Got protocol {test_proto} in testnet release {test_release}.')
+    logger.info(f'Got protocol {head_proto} on master branch.')
+
+    ok = (head_proto in (test_proto, test_proto + 1) and
+          test_proto in (main_proto, main_proto + 1))
+    assert ok, ('If changed, protocol version of a new release can increase by '
+                'at most one.')
 
 
 def test_upgrade() -> None:
