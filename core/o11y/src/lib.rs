@@ -120,6 +120,7 @@ pub fn default_subscriber(
 
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
         .with_ansi(ansi)
+        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,

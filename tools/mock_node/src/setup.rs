@@ -137,6 +137,7 @@ pub fn setup_mock_node(
     target_height: Option<BlockHeight>,
     in_memory_storage: bool,
 ) -> (Addr<MockPeerManagerActor>, Addr<ClientActor>, Addr<ViewClientActor>) {
+    let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
     let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
@@ -233,6 +234,14 @@ pub fn setup_mock_node(
             (0..num_parts)
                 .into_par_iter()
                 .try_for_each(|part_id| -> anyhow::Result<()> {
+                    let _span = tracing::debug_span!(
+                        target: "mock_node",
+                        parent: &parent_span,
+                        "obtain_and_apply_state_part",
+                        part_id,
+                        shard_id)
+                    .entered();
+
                     let state_part = mock_network_runtime
                         .obtain_state_part(
                             shard_id,
