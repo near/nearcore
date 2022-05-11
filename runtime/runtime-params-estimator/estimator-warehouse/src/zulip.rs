@@ -74,6 +74,10 @@ impl ZulipReport {
             Notice::RelativeChange(change) => self.changes.push(change),
         }
     }
+
+    pub(crate) fn changes(&self) -> &[RelativeChange] {
+        self.changes.as_ref()
+    }
 }
 
 impl std::fmt::Display for ZulipReport {
