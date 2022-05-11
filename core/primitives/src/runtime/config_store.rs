@@ -105,12 +105,9 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::LowerStorageCost;
     use crate::version::ProtocolFeature::{
-        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageKeyLimit,
+        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
-    use near_primitives_core::hash::hash;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -244,7 +241,10 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
 
         for version in store.store.keys() {
+            #[cfg(not(feature = "nightly_protocol_features"))]
             let snapshot_name = format!("{version}.json");
+            #[cfg(feature = "nightly_protocol_features")]
+            let snapshot_name = format!("nightly_{version}.json");
             insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
         }
 
@@ -254,7 +254,10 @@ mod tests {
         let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
 
         for version in testnet_store.store.keys() {
+            #[cfg(not(feature = "nightly_protocol_features"))]
             let snapshot_name = format!("testnet_{version}.json");
+            #[cfg(feature = "nightly_protocol_features")]
+            let snapshot_name = format!("nightly_testnet_{version}.json");
             insta::assert_json_snapshot!(snapshot_name, store.get_config(*version));
         }
     }
