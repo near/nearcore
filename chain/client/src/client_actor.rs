@@ -1430,11 +1430,12 @@ impl ClientActor {
             target: "client",
             "receive_block",
             me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
-            prev_hash = ?block.header().prev_hash(),
+            prev_hash = %block.header().prev_hash(),
             %hash,
             height = block.header().height(),
             %peer_id,
-            was_requested);
+            was_requested)
+        .entered();
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
