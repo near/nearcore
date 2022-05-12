@@ -339,12 +339,6 @@ impl From<io::Error> for Error {
     }
 }
 
-impl<'a> From<&'a str> for Error {
-    fn from(error: &'a str) -> Self {
-        Self { inner: anyhow::Error::new(ErrorKind::Other(error.to_string())) }
-    }
-}
-
 impl std::error::Error for Error {}
 
 impl From<EpochError> for Error {
