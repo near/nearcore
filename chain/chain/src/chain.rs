@@ -1470,24 +1470,25 @@ impl Chain {
         // we can safely unwrap here because the error won't happen, we already called add_preprocessed_block
         self.processing_blocks.add_applied_block(block_hash.clone(), apply_results).unwrap();
 
-        self.check_applied_blocks(me, &block_hash, provenance, block_accepted)
+        // TODO: this will be moved out of process_block once we make do_apply_chunks async
+        self.try_and_store_applied_blocks(me, &block_hash, provenance, block_accepted)
     }
 
-    fn check_applied_blocks(
+    /// Check if there are any block that finishes applying chunks. Run postprocessing on these blocks
+    /// to store the processed blocks in storage
+    fn try_and_store_applied_blocks(
         &mut self,
         me: &Option<AccountId>,
         block_hash: &CryptoHash,
         provenance: Provenance,
         block_accepted: &mut dyn FnMut(AcceptedBlock),
     ) -> Result<Option<Tip>, Error> {
-        // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
-        //    which will be committed to storage all at once.
         let mut maybe_new_head = None;
         let applied_blocks = self.processing_blocks.take_applied_blocks();
         // TODO: remove these two lines. They are only temporary before we made do_apply_chunks asynchronous
         assert_eq!(applied_blocks.len(), 1);
         assert_eq!(applied_blocks[0].0.hash(), block_hash);
-        // TODO: the handling of error here is not correct right now when there are more than one applied blocks.
+
         for (block, block_preprocess_info, apply_results) in applied_blocks {
             let prev_head = self.store.head()?;
             let mut chain_update = self.chain_update();
@@ -1535,6 +1536,7 @@ impl Chain {
                         maybe_new_head = head;
                     }
                 }
+                // TODO: the handling of error here is not correct right now when there are more than one applied blocks.
                 Err(e) => return Err(e),
             }
         }
