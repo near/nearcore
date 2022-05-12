@@ -10,7 +10,7 @@ use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Span};
 
 use near_chain_primitives::error::{BlockKnownError, Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -1097,13 +1097,13 @@ impl Chain {
                     match chain_update.mark_block_as_challenged(&block_hash, None) {
                         Ok(()) => {}
                         Err(err) => {
-                            warn!(target: "chain", ?block_hash, error=?err, "Error saving block as challenged");
+                            warn!(target: "chain", %block_hash, error = ?err, "Error saving block as challenged");
                         }
                     }
                 }
             }
             Err(err) => {
-                warn!(target: "chain", error=?err, "Invalid challenge: {:#?}", challenge);
+                warn!(target: "chain", error = ?err, "Invalid challenge: {:#?}", challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
@@ -1376,16 +1376,18 @@ impl Chain {
         orphan_misses_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<Option<Tip>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
-                .entered();
+        let block_height = block.header().height();
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "process_block_single_impl",
+            height = block_height)
+        .entered();
 
         let prev_head = self.store.head()?;
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
         let preprocess_res = self.preprocess_block(me, &block, &provenance, on_challenge);
-        let block_height = block.header().height();
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
             Err(e) => {
@@ -1524,7 +1526,7 @@ impl Chain {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<
         (
-            Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
             BlockPreprocessInfo,
         ),
         Error,
@@ -3676,6 +3678,7 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
             self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
         })
@@ -3709,10 +3712,14 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-    ) -> Result<Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>, Error>
-    {
-        let mut result: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>> =
-            Vec::new();
+    ) -> Result<
+        Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+        Error,
+    > {
+        let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
+        let mut result: Vec<
+            Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>,
+        > = Vec::new();
         #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
@@ -3882,7 +3889,13 @@ impl<'a> ChainUpdate<'a> {
                     #[cfg(feature = "sandbox")]
                     let states_to_patch = self.states_to_patch.take();
 
-                    result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                    result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                        let _span = tracing::debug_span!(
+                            target: "chain",
+                            parent: parent_span,
+                            "new_chunk",
+                            shard_id)
+                        .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime_adapter.apply_transactions(
                             shard_id,
@@ -3947,7 +3960,13 @@ impl<'a> ChainUpdate<'a> {
                     #[cfg(not(feature = "sandbox"))]
                     let _ = self.states_to_patch;
 
-                    result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                    result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                        let _span = tracing::debug_span!(
+                            target: "chain",
+                            parent: parent_span,
+                            "existing_chunk",
+                            shard_id)
+                        .entered();
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             new_extra.state_root(),
@@ -4004,7 +4023,14 @@ impl<'a> ChainUpdate<'a> {
                     .get_state_changes_for_split_states(block.hash(), shard_id)?;
                 let runtime_adapter = self.runtime_adapter.clone();
                 let block_hash = *block.hash();
-                result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
+                result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                    let _span = tracing::debug_span!(
+                        target: "chain",
+                        parent: parent_span,
+                        "split_state",
+                        shard_id,
+                        ?shard_uid)
+                    .entered();
                     Ok(ApplyChunkResult::SplitState(SplitStateResult {
                         shard_uid,
                         results: runtime_adapter.apply_update_to_split_states(
@@ -4342,12 +4368,12 @@ impl<'a> ChainUpdate<'a> {
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<
         (
-            Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
             BlockPreprocessInfo,
         ),
         Error,
     > {
-        debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
+        debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -4534,7 +4560,7 @@ impl<'a> ChainUpdate<'a> {
         } = preprocess_block_info;
 
         if !is_caught_up {
-            debug!("Add block to catch up {:?} {:?}", prev_hash, *block.hash());
+            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
             self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
         }
 
@@ -5105,7 +5131,11 @@ impl<'a> ChainUpdate<'a> {
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
-        debug!(target: "chain", "Verifying challenges {:?}", challenges);
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "verify_challenges",
+            ?challenges)
+        .entered();
         let mut result = vec![];
         let mut challenged_blocks = vec![];
         for challenge in challenges.iter() {
@@ -5152,9 +5182,16 @@ impl<'a> ChainUpdate<'a> {
 }
 
 pub fn do_apply_chunks(
-    work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send>>,
+    work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 ) -> Vec<Result<ApplyChunkResult, Error>> {
-    work.into_par_iter().map(|task| task()).collect::<Vec<_>>()
+    let parent_span = tracing::debug_span!(target: "chain", "do_apply_chunks").entered();
+    work.into_par_iter()
+        .map(|task| {
+            // As chunks can be processed in parallel, make sure they are all tracked as children of
+            // a single span.
+            task(&parent_span)
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
@@ -5196,7 +5233,7 @@ pub struct ApplyStatePartsResponse {
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
-    pub work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send>>,
+    pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
 #[derive(Message)]

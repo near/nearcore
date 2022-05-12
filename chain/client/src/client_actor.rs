@@ -255,6 +255,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="NetworkClientMessages")
+        .entered();
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -716,6 +721,7 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", handler="Status").entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -939,6 +945,11 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="GetNetworkInfo")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -1162,6 +1173,7 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
@@ -1256,6 +1268,7 @@ impl ClientActor {
     }
 
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(Clock::instant());
 
@@ -1287,6 +1300,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();
@@ -1316,6 +1330,11 @@ impl ClientActor {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_accepted_blocks",
+            num_blocks = accepted_blocks.len())
+        .entered();
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
                 accepted_block.hash,
@@ -1349,6 +1368,12 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_block",
+            height = block.header().height())
+        .entered();
+        debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
@@ -1401,16 +1426,25 @@ impl ClientActor {
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        let _span = tracing::debug_span!(
+            target: "client",
+            "receive_block",
+            me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            prev_hash = %block.header().prev_hash(),
+            %hash,
+            height = block.header().height(),
+            %peer_id,
+            was_requested)
+        .entered();
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            debug!(target: "client", head_height = head.height, "Dropping a block that is too far ahead.");
             return;
         }
         let tail = unwrap_or_return!(self.client.chain.tail());
         if block.header().height() < tail {
-            debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
+            debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
         }
         let prev_hash = *block.header().prev_hash();
@@ -1419,7 +1453,7 @@ impl ClientActor {
         match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                warn!(target: "client", "receive bad block: {}", err);
+                warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
@@ -1443,7 +1477,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {:?}", hash, e.kind());
+                    debug!(target: "client", error = %e, "Process block: refused by chain");
                 }
             },
         }
@@ -1813,6 +1847,7 @@ impl ClientActor {
 
     /// Print current summary.
     fn log_summary(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         let is_syncing = self.client.sync_status.is_syncing();
         let head = unwrap_or_return!(self.client.chain.head());

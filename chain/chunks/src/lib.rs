@@ -889,6 +889,11 @@ impl ShardsManager {
 
     /// Resends chunk requests if haven't received it within expected time.
     pub fn resend_chunk_requests(&mut self, header_head: &Tip) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "resend_chunk_requests",
+            header_head_height = header_head.height)
+        .entered();
         // Process chunk one part requests.
         let requests = self.requested_partial_encoded_chunks.fetch();
         for (chunk_hash, chunk_request) in requests {
@@ -1005,7 +1010,16 @@ impl ShardsManager {
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
     ) {
-        debug!(target: "chunks", "Received partial encoded chunk request for {:?}, part_ordinals: {:?}, shards: {:?}, I'm {:?}", request.chunk_hash.0, request.part_ords, request.tracking_shards, self.me);
+        let _span = tracing::debug_span!(
+            target: "chunks",
+            "process_partial_encoded_chunk_request",
+            chunk_hash = %request.chunk_hash.0)
+        .entered();
+        debug!(target: "chunks",
+            chunk_hash = %request.chunk_hash.0,
+            part_ords = ?request.part_ords,
+            shards = ?request.tracking_shards,
+            account = ?self.me);
 
         let (started, key, response) =
             self.prepare_partial_encoded_chunk_response(request, chain_store, rs);
