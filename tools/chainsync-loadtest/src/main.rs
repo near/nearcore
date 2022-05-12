@@ -135,7 +135,7 @@ fn main() {
         .finish()
         .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let _subscriber = near_o11y::default_subscriber(env_filter, ColorOutput::Auto).global();
+    let _subscriber = near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

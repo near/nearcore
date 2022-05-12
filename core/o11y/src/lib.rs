@@ -100,7 +100,7 @@ fn is_terminal() -> bool {
 ///
 /// ```rust
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = near_o11y::default_subscriber(filter, near_o11y::ColorOutput::Auto);
+/// let _subscriber = near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto);
 /// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
 /// ```
 pub fn default_subscriber(
