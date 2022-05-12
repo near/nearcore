@@ -1,14 +1,10 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::Path;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Instant;
-
+use crate::metrics;
+use crate::migrations::load_migration_data;
+use crate::shard_tracker::{ShardTracker, TrackedConfig};
+use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
-use tracing::{debug, error, info, warn};
-
+use errors::FromStateViewerErrors;
 use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
@@ -30,9 +26,15 @@ use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::{
+    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
+};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
+use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -45,6 +47,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
+use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
@@ -52,25 +55,20 @@ use near_store::{
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::config::RuntimeConfig;
+use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-
-use crate::metrics;
-use crate::migrations::load_migration_data;
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
-use crate::NearConfig;
-use errors::FromStateViewerErrors;
-use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::shard_layout::{
-    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
-};
-use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
-use near_store::split_state::get_delayed_receipts;
-use node_runtime::near_primitives::shard_layout::ShardLayoutError;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::Instant;
+use tracing::{debug, error, info, warn};
 
 pub mod errors;
 
@@ -262,8 +260,7 @@ impl NightshadeRuntime {
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
-                let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 RuntimeConfigStore::new(Some(&genesis_runtime_config))
             }
             _ => RuntimeConfigStore::new(None),
@@ -529,10 +526,7 @@ impl NightshadeRuntime {
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
-        debug!(target: "runtime",
-               "epoch height: {:?}, epoch id: {:?}, current_protocol_version: {:?}, is_first_block_of_version: {}",
-               epoch_height, &epoch_id, current_protocol_version, is_first_block_of_version,
-        );
+        debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -630,6 +624,11 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "precompile_contracts",
+            num_contracts = contract_codes.len())
+        .entered();
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
@@ -1365,7 +1364,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 || (block_header_info.proposals.is_empty()
                     && block_header_info.slashed_validators.is_empty())
         );
-        debug!(target: "runtime", "add validator proposals at block height {} {:?}", block_header_info.height, block_header_info.proposals);
+        debug!(target: "runtime",
+            height = block_header_info.height,
+            proposals = ?block_header_info.proposals,
+            "add_validator_proposals");
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write();
         let block_info = BlockInfo::new(

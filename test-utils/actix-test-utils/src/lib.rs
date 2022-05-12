@@ -55,7 +55,7 @@ macro_rules! handle_interrupt {
                         Poll::Pending
                     })
                 }.fuse() => panic!("SIGINT received"),
-                _ = $future.fuse() => {},
+                output = $future.fuse() => output,
             }
         }
     };
@@ -64,19 +64,15 @@ macro_rules! handle_interrupt {
 #[inline]
 pub fn spawn_interruptible<F: std::future::Future + 'static>(
     f: F,
-) -> actix_rt::task::JoinHandle<()> {
+) -> actix_rt::task::JoinHandle<F::Output> {
     actix_rt::spawn(handle_interrupt!(f))
 }
 
 // Number of actix instances that are currently running.
 pub(crate) static ACTIX_INSTANCES_COUNTER: Lazy<Mutex<usize>> = Lazy::new(|| (Mutex::new(0)));
 
-pub fn run_actix<F: std::future::Future>(f: F) {
+pub fn setup_actix() -> actix_rt::SystemRunner {
     static SET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
-    {
-        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
-        *value += 1;
-    }
 
     // This is a workaround to make actix/tokio runtime stop when a task panics.
     // See: https://github.com/actix/actix-net/issues/80
@@ -108,9 +104,24 @@ pub fn run_actix<F: std::future::Future>(f: F) {
             })
             .expect("failed to spawn SIGINT handler thread");
     });
+    actix_rt::System::new()
+}
 
-    let sys = actix_rt::System::new();
-    sys.block_on(handle_interrupt!(f));
+pub fn block_on_interruptible<F: std::future::Future>(
+    sys: &actix_rt::SystemRunner,
+    f: F,
+) -> F::Output {
+    sys.block_on(handle_interrupt!(f))
+}
+
+pub fn run_actix<F: std::future::Future>(f: F) {
+    {
+        let mut value = ACTIX_INSTANCES_COUNTER.lock().unwrap();
+        *value += 1;
+    }
+
+    let sys = setup_actix();
+    block_on_interruptible(&sys, f);
     sys.run().unwrap();
 
     {

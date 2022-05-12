@@ -88,7 +88,7 @@ fn main() {
         args.client_home_dir.unwrap_or(String::from(tempdir.path().to_str().unwrap()));
     let network_delay = Duration::from_millis(args.network_delay);
     run_actix(async move {
-        let (mock_network, _client, view_client) = setup_mock_node(
+        let (mock_network, _client, view_client, _) = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,

@@ -14,12 +14,15 @@ name = "start_mock_node"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2"
+actix-web = "=4.0.0-beta.6"
 anyhow = "1.0.55"
 clap = { version = "3.1.6", features = ["derive"] }
+flate2 = "1.0.22"
 futures = "0.3"
 rand = "0.7"
 rayon = "1.5"
 regex = "1"
+tar = "0.4.38"
 tempfile = "3"
 tracing = "0.1.13"
 
@@ -38,6 +41,13 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-primitives = { path = "../../core/primitives" }
 near-logger-utils = { path = "../../test-utils/logger" }
 nearcore = { path = "../../nearcore" }
+
+[dev-dependencies]
+criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
+
+[[bench]]
+name = "sync"
+harness = false
 
 [features]
 default = ["mock_node"]
