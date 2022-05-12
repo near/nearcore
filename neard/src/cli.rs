@@ -1,14 +1,19 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, BuildEnvFilterError, ColorOutput, EnvFilterBuilder};
+use near_o11y::{
+    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubcriberGuard, EnvFilterBuilder,
+};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use nearcore::get_store_path;
+use std::cell::Cell;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
@@ -27,17 +32,11 @@ pub(super) struct NeardCmd {
 impl NeardCmd {
     pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
-        let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter =
-            EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
-        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-        // This is hidden by default so we enable it for sandbox node.
-        let env_filter = if cfg!(feature = "sandbox") {
-            env_filter.add_directive("sandbox=debug".parse().unwrap())
-        } else {
-            env_filter
-        };
-        let _subscriber = default_subscriber(env_filter, neard_cmd.opts.color).global();
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        // Opentelemetry needs a running Tokio system to report spans asynchronously and in batches,
+        // which is great for the overall system performance.
+        let _subscriber_guard = runtime.block_on(async { init_logging(&neard_cmd.opts).unwrap() });
 
         info!(
             target: "neard",
@@ -76,7 +75,7 @@ impl NeardCmd {
                 );
                 cmd.run(&home_dir);
             }
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
@@ -98,6 +97,23 @@ impl NeardCmd {
         };
         Ok(())
     }
+}
+
+fn init_logging(
+    opts: &NeardOpts,
+) -> Result<DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
+    let verbose = opts.verbose.as_deref();
+    let env_filter =
+        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
+    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+    // This is hidden by default so we enable it for sandbox node.
+    let env_filter = if cfg!(feature = "sandbox") {
+        env_filter.add_directive("sandbox=debug".parse().unwrap())
+    } else {
+        env_filter
+    };
+    let subscriber = default_subscriber(env_filter, &opts.color).global();
+    Ok(subscriber)
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -356,7 +372,12 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+    pub(super) fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+        runtime: Runtime,
+    ) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -421,7 +442,7 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<()>();
-        let sys = actix::System::new();
+        let sys = new_actix_system(runtime);
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
@@ -440,6 +461,19 @@ impl RunCmd {
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
+}
+
+/// Creates a new actix SystemRunner using the given tokio Runtime.
+fn new_actix_system(runtime: Runtime) -> SystemRunner {
+    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
+    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
+    // using a `swap` of `Cell<Option<Runtime>>`s.
+    let runtime_cell = Cell::new(Some(runtime));
+    actix::System::with_tokio_rt(|| {
+        let r = Cell::new(None);
+        runtime_cell.swap(&r);
+        r.into_inner().unwrap()
+    })
 }
 
 #[cfg(not(unix))]

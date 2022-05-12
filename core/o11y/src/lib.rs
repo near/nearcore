@@ -105,7 +105,7 @@ fn is_terminal() -> bool {
 /// ```
 pub fn default_subscriber(
     log_filter: EnvFilter,
-    color_output: ColorOutput,
+    color_output: &ColorOutput,
 ) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
@@ -137,7 +137,7 @@ pub fn default_subscriber(
     let subscriber = {
         let tracer = opentelemetry_jaeger::new_pipeline()
             .with_service_name("neard")
-            .install_simple()
+            .install_batch(opentelemetry::runtime::Tokio)
             .unwrap();
         let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
         subscriber.with(opentelemetry)
