@@ -1,10 +1,11 @@
-use std::{io, path::PathBuf};
-
 use check::{check, CheckConfig};
 use clap::{Parser, Subcommand};
 use db::{Db, EstimationRow, ParameterRow};
 use estimate::{run_estimation, EstimateConfig};
 use import::ImportConfig;
+use std::fmt::Write;
+use std::io::{self, Read};
+use std::path::PathBuf;
 
 mod check;
 mod db;
@@ -45,13 +46,16 @@ fn main() -> anyhow::Result<()> {
             run_estimation(&db, &config)?;
         }
         SubCommand::Import(config) => {
-            db.import_json_lines(&config, io::stdin().lock())?;
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf)?;
+            db.import_json_lines(&config, &buf)?;
         }
         SubCommand::Check(config) => {
             check(&db, &config)?;
         }
         SubCommand::Stats => {
-            print_stats(&db)?;
+            let stats = generate_stats(&db)?;
+            eprintln!("{stats}");
         }
     }
 
@@ -65,13 +69,15 @@ enum Metric {
     Time,
 }
 
-fn print_stats(db: &Db) -> anyhow::Result<()> {
-    eprintln!("");
-    eprintln!("{:=^72}", " Warehouse statistics ");
-    eprintln!("");
-    eprintln!("{:>24}{:>24}{:>24}", "metric", "records", "last updated");
-    eprintln!("{:>24}{:>24}{:>24}", "------", "-------", "------------");
-    eprintln!(
+fn generate_stats(db: &Db) -> anyhow::Result<String> {
+    let mut buf = String::new();
+    writeln!(&mut buf, "")?;
+    writeln!(&mut buf, "{:=^72}", " Warehouse statistics ")?;
+    writeln!(&mut buf, "")?;
+    writeln!(&mut buf, "{:>24}{:>24}{:>24}", "metric", "records", "last updated")?;
+    writeln!(&mut buf, "{:>24}{:>24}{:>24}", "------", "-------", "------------")?;
+    writeln!(
+        &mut buf,
         "{:>24}{:>24}{:>24}",
         "icount",
         EstimationRow::count_by_metric(&db, Metric::ICount)?,
@@ -79,8 +85,9 @@ fn print_stats(db: &Db) -> anyhow::Result<()> {
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
-    );
-    eprintln!(
+    )?;
+    writeln!(
+        &mut buf,
         "{:>24}{:>24}{:>24}",
         "time",
         EstimationRow::count_by_metric(&db, Metric::Time)?,
@@ -88,8 +95,9 @@ fn print_stats(db: &Db) -> anyhow::Result<()> {
             .map(|dt| dt.to_string())
             .as_deref()
             .unwrap_or("never")
-    );
-    eprintln!(
+    )?;
+    writeln!(
+        &mut buf,
         "{:>24}{:>24}{:>24}",
         "parameter",
         ParameterRow::count(&db)?,
@@ -97,9 +105,35 @@ fn print_stats(db: &Db) -> anyhow::Result<()> {
             .map(|version| format!("v{version}"))
             .as_deref()
             .unwrap_or("never")
-    );
-    eprintln!("");
-    eprintln!("{:=^72}", " END STATS ");
+    )?;
+    writeln!(&mut buf, "")?;
+    writeln!(&mut buf, "{:=^72}", " END STATS ")?;
 
-    Ok(())
+    Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_stats;
+    use crate::db::Db;
+
+    #[test]
+    fn test_stats() {
+        let input = r#"
+        ae7f1cd2
+        {"computed_in":{"nanos":222,"secs":1},"name":"LogBase","result":{"gas":1002000000.0,"time_ns":1002,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":671,"secs":18},"name":"LogBase","result":{"gas":1003000000.0,"instructions":8024.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+
+        be7f1cd2
+        {"computed_in":{"nanos":38,"secs":16},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":38,"secs":16},"name":"LogBase","result":{"gas":4000000000.0,"time_ns":4000,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":637,"secs":17},"name":"LogByte","result":{"gas":20100000.0,"instructions":160.8,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+
+        ce7f1cd2
+        {"computed_in":{"nanos":988,"secs":51},"name":"LogBase","result":{"gas":10000000000.0,"time_ns":10000,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":441,"secs":54},"name":"LogByte","result":{"gas":20000000.0,"instructions":160.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}"#;
+
+        let db = Db::test_with_data(input);
+        insta::assert_snapshot!(generate_stats(&db).unwrap());
+    }
 }

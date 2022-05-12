@@ -1,7 +1,7 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
+use near_o11y::{default_subscriber, BuildEnvFilterError, ColorOutput, EnvFilterBuilder};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -37,7 +37,7 @@ impl NeardCmd {
         } else {
             env_filter
         };
-        let _subscriber = default_subscriber(env_filter).global();
+        let _subscriber = default_subscriber(env_filter, neard_cmd.opts.color).global();
 
         info!(
             target: "neard",
@@ -104,6 +104,8 @@ impl NeardCmd {
 pub(crate) enum RunError {
     #[error("invalid logging directives provided")]
     EnvFilter(#[source] BuildEnvFilterError),
+    #[error("could not install a rayon thread pool")]
+    RayonInstall(#[source] rayon::ThreadPoolBuildError),
 }
 
 #[derive(Parser)]
@@ -139,6 +141,9 @@ struct NeardOpts {
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     pub unsafe_fast_startup: bool,
+    /// Whether the log needs to be colored.
+    #[clap(long, arg_enum, default_value = "auto")]
+    pub color: ColorOutput,
 }
 
 #[derive(Parser)]
@@ -423,7 +428,7 @@ impl RunCmd {
                     .expect("start_with_config");
 
             let sig = wait_for_interrupt_signal(home_dir, rx).await;
-            error!(target: "neard", "{}, stopping...", sig);
+            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.handle().stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -512,19 +517,19 @@ pub(super) struct RecompressStorageSubCommand {
     #[clap(long)]
     output_dir: PathBuf,
 
-    /// Keep data in ColPartialChunks column.  Data in that column can be
-    /// reconstructed from ColChunks is not needed by archival nodes.  This is
+    /// Keep data in DBCol::PartialChunks column.  Data in that column can be
+    /// reconstructed from DBCol::Chunks is not needed by archival nodes.  This is
     /// always true if node is not an archival node.
     #[clap(long)]
     keep_partial_chunks: bool,
 
-    /// Keep data in ColInvalidChunks column.  Data in that column is only used
+    /// Keep data in DBCol::InvalidChunks column.  Data in that column is only used
     /// when receiving chunks and is not needed to serve archival requests.
     /// This is always true if node is not an archival node.
     #[clap(long)]
     keep_invalid_chunks: bool,
 
-    /// Keep data in ColTrieChanges column.  Data in that column is never used
+    /// Keep data in DBCol::TrieChanges column.  Data in that column is never used
     /// by archival nodes.  This is always true if node is not an archival node.
     #[clap(long)]
     keep_trie_changes: bool,

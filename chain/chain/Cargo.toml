@@ -32,6 +32,8 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
+insta = "1"
+
 near-logger-utils = {path = "../../test-utils/logger"}
 
 [features]
@@ -56,5 +58,5 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
-mock_network = []
+mock_node = []
 sandbox = []

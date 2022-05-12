@@ -50,7 +50,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
 };
-use near_store::DBCol::ColStateParts;
+use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -255,6 +255,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="NetworkClientMessages")
+        .entered();
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -340,7 +345,7 @@ impl ClientActor {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
-                        for _ in store.iter(near_store::DBCol::ColBlock) {
+                        for _ in store.iter(DBCol::Block) {
                             num_blocks += 1;
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
@@ -643,11 +648,80 @@ impl ClientActor {
         }
     }
 }
+impl ClientActor {
+    /// Gets the information about the epoch that contains a given block.
+    /// Also returns the hash of the last block of the previous epoch.
+    fn get_epoch_info_view(
+        &mut self,
+        current_block: CryptoHash,
+    ) -> Result<(EpochInfoView, CryptoHash), Error> {
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
+
+        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
+        let epoch_id = block.header().epoch_id();
+        let validators: Vec<ValidatorInfo> = self
+            .client
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, &current_block)?
+            .into_iter()
+            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                account_id: validator_stake.take_account_id(),
+                is_slashed,
+            })
+            .collect();
+
+        return Ok((
+            EpochInfoView {
+                epoch_id: epoch_id.0,
+                height: block.header().height(),
+                first_block: Some((block.header().hash().clone(), block.header().timestamp())),
+                validators: validators.to_vec(),
+                protocol_version: self
+                    .client
+                    .runtime_adapter
+                    .get_epoch_protocol_version(epoch_id)
+                    .unwrap_or(0),
+            },
+            // Last block of the previous epoch.
+            *block.header().prev_hash(),
+        ));
+    }
+
+    fn get_next_epoch_view(&mut self) -> Result<EpochInfoView, Error> {
+        let head = self.client.chain.head()?;
+        let epoch_start_height =
+            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+
+        Ok(EpochInfoView {
+            epoch_id: head.next_epoch_id.0,
+            // Expected height of the next epoch.
+            height: epoch_start_height + self.client.config.epoch_length,
+            first_block: None,
+            validators: self
+                .client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.next_epoch_id, &head.last_block_hash)?
+                .into_iter()
+                .map(|(validator_stake, is_slashed)| ValidatorInfo {
+                    account_id: validator_stake.take_account_id(),
+                    is_slashed,
+                })
+                .collect(),
+            protocol_version: self
+                .client
+                .runtime_adapter
+                .get_epoch_protocol_version(&head.next_epoch_id)?,
+        })
+    }
+}
+
 impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", handler="Status").entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -715,6 +789,8 @@ impl Handler<Status> for ClientActor {
             let mut last_block_timestamp: u64 = 0;
             let mut last_block_height = head.height + 1;
 
+            let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+
             // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
             for _ in 0..50 {
                 let block = match self.client.chain.get_block(&last_block_hash) {
@@ -737,6 +813,7 @@ impl Handler<Status> for ClientActor {
                         chunks: vec![],
                         processing_time_ms: None,
                         timestamp_delta: 0,
+                        gas_price_ratio: 1.0,
                     });
                 }
 
@@ -781,10 +858,30 @@ impl Handler<Status> for ClientActor {
                     } else {
                         0
                     },
+                    gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
                 });
                 last_block_hash = block.header().prev_hash().clone();
                 last_block_timestamp = block.header().raw_timestamp();
                 last_block_height = block.header().height();
+            }
+
+            // Next epoch id
+            let mut epochs_info: Vec<EpochInfoView> = Vec::new();
+
+            if let Ok(next_epoch) = self.get_next_epoch_view() {
+                epochs_info.push(next_epoch);
+            }
+
+            let mut current_block = head.last_block_hash;
+            for _ in 0..5 {
+                if let Ok((epoch_view, block_previous_epoch)) =
+                    self.get_epoch_info_view(current_block)
+                {
+                    current_block = block_previous_epoch;
+                    epochs_info.push(epoch_view);
+                } else {
+                    break;
+                }
             }
 
             Some(DetailedDebugStatus {
@@ -807,25 +904,13 @@ impl Handler<Status> for ClientActor {
                     .chain
                     .blocks_with_missing_chunks
                     .list_blocks_by_height(),
-                epoch_info: EpochInfoView {
-                    epoch_id: head.epoch_id.0,
-                    height: epoch_start_height,
-                    first_block_hash: self
-                        .client
-                        .chain
-                        .get_block_by_height(epoch_start_height)?
-                        .header()
-                        .hash()
-                        .clone(),
-                    start_time: self
-                        .client
-                        .chain
-                        .get_block_by_height(epoch_start_height)?
-                        .header()
-                        .timestamp()
-                        .to_rfc3339(),
-                    validators: validators.to_vec(),
-                },
+                epochs_info,
+                block_production_delay_millis: self
+                    .client
+                    .config
+                    .min_block_production_delay
+                    .as_millis() as u64,
+                chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
             })
         } else {
             None
@@ -860,6 +945,11 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="GetNetworkInfo")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -1083,6 +1173,7 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
@@ -1177,6 +1268,7 @@ impl ClientActor {
     }
 
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(Clock::instant());
 
@@ -1208,6 +1300,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();
@@ -1237,6 +1330,11 @@ impl ClientActor {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_accepted_blocks",
+            num_blocks = accepted_blocks.len())
+        .entered();
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
                 accepted_block.hash,
@@ -1270,6 +1368,12 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_block",
+            height = block.header().height())
+        .entered();
+        debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
@@ -1322,16 +1426,25 @@ impl ClientActor {
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        let _span = tracing::debug_span!(
+            target: "client",
+            "receive_block",
+            me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            prev_hash = %block.header().prev_hash(),
+            %hash,
+            height = block.header().height(),
+            %peer_id,
+            was_requested)
+        .entered();
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            debug!(target: "client", head_height = head.height, "Dropping a block that is too far ahead.");
             return;
         }
         let tail = unwrap_or_return!(self.client.chain.tail());
         if block.header().height() < tail {
-            debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
+            debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
         }
         let prev_hash = *block.header().prev_hash();
@@ -1340,7 +1453,7 @@ impl ClientActor {
         match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                warn!(target: "client", "receive bad block: {}", err);
+                warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
@@ -1364,7 +1477,7 @@ impl ClientActor {
                 // we don't need to do anything here
                 near_chain::ErrorKind::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {:?}", hash, e.kind());
+                    debug!(target: "client", error = %e, "Process block: refused by chain");
                 }
             },
         }
@@ -1734,6 +1847,7 @@ impl ClientActor {
 
     /// Print current summary.
     fn log_summary(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         let is_syncing = self.client.sync_status.is_syncing();
         let head = unwrap_or_return!(self.client.chain.head());
@@ -1761,13 +1875,29 @@ impl ClientActor {
             None
         };
 
-        let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
-        let validator_epoch_stats = self
-            .client
-            .runtime_adapter
-            .get_validator_info(epoch_identifier)
-            .map(get_validator_epoch_stats)
-            .unwrap_or_default();
+        let validator_epoch_stats = if is_syncing {
+            // EpochManager::get_validator_info method (which is what runtime
+            // adapter calls) is expensive when node is syncing so we’re simply
+            // not collecting the statistics.  The statistics are used to update
+            // a few Prometheus metrics only so we prefer to leave the metrics
+            // unset until node finishes synchronising.  TODO(#6763): If we
+            // manage to get get_validator_info fasts again (or return an error
+            // if computation would be too slow), remove the ‘if is_syncing’
+            // check.
+            Default::default()
+        } else {
+            let epoch_identifier = ValidatorInfoIdentifier::BlockHash(head.last_block_hash);
+            self.client
+                .runtime_adapter
+                .get_validator_info(epoch_identifier)
+                .map(get_validator_epoch_stats)
+                .unwrap_or_default()
+        };
+        let statistics = if self.client.config.enable_statistics_export {
+            self.client.chain.store().get_store_statistics()
+        } else {
+            None
+        };
         self.info_helper.info(
             self.client.chain.store().get_genesis_height(),
             &head,
@@ -1785,9 +1915,9 @@ impl ClientActor {
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
-            self.client.chain.store().get_store_statistics(),
+            statistics,
         );
-        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info().unwrap_or(String::from("Upcoming block info failed.")));
+        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
     }
 }
 
@@ -1812,7 +1942,7 @@ impl SyncJobsActor {
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(ColStateParts, &key)?.unwrap();
+            let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime.apply_state_part(
                 msg.shard_id,

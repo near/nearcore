@@ -84,14 +84,14 @@ impl ShardTries {
         let mut shards = HashMap::new();
         for op in &transaction.ops {
             match op {
-                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
+                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::State => {
                     let (shard_uid, hash) =
                         TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
                     shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                 }
-                DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
-                DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
-                DBOp::DeleteAll { col } if *col == DBCol::ColState => {
+                DBOp::Set { col, .. } if *col == DBCol::State => unreachable!(),
+                DBOp::Delete { col, .. } if *col == DBCol::State => unreachable!(),
+                DBOp::DeleteAll { col } if *col == DBCol::State => {
                     // Delete is possible in reset_data_pre_state_sync
                     for (_, cache) in caches.iter() {
                         cache.clear();
@@ -122,7 +122,7 @@ impl ShardTries {
                 trie_node_or_value_hash,
             );
             store_update.update_refcount(
-                DBCol::ColState,
+                DBCol::State,
                 key.as_ref(),
                 trie_node_or_value,
                 -(*rc as i64),
@@ -145,7 +145,7 @@ impl ShardTries {
                 trie_node_or_value_hash,
             );
             store_update.update_refcount(
-                DBCol::ColState,
+                DBCol::State,
                 key.as_ref(),
                 trie_node_or_value,
                 *rc as i64,
@@ -245,7 +245,7 @@ impl ShardTries {
                 &trie_node_or_value_hash,
             );
             store_update.update_refcount(
-                DBCol::ColState,
+                DBCol::State,
                 key.as_ref(),
                 &trie_node_or_value,
                 rc as i64,
@@ -316,7 +316,7 @@ impl WrappedTrieChanges {
             let storage_key =
                 KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key);
             store_update.set(
-                DBCol::ColStateChanges,
+                DBCol::StateChanges,
                 storage_key.as_ref(),
                 &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
             );
@@ -325,7 +325,7 @@ impl WrappedTrieChanges {
 
     pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> io::Result<()> {
         store_update.set_ser(
-            DBCol::ColTrieChanges,
+            DBCol::TrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
         )
@@ -369,7 +369,7 @@ impl KeyForStateChanges {
     ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
         let prefix_len = Self::estimate_prefix_len();
         debug_assert!(self.0.len() >= prefix_len);
-        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::ColStateChanges, &self.0).map(
+        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
             move |change| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;

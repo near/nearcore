@@ -1,0 +1,455 @@
+---
+source: integration-tests/src/tests/runtime/sanity_checks.rs
+expression: receipts_gas_profile
+---
+[
+    [
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "ADD_KEY",
+            gas_used: 203992376655,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "CREATE_ACCOUNT",
+            gas_used: 199214750000,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "DELETE_ACCOUNT",
+            gas_used: 147489000000,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "DELETE_KEY",
+            gas_used: 94946625000,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "DEPLOY_CONTRACT",
+            gas_used: 184997391966,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "FUNCTION_CALL",
+            gas_used: 20878961441862,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "NEW_RECEIPT",
+            gas_used: 1480548358496,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "STAKE",
+            gas_used: 141715687500,
+        },
+        CostGasUsed {
+            cost_category: "ACTION_COST",
+            cost: "TRANSFER",
+            gas_used: 230246125000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_G1_MULTIEXP_BASE",
+            gas_used: 713000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_G1_MULTIEXP_ELEMENT",
+            gas_used: 320000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_G1_SUM_BASE",
+            gas_used: 3000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_G1_SUM_ELEMENT",
+            gas_used: 5000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_PAIRING_CHECK_BASE",
+            gas_used: 9686000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "ALT_BN128_PAIRING_CHECK_ELEMENT",
+            gas_used: 5102000000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "BASE",
+            gas_used: 17209927215,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "LOG_BASE",
+            gas_used: 7086626100,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "LOG_BYTE",
+            gas_used: 131987910,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "PROMISE_AND_BASE",
+            gas_used: 1465013400,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "PROMISE_AND_PER_PROMISE",
+            gas_used: 87234816,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "PROMISE_RETURN",
+            gas_used: 560152386,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_CACHED_TRIE_NODE",
+            gas_used: 13680000000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_MEMORY_BASE",
+            gas_used: 182690424000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_MEMORY_BYTE",
+            gas_used: 4744063584,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_REGISTER_BASE",
+            gas_used: 7551495558,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_REGISTER_BYTE",
+            gas_used: 18628218,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "RIPEMD160_BASE",
+            gas_used: 853675086,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "RIPEMD160_BLOCK",
+            gas_used: 680107584,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "SHA256_BASE",
+            gas_used: 4540970250,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "SHA256_BYTE",
+            gas_used: 120586755,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_HAS_KEY_BASE",
+            gas_used: 108079793250,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_HAS_KEY_BYTE",
+            gas_used: 277117605,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_READ_BASE",
+            gas_used: 112713691500,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_READ_KEY_BYTE",
+            gas_used: 278572797,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_READ_VALUE_BYTE",
+            gas_used: 28055025,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_REMOVE_BASE",
+            gas_used: 106946061000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_REMOVE_KEY_BYTE",
+            gas_used: 343983456,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_REMOVE_RET_VALUE_BYTE",
+            gas_used: 57657780,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_WRITE_BASE",
+            gas_used: 128393472000,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_WRITE_EVICTED_BYTE",
+            gas_used: 160586535,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_WRITE_KEY_BYTE",
+            gas_used: 281931468,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "STORAGE_WRITE_VALUE_BYTE",
+            gas_used: 310185390,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "TOUCHING_TRIE_NODE",
+            gas_used: 32203911852,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF16_DECODING_BASE",
+            gas_used: 3543313050,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF16_DECODING_BYTE",
+            gas_used: 1635774930,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF8_DECODING_BASE",
+            gas_used: 46676685915,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF8_DECODING_BYTE",
+            gas_used: 98262621423,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "VALIDATOR_STAKE_BASE",
+            gas_used: 911834726400,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "VALIDATOR_TOTAL_STAKE_BASE",
+            gas_used: 911834726400,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WASM_INSTRUCTION",
+            gas_used: 24286111608,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WRITE_MEMORY_BASE",
+            gas_used: 19626564027,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WRITE_MEMORY_BYTE",
+            gas_used: 689114316,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WRITE_REGISTER_BASE",
+            gas_used: 37251792318,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WRITE_REGISTER_BYTE",
+            gas_used: 1657481904,
+        },
+    ],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "BASE",
+            gas_used: 264768111,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WASM_INSTRUCTION",
+            gas_used: 822756,
+        },
+    ],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "BASE",
+            gas_used: 264768111,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_MEMORY_BASE",
+            gas_used: 2609863200,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "READ_MEMORY_BYTE",
+            gas_used: 11403999,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF8_DECODING_BASE",
+            gas_used: 3111779061,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "UTF8_DECODING_BYTE",
+            gas_used: 874741437,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WASM_INSTRUCTION",
+            gas_used: 3291024,
+        },
+    ],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+    ],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+    ],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 70891926,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+    ],
+    [],
+    [],
+    [],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+    ],
+    [],
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "BASE",
+            gas_used: 529536222,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 0,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WASM_INSTRUCTION",
+            gas_used: 18923388,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WRITE_REGISTER_BASE",
+            gas_used: 2865522486,
+        },
+    ],
+    [],
+    [],
+]

@@ -44,6 +44,7 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/delay_detector",
     "tools/indexer/example",
+    "tools/mock_node",
     "tools/restaked",
     "tools/restored-receipts-verifier",
     "tools/rpctypegen/core",
@@ -63,11 +64,16 @@ exclude = [ "neard" ]
 
 [patch.crates-io]
 
+# Note that "bench" profile inherits from "release" profile and
+# "test" profile inherits from "dev" profile.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#test
+
 [profile.release]
 overflow-checks = true
+panic = 'abort'
 
-[profile.bench]
-overflow-checks = true
+[profile.dev]
+panic = 'abort'
 
 [profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug

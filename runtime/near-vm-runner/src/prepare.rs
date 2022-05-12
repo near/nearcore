@@ -3,8 +3,8 @@
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
-use pwasm_utils::parity_wasm::builder;
-use pwasm_utils::parity_wasm::elements::{self, External, MemorySection};
+use parity_wasm::builder;
+use parity_wasm::elements::{self, External, MemorySection};
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
@@ -29,13 +29,33 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 fn wasmparser_decode(
     code: &[u8],
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
-    use wasmparser::ValidPayload;
+    use wasmparser::{ImportSectionEntryType, ValidPayload};
     let mut validator = wasmparser::Validator::new();
     validator.wasm_features(WASM_FEATURES);
     let mut function_count = Some(0u64);
     let mut local_count = Some(0u64);
     for payload in wasmparser::Parser::new(0).parse_all(code) {
-        match validator.payload(&payload?)? {
+        let payload = payload?;
+
+        // The validator does not output `ValidPayload::Func` for imported functions.
+        if let wasmparser::Payload::ImportSection(ref import_section_reader) = payload {
+            let mut import_section_reader = import_section_reader.clone();
+            for _ in 0..import_section_reader.get_count() {
+                match import_section_reader.read()?.ty {
+                    ImportSectionEntryType::Function(_) => {
+                        function_count = function_count.and_then(|f| f.checked_add(1))
+                    }
+                    ImportSectionEntryType::Table(_)
+                    | ImportSectionEntryType::Memory(_)
+                    | ImportSectionEntryType::Event(_)
+                    | ImportSectionEntryType::Global(_)
+                    | ImportSectionEntryType::Module(_)
+                    | ImportSectionEntryType::Instance(_) => {}
+                }
+            }
+        }
+
+        match validator.payload(&payload)? {
             ValidPayload::Ok => (),
             ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
             ValidPayload::Func(mut validator, body) => {
@@ -111,7 +131,7 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        let module = pwasm_utils::parity_wasm::deserialize_buffer(original_code)
+        let module = parity_wasm::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
     }
@@ -157,18 +177,20 @@ impl<'a> ContractModule<'a> {
         if config.regular_op_cost == 0 {
             return Ok(Self { module, config });
         }
-        let gas_rules = pwasm_utils::rules::Set::new(1, Default::default())
+        let gas_rules = crate::instrument::rules::Set::new(1, Default::default())
             .with_grow_cost(config.grow_mem_cost);
-        let module = pwasm_utils::inject_gas_counter(module, &gas_rules, "env")
+        let module = crate::instrument::gas::inject_gas_counter(module, &gas_rules, "env")
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
     }
 
     fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let module =
-            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
-                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
+        let module = crate::instrument::stack_height::inject_limiter(
+            module,
+            config.limit_config.max_stack_height,
+        )
+        .map_err(|_| PrepareError::StackHeightInstrumentation)?;
         Ok(Self { module, config })
     }
 

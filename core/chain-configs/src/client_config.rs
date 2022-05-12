@@ -45,8 +45,8 @@ pub struct GCConfig {
 impl Default for GCConfig {
     fn default() -> Self {
         Self {
-            gc_blocks_limit: 5,
-            gc_fork_clean_step: 1000,
+            gc_blocks_limit: 2,
+            gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         }
     }
@@ -154,6 +154,8 @@ pub struct ClientConfig {
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
+    /// Re-export storage layer statistics as prometheus metrics.
+    pub enable_statistics_export: bool,
 }
 
 impl ClientConfig {
@@ -212,6 +214,7 @@ impl ClientConfig {
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
+            enable_statistics_export: true,
         }
     }
 }
