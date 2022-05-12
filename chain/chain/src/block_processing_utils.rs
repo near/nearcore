@@ -37,6 +37,12 @@ pub(crate) struct BlockProcessingPool<Block: BlockLike>(
     Arc<RwLock<BlockProcessingPoolImpl<Block>>>,
 );
 
+impl BlockLike for near_primitives::block::Block {
+    fn hash(&self) -> &CryptoHash {
+        self.hash()
+    }
+}
+
 struct BlockProcessingPoolImpl<Block: BlockLike> {
     preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
     applied_blocks:

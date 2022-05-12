@@ -50,6 +50,7 @@ use near_store::{DBCol, ShardTries, StoreUpdate};
 
 use near_primitives::state_record::StateRecord;
 
+use crate::block_processing_utils::{BlockPreprocessInfo, BlockProcessingPool};
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
@@ -116,15 +117,6 @@ enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
     NotCaughtUp,
-}
-
-/// Contains information from preprocessing a block
-struct BlockPreprocessInfo {
-    is_caught_up: bool,
-    state_dl_info: Option<StateSyncInfo>,
-    incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
-    challenges_result: ChallengesResult,
-    challenged_blocks: Vec<CryptoHash>,
 }
 
 /// Orphan is a block whose previous block is not accepted (in store) yet.
@@ -434,6 +426,7 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
+    processing_blocks: BlockProcessingPool<Block>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
@@ -493,6 +486,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
+            processing_blocks: BlockProcessingPool::new(),
             genesis: genesis,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -621,6 +615,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
+            processing_blocks: BlockProcessingPool::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -1380,8 +1375,6 @@ impl Chain {
             tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
                 .entered();
 
-        let prev_head = self.store.head()?;
-
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
         let preprocess_res = self.preprocess_block(me, &block, &provenance, on_challenge);
@@ -1464,53 +1457,89 @@ impl Chain {
                 return Err(e);
             }
         };
+        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+        let block = block.into_inner();
+        let block_hash = *block.hash();
+        self.processing_blocks
+            .add_preprocessed_block(block, block_preprocess_info)
+            .map_err(|_err| ErrorKind::TooManyProcessingBlocks)?;
 
         // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
         //    there still no change to ChainStore.
-        let (apply_chunk_work, block_preprocess_info) = preprocess_res;
         let apply_results = do_apply_chunks(apply_chunk_work);
+        // we can safely unwrap here because the error won't happen, we already called add_preprocessed_block
+        self.processing_blocks.add_applied_block(block_hash.clone(), apply_results).unwrap();
 
+        self.check_applied_blocks(me, &block_hash, provenance, block_accepted)
+    }
+
+    fn check_applied_blocks(
+        &mut self,
+        me: &Option<AccountId>,
+        block_hash: &CryptoHash,
+        provenance: Provenance,
+        block_accepted: &mut dyn FnMut(AcceptedBlock),
+    ) -> Result<Option<Tip>, Error> {
         // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
         //    which will be committed to storage all at once.
-        let mut chain_update = self.chain_update();
-        let maybe_new_head =
-            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
-        match maybe_new_head {
-            Ok(head) => {
-                chain_update.chain_store_update.save_block_height_processed(block_height);
-                chain_update.commit()?;
+        let mut maybe_new_head = None;
+        let applied_blocks = self.processing_blocks.take_applied_blocks();
+        // TODO: remove these two lines. They are only temporary before we made do_apply_chunks asynchronous
+        assert_eq!(applied_blocks.len(), 1);
+        assert_eq!(applied_blocks[0].0.hash(), block_hash);
+        // TODO: the handling of error here is not correct right now when there are more than one applied blocks.
+        for (block, block_preprocess_info, apply_results) in applied_blocks {
+            let prev_head = self.store.head()?;
+            let mut chain_update = self.chain_update();
+            let res =
+                chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
+            match res {
+                Ok(head) => {
+                    chain_update
+                        .chain_store_update
+                        .save_block_height_processed(block.header().height());
+                    chain_update.commit()?;
 
-                self.pending_states_to_patch = None;
+                    self.pending_states_to_patch = None;
 
-                if let Some(tip) = &head {
-                    if let Ok(producers) = self
-                        .runtime_adapter
-                        .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-                    {
-                        let mut count = 0;
-                        let mut stake = 0;
-                        for (info, is_slashed) in producers.iter() {
-                            if !*is_slashed {
-                                stake += info.stake();
-                                count += 1;
+                    if let Some(tip) = &head {
+                        if let Ok(producers) = self
+                            .runtime_adapter
+                            .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+                        {
+                            let mut count = 0;
+                            let mut stake = 0;
+                            for (info, is_slashed) in producers.iter() {
+                                if !*is_slashed {
+                                    stake += info.stake();
+                                    count += 1;
+                                }
                             }
+                            stake /= NEAR_BASE;
+                            metrics::VALIDATOR_AMOUNT_STAKED
+                                .set(i64::try_from(stake).unwrap_or(i64::MAX));
+                            metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
                         }
-                        stake /= NEAR_BASE;
-                        metrics::VALIDATOR_AMOUNT_STAKED
-                            .set(i64::try_from(stake).unwrap_or(i64::MAX));
-                        metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+                    };
+
+                    let status = self.determine_status(head.clone(), prev_head);
+
+                    // Notify other parts of the system of the update.
+                    block_accepted(AcceptedBlock {
+                        hash: *block.hash(),
+                        status,
+                        provenance: provenance.clone(),
+                    });
+
+                    if head.is_some() {
+                        maybe_new_head = head;
                     }
-                };
-
-                let status = self.determine_status(head.clone(), prev_head);
-
-                // Notify other parts of the system of the update.
-                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
-
-                Ok(head)
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => Err(e),
         }
+
+        Ok(maybe_new_head)
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -1529,6 +1558,18 @@ impl Chain {
         ),
         Error,
     > {
+        // We set a limit to the max number of blocks that we will be processing at the same time.
+        // Since processing a block requires that the its previous block is processed, this limit
+        // is likely never hit, unless there are many forks in the chain.
+        // In this case, we will simply drop the block.
+        if self.processing_blocks.is_full() {
+            return Err(ErrorKind::TooManyProcessingBlocks.into());
+        }
+
+        if self.processing_blocks.is_block_preprocessed(block.hash()) {
+            return Err(ErrorKind::BlockInProcessing.into());
+        }
+
         // We are still in the process of refactoring this code to move everything in
         // ChainUpdate::process_block to this function.
         let mut chain_update = self.chain_update();
@@ -4517,7 +4558,7 @@ impl<'a> ChainUpdate<'a> {
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
-        block: &MaybeValidated<Block>,
+        block: &Block,
         preprocess_block_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
@@ -4567,7 +4608,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.merge(epoch_manager_update);
 
         // Add validated block to the db, even if it's not the canonical fork.
-        self.chain_store_update.save_block(block.clone().into_inner());
+        self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block

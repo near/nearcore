@@ -72,6 +72,10 @@ pub enum ErrorKind {
     /// The block is already known
     #[error("Block is known: {0}")]
     BlockKnown(#[from] BlockKnownError),
+    #[error("Too many blocks being processed")]
+    TooManyProcessingBlocks,
+    #[error("The block is in processing")]
+    BlockInProcessing,
     /// Orphan block.
     #[error("Orphan")]
     Orphan,
@@ -267,6 +271,8 @@ impl Error {
     pub fn is_bad_data(&self) -> bool {
         match self.kind() {
             ErrorKind::BlockKnown(_)
+            | ErrorKind::TooManyProcessingBlocks
+            | ErrorKind::BlockInProcessing
             | ErrorKind::Orphan
             | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
