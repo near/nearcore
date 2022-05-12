@@ -17,8 +17,8 @@ deny = [
 ]
 
 skip = [
-    { name = "clap", version = "=2.33.3" },
-    # criterion uses clap=2.33.3 which relies on an older textwrap
+    { name = "clap", version = "=2.34.0" },
+    # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
     # insta uses older version of console
