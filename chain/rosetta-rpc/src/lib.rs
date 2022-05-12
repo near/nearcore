@@ -125,20 +125,24 @@ async fn network_status(
         .map(|block| (&block.header).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
-    let block_id: near_primitives::types::BlockReference =
-        near_primitives::types::BlockReference::Finality(near_primitives::types::Finality::Final);
-    let block: near_primitives::views::BlockView =
-        match get_block_if_final(&block_id, view_client_addr.get_ref()).await? {
-            Some(block) => block,
-            None => return Err(errors::ErrorKind::NotFound("Block not found".into()).into()),
-        };
-    let current_latest_final_block_identifier = models::BlockIdentifier {
-        index: block.header.height.try_into().unwrap(),
-        hash: block.header.hash.to_base(),
+    let final_block = match view_client_addr
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        )))
+        .await?
+    {
+        Ok(block) => block,
+        Err(_) => {
+            return Err(errors::ErrorKind::InternalError("final block not found".to_string()).into())
+        }
     };
     Ok(Json(models::NetworkStatusResponse {
-        current_block_identifier: current_latest_final_block_identifier,
-        current_block_timestamp: status.sync_info.latest_block_time.timestamp_millis(),
+        current_block_identifier: models::BlockIdentifier {
+            index: final_block.header.height.try_into().unwrap(),
+            hash: final_block.header.hash.to_base(),
+        },
+        current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec).unwrap()
+            / (10 ^ 6),
         genesis_block_identifier,
         oldest_block_identifier,
         sync_status: if status.sync_info.syncing {
