@@ -1211,6 +1211,7 @@ impl Chain {
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
@@ -1283,6 +1284,7 @@ impl Chain {
         orphan_misses_chunks: &mut dyn FnMut(OrphanMissingChunks),
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
         let hash = *header.prev_hash();
@@ -2278,6 +2280,7 @@ impl Chain {
         sync_hash: CryptoHash,
         apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
         apply_result?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
@@ -4968,6 +4971,8 @@ impl<'a> ChainUpdate<'a> {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
+        let _span =
+            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -5074,6 +5079,7 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
+        let _span = tracing::debug_span!(target: "sync", "set_state_finalize_on_height").entered();
         let block_header_result =
             self.chain_store_update.get_header_on_chain_by_height(&sync_hash, height);
         if let Err(_) = block_header_result {
