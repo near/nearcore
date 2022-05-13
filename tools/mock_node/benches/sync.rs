@@ -36,7 +36,7 @@ impl Drop for Sys {
 
         sys.block_on(async move {
             futures::future::join_all(self.servers.iter().map(|(_name, server)| async move {
-                server.stop(true).await;
+                server.handle().stop(true).await;
             }))
             .await;
         });
