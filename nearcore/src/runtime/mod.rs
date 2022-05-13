@@ -1649,7 +1649,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                        "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
                        block_hash, state_root, part_id.idx, part_id.total, e
                 );
-                return Err(e.to_string().into());
+                return Err(e.into());
             }
         }
         .try_to_vec()
@@ -1783,7 +1783,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries
             .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
-            .map_err(|e| e.to_string().into())
+            .map_err(Into::into)
     }
 
     fn validate_state_root_node(

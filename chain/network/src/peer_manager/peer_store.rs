@@ -220,7 +220,12 @@ impl PeerStore {
     fn delete_peers(&mut self, peer_ids: &[PeerId]) -> Result<(), Box<dyn std::error::Error>> {
         let mut store_update = self.store.store_update();
         for peer_id in peer_ids {
-            self.peer_states.remove(peer_id);
+            if let Some(peer_state) = self.peer_states.remove(peer_id) {
+                if let Some(addr) = peer_state.peer_info.addr {
+                    self.addr_peers.remove(&addr);
+                }
+            }
+
             store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
         }
         store_update.commit().map_err(Into::into)
@@ -754,17 +759,6 @@ mod test {
 
     #[test]
     fn remove_blacklisted_peers_from_store() {
-        fn assert_peers(store_path: &std::path::Path, expected: &[PeerId]) {
-            let store = create_store(store_path);
-            let stored_peers: HashSet<PeerId> = HashSet::from_iter(
-                store
-                    .iter(DBCol::Peers)
-                    .map(|(key, _)| PeerId::try_from_slice(key.as_ref()).unwrap()),
-            );
-            let expected: HashSet<PeerId> = HashSet::from_iter(expected.iter().cloned());
-            assert_eq!(stored_peers, expected);
-        }
-
         let tmp_dir = tempfile::Builder::new()
             .prefix("_remove_blacklisted_peers_from_store")
             .tempdir()
@@ -783,7 +777,7 @@ mod test {
             let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
             peer_store.add_indirect_peers(peer_infos.clone().into_iter()).unwrap();
         }
-        assert_peers(tmp_dir.path(), &peer_ids);
+        assert_peers_in_store(tmp_dir.path(), &peer_ids);
 
         // Blacklisted peers are removed from the store.
         {
@@ -792,6 +786,59 @@ mod test {
                 Blacklist::from_iter([format!("{}", peer_infos[2].addr.unwrap())].into_iter());
             let _peer_store = PeerStore::new(store.clone(), &[], blacklist).unwrap();
         }
-        assert_peers(tmp_dir.path(), &peer_ids[0..2]);
+        assert_peers_in_store(tmp_dir.path(), &peer_ids[0..2]);
+    }
+
+    fn assert_peers_in_store(store_path: &std::path::Path, expected: &[PeerId]) {
+        let store = create_store(store_path);
+        let stored_peers: HashSet<PeerId> = HashSet::from_iter(
+            store.iter(DBCol::Peers).map(|(key, _)| PeerId::try_from_slice(key.as_ref()).unwrap()),
+        );
+        let expected: HashSet<PeerId> = HashSet::from_iter(expected.iter().cloned());
+        assert_eq!(stored_peers, expected);
+    }
+
+    fn assert_peers_in_cache(
+        peer_store: &PeerStore,
+        expected_peers: &[PeerId],
+        expected_addresses: &[SocketAddr],
+    ) {
+        let expected_peers: HashSet<&PeerId> = HashSet::from_iter(expected_peers);
+        let cached_peers = HashSet::from_iter(peer_store.peer_states.keys());
+        assert_eq!(expected_peers, cached_peers);
+
+        let expected_addresses: HashSet<&SocketAddr> = HashSet::from_iter(expected_addresses);
+        let cached_addresses = HashSet::from_iter(peer_store.addr_peers.keys());
+        assert_eq!(expected_addresses, cached_addresses);
+    }
+
+    #[test]
+    fn test_delete_peers() {
+        let tmp_dir = tempfile::Builder::new().prefix("_test_delete_peers").tempdir().unwrap();
+        let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..3)
+            .map(|i| {
+                let id = get_peer_id(format!("node{}", i));
+                let info = get_peer_info(id.clone(), Some(get_addr(i)));
+                (id, info)
+            })
+            .unzip();
+        let peer_addresses =
+            peer_infos.iter().map(|info| info.addr.unwrap().clone()).collect::<Vec<_>>();
+
+        {
+            let store = create_store(tmp_dir.path());
+            let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
+            peer_store.add_indirect_peers(peer_infos.clone().into_iter()).unwrap();
+        }
+        assert_peers_in_store(tmp_dir.path(), &peer_ids);
+
+        {
+            let store = create_store(tmp_dir.path());
+            let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
+            assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
+            peer_store.delete_peers(&peer_ids).unwrap();
+            assert_peers_in_cache(&peer_store, &[], &[]);
+        }
+        assert_peers_in_store(tmp_dir.path(), &[]);
     }
 }
