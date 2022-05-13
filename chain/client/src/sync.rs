@@ -168,6 +168,7 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
         if !self.header_sync_due(sync_status, &header_head, highest_height) {
             return Ok(());
@@ -427,6 +428,7 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
         if self.block_sync_due(chain)? {
             if self.block_sync(chain, highest_height_peers)? {
                 debug!(target: "sync", "Sync: transition to State Sync.");
@@ -1178,7 +1180,8 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
-        debug!(target:"sync", "syncing state sync_hash {:?} new_shard_sync {:?} tracking_shards {:?}", sync_hash, new_shard_sync, tracking_shards);
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        debug!(target: "sync", %sync_hash, ?new_shard_sync, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
