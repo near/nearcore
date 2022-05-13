@@ -803,12 +803,11 @@ mod test {
         expected_peers: &[PeerId],
         expected_addresses: &[SocketAddr],
     ) {
-        let expected_peers: HashSet<&PeerId> = HashSet::from_iter(expected_peers.iter());
+        let expected_peers: HashSet<&PeerId> = HashSet::from_iter(expected_peers);
         let cached_peers = HashSet::from_iter(peer_store.peer_states.keys());
         assert_eq!(expected_peers, cached_peers);
 
-        let expected_addresses: HashSet<&SocketAddr> =
-            HashSet::from_iter(expected_addresses.iter());
+        let expected_addresses: HashSet<&SocketAddr> = HashSet::from_iter(expected_addresses);
         let cached_addresses = HashSet::from_iter(peer_store.addr_peers.keys());
         assert_eq!(expected_addresses, cached_addresses);
     }
