@@ -896,21 +896,6 @@ checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
 
 [[package]]
 name = "console"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3993e6445baa160675931ec041a5e03ca84b9c6e32a056150d3aa2bdda0a1f45"
-dependencies = [
- "encode_unicode",
- "lazy_static",
- "libc",
- "regex",
- "terminal_size",
- "unicode-width",
- "winapi",
-]
-
-[[package]]
-name = "console"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28b32d32ca44b70c3e4acd7db1babf555fa026e385fb95f18028f88848b3c31"
@@ -918,7 +903,9 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
+ "regex",
  "terminal_size",
+ "unicode-width",
  "winapi",
 ]
 
@@ -2078,7 +2065,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
 dependencies = [
- "console 0.14.1",
+ "console",
  "lazy_static",
  "number_prefix",
  "rayon",
@@ -2091,7 +2078,7 @@ version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "689960f187c43c01650c805fb6bc6f55ab944499d86d4ffe9474ad78991d8e94"
 dependencies = [
- "console 0.15.0",
+ "console",
  "once_cell",
  "serde",
  "serde_json",
@@ -2681,7 +2668,7 @@ dependencies = [
  "prometheus",
  "rand 0.7.3",
  "rayon",
- "strum",
+ "strum 0.24.0",
  "thiserror",
  "tracing",
 ]
@@ -2786,7 +2773,7 @@ dependencies = [
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde_json",
- "strum",
+ "strum 0.24.0",
  "sysinfo",
  "thiserror",
  "tokio",
@@ -2805,7 +2792,7 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
- "strum",
+ "strum 0.24.0",
  "thiserror",
 ]
 
@@ -3061,7 +3048,7 @@ dependencies = [
  "rand 0.6.5",
  "rand_pcg",
  "serde",
- "strum",
+ "strum 0.24.0",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3082,7 +3069,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "serde",
- "strum",
+ "strum 0.24.0",
  "tokio",
  "tracing",
 ]
@@ -3117,7 +3104,7 @@ dependencies = [
  "libc",
  "near-rust-allocator-proxy",
  "once_cell",
- "strum",
+ "strum 0.24.0",
  "tokio",
  "tokio-util 0.7.1",
  "tracing",
@@ -3170,7 +3157,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smart-default",
- "strum",
+ "strum 0.24.0",
  "thiserror",
 ]
 
@@ -3188,7 +3175,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "strum",
+ "strum 0.24.0",
 ]
 
 [[package]]
@@ -3228,7 +3215,7 @@ dependencies = [
  "paperclip",
  "serde",
  "serde_json",
- "strum",
+ "strum 0.24.0",
  "tokio",
  "validator",
 ]
@@ -3292,7 +3279,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "strum",
+ "strum 0.24.0",
  "tempfile",
  "thiserror",
  "tracing",
@@ -3486,7 +3473,7 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "smart-default",
- "strum",
+ "strum 0.24.0",
  "tempfile",
  "testlib",
  "thiserror",
@@ -3866,8 +3853,8 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "strum",
- "strum_macros",
+ "strum 0.20.0",
+ "strum_macros 0.20.1",
  "syn",
 ]
 
@@ -5343,8 +5330,14 @@ name = "strum"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7318c509b5ba57f18533982607f24070a55d353e90d4cae30c467cdb2ad5ac5c"
+
+[[package]]
+name = "strum"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e96acfc1b70604b8b2f1ffa4c57e59176c7dbb05d556c71ecd2f5498a1dee7f8"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.24.0",
 ]
 
 [[package]]
@@ -5356,6 +5349,19 @@ dependencies = [
  "heck 0.3.3",
  "proc-macro2",
  "quote",
+ "syn",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6878079b17446e4d3eba6192bb0a2950d5b14f0ed8424b852310e5a94345d0ef"
+dependencies = [
+ "heck 0.4.0",
+ "proc-macro2",
+ "quote",
+ "rustversion",
  "syn",
 ]
 
