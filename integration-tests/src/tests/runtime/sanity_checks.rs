@@ -95,7 +95,7 @@ fn get_receipts_status_with_clear_hash(
 /// This test intends to catch accidental configuration changes, see #4961.
 #[test]
 fn test_cost_sanity() {
-    let test_contract = if cfg!(feature = "nightly_protocol") {
+    let test_contract = if cfg!(feature = "nightly") {
         near_test_contracts::nightly_rs_contract()
     } else {
         near_test_contracts::rs_contract()
@@ -145,7 +145,7 @@ fn test_cost_sanity() {
         .collect::<Vec<_>>();
 
     insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             "receipts_gas_profile_nightly"
         } else {
             "receipts_gas_profile"
@@ -178,7 +178,7 @@ fn test_cost_sanity_nondeterministic() {
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
         .collect::<Vec<_>>();
     insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             "receipts_gas_profile_nondeterministic_nightly"
         } else {
             "receipts_gas_profile_nondeterministic"

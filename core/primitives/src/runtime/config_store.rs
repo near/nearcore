@@ -237,7 +237,7 @@ mod tests {
     /// If tests fail after an intended change, run `cargo insta review` accept
     /// the new snapshot if it looks right.
     #[test]
-    #[cfg(not(feature = "nightly_protocol_features"))]
+    #[cfg(not(feature = "nightly"))]
     fn test_json_unchanged() {
         let store = RuntimeConfigStore::new(None);
 

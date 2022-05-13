@@ -120,7 +120,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     if state_dump_path.read_dir()?.next().is_none() {
-        let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+        let contract_code = read_resource(if cfg!(feature = "nightly") {
             "test-contract/res/nightly_small_contract.wasm"
         } else {
             "test-contract/res/stable_small_contract.wasm"
@@ -296,8 +296,8 @@ fn main_docker(
         buf.push_str(" --features required");
 
         // Also add nightly protocol features to docker build if they are enabled.
-        #[cfg(feature = "nightly_protocol_features")]
-        buf.push_str(",nightly_protocol_features");
+        #[cfg(feature = "nightly")]
+        buf.push_str(",nightly");
         #[cfg(feature = "nightly_protocol")]
         buf.push_str(",nightly_protocol");
 
