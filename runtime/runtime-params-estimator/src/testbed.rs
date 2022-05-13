@@ -52,7 +52,6 @@ impl RuntimeTestbed {
             max_number_input_data_dependencies: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
-            max_number_bytes_method_names: u64::MAX,
 
             ..VMLimitConfig::test()
         };
