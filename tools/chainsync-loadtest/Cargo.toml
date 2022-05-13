@@ -21,7 +21,7 @@ futures = "0.3"
 anyhow = "1.0.55"
 rand = "0.8"
 dirs = "3"
-tokio = "1.16.1"
+tokio = { version = "1.16.1", features = ["rt-multi-thread"] }
 log = "0.4"
 
 near-chain-configs = { path = "../../core/chain-configs" }

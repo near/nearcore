@@ -13,7 +13,10 @@ use tracing::debug;
 /// to get it
 fn main() -> std::io::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).global();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+    });
     debug!(target: "storage-calculator", "Start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);

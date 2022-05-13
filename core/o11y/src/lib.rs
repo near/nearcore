@@ -95,15 +95,16 @@ fn is_terminal() -> bool {
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
 /// returned by this function goes out of scope.
+/// Subscriber creation needs an async runtime.
 ///
 /// # Example
 ///
 /// ```rust
+/// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto);
-/// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
+/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto).await.global() });
 /// ```
-pub fn default_subscriber(
+pub async fn default_subscriber(
     log_filter: EnvFilter,
     color_output: &ColorOutput,
 ) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {

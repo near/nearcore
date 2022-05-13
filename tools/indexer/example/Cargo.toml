@@ -12,7 +12,7 @@ actix = "0.13.0"
 clap = { version = "3.1.6", features = ["derive", "env"] }
 openssl-probe = "0.1.2"
 serde_json = "1.0.55"
-tokio = { version = "1.1", features = ["sync"] }
+tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 tracing = "0.1.13"
 anyhow = "1.0"
 

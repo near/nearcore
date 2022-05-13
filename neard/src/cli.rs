@@ -36,7 +36,8 @@ impl NeardCmd {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         // Opentelemetry needs a running Tokio system to report spans asynchronously and in batches,
         // which is great for the overall system performance.
-        let _subscriber_guard = runtime.block_on(async { init_logging(&neard_cmd.opts).unwrap() });
+        let _subscriber_guard =
+            runtime.block_on(async { init_logging(&neard_cmd.opts).await.unwrap() });
 
         info!(
             target: "neard",
@@ -99,7 +100,7 @@ impl NeardCmd {
     }
 }
 
-fn init_logging(
+async fn init_logging(
     opts: &NeardOpts,
 ) -> Result<DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
     let verbose = opts.verbose.as_deref();
@@ -112,7 +113,7 @@ fn init_logging(
     } else {
         env_filter
     };
-    let subscriber = default_subscriber(env_filter, &opts.color).global();
+    let subscriber = default_subscriber(env_filter, &opts.color).await.global();
     Ok(subscriber)
 }
 

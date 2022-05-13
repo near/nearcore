@@ -4683,6 +4683,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "nearcore",
+ "tokio",
 ]
 
 [[package]]
@@ -5317,6 +5318,7 @@ dependencies = [
  "near-primitives",
  "node-runtime",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 
