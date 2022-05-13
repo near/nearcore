@@ -2744,7 +2744,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
             }
 
-            store_update.set_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
         }
         for (height, hash_set) in chunk_hashes_by_height {
             store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
