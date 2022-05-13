@@ -2253,8 +2253,9 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         let epoch_to_hashes_ref = self.chain_store.get_all_block_hashes_by_height(height)?;
         let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
-        let hashes =
-            epoch_to_hashes.get_mut(epoch_id).ok_or("current epoch id should exist".to_string())?;
+        let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
+            near_chain_primitives::ErrorKind::Other("current epoch id should exist".into())
+        })?;
         hashes.remove(block_hash);
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
