@@ -1679,6 +1679,7 @@ impl ClientActor {
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "sync").entered();
         let _d = delay_detector::DelayDetector::new(|| "client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
@@ -1923,6 +1924,7 @@ impl ClientActor {
 
 impl Drop for ClientActor {
     fn drop(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "drop").entered();
         self.state_parts_client_arbiter.stop();
     }
 }
@@ -1938,6 +1940,7 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
+        let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
         let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
@@ -1965,6 +1968,9 @@ impl Handler<ApplyStatePartsRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsRequest")
+                .entered();
         let result = self.apply_parts(&msg);
 
         self.client_addr.do_send(ApplyStatePartsResponse {
@@ -1979,6 +1985,9 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsResponse")
+                .entered();
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1992,6 +2001,9 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: BlockCatchUpRequest, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "BlockCatchUpRequest")
+                .entered();
         let results = do_apply_chunks(msg.work);
 
         self.client_addr.do_send(BlockCatchUpResponse {
@@ -2026,6 +2038,8 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", handler = "StateSplitRequest")
+            .entered();
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
