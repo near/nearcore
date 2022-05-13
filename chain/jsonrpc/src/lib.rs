@@ -1495,7 +1495,7 @@ pub fn start_http(
     let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
-            .app_data(JsonRpcHandler {
+            .app_data(web::Data::new(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
@@ -1505,7 +1505,7 @@ pub fn start_http(
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
                 routing_table_addr: routing_table_addr.clone(),
-            })
+            }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to(rpc_handler)))
