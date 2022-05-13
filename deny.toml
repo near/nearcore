@@ -21,8 +21,6 @@ skip = [
     # criterion uses clap=2.33.3 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
-    # insta uses older version of console
-    { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
@@ -111,4 +109,8 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.25.1" },
+
+    # paperclip-core 0.3.0 depends on old strum
+    { name = "strum", version = "=0.20.0" },
+    { name = "strum_macros", version = "=0.20.1" },
 ]

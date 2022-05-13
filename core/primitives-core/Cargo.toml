@@ -19,7 +19,7 @@ bs58 = "0.4"
 derive_more = "0.99.3"
 num-rational = { version = "0.3.1", features = ["serde"]}
 serde = { version = "1", features = ["derive"] }
-strum = { version = "0.20", features = ["derive"] }
+strum = { version = "0.24", features = ["derive"] }
 sha2 = "0.9"
 deepsize = { version = "0.2.0", optional = true }
 
