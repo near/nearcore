@@ -7,8 +7,7 @@ use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind,
-    Provenance,
+    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance,
 };
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
@@ -63,7 +62,7 @@ fn test_block_with_challenges() {
     }
 
     let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
-    assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidChallengeRoot);
+    assert_eq!(result.unwrap_err(), Error::InvalidChallengeRoot);
 }
 
 #[test]
@@ -198,7 +197,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -234,7 +233,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -465,9 +464,8 @@ fn test_verify_chunk_invalid_state_challenge() {
             block.header().prev_hash(),
             &challenge,
         )
-        .unwrap_err()
-        .kind(),
-        ErrorKind::MaliciousChallenge
+        .unwrap_err(),
+        Error::MaliciousChallenge
     );
     // assert_eq!(
     //     validate_challenge(
@@ -739,8 +737,8 @@ fn test_challenge_in_different_epoch() {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {
-                match e.kind() {
-                    ErrorKind::ChunksMissing(_) => {}
+                match e {
+                    Error::ChunksMissing(_) => {}
                     _ => panic!("unexpected error: {}", e),
                 }
             }

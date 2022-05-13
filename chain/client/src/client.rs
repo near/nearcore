@@ -15,7 +15,7 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
@@ -796,27 +796,26 @@ impl Client {
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
-            match &result {
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+            if let Err(e) = &result {
+                match e {
+                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
-                    near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
+                    near_chain::Error::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         }
 
@@ -868,8 +867,8 @@ impl Client {
                 return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
             }
             Err(near_chunks::Error::ChainError(chain_error)) => {
-                match chain_error.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
+                match chain_error {
+                    near_chain::Error::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, however the signature is checked when
                         // forwarded parts are later processed as partial encoded chunks, so we
@@ -1372,7 +1371,7 @@ impl Client {
                     Err(_) => false,
                 }
             };
-        if let ErrorKind::DBNotFoundErr(_) = error.kind() {
+        if let near_chain::Error::DBNotFoundErr(_) = error {
             if check_validator {
                 let head = unwrap_or_return!(self.chain.head());
                 if !is_validator(
@@ -1448,7 +1447,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(e) if e.kind() == ErrorKind::NotAValidator => {
+                Err(e) if e == near_chain::Error::NotAValidator => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,
@@ -1645,9 +1644,7 @@ impl Client {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(
-                            ErrorKind::Other("Node has not caught up yet".to_string()).into()
-                        );
+                        return Err(Error::Other("Node has not caught up yet".to_string()).into());
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
                         return Ok(NetworkClientResponses::RequestRouted);
