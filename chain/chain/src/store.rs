@@ -2697,7 +2697,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
         {
             let key = get_height_shard_id(*height, *shard_id);
-            store_update.set_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
+            store_update.insert_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
