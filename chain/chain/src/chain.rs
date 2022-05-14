@@ -1816,7 +1816,7 @@ impl Chain {
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("ShardId out of bounds".into()).into());
+            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
@@ -1829,7 +1829,7 @@ impl Chain {
             .into());
         }
         if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("ShardId out of bounds".into()).into());
+            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = *sync_prev_block.hash();
@@ -1856,7 +1856,7 @@ impl Chain {
         {
             Ok(prev_block) => {
                 if shard_id as usize >= prev_block.chunks().len() {
-                    return Err(Error::InvalidStateRequest("ShardId out of bounds".into()).into());
+                    return Err(Error::InvalidStateRequest("shard_id out of bounds".into()).into());
                 }
                 let prev_chunk_header = prev_block.chunks()[shard_id as usize].clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
