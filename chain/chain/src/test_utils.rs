@@ -9,7 +9,7 @@ use num_rational::Rational;
 use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
-use near_chain_primitives::{Error, ErrorKind};
+use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -223,7 +223,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(&prev_hash)?
-            .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&prev_hash)))?;
+            .ok_or_else(|| Error::DBNotFoundErr(to_base(&prev_hash)))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -293,7 +293,7 @@ impl KeyValueRuntime {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds(epoch_id.clone())))?
+            .ok_or_else(|| Error::from(Error::EpochOutOfBounds(epoch_id.clone())))?
             as usize
             % self.validators.len())
     }
@@ -400,13 +400,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
-                    return Err(ErrorKind::InvalidApprovals.into());
+                    return Err(Error::InvalidApprovals.into());
                 }
             }
         }
         let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(ErrorKind::NotEnoughApprovals.into())
+            Err(Error::NotEnoughApprovals.into())
         } else {
             Ok(())
         }
@@ -1001,7 +1001,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(true);
         }
         let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
-            Error::from(ErrorKind::Other(format!(
+            Error::from(Error::Other(format!(
                 "Missing block {} when computing the epoch",
                 parent_hash
             )))
@@ -1130,7 +1130,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         match (self.get_valset_for_epoch(epoch_id), self.get_valset_for_epoch(other_epoch_id)) {
             (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            _ => Err(ErrorKind::EpochOutOfBounds(epoch_id.clone()).into()),
+            _ => Err(Error::EpochOutOfBounds(epoch_id.clone()).into()),
         }
     }
 
@@ -1165,7 +1165,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        Err(ErrorKind::NotAValidator.into())
+        Err(Error::NotAValidator.into())
     }
 
     fn get_fisherman_by_account_id(
@@ -1174,7 +1174,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _last_known_block_hash: &CryptoHash,
         _account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        Err(ErrorKind::NotAValidator.into())
+        Err(Error::NotAValidator.into())
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
@@ -1189,7 +1189,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
+                .ok_or_else(|| Error::DBNotFoundErr(to_base(&candidate_hash)))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);

@@ -1309,8 +1309,8 @@ impl ClientActor {
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(_) => {
+                    Err(e) => match e {
+                        near_chain::Error::ChunksMissing(_) => {
                             // missing chunks were already handled in Client::process_block, we don't need to
                             // do anything here
                             Ok(())
@@ -1456,7 +1456,7 @@ impl ClientActor {
                 warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
-                if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
+                if let near_chain::Error::DBNotFoundErr(msg) = err {
                     debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
                 }
                 if self.client.sync_status.is_syncing() {
@@ -1467,15 +1467,15 @@ impl ClientActor {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
             }
-            Err(e) => match e.kind() {
-                near_chain::ErrorKind::Orphan => {
+            Err(e) => match e {
+                near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
                 // missing chunks are already handled in self.client.process_block()
                 // we don't need to do anything here
-                near_chain::ErrorKind::ChunksMissing(_) => {}
+                near_chain::Error::ChunksMissing(_) => {}
                 _ => {
                     debug!(target: "client", error = %e, "Process block: refused by chain");
                 }

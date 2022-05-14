@@ -1,6 +1,6 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, ErrorKind};
+use crate::{Block, ChainStoreAccess, Error};
 use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
@@ -105,20 +105,14 @@ fn build_chain_with_orhpans() {
         CryptoHash::default(),
         None,
     );
-    assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
-    );
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
-    );
+    assert_eq!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
+    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
+    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
+        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
+        Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

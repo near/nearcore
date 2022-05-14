@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use near_primitives::time::Utc;
 
-use near_chain_primitives::error::{Error, ErrorKind};
+use near_chain_primitives::error::Error;
 use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -104,12 +104,12 @@ pub trait ChainStoreAccess {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
             Err(_) => {
-                return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
+                return Err(Error::ChunksMissing(vec![header.clone()]).into());
             }
             Ok(shard_chunk) => {
                 byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
                 if header.height_included() == 0 && header.height_created() > 0 {
-                    return Err(ErrorKind::Other(format!(
+                    return Err(Error::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
                         header, shard_chunk
                     ))
@@ -198,7 +198,7 @@ pub trait ChainStoreAccess {
         }
         let header_height = header.height();
         if header_height < height {
-            return Err(ErrorKind::InvalidBlockHeight(header_height).into());
+            return Err(Error::InvalidBlockHeight(header_height).into());
         }
         self.get_block_header(&hash)
     }
@@ -348,7 +348,7 @@ pub struct ChainStore {
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
     match res {
         Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(ErrorKind::DBNotFoundErr(field_name.to_owned()).into()),
+        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_owned()).into()),
         Err(e) => Err(e.into()),
     }
 }
@@ -609,7 +609,7 @@ impl ChainStore {
         let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
-            _ => Err(ErrorKind::Other("Cannot get shard_state_header".into()).into()),
+            _ => Err(Error::Other("Cannot get shard_state_header".into()).into()),
         }
     }
 
@@ -844,7 +844,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
         match read_with_cache(&self.store, DBCol::Chunks, &mut self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
+            _ => Err(Error::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
@@ -857,7 +857,7 @@ impl ChainStoreAccess for ChainStore {
             chunk_hash.as_ref(),
         ) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
+            _ => Err(Error::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
@@ -1380,7 +1380,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
         match self.chain_store_cache_update.height_to_hashes.get(&height) {
             Some(Some(hash)) => Ok(*hash),
-            Some(None) => Err(ErrorKind::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height)).into()),
+            Some(None) => Err(Error::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height)).into()),
             None => self.chain_store.get_block_hash_by_height(height),
         }
     }
@@ -1391,8 +1391,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         } else {
             let refcount = match self.chain_store.get_block_refcount(block_hash) {
                 Ok(refcount) => refcount,
-                Err(e) => match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => &0,
+                Err(e) => match e {
+                    Error::DBNotFoundErr(_) => &0,
                     _ => return Err(e),
                 },
             };
@@ -1637,7 +1637,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 _ => {
                     if self.is_block_challenged(&header_hash)? {
-                        return Err(ErrorKind::ChallengedBlockOnChain.into());
+                        return Err(Error::ChallengedBlockOnChain.into());
                     }
                     self.chain_store_cache_update
                         .height_to_hashes
@@ -1675,7 +1675,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.try_save_latest_known(t.height)?;
 
-        match &self.header_head() {
+        match self.header_head() {
             Ok(prev_tip) => {
                 if prev_tip.height > t.height {
                     for height in (t.height + 1)..=prev_tip.height {
@@ -1683,9 +1683,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     }
                 }
             }
-            Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => {}
-                e => return Err(e.into()),
+            Err(err) => match err {
+                Error::DBNotFoundErr(_) => {}
+                e => return Err(e),
             },
         }
 
@@ -1930,8 +1930,8 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
             Ok(refcount) => *refcount,
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => 0,
+            Err(e) => match e {
+                Error::DBNotFoundErr(_) => 0,
                 _ => return Err(e),
             },
         };
@@ -1946,7 +1946,7 @@ impl<'a> ChainStoreUpdate<'a> {
             Ok(())
         } else {
             debug_assert!(false, "refcount can not be negative");
-            Err(ErrorKind::Other(format!("cannot decrease refcount for {:?}", block_hash)).into())
+            Err(Error::Other(format!("cannot decrease refcount for {:?}", block_hash)).into())
         }
     }
 
@@ -2254,7 +2254,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let epoch_to_hashes_ref = self.chain_store.get_all_block_hashes_by_height(height)?;
         let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
-            near_chain_primitives::ErrorKind::Other("current epoch id should exist".into())
+            near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;
         hashes.remove(block_hash);
         if hashes.is_empty() {
@@ -2304,8 +2304,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             }
             Err(error) => {
-                match error.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {
+                match error {
+                    Error::DBNotFoundErr(_) => {
                         // Sometimes we don't save outgoing receipts. See the usages of save_outgoing_receipt.
                         // The invariant is that DBCol::OutgoingReceipts has same receipts as DBCol::ReceiptIdToShardId.
                     }
@@ -2829,7 +2829,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if self.chain_store.save_trie_changes {
                 wrapped_trie_changes
                     .trie_changes_into(&mut store_update)
-                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
+                    .map_err(|err| Error::Other(err.to_string()))?;
             }
         }
         for ((block_hash, shard_id), state_changes) in
@@ -2852,7 +2852,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
-                return Err(ErrorKind::Other(
+                return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
                 )
                 .into());
@@ -2881,7 +2881,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for prev_hash in self.remove_prev_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
-                return Err(ErrorKind::Other(
+                return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
                 )
                 .into());
@@ -2893,7 +2893,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (prev_hash, new_hash) in self.add_blocks_to_catchup.drain(..) {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
             if affected_catchup_blocks.contains(&prev_hash) {
-                return Err(ErrorKind::Other(
+                return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
                 )
                 .into());
