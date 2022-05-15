@@ -27,7 +27,7 @@ pub(super) struct NeardCmd {
 impl NeardCmd {
     pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
-        let verbose = neard_cmd.opts.verbose.as_deref();
+        let verbose = neard_cmd.opts.verbose_target();
         let env_filter =
             EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
         // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
@@ -130,10 +130,10 @@ fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str
 
 #[derive(Parser, Debug)]
 struct NeardOpts {
-    /// Sets verbose logging for the given target, or for all targets
-    /// if "debug" is given.
+    /// Sets verbose logging for the given target, or for all targets if no
+    /// target is given.
     #[clap(long, name = "target")]
-    verbose: Option<String>,
+    verbose: Option<Option<String>>,
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
@@ -144,6 +144,16 @@ struct NeardOpts {
     /// Whether the log needs to be colored.
     #[clap(long, arg_enum, default_value = "auto")]
     pub color: ColorOutput,
+}
+
+impl NeardOpts {
+    pub fn verbose_target(&self) -> Option<&str> {
+        match self.verbose {
+            None => None,
+            Some(None) => Some(""),
+            Some(Some(ref target)) => Some(target.as_str()),
+        }
+    }
 }
 
 #[derive(Parser)]
