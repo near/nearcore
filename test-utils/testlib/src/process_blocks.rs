@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use near_chain::{Block, BlockHeader};
 use near_crypto::KeyType;
 use near_primitives::validator_signer::InMemoryValidatorSigner;

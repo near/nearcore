@@ -983,19 +983,17 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
         let block_header = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block_header(&block_hash).map(Clone::clone)
+                self.chain.get_block_header(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height).map(Clone::clone)
+                self.chain.get_header_by_height(height)
             }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block_header(&hash).map(Clone::clone)
-            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
                 if let Some(block_hash) =
                     self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
                 {
-                    self.chain.get_block_header(&block_hash).map(Clone::clone)
+                    self.chain.get_block_header(&block_hash)
                 } else {
                     return Err(GetProtocolConfigError::UnknownBlock(format!(
                         "{:?}",

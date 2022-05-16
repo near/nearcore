@@ -484,11 +484,11 @@ mod tests {
 
     #[test]
     fn test_discrepancy() {
-        let (mut chain, mut sv) = init();
+        let (chain, mut sv) = init();
         let block_header = chain.get_header_by_height(0).unwrap();
-        assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), block_header)
+        assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), &block_header)
             .is_ok());
-        match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), block_header) {
+        match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), &block_header) {
             Err(StoreValidatorError::Discrepancy { .. }) => {}
             _ => assert!(false),
         }

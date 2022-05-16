@@ -1,8 +1,8 @@
 use lru::LruCache;
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::convert::Infallible;
 use std::hash::Hash;
-use std::sync::Mutex;
 
 /// A wrapper around `LruCache` to provide shared `&` access to content.
 pub struct CellLruCache<K, V> {
@@ -38,7 +38,7 @@ where
     /// Returns the value of they key in the cache if present, otherwise
     /// computes the value using the provided closure.
     ///
-    /// If the key is already in the cache, it gets moved to the head of the LDU
+    /// If the key is already in the cache, it gets moved to the head of the LRU
     /// list.
     ///
     /// If the provided closure fails, the error is returned and the cache is
@@ -63,10 +63,22 @@ where
         self.inner.borrow_mut().put(key, value);
     }
 
+    pub fn pop<Q>(&self, key: &Q) -> Option<V>
+    where
+        lru::KeyRef<K>: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.inner.borrow_mut().pop(key)
+    }
+
     /// Returns the value of the key in the cache or None if it is not present in the cache.
     /// Moves the key to the head of the LRU list if it exists.
-    pub fn get(&self, key: &K) -> Option<V> {
-        self.inner.borrow().get(key).cloned()
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        lru::KeyRef<K>: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.inner.borrow_mut().get(key).cloned()
     }
 }
 

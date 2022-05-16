@@ -38,7 +38,7 @@ where
     /// Returns the value of they key in the cache if present, otherwise
     /// computes the value using the provided closure.
     ///
-    /// If the key is already in the cache, it gets moved to the head of the LDU
+    /// If the key is already in the cache, it gets moved to the head of the LRU
     /// list.
     ///
     /// If the provided closure fails, the error is returned and the cache is

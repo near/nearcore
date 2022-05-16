@@ -4,6 +4,7 @@ use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
+use near_cache::CellLruCache;
 use near_primitives::time::Utc;
 
 use near_chain_primitives::error::Error;
@@ -34,8 +35,8 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    read_with_cache, read_with_cell_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
+    WrappedTrieChanges, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
@@ -85,7 +86,7 @@ pub trait ChainStoreAccess {
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+    fn head_header(&self) -> Result<BlockHeader, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Tip, Error>;
     /// Larget approval target height sent by us
@@ -125,7 +126,7 @@ pub trait ChainStoreAccess {
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
     /// Get previous header.
-    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error>;
     /// GEt block extra for given block.
     fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -135,9 +136,9 @@ pub trait ChainStoreAccess {
         shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error>;
     /// Get block header.
-    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
+    fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error>;
+    fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns hash of the first available block after genesis.
     fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
         // To find the earliest available block we use the `tail` marker primarily
@@ -166,7 +167,7 @@ pub trait ChainStoreAccess {
         Ok(None)
     }
     /// Returns block header from the current chain for given height if present.
-    fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
+    fn get_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
@@ -185,10 +186,10 @@ pub trait ChainStoreAccess {
     ) -> Result<&ChunkHash, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> Result<&BlockHeader, Error> {
+    ) -> Result<BlockHeader, Error> {
         let mut header = self.get_block_header(sync_hash)?;
         let mut hash = *sync_hash;
         while header.height() > height {
@@ -295,7 +296,7 @@ pub struct ChainStore {
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
     /// Cache with headers.
-    headers: LruCache<Vec<u8>, BlockHeader>,
+    headers: CellLruCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
     blocks: LruCache<Vec<u8>, Block>,
     /// Cache with chunks
@@ -361,7 +362,7 @@ impl ChainStore {
             head: None,
             tail: None,
             blocks: LruCache::new(CACHE_SIZE),
-            headers: LruCache::new(CACHE_SIZE),
+            headers: CellLruCache::new(CACHE_SIZE),
             chunks: LruCache::new(CHUNK_CACHE_SIZE),
             partial_chunks: LruCache::new(CHUNK_CACHE_SIZE),
             block_extras: LruCache::new(CACHE_SIZE),
@@ -808,7 +809,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    fn head_header(&self) -> Result<BlockHeader, Error> {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
@@ -870,7 +871,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get previous header.
-    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.get_block_header(header.prev_hash())
     }
 
@@ -905,15 +906,15 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get block header.
-    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
+    fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         option_to_not_found(
-            read_with_cache(&self.store, DBCol::BlockHeader, &mut self.headers, h.as_ref()),
+            read_with_cell_cache(&self.store, DBCol::BlockHeader, &self.headers, h.as_ref()),
             &format!("BLOCK HEADER: {}", h),
         )
     }
 
     /// Returns hash of the block on the main chain for given height.
-    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
             &format!("BLOCK HEIGHT: {}", height),
@@ -1314,7 +1315,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    fn head_header(&self) -> Result<BlockHeader, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
     }
 
@@ -1339,7 +1340,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get previous header.
-    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.get_block_header(header.prev_hash())
     }
 
@@ -1367,8 +1368,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get block header.
-    fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
-        if let Some(header) = self.chain_store_cache_update.headers.get(hash) {
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+        if let Some(header) = self.chain_store_cache_update.headers.get(hash).cloned() {
             Ok(header)
         } else {
             self.chain_store.get_block_header(hash)
@@ -1376,7 +1377,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get block header from the current chain by height.
-    fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
+    fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         match self.chain_store_cache_update.height_to_hashes.get(&height) {
             Some(Some(hash)) => Ok(*hash),
             Some(None) => Err(Error::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height))),
@@ -2515,7 +2516,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<ChainStoreUpdate<'a>, Error> {
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
         let block = source_store.get_block(block_hash)?.clone();
-        let header = block.header();
+        let header = block.header().clone();
         let height = header.height();
         let tip = Tip {
             height,

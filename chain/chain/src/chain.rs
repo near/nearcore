@@ -827,8 +827,8 @@ impl Chain {
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
-        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
-        let epoch_change = prev_epoch_id != &head.epoch_id;
+        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id().clone();
+        let epoch_change = prev_epoch_id != head.epoch_id;
         let mut fork_tail = self.store.fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
@@ -1167,12 +1167,12 @@ impl Chain {
     }
 
     /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&mut self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
+    pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
-            if let Ok(header) = self.get_block_header(hash).map(|h| h.clone()) {
+            if let Ok(header) = self.get_block_header(hash) {
                 if let Ok(header_at_height) = self.get_header_by_height(header.height()) {
                     if header.hash() == header_at_height.hash() {
-                        return Some(header);
+                        return Some(header.clone());
                     }
                 }
             }
@@ -2829,7 +2829,7 @@ impl Chain {
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     #[inline]
-    pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<BlockHeader, Error> {
         self.store.head_header()
     }
 
@@ -2875,29 +2875,29 @@ impl Chain {
 
     /// Gets a block header by hash.
     #[inline]
-    pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
+    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
         self.store.get_block_header(hash)
     }
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
+    pub fn get_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
         self.store.get_header_by_height(height)
     }
 
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     #[inline]
     pub fn get_header_on_chain_by_height(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> Result<&BlockHeader, Error> {
+    ) -> Result<BlockHeader, Error> {
         self.store.get_header_on_chain_by_height(sync_hash, height)
     }
 
     /// Get previous block header.
     #[inline]
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.store.get_previous_header(header)
     }
 
@@ -3376,7 +3376,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Find previous header or return Orphan error if not found.
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.chain_store_update.get_previous_header(header).map_err(|e| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,
@@ -4823,7 +4823,7 @@ impl<'a> ChainUpdate<'a> {
                 },
             };
         if last_final_block_header.height() > final_head.height {
-            let tip = Tip::from_header(last_final_block_header);
+            let tip = Tip::from_header(&last_final_block_header);
             self.chain_store_update.save_final_head(&tip)?;
             Ok(Some(tip))
         } else {
@@ -4887,22 +4887,21 @@ impl<'a> ChainUpdate<'a> {
             // It could be that there is a better chain known. However, it is extremely unlikely,
             //   and even if there's such chain available, the very next block built on it will
             //   bring this node's head to that chain.
-            let prev_header =
-                self.chain_store_update.get_block_header(block_header.prev_hash())?.clone();
+            let prev_header = self.chain_store_update.get_block_header(block_header.prev_hash())?;
             let prev_height = prev_header.height();
             let new_head_header = if let Some(hash) = challenger_hash {
                 let challenger_header = self.chain_store_update.get_block_header(hash)?;
                 if challenger_header.height() > prev_height {
                     challenger_header
                 } else {
-                    &prev_header
+                    prev_header
                 }
             } else {
-                &prev_header
+                prev_header
             };
             let last_final_block = *new_head_header.last_final_block();
 
-            let tip = Tip::from_header(new_head_header);
+            let tip = Tip::from_header(&new_head_header);
             self.chain_store_update.save_head(&tip)?;
             let new_final_header =
                 self.chain_store_update.get_block_header(&last_final_block)?.clone();
