@@ -496,8 +496,8 @@ impl BlockSync {
             // First go back until we find the common block
             while match chain.get_header_by_height(candidate.0) {
                 Ok(header) => header.hash() != &candidate.1,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => true,
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => true,
                     _ => return Err(e),
                 },
             } {
@@ -517,8 +517,8 @@ impl BlockSync {
                             break;
                         }
                     }
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
+                    Err(e) => match e {
+                        near_chain::Error::DBNotFoundErr(_) => break,
                         _ => return Err(e),
                     },
                 }
@@ -533,10 +533,8 @@ impl BlockSync {
         for _ in 0..MAX_BLOCK_REQUESTS {
             match chain.mut_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = *hash,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
-                        break;
-                    }
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => break,
                     _ => return Err(e),
                 },
             }

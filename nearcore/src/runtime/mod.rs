@@ -8,7 +8,7 @@ use errors::FromStateViewerErrors;
 use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
 };
-use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, ErrorKind, RuntimeAdapter};
+use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
@@ -563,14 +563,14 @@ impl NightshadeRuntime {
                 states_to_patch,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::from(ErrorKind::InvalidTransactions),
+                RuntimeError::InvalidTxError(_) => Error::from(Error::InvalidTransactions),
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
                 }
-                RuntimeError::StorageError(e) => Error::from(ErrorKind::StorageError(e)),
+                RuntimeError::StorageError(e) => Error::from(Error::StorageError(e)),
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
@@ -593,7 +593,7 @@ impl NightshadeRuntime {
             .checked_add(apply_result.stats.other_burnt_amount)
             .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
             .ok_or_else(|| {
-                ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
+                Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
 
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
@@ -744,7 +744,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap();
 
         if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(ErrorKind::InvalidRandomnessBeaconOutput.into());
+            return Err(Error::InvalidRandomnessBeaconOutput.into());
         }
         Ok(())
     }
@@ -781,9 +781,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => {
-                    Err(Error::from(ErrorKind::StorageError(err)))
-                }
+                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         } else {
@@ -800,9 +798,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => {
-                    Err(Error::from(ErrorKind::StorageError(err)))
-                }
+                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
@@ -858,7 +854,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 state_update.rollback();
                             }
                             Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::from(ErrorKind::StorageError(err)))
+                                return Err(Error::from(Error::StorageError(err)))
                             }
                             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                         }
@@ -903,7 +899,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             data,
             signature,
         ) {
-            Err(e) if e.kind() == ErrorKind::NotAValidator => {
+            Err(Error::NotAValidator) => {
                 let (fisherman, is_slashed) =
                     self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
                 if is_slashed {
@@ -949,7 +945,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
         } else {
-            Err(ErrorKind::NotAValidator.into())
+            Err(Error::NotAValidator.into())
         }
     }
 
@@ -979,7 +975,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(ErrorKind::InvalidApprovals.into());
+                    return Err(Error::InvalidApprovals.into());
                 }
             }
         }
@@ -988,7 +984,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
             .collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(ErrorKind::NotEnoughApprovals.into())
+            Err(Error::NotEnoughApprovals.into())
         } else {
             Ok(())
         }
@@ -1077,7 +1073,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((validator, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator.into()),
             Err(e) => Err(e.into()),
         }
     }
@@ -1094,7 +1090,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((fisherman, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(ErrorKind::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator.into()),
             Err(e) => Err(e.into()),
         }
     }
@@ -1434,10 +1430,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             states_to_patch,
         ) {
             Ok(result) => Ok(result),
-            Err(e) => match e.kind() {
-                ErrorKind::StorageError(_) => {
-                    panic!("{}", e);
-                }
+            Err(e) => match e {
+                Error::StorageError(_) => panic!("{e}"),
                 _ => Err(e),
             },
         }
@@ -1710,7 +1704,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
             .get_split_shard_uids(shard_id)
-            .ok_or(ErrorKind::InvalidShardId(shard_id))?;
+            .ok_or(Error::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();

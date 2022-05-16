@@ -1,10 +1,7 @@
-use std::fmt::{self, Display};
 use std::io;
 
 use chrono::DateTime;
 use near_primitives::time::Utc;
-
-use tracing::error;
 
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
@@ -62,13 +59,8 @@ pub enum QueryError {
     },
 }
 
-#[derive(Debug)]
-pub struct Error {
-    inner: anyhow::Error,
-}
-
-#[derive(Clone, Eq, PartialEq, Debug, thiserror::Error)]
-pub enum ErrorKind {
+#[derive(Eq, PartialEq, Debug, thiserror::Error)]
+pub enum Error {
     /// The block is already known
     #[error("Block is known: {0}")]
     BlockKnown(#[from] BlockKnownError),
@@ -229,157 +221,111 @@ pub trait LogTransientStorageError {
 
 impl<T> LogTransientStorageError for Result<T, Error> {
     fn log_storage_error(self, message: &str) -> Self {
-        if let Err(ref e) = self {
-            error!(target: "client",
-                   "Transient storage error: {}, {}",
-                   message, e
-            );
+        if let Err(err) = &self {
+            tracing::error!(target: "client", "Transient storage error: {message}, {err}");
         }
         self
     }
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.inner, f)
-    }
-}
-
 impl Error {
-    /// Return the [`ErrorKind`] of the error.
-    pub fn kind(&self) -> ErrorKind {
-        match self.inner.downcast_ref::<ErrorKind>() {
-            Some(kind) => kind.clone(),
-            None => ErrorKind::Other(self.inner.to_string()),
-        }
-    }
-
-    /// Return the root cause of the error.
-    pub fn cause(&self) -> &(dyn std::error::Error + 'static) {
-        self.inner.root_cause()
-    }
-
-    /// Return the error's backtrace.
-    pub fn backtrace(&self) -> impl std::fmt::Debug + Display + '_ {
-        self.inner.backtrace()
-    }
-
     pub fn is_bad_data(&self) -> bool {
-        match self.kind() {
-            ErrorKind::BlockKnown(_)
-            | ErrorKind::Orphan
-            | ErrorKind::ChunkMissing(_)
-            | ErrorKind::ChunksMissing(_)
-            | ErrorKind::InvalidChunkHeight
-            | ErrorKind::IOErr(_)
-            | ErrorKind::Other(_)
-            | ErrorKind::ValidatorError(_)
-            | ErrorKind::EpochOutOfBounds(_)
-            | ErrorKind::ChallengedBlockOnChain
-            | ErrorKind::StorageError(_)
-            | ErrorKind::GCError(_)
-            | ErrorKind::DBNotFoundErr(_) => false,
-            ErrorKind::InvalidBlockPastTime(_, _)
-            | ErrorKind::InvalidBlockFutureTime(_)
-            | ErrorKind::InvalidBlockHeight(_)
-            | ErrorKind::InvalidBlockProposer
-            | ErrorKind::InvalidChunk
-            | ErrorKind::InvalidChunkProofs(_)
-            | ErrorKind::InvalidChunkState(_)
-            | ErrorKind::InvalidChunkMask
-            | ErrorKind::InvalidStateRoot
-            | ErrorKind::InvalidTxRoot
-            | ErrorKind::InvalidChunkReceiptsRoot
-            | ErrorKind::InvalidOutcomesProof
-            | ErrorKind::InvalidChunkHeadersRoot
-            | ErrorKind::InvalidChunkTxRoot
-            | ErrorKind::InvalidReceiptsProof
-            | ErrorKind::InvalidStatePayload
-            | ErrorKind::InvalidTransactions
-            | ErrorKind::InvalidChallenge
-            | ErrorKind::MaliciousChallenge
-            | ErrorKind::IncorrectNumberOfChunkHeaders
-            | ErrorKind::InvalidEpochHash
-            | ErrorKind::InvalidNextBPHash
-            | ErrorKind::NotEnoughApprovals
-            | ErrorKind::InvalidFinalityInfo
-            | ErrorKind::InvalidValidatorProposals
-            | ErrorKind::InvalidSignature
-            | ErrorKind::InvalidApprovals
-            | ErrorKind::InvalidGasLimit
-            | ErrorKind::InvalidGasPrice
-            | ErrorKind::InvalidGasUsed
-            | ErrorKind::InvalidBalanceBurnt
-            | ErrorKind::InvalidShardId(_)
-            | ErrorKind::InvalidStateRequest(_)
-            | ErrorKind::InvalidRandomnessBeaconOutput
-            | ErrorKind::InvalidBlockMerkleRoot
-            | ErrorKind::NotAValidator
-            | ErrorKind::InvalidChallengeRoot => true,
+        match self {
+            Error::BlockKnown(_)
+            | Error::Orphan
+            | Error::ChunkMissing(_)
+            | Error::ChunksMissing(_)
+            | Error::InvalidChunkHeight
+            | Error::IOErr(_)
+            | Error::Other(_)
+            | Error::ValidatorError(_)
+            | Error::EpochOutOfBounds(_)
+            | Error::ChallengedBlockOnChain
+            | Error::StorageError(_)
+            | Error::GCError(_)
+            | Error::DBNotFoundErr(_) => false,
+            Error::InvalidBlockPastTime(_, _)
+            | Error::InvalidBlockFutureTime(_)
+            | Error::InvalidBlockHeight(_)
+            | Error::InvalidBlockProposer
+            | Error::InvalidChunk
+            | Error::InvalidChunkProofs(_)
+            | Error::InvalidChunkState(_)
+            | Error::InvalidChunkMask
+            | Error::InvalidStateRoot
+            | Error::InvalidTxRoot
+            | Error::InvalidChunkReceiptsRoot
+            | Error::InvalidOutcomesProof
+            | Error::InvalidChunkHeadersRoot
+            | Error::InvalidChunkTxRoot
+            | Error::InvalidReceiptsProof
+            | Error::InvalidStatePayload
+            | Error::InvalidTransactions
+            | Error::InvalidChallenge
+            | Error::MaliciousChallenge
+            | Error::IncorrectNumberOfChunkHeaders
+            | Error::InvalidEpochHash
+            | Error::InvalidNextBPHash
+            | Error::NotEnoughApprovals
+            | Error::InvalidFinalityInfo
+            | Error::InvalidValidatorProposals
+            | Error::InvalidSignature
+            | Error::InvalidApprovals
+            | Error::InvalidGasLimit
+            | Error::InvalidGasPrice
+            | Error::InvalidGasUsed
+            | Error::InvalidBalanceBurnt
+            | Error::InvalidShardId(_)
+            | Error::InvalidStateRequest(_)
+            | Error::InvalidRandomnessBeaconOutput
+            | Error::InvalidBlockMerkleRoot
+            | Error::NotAValidator
+            | Error::InvalidChallengeRoot => true,
         }
     }
 
     pub fn is_error(&self) -> bool {
-        match self.kind() {
-            ErrorKind::IOErr(_) | ErrorKind::Other(_) | ErrorKind::DBNotFoundErr(_) => true,
+        match self {
+            Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_) => true,
             _ => false,
         }
     }
 }
 
-impl From<ErrorKind> for Error {
-    fn from(kind: ErrorKind) -> Self {
-        Self { inner: anyhow::Error::new(kind) }
-    }
-}
-
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        Self { inner: anyhow::Error::new(ErrorKind::IOErr(error.to_string())) }
+        Error::IOErr(error.to_string())
     }
 }
-
-impl std::error::Error for Error {}
 
 impl From<EpochError> for Error {
     fn from(error: EpochError) -> Self {
         match error {
-            EpochError::EpochOutOfBounds(epoch_id) => ErrorKind::EpochOutOfBounds(epoch_id),
-            EpochError::MissingBlock(h) => ErrorKind::DBNotFoundErr(to_base(&h)),
-            err => ErrorKind::ValidatorError(err.to_string()),
+            EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
+            EpochError::MissingBlock(h) => Error::DBNotFoundErr(to_base(&h)),
+            err => Error::ValidatorError(err.to_string()),
         }
-        .into()
     }
 }
 
 impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {
-            ShardLayoutError::InvalidShardIdError { shard_id } => {
-                ErrorKind::InvalidShardId(shard_id)
-            }
+            ShardLayoutError::InvalidShardIdError { shard_id } => Error::InvalidShardId(shard_id),
         }
-        .into()
     }
 }
 
 impl From<BlockValidityError> for Error {
     fn from(error: BlockValidityError) -> Self {
         match error {
-            BlockValidityError::InvalidStateRoot => ErrorKind::InvalidStateRoot,
-            BlockValidityError::InvalidReceiptRoot => ErrorKind::InvalidChunkReceiptsRoot,
-            BlockValidityError::InvalidTransactionRoot => ErrorKind::InvalidTxRoot,
-            BlockValidityError::InvalidChunkHeaderRoot => ErrorKind::InvalidChunkHeadersRoot,
-            BlockValidityError::InvalidChunkMask => ErrorKind::InvalidChunkMask,
-            BlockValidityError::InvalidChallengeRoot => ErrorKind::InvalidChallengeRoot,
+            BlockValidityError::InvalidStateRoot => Error::InvalidStateRoot,
+            BlockValidityError::InvalidReceiptRoot => Error::InvalidChunkReceiptsRoot,
+            BlockValidityError::InvalidTransactionRoot => Error::InvalidTxRoot,
+            BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
+            BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
+            BlockValidityError::InvalidChallengeRoot => Error::InvalidChallengeRoot,
         }
-        .into()
-    }
-}
-
-impl From<StorageError> for Error {
-    fn from(error: StorageError) -> Self {
-        ErrorKind::StorageError(error).into()
     }
 }
 

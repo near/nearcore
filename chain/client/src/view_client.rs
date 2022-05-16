@@ -14,7 +14,7 @@ use tracing::{debug, error, info, trace, warn};
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    ErrorKind, RuntimeAdapter,
+    RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
@@ -218,13 +218,13 @@ impl ViewClientActor {
             BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
                 if let Some(block_hash) = self
                     .get_block_hash_by_sync_checkpoint(synchronization_checkpoint)
-                    .map_err(|err| match err.kind() {
-                        near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
+                    .map_err(|err| match err {
+                        near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
                             QueryError::UnknownBlock {
                                 block_reference: msg.block_reference.clone(),
                             }
                         }
-                        near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                        near_chain::near_chain_primitives::Error::IOErr(error_message) => {
                             QueryError::InternalError { error_message }
                         }
                         _ => QueryError::Unreachable { error_message: err.to_string() },
@@ -237,11 +237,11 @@ impl ViewClientActor {
             }
         };
         let header = header
-            .map_err(|err| match err.kind() {
-                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
+            .map_err(|err| match err {
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
                     QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
                 }
-                near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
@@ -266,9 +266,9 @@ impl ViewClientActor {
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
         let tip = self.chain.head();
-        let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
-            match err.kind() {
-                near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => match tip {
+        let chunk_extra =
+            self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
+                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
                     Ok(tip) => {
                         let gc_stop_height =
                             self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
@@ -283,12 +283,11 @@ impl ViewClientActor {
                     }
                     Err(err) => QueryError::InternalError { error_message: err.to_string() },
                 },
-                near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
+                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
-            }
-        })?;
+            })?;
 
         let state_root = chunk_extra.state_root();
         match self.runtime_adapter.query(
@@ -433,8 +432,8 @@ impl ViewClientActor {
                         tx_result,
                     )));
                 }
-                Err(e) => match e.kind() {
-                    ErrorKind::DBNotFoundErr(_) => {
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => {
                         if let Ok(execution_outcome) = self.chain.get_execution_outcome(&tx_hash) {
                             for receipt_id in execution_outcome.outcome_with_id.outcome.receipt_ids
                             {
@@ -630,16 +629,18 @@ impl Handler<GetChunk> for ViewClientActor {
             let chunk_header = block
                 .chunks()
                 .get(shard_id as usize)
-                .ok_or_else(|| near_chain::Error::from(ErrorKind::InvalidShardId(shard_id)))?
+                .ok_or_else(|| {
+                    near_chain::Error::from(near_chain::Error::InvalidShardId(shard_id))
+                })?
                 .clone();
             let chunk_hash = chunk_header.chunk_hash();
             chain.get_chunk(&chunk_hash).and_then(|chunk| {
-                ShardChunk::with_header(chunk.clone(), chunk_header).ok_or(near_chain::Error::from(
-                    ErrorKind::Other(format!(
+                ShardChunk::with_header(chunk.clone(), chunk_header).ok_or(
+                    near_chain::Error::Other(format!(
                         "Mismatched versions for chunk with hash {}",
                         chunk_hash.0
                     )),
-                ))
+                )
             })
         };
 
@@ -863,7 +864,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block.clone())),
                 Err(e) => {
-                    if let ErrorKind::DBNotFoundErr(_) = e.kind() {
+                    if let near_chain::Error::DBNotFoundErr(_) = e {
                         Ok(None)
                     } else {
                         Err(e.into())
@@ -927,8 +928,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                     }),
                 }
             }
-            Err(e) => match e.kind() {
-                ErrorKind::DBNotFoundErr(_) => {
+            Err(e) => match e {
+                near_chain::Error::DBNotFoundErr(_) => {
                     let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
                     let target_shard_id =
                         self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
@@ -1246,8 +1247,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
                         return NetworkViewClientResponses::NoResponse;
                     }
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
+                    Err(e) => match e {
+                        near_chain::Error::DBNotFoundErr(_) => {
                             // This case may appear in case of latency in epoch switching.
                             // Request sender is ready to sync but we still didn't get the block.
                             info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
@@ -1309,8 +1310,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
                         return NetworkViewClientResponses::NoResponse;
                     }
-                    Err(e) => match e.kind() {
-                        ErrorKind::DBNotFoundErr(_) => {
+                    Err(e) => match e {
+                        near_chain::Error::DBNotFoundErr(_) => {
                             // This case may appear in case of latency in epoch switching.
                             // Request sender is ready to sync but we still didn't get the block.
                             info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);

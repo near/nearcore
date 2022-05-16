@@ -42,6 +42,7 @@ test_features = [
   "near-jsonrpc-primitives/test_features",
   "near-jsonrpc-adversarial-primitives/ser_de",
 ]
+nightly = ["nightly_protocol"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = [
   "near-network/sandbox",

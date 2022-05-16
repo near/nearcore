@@ -1,6 +1,6 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, ErrorKind};
+use crate::{Block, ChainStoreAccess, Error};
 use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
@@ -31,13 +31,13 @@ fn build_chain() {
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to
     // run the test twice: once with default features and once with
-    // ‘nightly_protocol_features’ feature enabled:
+    // ‘nightly’ feature enabled:
     //
     //     cargo install cargo-insta
-    //     cargo insta test --accept -p near-chain -- tests::simple_chain::build_chain
-    //     cargo insta test --accept -p near-chain --features nightly_protocol_features -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
-    if cfg!(feature = "nightly_protocol") {
+    if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
     } else {
         insta::assert_display_snapshot!(hash, @"sFAi6Xq5jWcbRetAkMQ3A44GvfLHSLMnb8SqaRsmWmo");
@@ -66,7 +66,7 @@ fn build_chain() {
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
-    if cfg!(feature = "nightly_protocol") {
+    if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
     } else {
         insta::assert_display_snapshot!(hash, @"F5srbRRkG5KBzvDzEpDiiJp257SCVUaeFhNeXAddbHGZ");
@@ -105,20 +105,14 @@ fn build_chain_with_orhpans() {
         CryptoHash::default(),
         None,
     );
-    assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
-    );
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
-    );
+    assert_eq!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
+    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
+    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
+        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
+        Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 
