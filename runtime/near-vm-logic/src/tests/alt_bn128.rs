@@ -1,4 +1,5 @@
 use super::{fixtures::get_context, vm_logic_builder::VMLogicBuilder};
+use bn::Group;
 use near_vm_errors::{HostError, VMLogicError};
 use std::fmt::Write;
 
@@ -111,10 +112,29 @@ fn test_alt_bn128_g1_multiexp() {
     check_ok(&le_bytes![], &le_bytes![0x0 0x0]);
     check_ok(
         &le_bytes![
+            0x2d6b17489d86fcd5f91e8e92eb55081d8cb4413e408047249ef4fb5baa1b518b 0x1e4d0a30dbadd9dad40f7847c7013754ded8d0371c052d19f01453f4ae1506d7 0x1,
+        ],
+        &le_bytes![0x2d6b17489d86fcd5f91e8e92eb55081d8cb4413e408047249ef4fb5baa1b518b 0x1e4d0a30dbadd9dad40f7847c7013754ded8d0371c052d19f01453f4ae1506d7],
+    );
+
+    check_ok(
+        &le_bytes![
             0x12b453155ca3be5d0b14a4804cc39a0b4635b06d512735350cd031051644d3ec 0x2944829dcfa7dd72bb04d12e46869e6a6c8162698f9a6c35724f91f597e25fc4  0x112b450c0769c7cd80ffa552aaab2153adb5646664ee091639784a7f887411f7,
             0x032b2c8b9f1e7f5e53c262ae87ccd1366df1af019f2dbfe1a58a6749ba4b923f 0x0017741cde8d55ccce3a1dac210f531d22f574885226ea46fbbce4a4c75f7ed8  0x19e4956d3cf5e04f938bc9dee72f2fcab15934c7e0450ae15afee161606b071a,
         ],
-        &le_bytes![0x2923a9d452a047e0f24ab419d7893ecbf0c32a842afd88f991a6723decba82aa 0x2e3a00f94191675c0730510133c2fca248160750d87b5157c534146d4d260b61],
+        &le_bytes![
+            0x2923a9d452a047e0f24ab419d7893ecbf0c32a842afd88f991a6723decba82aa 0x2e3a00f94191675c0730510133c2fca248160750d87b5157c534146d4d260b61
+        ],
+    );
+    check_ok(
+        &le_bytes![
+            0x26a1602aeb36e32dd1c534b1c014e920b138f4a8b87f2833ea6051c8cbd5eea2 0x01eb929f0ab6720df89837a84f2787d6d8a8bd97e0daab0576321d85143633ee 0x1,
+            0x15ad51e3d708bdf9ae99a3732af9354cc7b0f2ce71832b958b3e9b0215e63578 0x231d7b68932527abdeb71488bd5c1e339306c10490d3c65f7daaa651a367c618 0x1,
+            0x1302ac2f870ef22bdec4cd48058f309bcef761a7b40f78744157f3bbf25a016d 0x0c75e87050e62a4c3bf1e261da5a0f11c7ccaa090a0585365658f7a2b4b96fee 0x1,
+        ],
+        &le_bytes![
+            0x2ee5c54dee890fb79c9964f7a08c7295111990435dc3adff9fb6d63aadded21f 0x2c3fa1abf295e7df565379efcdb0398d08fc959a0a7e5d3f30118fefe9450a67
+        ],
     );
 
     check_err(b"XXXX", "invalid array, byte length 4, element size 96");
@@ -157,11 +177,28 @@ fn test_alt_bn128_g1_sum() {
     check_ok(&le_bytes![], &le_bytes![0x0 0x0]);
     check_ok(
         &le_bytes![
+            0u8 0x2d6b17489d86fcd5f91e8e92eb55081d8cb4413e408047249ef4fb5baa1b518b 0x1e4d0a30dbadd9dad40f7847c7013754ded8d0371c052d19f01453f4ae1506d7,
+        ],
+        &le_bytes![0x2d6b17489d86fcd5f91e8e92eb55081d8cb4413e408047249ef4fb5baa1b518b 0x1e4d0a30dbadd9dad40f7847c7013754ded8d0371c052d19f01453f4ae1506d7,],
+    );
+    check_ok(
+        &le_bytes![
             0u8  0x12b453155ca3be5d0b14a4804cc39a0b4635b06d512735350cd031051644d3ec 0x2944829dcfa7dd72bb04d12e46869e6a6c8162698f9a6c35724f91f597e25fc4,
             1u8  0x032b2c8b9f1e7f5e53c262ae87ccd1366df1af019f2dbfe1a58a6749ba4b923f 0x304cda5602a44a5cea16280a60720540748bf609164ae0464063a772111d7e6f,
         ],
         &le_bytes![
             0x1e2e53eecef3185d5c874e783cb184d302692a22c20f5f3b3993882e184d8fe8 0x03fc2454d3d88f9eac441e9b85a9041e925f30cca7a82d039d1ffb582bfb2004
+        ],
+    );
+
+    check_ok(
+        &le_bytes![
+            0u8 0x26a1602aeb36e32dd1c534b1c014e920b138f4a8b87f2833ea6051c8cbd5eea2 0x01eb929f0ab6720df89837a84f2787d6d8a8bd97e0daab0576321d85143633ee,
+            0u8 0x15ad51e3d708bdf9ae99a3732af9354cc7b0f2ce71832b958b3e9b0215e63578 0x231d7b68932527abdeb71488bd5c1e339306c10490d3c65f7daaa651a367c618,
+            0u8 0x1302ac2f870ef22bdec4cd48058f309bcef761a7b40f78744157f3bbf25a016d 0x0c75e87050e62a4c3bf1e261da5a0f11c7ccaa090a0585365658f7a2b4b96fee,
+        ],
+        &le_bytes![
+            0x2ee5c54dee890fb79c9964f7a08c7295111990435dc3adff9fb6d63aadded21f 0x2c3fa1abf295e7df565379efcdb0398d08fc959a0a7e5d3f30118fefe9450a67
         ],
     );
 
@@ -214,6 +251,21 @@ fn test_alt_bn128_pairing_check() {
             0x00e9f62300f921f5d4f2f7008aec59449a3f5e75add585ec4eccf04f5dc5b32f 0x17c150f0fb2ff472816b41868b98b9170233ee4647fe4bc41a1336c9a2c6567c
         ],
         1,
+    );
+    check_ok(
+        &le_bytes![
+            0x0763111c06b5066cc812f8e058d5b82a7bc356c83a1a5ab743ea4e7163d90a75 0x041068a8ed41f6755c1ad2d30aacc3974a4fae3293aee34c7103b4c073358624
+
+            0x291aea4fac742aaf8772caa00c8763d509c3d6f20d1be64d73c10d06db031a01 0x1de7a958e4adb3a128cd3b942b13bc85ee4124f0dee6f4266b39707c81c06fd4
+            0x1e2d816ba8b96e5cb444883a2b095533becb805c654418fa2c65bba533a34311 0x195dd519dc841a301a14de412c520b858c01ccc7ba0bd4177dd85d4b116416bb,
+
+
+            0x0763111c06b5066cc812f8e058d5b82a7bc356c83a1a5ab743ea4e7163d90a75 0x041068a8ed41f6755c1ad2d30aacc3974a4fae3293aee34c7103b4c073358624
+
+            0x201eef3c872a7313da79f6aa628cc9795314fbac78484fdae2eba5086755ad6d 0x204e0376b942fe92ba6e2746d07d62f5dede7b8b6e172fa89ea0c5c4ccabaa31
+            0x00e9f62300f921f5d4f2f7008aec59449a3f5e75add585ec4eccf04f5dc5b32f 0x17c150f0fb2ff472816b41868b98b9170233ee4647fe4bc41a1336c9a2c6567c
+        ],
+        0,
     );
 
     check_err(b"XXXX", "invalid array, byte length 4, element size 192");
