@@ -1218,7 +1218,12 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert_eq!(res.unwrap_err(), Error::EpochOutOfBounds(block.header().epoch_id().clone()));
+        match res {
+            Err(Error::EpochOutOfBounds(epoch_id)) => {
+                assert_eq!(&epoch_id, block.header().epoch_id())
+            }
+            _ => panic!("expected EpochOutOfBounds error, got {res:?}"),
+        }
     }
     {
         // Orphan block with invalid signature
@@ -1226,7 +1231,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().get_mut().init();
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.unwrap_err(), Error::InvalidSignature);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with a valid header, but garbage in body
@@ -1251,7 +1256,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1262,7 +1267,7 @@ fn test_bad_orphan() {
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
 
-        assert_eq!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::Orphan);
     }
     {
         // Orphan block with no chunk signatures. Allowed for now.
@@ -1284,7 +1289,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.unwrap_err(), Error::Orphan);
+        assert_matches!(res.unwrap_err(), Error::Orphan);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
@@ -3927,7 +3932,7 @@ mod access_key_nonce_range_tests {
         for i in 4..20 {
             let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
             assert_matches!(res, Err(e) => {
-                assert_eq!(e, near_chain::Error::Orphan);
+                assert_matches!(e, near_chain::Error::Orphan);
             });
         }
         // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded chunks already

@@ -1,6 +1,7 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
 use crate::{Block, ChainStoreAccess, Error};
+use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
@@ -105,12 +106,18 @@ fn build_chain_with_orhpans() {
         CryptoHash::default(),
         None,
     );
-    assert_eq!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
-    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
-    assert_eq!(chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
+    assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
+    );
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
+    );
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
     assert_eq!(res.unwrap().unwrap().height, 10);
-    assert_eq!(
+    assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
         Error::BlockKnown(BlockKnownError::KnownInStore)
     );
