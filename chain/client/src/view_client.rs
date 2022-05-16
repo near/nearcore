@@ -224,8 +224,8 @@ impl ViewClientActor {
                                 block_reference: msg.block_reference.clone(),
                             }
                         }
-                        near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                            QueryError::InternalError { error_message }
+                        near_chain::near_chain_primitives::Error::IOErr(error) => {
+                            QueryError::InternalError { error_message: error.to_string() }
                         }
                         _ => QueryError::Unreachable { error_message: err.to_string() },
                     })?
@@ -241,8 +241,8 @@ impl ViewClientActor {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
                     QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
                 }
-                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                    QueryError::InternalError { error_message }
+                near_chain::near_chain_primitives::Error::IOErr(error) => {
+                    QueryError::InternalError { error_message: error.to_string() }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
             })?
@@ -283,8 +283,8 @@ impl ViewClientActor {
                     }
                     Err(err) => QueryError::InternalError { error_message: err.to_string() },
                 },
-                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                    QueryError::InternalError { error_message }
+                near_chain::near_chain_primitives::Error::IOErr(error) => {
+                    QueryError::InternalError { error_message: error.to_string() }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
             })?;
