@@ -24,7 +24,7 @@ use tar::Archive;
 // include that in the measurements.
 struct Sys {
     sys: Option<actix_rt::SystemRunner>,
-    servers: Vec<(&'static str, actix_web::dev::Server)>,
+    servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 impl Drop for Sys {
@@ -36,7 +36,7 @@ impl Drop for Sys {
 
         sys.block_on(async move {
             futures::future::join_all(self.servers.iter().map(|(_name, server)| async move {
-                server.handle().stop(true).await;
+                server.stop(true).await;
             }))
             .await;
         });

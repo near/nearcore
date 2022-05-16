@@ -1479,7 +1479,7 @@ pub fn start_http(
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
-) -> Vec<(&'static str, actix_web::dev::Server)> {
+) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
         prometheus_addr,
@@ -1535,7 +1535,9 @@ pub fn start_http(
     .disable_signals()
     .run();
 
-    servers.push(("JSON RPC", server));
+    servers.push(("JSON RPC", server.handle()));
+
+    tokio::spawn(server);
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
@@ -1553,7 +1555,10 @@ pub fn start_http(
         .shutdown_timeout(5)
         .disable_signals()
         .run();
-        servers.push(("Prometheus Metrics", server));
+
+        servers.push(("Prometheus Metrics", server.handle()));
+
+        tokio::spawn(server);
     }
 
     servers

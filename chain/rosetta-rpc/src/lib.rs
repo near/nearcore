@@ -787,9 +787,9 @@ pub fn start_rosetta_rpc(
     genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-) -> actix_web::dev::Server {
+) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         let json_config = web::JsonConfig::default()
             .limit(limits.input_payload_max_size)
             .error_handler(|err, _req| {
@@ -853,5 +853,11 @@ pub fn start_rosetta_rpc(
     .unwrap()
     .shutdown_timeout(5)
     .disable_signals()
-    .run()
+    .run();
+
+    let handle = server.handle();
+
+    tokio::spawn(server);
+
+    handle
 }

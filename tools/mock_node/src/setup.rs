@@ -143,7 +143,7 @@ pub fn setup_mock_node(
     Addr<MockPeerManagerActor>,
     Addr<ClientActor>,
     Addr<ViewClientActor>,
-    Option<Vec<(&'static str, actix_web::dev::Server)>>,
+    Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
 ) {
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
     let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);

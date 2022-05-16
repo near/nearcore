@@ -430,7 +430,7 @@ impl RunCmd {
             let sig = wait_for_interrupt_signal(home_dir, rx).await;
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
-                server.handle().stop(true).await;
+                server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
