@@ -2919,7 +2919,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::ChallengedBlocks, hash.as_ref(), &true)?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
-            store_update.set_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
         for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
             store_update.set_ser(
