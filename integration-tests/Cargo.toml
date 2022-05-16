@@ -66,11 +66,6 @@ performance_stats = [
 ]
 expensive_tests = []
 test_features = ["nearcore/test_features"]
-protocol_feature_alt_bn128 = [
-    "near-primitives/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128",
-]
 protocol_feature_chunk_only_producers = [
   "near-client/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
@@ -82,7 +77,6 @@ protocol_feature_access_key_nonce_for_implicit_accounts = [
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
-  "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
 ]

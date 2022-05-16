@@ -153,7 +153,13 @@ expression: store.get_config(*version)
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
-      "validator_total_stake_base": 911834726400
+      "validator_total_stake_base": 911834726400,
+      "alt_bn128_g1_multiexp_base": 713000000000,
+      "alt_bn128_g1_multiexp_element": 320000000000,
+      "alt_bn128_g1_sum_base": 3000000000,
+      "alt_bn128_g1_sum_element": 5000000000,
+      "alt_bn128_pairing_check_base": 9686000000000,
+      "alt_bn128_pairing_check_element": 5102000000000
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,

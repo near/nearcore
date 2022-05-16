@@ -59,7 +59,6 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 opentelemetry = ["nearcore/opentelemetry"]
-protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_chunk_only_producers = [
   "nearcore/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",

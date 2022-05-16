@@ -166,7 +166,7 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     config.exceptions_enabled = false;
     config.saturating_float_to_int_enabled = false;
     config.sign_extension_enabled = false;
-    config.available_imports = Some(rs_contract().to_vec());
+    config.available_imports = Some(base_rs_contract().to_vec());
     let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
     module.to_bytes()
 }

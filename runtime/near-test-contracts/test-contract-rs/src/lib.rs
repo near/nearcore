@@ -166,11 +166,11 @@ extern "C" {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 }
 
@@ -1191,7 +1191,7 @@ pub unsafe fn sanity_check() {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     {
         let buffer: [u8; 96] = [
             16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,

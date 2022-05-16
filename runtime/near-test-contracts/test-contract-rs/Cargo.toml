@@ -30,7 +30,5 @@ incremental = false
 members = []
 
 [features]
-nightly = ["protocol_feature_alt_bn128"]
-protocol_feature_alt_bn128 = []
-protocol_feature_function_call_weight = []
+nightly = []
 latest_protocol = []
