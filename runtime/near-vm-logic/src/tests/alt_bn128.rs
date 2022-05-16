@@ -1,5 +1,4 @@
 use super::{fixtures::get_context, vm_logic_builder::VMLogicBuilder};
-use bn::Group;
 use near_vm_errors::{HostError, VMLogicError};
 use std::fmt::Write;
 
