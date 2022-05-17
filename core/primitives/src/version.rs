@@ -188,7 +188,7 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
     let mut schedule = HashMap::new();
     schedule.insert(52, None);
     schedule
-        .insert(53, Some(ProtocolUpgradeVotingSchedule::from_str("2022-04-25 16:00:00").unwrap()));
+        .insert(53, Some(ProtocolUpgradeVotingSchedule::from_str("2022-05-23 15:00:00").unwrap()));
     schedule
 });
 
