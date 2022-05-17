@@ -170,8 +170,6 @@ impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the read_only parameter specified in the store_config.
     pub fn open(path: impl AsRef<Path>, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
-        use strum::IntoEnumIterator;
-
         ensure_max_open_files_limit(store_config.max_open_files)?;
 
         let (db, db_opt) = if store_config.read_only {
@@ -180,8 +178,8 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cfs = DBCol::iter()
-            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
+        let cfs = DBCol::get_variants_sorted().iter()
+            .map(|&col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
             .collect();
         Ok(Self {
             db,
@@ -196,23 +194,21 @@ impl RocksDB {
 
     /// Opens a read only database.
     fn open_read_only(path: &Path, store_config: &StoreConfig) -> Result<(DB, Options), DBError> {
-        use strum::IntoEnumIterator;
         let options = rocksdb_options(store_config);
-        let cf_with_opts =
-            DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
+        let cf_with_opts: Vec<(String, Options)> =
+            DBCol::get_variants_sorted().iter().map(|&col| (col_name(col), rocksdb_column_options(col, store_config))).collect();
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         Ok((db, options))
     }
 
     /// Opens the database in read/write mode.
     fn open_read_write(path: &Path, store_config: &StoreConfig) -> Result<(DB, Options), DBError> {
-        use strum::IntoEnumIterator;
         let mut options = rocksdb_options(store_config);
         if store_config.enable_statistics {
             options = enable_statistics(options);
         }
-        let cf_descriptors = DBCol::iter()
-            .map(|col| {
+        let cf_descriptors = DBCol::get_variants_sorted().iter()
+            .map(|&col| {
                 ColumnFamilyDescriptor::new(
                     col_name(col),
                     rocksdb_column_options(col, store_config),
