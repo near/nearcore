@@ -38,7 +38,6 @@ pub use crate::trie::{
     Trie, TrieCache, TrieCachingStorage, TrieChanges, TrieStorage, WrappedTrieChanges,
 };
 
-
 mod columns;
 mod config;
 pub mod db;
@@ -48,7 +47,6 @@ pub mod test_utils;
 mod trie;
 
 pub use crate::config::StoreConfig;
-
 
 #[derive(Clone)]
 pub struct Store {
