@@ -3390,10 +3390,13 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "near-primitives",
+ "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
+ "once_cell",
  "wasm-smith",
  "wasmprinter",
+ "wat",
 ]
 
 [[package]]
