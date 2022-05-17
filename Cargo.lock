@@ -3085,6 +3085,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-jaeger",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
@@ -3499,6 +3500,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "opentelemetry",
  "rayon",
  "rustc_version 0.4.0",
  "serde",
@@ -3734,6 +3736,8 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "thiserror",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -3748,6 +3752,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "thiserror",
  "thrift",
+ "tokio",
 ]
 
 [[package]]
@@ -4665,6 +4670,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "nearcore",
+ "tokio",
 ]
 
 [[package]]
@@ -5299,6 +5305,7 @@ dependencies = [
  "near-primitives",
  "node-runtime",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 
