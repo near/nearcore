@@ -178,7 +178,8 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cfs = DBCol::get_variants_sorted().iter()
+        let cfs = DBCol::get_variants_sorted()
+            .iter()
             .map(|&col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
             .collect();
         Ok(Self {
@@ -195,8 +196,10 @@ impl RocksDB {
     /// Opens a read only database.
     fn open_read_only(path: &Path, store_config: &StoreConfig) -> Result<(DB, Options), DBError> {
         let options = rocksdb_options(store_config);
-        let cf_with_opts: Vec<(String, Options)> =
-            DBCol::get_variants_sorted().iter().map(|&col| (col_name(col), rocksdb_column_options(col, store_config))).collect();
+        let cf_with_opts: Vec<(String, Options)> = DBCol::get_variants_sorted()
+            .iter()
+            .map(|&col| (col_name(col), rocksdb_column_options(col, store_config)))
+            .collect();
         let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
         Ok((db, options))
     }
@@ -207,7 +210,8 @@ impl RocksDB {
         if store_config.enable_statistics {
             options = enable_statistics(options);
         }
-        let cf_descriptors = DBCol::get_variants_sorted().iter()
+        let cf_descriptors = DBCol::get_variants_sorted()
+            .iter()
             .map(|&col| {
                 ColumnFamilyDescriptor::new(
                     col_name(col),

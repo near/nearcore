@@ -294,9 +294,7 @@ impl DBCol {
     /// Fails if DBCol values doesn't correspond 0..len pattern.
     pub fn get_variants_sorted() -> Vec<DBCol> {
         let mut result: Vec<DBCol> = DBCol::iter().collect();
-        result.sort_by(|&a, &b| {
-            (a as usize).cmp(&(b as usize))
-        });
+        result.sort_by(|&a, &b| (a as usize).cmp(&(b as usize)));
         for i in 0..result.len() {
             assert!(result[i] as usize == i, "DBCol numeration violates 0..len rule");
         }
