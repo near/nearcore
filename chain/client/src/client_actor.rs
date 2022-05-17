@@ -71,8 +71,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
-    #[cfg(feature = "test_features")]
-    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+    pub adv: crate::adversarial::Controls,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -141,7 +140,7 @@ impl ClientActor {
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<oneshot::Sender<()>>,
-        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+        adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -169,7 +168,6 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            #[cfg(feature = "test_features")]
             adv,
             client,
             network_adapter,
@@ -283,14 +281,14 @@ impl ClientActor {
                 return match adversarial_msg {
                     near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv.write().unwrap().adv_disable_doomslug = true;
+                        self.adv.set_disable_doomslug(true);
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv.write().unwrap().adv_disable_header_sync = true;
+                        self.adv.set_disable_header_sync(true);
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
@@ -361,7 +359,7 @@ impl ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
-                            self.adv.read().unwrap().is_archival,
+                            self.adv.is_archival(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -1309,8 +1307,8 @@ impl ClientActor {
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(_) => {
+                    Err(e) => match e {
+                        near_chain::Error::ChunksMissing(_) => {
                             // missing chunks were already handled in Client::process_block, we don't need to
                             // do anything here
                             Ok(())
@@ -1456,7 +1454,7 @@ impl ClientActor {
                 warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
-                if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
+                if let near_chain::Error::DBNotFoundErr(msg) = err {
                     debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
                 }
                 if self.client.sync_status.is_syncing() {
@@ -1467,15 +1465,15 @@ impl ClientActor {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
             }
-            Err(e) => match e.kind() {
-                near_chain::ErrorKind::Orphan => {
+            Err(e) => match e {
+                near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
                 // missing chunks are already handled in self.client.process_block()
                 // we don't need to do anything here
-                near_chain::ErrorKind::ChunksMissing(_) => {}
+                near_chain::Error::ChunksMissing(_) => {}
                 _ => {
                     debug!(target: "client", error = %e, "Process block: refused by chain");
                 }
@@ -1561,14 +1559,7 @@ impl ClientActor {
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv.read().unwrap().adv_disable_header_sync {
-                return false;
-            }
-        }
-
-        needs_syncing
+        !self.adv.disable_header_sync() && needs_syncing
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -2084,7 +2075,7 @@ pub fn start_client(
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<oneshot::Sender<()>>,
-    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+    adv: crate::adversarial::Controls,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2101,7 +2092,6 @@ pub fn start_client(
             random_seed_from_thread(),
             ctx,
             sender,
-            #[cfg(feature = "test_features")]
             adv,
         )
         .unwrap()

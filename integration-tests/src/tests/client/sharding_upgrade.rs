@@ -3,7 +3,7 @@ use borsh::BorshSerialize;
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
 };
-use near_chain::near_chain_primitives::ErrorKind;
+use near_chain::near_chain_primitives::Error;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -358,7 +358,7 @@ impl TestShardUpgradeEnv {
                     .store()
                     .get_state_changes_for_split_states(&block_hash, shard_id);
                 assert_matches!(res, Err(error) => {
-                    assert_matches!(error.kind(), ErrorKind::DBNotFoundErr(_));
+                    assert_matches!(error, Error::DBNotFoundErr(_));
                 })
             }
         }

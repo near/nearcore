@@ -33,6 +33,7 @@ near-store = { path = "../../core/store" }
 
 [dev-dependencies]
 insta = "1"
+assert_matches = "1.5.0"
 
 near-logger-utils = {path = "../../test-utils/logger"}
 
@@ -49,7 +50,7 @@ protocol_feature_chunk_only_producers = [
 ]
 
 protocol_feature_routing_exchange_algorithm = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_routing_exchange_algorithm",

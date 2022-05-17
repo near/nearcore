@@ -74,9 +74,9 @@ protocol_feature_routing_exchange_algorithm = [
   "near-primitives/protocol_feature_routing_exchange_algorithm",
 ]
 nightly_protocol = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
-  "near-chain/nightly_protocol_features",
+  "near-chain/nightly",
   "protocol_feature_routing_exchange_algorithm",
 ]
 sandbox = [

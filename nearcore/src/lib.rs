@@ -7,8 +7,6 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
@@ -180,16 +178,11 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         migrate_30_to_31(path, &near_config);
     }
 
-    #[cfg(feature = "nightly_protocol")]
-    {
+    if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
         let store = create_store(&path);
-
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
-    }
-
-    #[cfg(not(feature = "nightly_protocol"))]
-    {
+    } else {
         let db_version = get_store_version(&path)?;
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
@@ -281,9 +274,7 @@ pub fn start_with_config_and_synchronization(
 
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv =
-        Arc::new(std::sync::RwLock::new(AdversarialControls::new(config.client_config.archive)));
+    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -291,7 +282,6 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
@@ -303,8 +293,7 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer,
         telemetry,
         shutdown_signal,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     );
 
     #[allow(unused_mut)]

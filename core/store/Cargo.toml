@@ -10,7 +10,7 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1.1"
+bytesize = { version = "1.1", features = ["serde"] }
 derive_more = "0.99.3"
 elastic-array = "0.11"
 rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
@@ -53,7 +53,7 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
 ]

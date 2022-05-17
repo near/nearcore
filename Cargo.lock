@@ -301,9 +301,6 @@ name = "anyhow"
 version = "1.0.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4361135be9122e0870de935d7c439aef945b9f9ddd4199a553b5270b49c82a27"
-dependencies = [
- "backtrace",
-]
 
 [[package]]
 name = "arbitrary"
@@ -669,6 +666,9 @@ name = "bytesize"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c58ec36aac5066d5ca17df51b3e70279f5670a72102f5752cb7e7c856adfc70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bytestring"
@@ -2649,6 +2649,7 @@ name = "near-chain"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "assert_matches",
  "borsh",
  "chrono",
  "delay-detector",
@@ -2694,7 +2695,6 @@ dependencies = [
 name = "near-chain-primitives"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "chrono",
  "near-crypto",
  "near-primitives",
