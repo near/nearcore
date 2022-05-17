@@ -1,16 +1,18 @@
 # catchup tests
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_third_epoch --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block --features nightly
+# TODO(#3284): Known issue.  Fix is incoming.
+#expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block
+#expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_last_block --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_distant_epoch --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_skip_15 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15 --features nightly
+# TODO(#3284): Known issue.  Fix is incoming.
+#expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15
+#expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_send_15 --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_non_zero_amounts --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync_height_6

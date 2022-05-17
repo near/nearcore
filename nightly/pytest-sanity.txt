@@ -48,11 +48,14 @@ pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 
-pytest sanity/rpc_tx_forwarding.py
+# TODO(#3284): Known issue.  Fix is incoming.
+#pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
-pytest --timeout=240 sanity/skip_epoch.py
+# TODO(#3284): Known issue.  Fix is incoming.
+#pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/skip_epoch.py --features nightly
-pytest --timeout=240 sanity/one_val.py
+# TODO(#3284): Known issue.  Fix is incoming.
+#pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
 pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/lightclnt.py --features nightly
@@ -86,7 +89,8 @@ pytest --timeout=300 sanity/large_messages.py
 pytest --timeout=300 sanity/large_messages.py --features nightly
 pytest --timeout=120 sanity/handshake_tie_resolution.py
 pytest --timeout=120 sanity/handshake_tie_resolution.py --features nightly
-pytest sanity/repro_2916.py
+# TODO(#3284): Known issue.  Fix is incoming.
+#pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly
 pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
