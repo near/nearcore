@@ -116,7 +116,7 @@ fn estimation_changes(
     for name in estimation_names {
         let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
         let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
-        let rel_change = if b.gas == 0.0 { 1.0 } else { (b.gas - a.gas).abs() / b.gas };
+        let rel_change = (b.gas - a.gas).abs() / b.gas;
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),
@@ -170,7 +170,11 @@ mod tests {
         0004a
         {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}"#;
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        "#;
 
         // Only "LogBase" changes enough to show up in report.
         let report = generate_test_report(input_a, Metric::ICount, &[]);
@@ -186,6 +190,8 @@ mod tests {
         {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":10.0,"time_ns":10,"metric":"time","uncertain_reason":null}}
         "#;
 
         // Now both estimations have changed.
