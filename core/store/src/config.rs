@@ -61,7 +61,7 @@ impl StoreConfig {
     /// Running state viewer on a dense set of 500 blocks did almost 200K file opens (having less
     /// than 7K unique files opened, some files were opened 400+ times).
     /// Using 10K limit for max_open_files led to performance improvement of ~11%.
-    pub const DEFAULT_MAX_OPEN_FILES: u32 = 10_000;
+    const DEFAULT_MAX_OPEN_FILES: u32 = 10_000;
 
     /// We used to have the same cache size for all columns 32MB. When some RocksDB
     /// inefficiencies were found DBCol::State cache size was increased up to 512MB.
@@ -69,11 +69,11 @@ impl StoreConfig {
     /// Tests have shown that increase of col_state_cache_size up to 25GB (we've used this big
     /// value to estimate performance improvement headroom) having max_open_files=10K improved
     /// performance of state viewer by 60%.
-    pub const DEFAULT_COL_STATE_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
+    const DEFAULT_COL_STATE_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(512);
 
     /// Earlier this value was taken from the openethereum default parameter and we use it since
     /// then.
-    pub const DEFAULT_BLOCK_SIZE: bytesize::ByteSize = bytesize::ByteSize::kib(16);
+    const DEFAULT_BLOCK_SIZE: bytesize::ByteSize = bytesize::ByteSize::kib(16);
 
     const fn const_default() -> Self {
         Self {
