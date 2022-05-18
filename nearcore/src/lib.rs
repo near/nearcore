@@ -323,7 +323,7 @@ pub fn start_with_config_and_synchronization(
         )
         .unwrap()
     });
-    network_adapter.set_recipient(network_actor.recipient());
+    network_adapter.set_recipient(network_actor.clone().recipient());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
@@ -333,7 +333,7 @@ pub fn start_with_config_and_synchronization(
             client_actor.clone(),
             view_client.clone(),
             #[cfg(feature = "test_features")]
-            network_actor.clone(),
+            network_actor,
             #[cfg(feature = "test_features")]
             routing_table_addr2,
         ));
