@@ -13,6 +13,7 @@ use strum::{EnumCount, IntoEnumIterator};
     Eq,
     BorshDeserialize,
     BorshSerialize,
+    enum_map::Enum,
     strum::EnumCount,
     strum::EnumIter,
     strum::IntoStaticStr,
