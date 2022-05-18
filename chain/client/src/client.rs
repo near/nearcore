@@ -1447,7 +1447,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(e) if e == near_chain::Error::NotAValidator => {
+                Err(near_chain::Error::NotAValidator) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,

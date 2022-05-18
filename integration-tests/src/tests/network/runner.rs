@@ -68,8 +68,7 @@ pub fn setup_network_node(
         let network_adapter = NetworkRecipient::default();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
-        #[cfg(feature = "test_features")]
-        let adv = Arc::new(RwLock::new(Default::default()));
+        let adv = near_client::adversarial::Controls::default();
 
         let client_actor = start_client(
             client_config.clone(),
@@ -80,7 +79,6 @@ pub fn setup_network_node(
             Some(signer),
             telemetry_actor,
             None,
-            #[cfg(feature = "test_features")]
             adv.clone(),
         )
         .0;
@@ -90,8 +88,7 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter,
             client_config,
-            #[cfg(feature = "test_features")]
-            adv.clone(),
+            adv,
         );
 
         let routing_table_addr =

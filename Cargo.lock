@@ -690,6 +690,9 @@ name = "bytesize"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c58ec36aac5066d5ca17df51b3e70279f5670a72102f5752cb7e7c856adfc70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bytestring"
@@ -2669,6 +2672,7 @@ name = "near-chain"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "assert_matches",
  "borsh",
  "chrono",
  "delay-detector",
@@ -3104,6 +3108,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-jaeger",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
@@ -3412,6 +3417,7 @@ dependencies = [
  "arbitrary",
  "libfuzzer-sys",
  "near-primitives",
+ "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
  "wasm-smith",
@@ -3518,6 +3524,7 @@ dependencies = [
  "nearcore",
  "once_cell",
  "openssl-probe",
+ "opentelemetry",
  "rayon",
  "rustc_version 0.4.0",
  "serde",
@@ -3773,6 +3780,8 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "thiserror",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -3787,6 +3796,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "thiserror",
  "thrift",
+ "tokio",
 ]
 
 [[package]]
@@ -4701,6 +4711,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "nearcore",
+ "tokio",
 ]
 
 [[package]]
@@ -5291,6 +5302,7 @@ dependencies = [
  "near-primitives",
  "node-runtime",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 

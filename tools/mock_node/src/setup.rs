@@ -6,8 +6,6 @@ use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
 };
 use near_chain_configs::GenesisConfig;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
@@ -154,8 +152,7 @@ pub fn setup_mock_node(
 
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+    let adv = near_client::adversarial::Controls::default();
 
     // if no start height is provided for the mock network at ProduceNewBlocks mode, fall back to
     // client start height
@@ -295,7 +292,6 @@ pub fn setup_mock_node(
         config.validator_signer.clone(),
         telemetry,
         None,
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -305,8 +301,7 @@ pub fn setup_mock_node(
         client_runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     );
 
     let arbiter = Arbiter::new();
