@@ -136,19 +136,6 @@ steps:
     agents:
     - "distro=amazonlinux"
 
-  - label: "runtime params estimate"
-    command: |
-      source ~/.cargo/env && set -eux
-      cd runtime/runtime-params-estimator/test-contract
-      ./build.sh
-      cd ..
-      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
-
-    branches: "!master !beta !stable"
-    timeout: 60
-    agents:
-    - "distro=amazonlinux"
-
   #- label: "near-sdk-rs tests"
   #  trigger: "near-sdk-rs"
   #  branches: "!master"
