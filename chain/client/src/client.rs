@@ -1675,7 +1675,6 @@ impl Client {
                 if active_validator {
                     trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-                    self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
