@@ -323,6 +323,7 @@ pub fn start_with_config_and_synchronization(
         )
         .unwrap()
     });
+    network_adapter.set_recipient(network_actor.recipient());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
@@ -350,8 +351,6 @@ pub fn start_with_config_and_synchronization(
             ),
         ));
     }
-
-    network_adapter.set_recipient(network_actor.recipient());
 
     rpc_servers.shrink_to_fit();
 

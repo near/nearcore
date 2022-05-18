@@ -327,6 +327,7 @@ pub fn setup_mock_node(
                 !archival,
             )
         });
+    network_adapter.set_recipient(mock_network_actor.clone().recipient());
 
     // for some reason, with "test_features", start_http requires PeerManagerActor,
     // we are not going to run start_mock_network with test_features, so let's disable that for now
@@ -342,7 +343,6 @@ pub fn setup_mock_node(
     #[cfg(feature = "test_features")]
     let server = None;
 
-    network_adapter.set_recipient(mock_network_actor.clone().recipient());
     (mock_network_actor, client_actor, view_client, server)
 }
 
