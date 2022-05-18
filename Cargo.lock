@@ -3393,10 +3393,8 @@ dependencies = [
  "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
- "once_cell",
  "wasm-smith",
  "wasmprinter",
- "wat",
 ]
 
 [[package]]

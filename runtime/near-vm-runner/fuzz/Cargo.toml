@@ -13,10 +13,8 @@ cargo-fuzz = true
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
-once_cell = "1.5.2"
 wasm-smith = "0.10.0"
 wasmprinter = "0.2"
-wat = "1.0"
 
 near-vm-runner = { path = ".." }
 near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
