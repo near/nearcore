@@ -17,9 +17,9 @@ pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
-    transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
+    pub transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
-    unique_transactions: HashSet<CryptoHash>,
+    pub unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
@@ -34,11 +34,6 @@ impl TransactionPool {
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
         }
-    }
-
-    pub fn init_metrics() {
-        // A `get()` call initializes a metric even if its value is zero.
-        metrics::TRANSACTION_POOL_TOTAL.get();
     }
 
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
@@ -112,6 +107,10 @@ impl TransactionPool {
 
     pub fn len(&self) -> usize {
         self.unique_transactions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.unique_transactions.is_empty()
     }
 }
 
