@@ -1663,6 +1663,8 @@ impl Client {
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
+                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
+                // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
                 self.shards_mgr.insert_transaction(shard_id, tx.clone());
                 trace!(target: "client", shard_id, "Recorded a transaction.");
