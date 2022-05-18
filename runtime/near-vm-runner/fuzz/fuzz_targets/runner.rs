@@ -105,7 +105,7 @@ impl wasm_smith::Config for ModuleConfig {
     }
 }
 
-/// Silly wrapper to get more useful Debug.
+/// Wrapper to get more useful Debug.
 struct ArbitraryModule(wasm_smith::ConfiguredModule<ModuleConfig>);
 
 impl<'a> Arbitrary<'a> for ArbitraryModule {
