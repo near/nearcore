@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
-use tracing::{debug, error, info, warn, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -15,7 +15,8 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
+    Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
@@ -1663,6 +1664,8 @@ impl Client {
                 let active_validator = self.active_validator(shard_id)?;
 
                 // If I'm not an active validator I should forward tx to next validators.
+                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                trace!(target: "client", shard_id, "Recorded a transaction.");
 
                 // Active validator:
                 //   possibly forward to next epoch validators
