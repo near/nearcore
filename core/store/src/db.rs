@@ -118,7 +118,7 @@ pub struct RocksDB {
     /// the latter requires dealing with internal references (i.e. lifetime of
     /// the references is the same as lifetime of `db`) and Rust doesn’t like
     /// that.  All the pointers are guaranteed to be non-null.
-    cf_handlers: Vec<*const ColumnFamily>,
+    cf_handles: Vec<*const ColumnFamily>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -192,7 +192,7 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cf_handlers = DBCol::iter()
+        let cf_handles = DBCol::iter()
             .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
             .collect();
         Ok(Self {
@@ -248,7 +248,8 @@ impl RocksDB {
     fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
         let ptr = self.cf_handles[col as usize];
         debug_assert!(!ptr.is_null(), "{col}");
-        // SAFETY: RocksDB::open() guarantees that all the values are non-null.
+        // SAFETY: RocksDB::open() guarantees that all the values are non-null
+        // and also valid so long as self.db is valid.
         unsafe { &*ptr }
     }
 }
