@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::{Display, EnumCount};
 
-/// Describes cost of different wasm operations.
+/// Configuration of the VM properties such as costs and limits.
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VMConfig {
     /// Costs for runtime externals
