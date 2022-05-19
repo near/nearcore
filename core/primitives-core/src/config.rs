@@ -405,7 +405,7 @@ pub struct ExtCostsConfig {
     pub alt_bn128_g1_multiexp_element: Gas,
     /// Base cost for sum
     pub alt_bn128_g1_sum_base: Gas,
-    /// Per element byte for sum
+    /// Per element cost for sum
     pub alt_bn128_g1_sum_element: Gas,
     /// Base cost for pairing check
     pub alt_bn128_pairing_check_base: Gas,
