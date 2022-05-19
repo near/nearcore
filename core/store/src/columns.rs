@@ -400,6 +400,8 @@ impl fmt::Display for DBCol {
 
 #[test]
 fn column_props_sanity() {
+    use strum::IntoEnumIterator;
+
     for col in DBCol::iter() {
         if col.is_gc_optional() {
             assert!(col.is_gc())
