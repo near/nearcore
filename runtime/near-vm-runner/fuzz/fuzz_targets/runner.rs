@@ -12,7 +12,7 @@ use near_vm_runner::internal::VMKind;
 use near_vm_runner::VMResult;
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
-    let code = ContractCode::new(module.0.to_bytes(), None);
+    let code = ContractCode::new(module.0.module.to_bytes(), None);
     let _result = run_fuzz(&code, VMKind::for_protocol_version(PROTOCOL_VERSION));
 });
 
@@ -86,18 +86,37 @@ fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-/// Silly wrapper to get more useful Debug.
-struct ArbitraryModule(wasm_smith::Module);
+/// Define a configuration for which [`available_imports`] is implemented. This
+/// allows to specify the imports available in a [`ConfiguredModule`].
+///
+/// [`available_imports`]: wasm_smith::Config::available_imports
+/// [`ConfiguredModule`]: wasm_smith::ConfiguredModule
+#[derive(Arbitrary, Debug)]
+struct ModuleConfig {}
+
+impl wasm_smith::Config for ModuleConfig {
+    /// Returns a WebAssembly module which imports all near host functions. The
+    /// imports are grabbed from a compiled [test contract] which calls every
+    /// host function in its method `sanity_check`.
+    ///
+    /// [test contract]: near_test_contracts::rs_contract
+    fn available_imports(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        Some(near_test_contracts::rs_contract().into())
+    }
+}
+
+/// Wrapper to get more useful Debug.
+struct ArbitraryModule(wasm_smith::ConfiguredModule<ModuleConfig>);
 
 impl<'a> Arbitrary<'a> for ArbitraryModule {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        wasm_smith::Module::arbitrary(u).map(ArbitraryModule)
+        wasm_smith::ConfiguredModule::<ModuleConfig>::arbitrary(u).map(ArbitraryModule)
     }
 }
 
 impl fmt::Debug for ArbitraryModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = self.0.to_bytes();
+        let bytes = self.0.module.to_bytes();
         write!(f, "{:?}", bytes)?;
         if let Ok(wat) = wasmprinter::print_bytes(&bytes) {
             write!(f, "\n{}", wat)?;

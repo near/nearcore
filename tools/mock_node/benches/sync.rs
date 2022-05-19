@@ -24,7 +24,7 @@ use tar::Archive;
 // include that in the measurements.
 struct Sys {
     sys: Option<actix_rt::SystemRunner>,
-    servers: Vec<(&'static str, actix_web::dev::Server)>,
+    servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 impl Drop for Sys {
