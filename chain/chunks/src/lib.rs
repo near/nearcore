@@ -1804,17 +1804,16 @@ impl ShardsManager {
                 true,
             );
 
-            if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
-                let mut store_update = chain_store.store_update();
-                self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
-                store_update.commit()?;
-            }
-
             // If all the parts and receipts are received, and we don't care about the shard,
             //    no need to request anything else.
             // If we do care about the shard, we will remove the request once the full chunk is
             //    assembled.
             if !cares_about_shard {
+                if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
+                    let mut store_update = chain_store.store_update();
+                    self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
+                    store_update.commit()?;
+                }
                 self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
             }
