@@ -108,8 +108,9 @@ pub struct RocksDB {
 
     /// Map from [`DBCol`] to a column family handler in the RocksDB.
     ///
-    /// Rather than reading values from it directly, use [`RocksDB::cf_handle`]
-    /// method instead which gives `&ColumnFamily` which is what you want.
+    /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
+    /// method instead.  It returns `&ColumnFamily` which is what you usually
+    /// want.
     cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
