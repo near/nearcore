@@ -19,10 +19,10 @@ base64 = "0.13"
 borsh = "0.9"
 bs58 = "0.4"
 byteorder = "1.2"
-ripemd160 = "0.9.0"
+ripemd = "0.1.1"
 serde = { version = "1", features = ["derive"] }
-sha2 = ">=0.8,<0.10"
-sha3 = ">=0.8,<0.10"
+sha2 = ">=0.8,<=0.10"
+sha3 = ">=0.8,<=0.10"
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
