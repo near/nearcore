@@ -51,7 +51,7 @@ macro_rules! get_parent_function_name {
 }
 
 macro_rules! err {
-    ($($x: tt),*) => (
+    ($($x: expr),*) => (
         return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } )
     )
 }
