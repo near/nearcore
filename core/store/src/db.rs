@@ -106,7 +106,14 @@ impl DBTransaction {
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
-    cfs: Vec<*const ColumnFamily>,
+
+    /// Map from [`DBCol`] (when cast as `usize`) to a column family handler in
+    /// the RocksDB.
+    ///
+    /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
+    /// method instead.  It returns `&ColumnFamily` which is what you usually
+    /// want.
+    cf_handles: Vec<std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -180,13 +187,12 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cfs = DBCol::iter()
-            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
-            .collect();
+        let cf_handles =
+            DBCol::iter().map(|col| db.cf_handle(&col_name(col)).unwrap().into()).collect();
         Ok(Self {
             db,
             db_opt,
-            cfs,
+            cf_handles,
             check_free_space_interval: 256,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: bytesize::ByteSize::mb(16),
@@ -231,6 +237,13 @@ impl RocksDB {
         }
         Ok((db, options))
     }
+
+    /// Returns column family handler to use with RocsDB for given column.
+    fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
+        let ptr = self.cf_handles[col as usize];
+        // SAFETY: The pointers are valid so long as self.db is valid.
+        unsafe { ptr.as_ref() }
+    }
 }
 
 pub struct TestDB {
@@ -267,7 +280,7 @@ impl Database for RocksDB {
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
 
         let read_options = rocksdb_read_options();
-        let result = self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+        let result = self.db.get_cf_opt(self.cf_handle(col), key, &read_options)?;
         let result = Ok(RocksDB::get_with_rc_logic(col, result));
 
         timer.observe_duration();
@@ -279,20 +292,16 @@ impl Database for RocksDB {
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let read_options = rocksdb_read_options();
-        unsafe {
-            let cf_handle = &*self.cfs[col as usize];
-            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            Box::new(iterator)
-        }
+        let cf_handle = self.cf_handle(col);
+        let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        Box::new(iterator)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let read_options = rocksdb_read_options();
-        unsafe {
-            let cf_handle = &*self.cfs[col as usize];
-            let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-            RocksDB::iter_with_rc_logic(col, iterator)
-        }
+        let cf_handle = self.cf_handle(col);
+        let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        RocksDB::iter_with_rc_logic(col, iterator)
     }
 
     fn iter_prefix<'a>(
@@ -304,20 +313,18 @@ impl Database for RocksDB {
         // `self.read_options` here.
         let mut read_options = rocksdb_read_options();
         read_options.set_prefix_same_as_start(true);
-        unsafe {
-            let cf_handle = &*self.cfs[col as usize];
-            // This implementation is copied from RocksDB implementation of `prefix_iterator_cf` since
-            // there is no `prefix_iterator_cf_opt` method.
-            let iterator = self
-                .db
-                .iterator_cf_opt(
-                    cf_handle,
-                    read_options,
-                    IteratorMode::From(key_prefix, Direction::Forward),
-                )
-                .take_while(move |(key, _value)| key.starts_with(key_prefix));
-            RocksDB::iter_with_rc_logic(col, iterator)
-        }
+        let cf_handle = self.cf_handle(col);
+        // This implementation is copied from RocksDB implementation of `prefix_iterator_cf` since
+        // there is no `prefix_iterator_cf_opt` method.
+        let iterator = self
+            .db
+            .iterator_cf_opt(
+                cf_handle,
+                read_options,
+                IteratorMode::From(key_prefix, Direction::Forward),
+            )
+            .take_while(move |(key, _value)| key.starts_with(key_prefix));
+        RocksDB::iter_with_rc_logic(col, iterator)
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -332,25 +339,25 @@ impl Database for RocksDB {
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
-                DBOp::Set { col, key, value } => unsafe {
-                    batch.put_cf(&*self.cfs[col as usize], key, value);
-                },
+                DBOp::Set { col, key, value } => {
+                    batch.put_cf(self.cf_handle(col), key, value);
+                }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get(col, &key) {
                             assert_no_ovewrite(col, &key, &value, &*old_value)
                         }
                     }
-                    batch.put_cf(unsafe { &*self.cfs[col as usize] }, key, value);
+                    batch.put_cf(self.cf_handle(col), key, value);
                 }
-                DBOp::UpdateRefcount { col, key, value } => unsafe {
-                    batch.merge_cf(&*self.cfs[col as usize], key, value);
-                },
-                DBOp::Delete { col, key } => unsafe {
-                    batch.delete_cf(&*self.cfs[col as usize], key);
-                },
+                DBOp::UpdateRefcount { col, key, value } => {
+                    batch.merge_cf(self.cf_handle(col), key, value);
+                }
+                DBOp::Delete { col, key } => {
+                    batch.delete_cf(self.cf_handle(col), key);
+                }
                 DBOp::DeleteAll { col } => {
-                    let cf_handle = unsafe { &*self.cfs[col as usize] };
+                    let cf_handle = self.cf_handle(col);
                     let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
                     let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
                     assert_eq!(opt_first.is_some(), opt_last.is_some());
@@ -769,7 +776,7 @@ mod tests {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
             self.db.compact_range_cf(
-                unsafe { &*self.cfs[col as usize] },
+                self.cf_handle(col),
                 Option::<&[u8]>::None,
                 Option::<&[u8]>::None,
             );
@@ -781,8 +788,7 @@ mod tests {
             key: &[u8],
         ) -> Result<Option<Vec<u8>>, DBError> {
             let read_options = rocksdb_read_options();
-            let result =
-                self.db.get_cf_opt(unsafe { &*self.cfs[col as usize] }, key, &read_options)?;
+            let result = self.db.get_cf_opt(self.cf_handle(col), key, &read_options)?;
             Ok(result)
         }
     }
