@@ -320,8 +320,13 @@ const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
     DBCol::StateParts,
 ]);
 
-const RC_COLUMNS: [bool; DBCol::COUNT] =
-    col_set(&[DBCol::State, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptIdToShardId]);
+const RC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
+    DBCol::State,
+    DBCol::Transactions,
+    DBCol::Receipts,
+    DBCol::ReceiptIdToShardId,
+    DBCol::PartialChunks,
+]);
 
 const INSERT_ONLY_COLUMNS: [bool; DBCol::COUNT] = col_set(&[DBCol::BlockInfo]);
 

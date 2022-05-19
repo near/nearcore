@@ -2750,7 +2750,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
-            store_update.set_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
+            store_update.insert_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
         }
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
