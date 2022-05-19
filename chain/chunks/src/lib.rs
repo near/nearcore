@@ -1796,6 +1796,9 @@ impl ShardsManager {
         )?;
         let have_all_seal = seal.process(entry);*/
 
+        // If we don't care about the shard, we don't need to reconstruct the full chunk for
+        // this shard, so we can mark this chunk as completed since we have all the necessary
+        // parts and receipts.
         if have_all_parts && have_all_receipts {
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
@@ -1804,21 +1807,18 @@ impl ShardsManager {
                 true,
             );
 
-            // If all the parts and receipts are received, and we don't care about the shard,
-            //    no need to request anything else.
-            // If we do care about the shard, we will remove the request once the full chunk is
-            //    assembled.
             if !cares_about_shard {
-                if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
-                    let mut store_update = chain_store.store_update();
-                    self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
-                    store_update.commit()?;
-                }
+                let mut store_update = chain_store.store_update();
+                self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
+                store_update.commit()?;
+
                 self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
             }
         }
 
+        // If we do care about the shard, we will remove the request once the full chunk is
+        //    assembled.
         if can_reconstruct {
             let height = header.height_created();
             let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
