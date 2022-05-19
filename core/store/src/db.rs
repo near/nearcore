@@ -110,12 +110,7 @@ pub struct RocksDB {
     ///
     /// Rather than reading values from it directly, use [`RocksDB::cf_handle`]
     /// method instead which gives `&ColumnFamily` which is what you want.
-    ///
-    /// We’re storing `*const ColumnFamily` rather than `&ColumnFamily` because
-    /// the latter requires dealing with internal references (i.e. lifetime of
-    /// the references is the same as lifetime of `db`) and Rust doesn’t like
-    /// that.  All the pointers are guaranteed to be non-null.
-    cfs: enum_map::EnumMap<DBCol, *const ColumnFamily>,
+    cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -189,17 +184,23 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let mut cfs = enum_map::enum_map! { _ => std::ptr::null() };
+        let mut cf_handles = enum_map::EnumMap::default();
         for col in DBCol::iter() {
-            let handle = db.cf_handle(&col_name(col));
-            let name: &str = (&col).into();
-            assert!(handle.is_some(), "Missing cf handle for {name}");
-            cfs[col] = handle.unwrap() as *const ColumnFamily;
+            let ptr = db
+                .cf_handle(&col_name(col))
+                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
+            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
         }
+        let cf_handles = cf_handles.map(|col, ptr| {
+            ptr.unwrap_or_else(|| {
+                let name: &str = col.into();
+                panic!("Missing cf handle for {name}");
+            })
+        });
         Ok(Self {
             db,
             db_opt,
-            cfs,
+            cf_handles,
             check_free_space_interval: 256,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: bytesize::ByteSize::mb(16),
@@ -245,11 +246,11 @@ impl RocksDB {
         Ok((db, options))
     }
 
+    /// Returns column family handler to use with RocsDB for given column.
     fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
-        let ptr = self.cfs[col];
-        debug_assert!(!ptr.is_null(), "{col}");
-        // SAFETY: RocksDB::open() guarantees that all the values are non-null.
-        unsafe { &*ptr }
+        let ptr = self.cf_handles[col];
+        // SAFETY: The pointers are valid so long as self.db is valid.
+        unsafe { ptr.as_ref() }
     }
 }
 
