@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 actix = "0.13.0"
-awc = "3.0.0-beta.5"
+awc = "3.0.0"
 once_cell = "1.5.2"
 futures = "0.3"
 borsh = "0.9"

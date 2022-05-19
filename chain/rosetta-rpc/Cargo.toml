@@ -14,7 +14,7 @@ derive_more = "0.99.9"
 hex = "0.4"
 strum = { version = "0.24", features = ["derive"] }
 
-awc = "3.0.0-beta.5"
+awc = "3.0.0"
 actix = "0.13.0"
 actix-web = "4.0.1"
 actix-http = "3.0.4"

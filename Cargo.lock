@@ -2404,6 +2404,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2414,7 +2415,6 @@ checksum = "327fa5b6a6940e4699ec49a9beae1ea4845c6bab9314e4f84ac68742139d8c53"
 dependencies = [
  "autocfg 1.1.0",
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -3845,7 +3845,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.12.0",
+ "parking_lot 0.10.2",
  "semver 0.9.0",
  "serde",
  "serde_derive",
@@ -3867,7 +3867,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.12.0",
+ "parking_lot 0.10.2",
  "serde_json",
 ]
 
@@ -3881,7 +3881,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.12.0",
+ "parking_lot 0.10.2",
  "pin-project",
  "regex",
  "serde",
