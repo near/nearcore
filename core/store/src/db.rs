@@ -14,7 +14,6 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
 use std::{cmp, fmt};
-use strum::EnumCount;
 use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
@@ -107,13 +106,12 @@ pub struct RocksDB {
     db: DB,
     db_opt: Options,
 
-    /// Map from [`DBCol`] (when cast as `usize`) to a column family handler in
-    /// the RocksDB.
+    /// Map from [`DBCol`] to a column family handler in the RocksDB.
     ///
     /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
-    cf_handles: Vec<std::ptr::NonNull<ColumnFamily>>,
+    cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -187,8 +185,19 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cf_handles =
-            DBCol::iter().map(|col| db.cf_handle(&col_name(col)).unwrap().into()).collect();
+        let mut cf_handles = enum_map::EnumMap::default();
+        for col in DBCol::iter() {
+            let ptr = db
+                .cf_handle(&col_name(col))
+                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
+            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
+        }
+        let cf_handles = cf_handles.map(|col, ptr| {
+            ptr.unwrap_or_else(|| {
+                let name: &str = col.into();
+                panic!("Missing cf handle for {name}");
+            })
+        });
         Ok(Self {
             db,
             db_opt,
@@ -240,14 +249,14 @@ impl RocksDB {
 
     /// Returns column family handler to use with RocsDB for given column.
     fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
-        let ptr = self.cf_handles[col as usize];
+        let ptr = self.cf_handles[col];
         // SAFETY: The pointers are valid so long as self.db is valid.
         unsafe { ptr.as_ref() }
     }
 }
 
 pub struct TestDB {
-    db: RwLock<Vec<HashMap<Vec<u8>, Vec<u8>>>>,
+    db: RwLock<enum_map::EnumMap<DBCol, HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
 pub(crate) trait Database: Sync + Send {
@@ -393,7 +402,7 @@ impl Database for RocksDB {
 
 impl Database for TestDB {
     fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
-        let result = self.db.read().unwrap()[col as usize].get(key).cloned();
+        let result = self.db.read().unwrap()[col].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
 
@@ -406,7 +415,7 @@ impl Database for TestDB {
         &'a self,
         col: DBCol,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let iterator = self.db.read().unwrap()[col as usize]
+        let iterator = self.db.read().unwrap()[col]
             .clone()
             .into_iter()
             .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
@@ -429,29 +438,29 @@ impl Database for TestDB {
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
-                    db[col as usize].insert(key, value);
+                    db[col].insert(key, value);
                 }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
-                        if let Some(old_value) = db[col as usize].get(&key) {
+                        if let Some(old_value) = db[col].get(&key) {
                             assert_no_ovewrite(col, &key, &value, &*old_value)
                         }
                     }
-                    db[col as usize].insert(key, value);
+                    db[col].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    let mut val = db[col as usize].get(&key).cloned().unwrap_or_default();
+                    let mut val = db[col].get(&key).cloned().unwrap_or_default();
                     merge_refcounted_records(&mut val, &value);
                     if !val.is_empty() {
-                        db[col as usize].insert(key, val);
+                        db[col].insert(key, val);
                     } else {
-                        db[col as usize].remove(&key);
+                        db[col].remove(&key);
                     }
                 }
                 DBOp::Delete { col, key } => {
-                    db[col as usize].remove(&key);
+                    db[col].remove(&key);
                 }
-                DBOp::DeleteAll { col } => db[col as usize].clear(),
+                DBOp::DeleteAll { col } => db[col].clear(),
             };
         }
         Ok(())
@@ -719,8 +728,7 @@ impl Drop for InstanceCounter {
 
 impl TestDB {
     pub fn new() -> Self {
-        let db: Vec<_> = (0..DBCol::COUNT).map(|_| HashMap::new()).collect();
-        Self { db: RwLock::new(db) }
+        Self { db: Default::default() }
     }
 }
 
