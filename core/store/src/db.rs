@@ -113,12 +113,7 @@ pub struct RocksDB {
     /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
-    ///
-    /// We’re storing `*const ColumnFamily` rather than `&ColumnFamily` because
-    /// the latter requires dealing with internal references (i.e. lifetime of
-    /// the references is the same as lifetime of `db`) and Rust doesn’t like
-    /// that.  All the pointers are guaranteed to be non-null.
-    cf_handles: Vec<*const ColumnFamily>,
+    cf_handles: Vec<std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -192,9 +187,8 @@ impl RocksDB {
             Self::open_read_write(path.as_ref(), store_config)
         }?;
 
-        let cf_handles = DBCol::iter()
-            .map(|col| db.cf_handle(&col_name(col)).unwrap() as *const ColumnFamily)
-            .collect();
+        let cf_handles =
+            DBCol::iter().map(|col| db.cf_handle(&col_name(col)).unwrap().into()).collect();
         Ok(Self {
             db,
             db_opt,
@@ -247,10 +241,8 @@ impl RocksDB {
     /// Returns column family handler to use with RocsDB for given column.
     fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
         let ptr = self.cf_handles[col as usize];
-        debug_assert!(!ptr.is_null(), "{col}");
-        // SAFETY: RocksDB::open() guarantees that all the values are non-null
-        // and also valid so long as self.db is valid.
-        unsafe { &*ptr }
+        // SAFETY: The pointers are valid so long as self.db is valid.
+        unsafe { ptr.as_ref() }
     }
 }
 
