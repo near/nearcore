@@ -905,7 +905,7 @@ pub(crate) fn block_height_cmp_tail_final(
 }
 
 pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    // Number of columns which has been garbage collected.
+    // Number of columns which have had at least one garbage collection.
     let mut gced_count = 0;
     // Number of GC columns.
     let mut gc_colum_count = 0;
