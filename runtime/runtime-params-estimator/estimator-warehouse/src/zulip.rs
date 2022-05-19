@@ -88,9 +88,18 @@ impl std::fmt::Display for ZulipReport {
         writeln!(f, "*Compared to: {}*", self.before)?;
         writeln!(f, "### Relative gas estimation changes above threshold: {}", self.changes.len())?;
         if self.changes.len() > 0 {
+            let mut changes = self
+                .changes
+                .iter()
+                .map(|change| {
+                    let percent_change = 100.0 * (change.after - change.before) / change.before;
+                    (percent_change, change)
+                })
+                .collect::<Vec<_>>();
+            changes.sort_by_key(|it| std::cmp::Reverse(it.0.abs() as u32));
+
             writeln!(f, "```")?;
-            for change in &self.changes {
-                let percent_change = 100.0 * (change.after - change.before) / change.before;
+            for (percent_change, change) in changes {
                 writeln!(
                     f,
                     "{:<40} {:>16} ➜ {:>16} ({}{:.2}%)",
