@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use borsh::BorshSerialize;
-use strum::EnumCount;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -794,7 +793,7 @@ pub(crate) fn gc_col_count(
     count: &u64,
 ) -> Result<(), StoreValidatorError> {
     if col.is_gc() {
-        sv.inner.gc_col[*col as usize] = *count;
+        sv.inner.gc_col[*col] = *count;
     } else {
         if *count > 0 {
             err!("DBCol is cleared by mistake")
@@ -906,23 +905,30 @@ pub(crate) fn block_height_cmp_tail_final(
 }
 
 pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    let mut zeroes = 0;
-    for count in sv.inner.gc_col.iter() {
-        if *count == 0 {
-            zeroes += 1;
+    // Number of columns which has been garbage collected.
+    let mut gced_count = 0;
+    // Number of GC columns.
+    let mut gc_colum_count = 0;
+    for (col, count) in sv.inner.gc_col.iter() {
+        if *count != 0 {
+            if !col.is_gc() {
+                err!("Column {} which is not GC has been GCed", col.variant_name());
+            }
+            gced_count += 1;
+        }
+        if col.is_gc() {
+            gc_colum_count += 1;
         }
     }
-    // 1. All zeroes case is acceptable
-    if zeroes == DBCol::COUNT {
-        return Ok(());
-    }
-    let gc_col_count = DBCol::all_gc_columns().count();
-    // 2. All columns are GCed case is acceptable
-    if zeroes == DBCol::COUNT - gc_col_count {
+    // Either no columns were GCed or all GC columns were GCed.
+    if gced_count == 0 || gced_count == gc_colum_count {
         return Ok(());
     }
     // TODO #2861 build a graph of dependencies or make it better in another way
-    err!("Suspicious, look into GC values manually")
+    err!(
+        "Suspicious {gced_count} columns were GCed but {gc_colum_count} \
+         columns are GC columns, look into GC values manually"
+    )
 }
 
 pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {

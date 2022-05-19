@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
-use strum::{EnumCount, IntoEnumIterator};
+use strum::EnumCount;
 
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
@@ -287,9 +287,13 @@ impl DBCol {
     pub fn is_gc_optional(&self) -> bool {
         OPTIONAL_GC_COLUMNS[*self as usize]
     }
-    /// All garbage-collected columns.
-    pub fn all_gc_columns() -> impl Iterator<Item = DBCol> {
-        DBCol::iter().filter(|col| col.is_gc())
+
+    /// Returns variant’s name as a static string.
+    ///
+    /// This is equivalent to [`Into::into`] but often makes the call site
+    /// simpler since there is no need to ascribe the type.
+    pub fn variant_name(&self) -> &'static str {
+        self.into()
     }
 }
 
