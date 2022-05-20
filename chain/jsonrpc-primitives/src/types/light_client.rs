@@ -67,24 +67,6 @@ pub enum RpcLightClientNextBlockError {
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
 }
 
-impl RpcLightClientExecutionProofRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
-}
-
-impl RpcLightClientNextBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        if let Ok((last_block_hash,)) =
-            crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
-        {
-            Ok(Self { last_block_hash })
-        } else {
-            Ok(crate::utils::parse_params::<Self>(value)?)
-        }
-    }
-}
-
 impl From<Option<near_primitives::views::LightClientBlockView>>
     for RpcLightClientNextBlockResponse
 {

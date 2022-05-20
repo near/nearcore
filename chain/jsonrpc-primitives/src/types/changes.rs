@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
@@ -39,18 +38,6 @@ pub enum RpcStateChangesError {
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl RpcStateChangesInBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
-}
-
-impl RpcStateChangesInBlockByTypeRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
 }
 
 impl From<near_client_primitives::types::GetBlockError> for RpcStateChangesError {
