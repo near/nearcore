@@ -68,8 +68,8 @@
 //! ```
 
 pub use prometheus::{
-    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Result,
-    TextEncoder,
+    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    Result, TextEncoder,
 };
 use prometheus::{GaugeVec, HistogramOpts, Opts};
 
@@ -167,6 +167,15 @@ pub fn try_create_histogram_vec(
 pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
     let opts = Opts::new(name, help);
     let gauge = GaugeVec::new(opts, labels)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}
+
+/// Attempts to crate an `Gauge`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
+    let opts = Opts::new(name, help);
+    let gauge = Gauge::with_opts(opts)?;
     prometheus::register(Box::new(gauge.clone()))?;
     Ok(gauge)
 }
