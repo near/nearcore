@@ -92,7 +92,7 @@ async fn network_list(
 /// This endpoint returns the current status of the network requested. Any
 /// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
@@ -202,7 +202,7 @@ async fn network_options(
 /// given that a chain reorg event might cause the specific block at
 /// height `n` to be set to a different one.
 async fn block_details(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockRequest>,
@@ -278,7 +278,7 @@ async fn block_details(
 /// NOTE: The current implementation is suboptimal as it processes the whole
 /// block to only return a single transaction.
 async fn block_transaction_details(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockTransactionRequest>,
@@ -805,7 +805,7 @@ pub fn start_rosetta_rpc(
         App::new()
             .app_data(json_config)
             .wrap(actix_web::middleware::Logger::default())
-            .app_data(web::Data::new(genesis.clone()))
+            .app_data(web::Data::from(genesis.clone()))
             .app_data(web::Data::new(client_addr.clone()))
             .app_data(web::Data::new(view_client_addr.clone()))
             .wrap(get_cors(&cors_allowed_origins))
