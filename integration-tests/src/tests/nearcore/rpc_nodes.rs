@@ -31,7 +31,7 @@ use crate::tests::nearcore::node_cluster::NodeCluster;
 fn test_get_validator_info_rpc() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("validator_info{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -102,7 +102,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
 fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_propagation{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -235,7 +235,7 @@ fn test_get_execution_outcome_tx_failure() {
 fn test_protocol_config_rpc() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -275,7 +275,7 @@ fn test_protocol_config_rpc() {
 fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -314,7 +314,7 @@ fn test_query_rpc_account_view_must_succeed() {
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -364,7 +364,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
 fn test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(2)
         .set_num_lightclients(0)
@@ -427,8 +427,9 @@ fn test_tx_not_enough_balance_must_return_error() {
 fn test_send_tx_sync_returns_transaction_hash() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
+        .set_num_nodes(2)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
         .set_epoch_length(10)
@@ -476,7 +477,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 fn test_send_tx_sync_to_lightclient_must_be_routed() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_routed{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -535,8 +536,9 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 fn test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
+        .set_num_nodes(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
         .set_epoch_length(10)
@@ -594,7 +596,7 @@ fn test_check_unknown_tx_must_return_error() {
 fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_does_not_track_shard{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -648,7 +650,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
 fn test_validators_by_epoch_id_current_epoch_not_fails() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("validators_epoch_id{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
