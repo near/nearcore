@@ -1,8 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-/// Max size of the query path (soft-deprecated)
-const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcQueryRequest {
@@ -87,83 +83,6 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
-}
-
-impl RpcQueryRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcQueryRequest, crate::errors::RpcParseError> {
-        let query_request = if let Ok((path, data)) =
-            crate::utils::parse_params::<(String, String)>(value.clone())
-        {
-            // Handle a soft-deprecated version of the query API, which is based on
-            // positional arguments with a "path"-style first argument.
-            //
-            // This whole block can be removed one day, when the new API is 100% adopted.
-            let data = near_primitives_core::serialize::from_base(&data)
-                .map_err(|err| crate::errors::RpcParseError(err.to_string()))?;
-            let query_data_size = path.len() + data.len();
-            if query_data_size > QUERY_DATA_MAX_SIZE {
-                return Err(crate::errors::RpcParseError(format!(
-                    "Query data size {} is too large",
-                    query_data_size
-                )));
-            }
-
-            let mut path_parts = path.splitn(3, '/');
-            let make_err =
-                || crate::errors::RpcParseError("Not enough query parameters provided".to_string());
-            let query_command = path_parts.next().ok_or_else(make_err)?;
-            let account_id = path_parts
-                .next()
-                .ok_or_else(make_err)?
-                .parse()
-                .map_err(|err| crate::errors::RpcParseError(format!("{}", err)))?;
-            let maybe_extra_arg = path_parts.next();
-
-            let request = match query_command {
-                "account" => near_primitives::views::QueryRequest::ViewAccount { account_id },
-                "access_key" => match maybe_extra_arg {
-                    None => near_primitives::views::QueryRequest::ViewAccessKeyList { account_id },
-                    Some(pk) => near_primitives::views::QueryRequest::ViewAccessKey {
-                        account_id,
-                        public_key: pk.parse().map_err(|_| {
-                            crate::errors::RpcParseError("Invalid public key".to_string())
-                        })?,
-                    },
-                },
-                "code" => near_primitives::views::QueryRequest::ViewCode { account_id },
-                "contract" => near_primitives::views::QueryRequest::ViewState {
-                    account_id,
-                    prefix: data.into(),
-                },
-                "call" => match maybe_extra_arg {
-                    Some(method_name) => near_primitives::views::QueryRequest::CallFunction {
-                        account_id,
-                        method_name: method_name.to_string(),
-                        args: data.into(),
-                    },
-                    None => {
-                        return Err(crate::errors::RpcParseError(
-                            "Method name is missing".to_string(),
-                        ))
-                    }
-                },
-                _ => {
-                    return Err(crate::errors::RpcParseError(format!(
-                        "Unknown path {}",
-                        query_command
-                    )))
-                }
-            };
-            // Use Finality::None here to make backward compatibility tests work
-            RpcQueryRequest {
-                request,
-                block_reference: near_primitives::types::BlockReference::latest(),
-            }
-        } else {
-            crate::utils::parse_params::<RpcQueryRequest>(value)?
-        };
-        Ok(query_request)
-    }
 }
 
 impl From<near_client_primitives::types::QueryError> for RpcQueryError {

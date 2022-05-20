@@ -10,23 +10,6 @@ pub struct SetRoutingTableRequest {
     pub prune_edges: Option<bool>,
 }
 
-#[cfg(feature = "test_features")]
-impl SetRoutingTableRequest {
-    pub fn parse(
-        value: Option<serde_json::Value>,
-    ) -> Result<Self, near_jsonrpc_primitives::errors::RpcError> {
-        if let Some(value) = value {
-            serde_json::from_value(value).map_err(|err| {
-                near_jsonrpc_primitives::errors::RpcError::parse_error(format!("Error {:?}", err))
-            })
-        } else {
-            Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
-                "Require at least one parameter".to_owned(),
-            ))
-        }
-    }
-}
-
 #[derive(Deserialize)]
 pub struct SetAdvOptionsRequest {
     pub disable_edge_signature_verification: Option<bool>,

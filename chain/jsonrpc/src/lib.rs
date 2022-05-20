@@ -33,6 +33,9 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod metrics;
+mod parser;
+
+use parser::RpcRequest;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
