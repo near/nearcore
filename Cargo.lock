@@ -2954,11 +2954,9 @@ name = "near-jsonrpc-adversarial-primitives"
 version = "0.0.0"
 dependencies = [
  "deepsize",
- "near-jsonrpc-primitives",
  "near-network-primitives",
  "near-primitives",
  "serde",
- "serde_json",
 ]
 
 [[package]]
