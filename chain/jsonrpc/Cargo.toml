@@ -40,7 +40,7 @@ test_features = [
   "near-client/test_features",
   "near-network/test_features",
   "near-jsonrpc-primitives/test_features",
-  "near-jsonrpc-adversarial-primitives/ser_de",
+  "near-jsonrpc-adversarial-primitives/test_features",
 ]
 nightly = ["nightly_protocol"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
