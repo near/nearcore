@@ -23,7 +23,7 @@ use near_client::{
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
-use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_jsonrpc_primitives::RpcRequest;
 use near_metrics::{Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
@@ -923,7 +923,7 @@ impl JsonRpcHandler {
             .view_client_addr
             .send(GetProtocolConfig(request_data.block_reference.into()))
             .await??;
-        Ok(RpcProtocolConfigResponse { config_view })
+        Ok(near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse { config_view })
     }
 
     async fn query(

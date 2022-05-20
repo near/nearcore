@@ -63,8 +63,9 @@ impl From<actix::MailboxError> for RpcValidatorError {
     }
 }
 
-impl RpcValidatorRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcValidatorRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         let epoch_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::MaybeBlockId,)>(value.clone())
         {
@@ -79,9 +80,10 @@ impl RpcValidatorRequest {
     }
 }
 
-impl RpcValidatorsOrderedRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcValidatorsOrderedRequest>(value)?)
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcValidatorsOrderedRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        crate::utils::parse_params::<Self>(value)
     }
 }
 

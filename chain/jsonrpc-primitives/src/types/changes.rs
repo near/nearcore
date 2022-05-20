@@ -41,15 +41,17 @@ pub enum RpcStateChangesError {
     InternalError { error_message: String },
 }
 
-impl RpcStateChangesInBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcStateChangesInBlockRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        crate::utils::parse_params::<Self>(value)
     }
 }
 
-impl RpcStateChangesInBlockByTypeRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcStateChangesInBlockByTypeRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        crate::utils::parse_params::<Self>(value)
     }
 }
 

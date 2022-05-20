@@ -29,8 +29,8 @@ near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-o11y = { path = "../../core/o11y" }
 near-jsonrpc-client = { path = "client" }
-near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
-near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
+near-jsonrpc-primitives = { path = "../jsonrpc-primitives", features = ["server"] }
+near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", features = ["server"], optional = true }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 near-network-primitives = { path = "../network-primitives" }
 
@@ -40,7 +40,7 @@ test_features = [
   "near-client/test_features",
   "near-network/test_features",
   "near-jsonrpc-primitives/test_features",
-  "near-jsonrpc-adversarial-primitives/ser_de",
+  "near-jsonrpc-adversarial-primitives/test_features",
 ]
 nightly = ["nightly_protocol"]
 nightly_protocol = ["near-primitives/nightly_protocol"]

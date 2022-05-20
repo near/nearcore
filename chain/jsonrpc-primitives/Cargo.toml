@@ -31,4 +31,5 @@ near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
+server = []
 test_features = []

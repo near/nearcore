@@ -83,8 +83,9 @@ impl From<RpcBlockError> for crate::errors::RpcError {
     }
 }
 
-impl RpcBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcBlockRequest, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcBlockRequest {
+    fn parse(value: Option<Value>) -> Result<RpcBlockRequest, crate::errors::RpcParseError> {
         let block_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::BlockId,)>(value.clone())
         {

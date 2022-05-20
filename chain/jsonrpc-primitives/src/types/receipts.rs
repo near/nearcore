@@ -33,8 +33,9 @@ impl From<ReceiptReference> for near_client_primitives::types::GetReceipt {
     }
 }
 
-impl RpcReceiptRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcReceiptRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         let receipt_reference = crate::utils::parse_params::<ReceiptReference>(value)?;
         Ok(Self { receipt_reference })
     }

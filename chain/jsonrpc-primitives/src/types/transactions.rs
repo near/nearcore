@@ -53,15 +53,17 @@ pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }
 
-impl RpcBroadcastTransactionRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcBroadcastTransactionRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         let signed_transaction = crate::utils::parse_signed_transaction(value)?;
         Ok(Self { signed_transaction })
     }
 }
 
-impl RpcTransactionStatusCommonRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcTransactionStatusCommonRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         if let Ok((hash, account_id)) = crate::utils::parse_params::<(
             near_primitives::hash::CryptoHash,
             AccountId,

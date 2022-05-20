@@ -89,11 +89,10 @@ pub enum QueryResponseKind {
     AccessKeyList(near_primitives::views::AccessKeyList),
 }
 
-impl RpcQueryRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcQueryRequest, crate::errors::RpcParseError> {
-        let query_request = if let Ok((path, data)) =
-            crate::utils::parse_params::<(String, String)>(value.clone())
-        {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcQueryRequest {
+    fn parse(value: Option<Value>) -> Result<RpcQueryRequest, crate::errors::RpcParseError> {
+        if let Ok((path, data)) = crate::utils::parse_params::<(String, String)>(value.clone()) {
             // Handle a soft-deprecated version of the query API, which is based on
             // positional arguments with a "path"-style first argument.
             //
@@ -155,14 +154,12 @@ impl RpcQueryRequest {
                 }
             };
             // Use Finality::None here to make backward compatibility tests work
-            RpcQueryRequest {
+            return Ok(RpcQueryRequest {
                 request,
                 block_reference: near_primitives::types::BlockReference::latest(),
-            }
-        } else {
-            crate::utils::parse_params::<RpcQueryRequest>(value)?
-        };
-        Ok(query_request)
+            });
+        }
+        crate::utils::parse_params::<Self>(value)
     }
 }
 

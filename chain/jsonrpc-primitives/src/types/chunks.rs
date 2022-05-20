@@ -55,8 +55,9 @@ impl From<ChunkReference> for near_client_primitives::types::GetChunk {
     }
 }
 
-impl RpcChunkRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcChunkRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         // Try to parse legacy positioned args and if it fails parse newer named args
         let chunk_reference = if let Ok((chunk_id,)) =
             crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())

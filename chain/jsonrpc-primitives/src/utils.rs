@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use near_primitives::borsh::BorshDeserialize;
 
-pub(crate) fn parse_params<T: DeserializeOwned>(
+pub fn parse_params<T: DeserializeOwned>(
     value: Option<Value>,
 ) -> Result<T, crate::errors::RpcParseError> {
     if let Some(value) = value {
@@ -14,7 +14,7 @@ pub(crate) fn parse_params<T: DeserializeOwned>(
     }
 }
 
-pub(crate) fn parse_signed_transaction(
+pub fn parse_signed_transaction(
     value: Option<Value>,
 ) -> Result<near_primitives::transaction::SignedTransaction, crate::errors::RpcParseError> {
     let (encoded,) = crate::utils::parse_params::<(String,)>(value.clone())?;

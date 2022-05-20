@@ -76,8 +76,9 @@ impl From<RpcGasPriceError> for crate::errors::RpcError {
     }
 }
 
-impl RpcGasPriceRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcGasPriceRequest, crate::errors::RpcParseError> {
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcGasPriceRequest {
+    fn parse(value: Option<Value>) -> Result<RpcGasPriceRequest, crate::errors::RpcParseError> {
         crate::utils::parse_params::<(MaybeBlockId,)>(value)
             .map(|(block_id,)| RpcGasPriceRequest { block_id })
     }

@@ -7,8 +7,9 @@ pub struct RpcProtocolConfigRequest {
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-impl RpcProtocolConfigRequest {
-    pub fn parse(
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcProtocolConfigRequest {
+    fn parse(
         value: Option<Value>,
     ) -> Result<RpcProtocolConfigRequest, crate::errors::RpcParseError> {
         crate::utils::parse_params::<near_primitives::types::BlockReference>(value)

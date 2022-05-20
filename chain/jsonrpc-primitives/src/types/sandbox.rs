@@ -8,9 +8,10 @@ pub struct RpcSandboxPatchStateRequest {
     pub records: Vec<StateRecord>,
 }
 
-impl RpcSandboxPatchStateRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxPatchStateRequest>(value)?)
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcSandboxPatchStateRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        crate::utils::parse_params::<Self>(value)
     }
 }
 
@@ -50,9 +51,10 @@ pub struct RpcSandboxFastForwardRequest {
     pub delta_height: BlockHeightDelta,
 }
 
-impl RpcSandboxFastForwardRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxFastForwardRequest>(value)?)
+#[cfg(feature = "server")]
+impl crate::RpcRequest for RpcSandboxFastForwardRequest {
+    fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
+        crate::utils::parse_params::<Self>(value)
     }
 }
 
