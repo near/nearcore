@@ -805,7 +805,7 @@ pub fn start_rosetta_rpc(
         App::new()
             .app_data(json_config)
             .wrap(actix_web::middleware::Logger::default())
-            .app_data(web::Data::from(genesis.clone()))
+            .app_data(web::Data::new(genesis.clone()))
             .app_data(web::Data::new(client_addr.clone()))
             .app_data(web::Data::new(view_client_addr.clone()))
             .wrap(get_cors(&cors_allowed_origins))
