@@ -46,7 +46,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
-pub use crate::config::StoreConfig;
+pub use crate::config::{get_store_path, store_path_exists, StoreConfig, StoreOpener, STORE_PATH};
 
 #[derive(Clone)]
 pub struct Store {
@@ -330,15 +330,6 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
         return Ok(cache.get(key));
     }
     Ok(None)
-}
-
-pub fn create_store(path: &Path) -> Store {
-    create_store_with_config(path, &StoreConfig::read_write())
-}
-
-pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let db = RocksDB::open(path, &store_config).expect("Failed to open the database");
-    Store::new(Arc::new(db))
 }
 
 /// Reads an object from Trie.

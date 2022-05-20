@@ -1,4 +1,3 @@
-use nearcore::get_store_path;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -73,7 +72,7 @@ impl Data {
 }
 
 pub fn get_rocksdb_stats(home_dir: &Path, file: Option<PathBuf>) -> anyhow::Result<()> {
-    let store_dir = get_store_path(&home_dir);
+    let store_dir = near_store::get_store_path(&home_dir);
     let mut cmd = Command::new("sst_dump");
     cmd.arg(format!("--file={}", store_dir.to_str().unwrap()))
         .arg("--show_properties")

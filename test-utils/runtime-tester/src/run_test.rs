@@ -11,7 +11,6 @@ use near_crypto::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
-use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
@@ -50,7 +49,7 @@ impl Scenario {
         } else {
             let tempdir = tempfile::tempdir()
                 .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = create_store(&nearcore::get_store_path(tempdir.path()));
+            let store = near_store::StoreOpener::with_default_config().home(tempdir.path()).open();
             (Some(tempdir), store)
         };
 
