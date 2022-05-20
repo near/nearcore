@@ -4,7 +4,7 @@ use serde_json::Value;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_primitives::borsh::BorshDeserialize;
 
-pub trait RpcRequest: Sized {
+pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
 }
 
