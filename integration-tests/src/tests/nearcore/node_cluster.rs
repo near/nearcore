@@ -10,7 +10,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
-pub fn start_nodes(
+fn start_nodes(
     temp_dir: &std::path::Path,
     num_shards: NumShards,
     num_nodes: NumSeats,
