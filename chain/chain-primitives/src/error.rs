@@ -59,7 +59,7 @@ pub enum QueryError {
     },
 }
 
-#[derive(Eq, PartialEq, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The block is already known
     #[error("Block is known: {0}")]
@@ -198,7 +198,7 @@ pub enum Error {
     ChallengedBlockOnChain,
     /// IO Error.
     #[error("IO Error: {0}")]
-    IOErr(String),
+    IOErr(#[from] io::Error),
     /// Not found record in the DB.
     #[error("DB Not Found Error: {0}")]
     DBNotFoundErr(String),
@@ -289,12 +289,6 @@ impl Error {
             Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_) => true,
             _ => false,
         }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::IOErr(error.to_string())
     }
 }
 

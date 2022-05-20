@@ -47,8 +47,6 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
@@ -136,8 +134,7 @@ pub fn setup(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+    let adv = crate::adversarial::Controls::default();
 
     let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
@@ -145,7 +142,6 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -161,7 +157,6 @@ pub fn setup(
         TEST_SEED,
         ctx,
         None,
-        #[cfg(feature = "test_features")]
         adv,
     )
     .unwrap();
@@ -229,8 +224,7 @@ pub fn setup_only_view(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+    let adv = crate::adversarial::Controls::default();
 
     start_view_client(
         Some(signer.validator_id().clone()),
@@ -238,8 +232,7 @@ pub fn setup_only_view(
         runtime,
         network_adapter.clone(),
         config,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     )
 }
 

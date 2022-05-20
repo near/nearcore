@@ -7,8 +7,6 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
@@ -247,7 +245,7 @@ pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -276,9 +274,7 @@ pub fn start_with_config_and_synchronization(
 
     let node_id = PeerId::new(config.network_config.public_key.clone().into());
     let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv =
-        Arc::new(std::sync::RwLock::new(AdversarialControls::new(config.client_config.archive)));
+    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -286,7 +282,6 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
@@ -298,8 +293,7 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer,
         telemetry,
         shutdown_signal,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     );
 
     #[allow(unused_mut)]
@@ -323,16 +317,17 @@ pub fn start_with_config_and_synchronization(
         )
         .unwrap()
     });
+    network_adapter.set_recipient(network_actor.clone().recipient());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
+        rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
             #[cfg(feature = "test_features")]
-            network_actor.clone(),
+            network_actor,
             #[cfg(feature = "test_features")]
             routing_table_addr2,
         ));
@@ -350,8 +345,6 @@ pub fn start_with_config_and_synchronization(
             ),
         ));
     }
-
-    network_adapter.set_recipient(network_actor.recipient());
 
     rpc_servers.shrink_to_fit();
 

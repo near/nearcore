@@ -419,6 +419,8 @@ fn default_read_cached_trie_node() -> Gas {
 const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
+    /// Convenience constructor to use in tests where the exact gas cost does
+    /// not need to correspond to a specific protocol version.
     pub fn test() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
@@ -476,17 +478,17 @@ impl ExtCostsConfig {
             validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_base: SAFETY_MULTIPLIER * 237668976500,
+            alt_bn128_g1_multiexp_base: 713_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_multiexp_element: SAFETY_MULTIPLIER * 1111697487,
+            alt_bn128_g1_multiexp_element: 320_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_base: SAFETY_MULTIPLIER * 3228502967000,
+            alt_bn128_pairing_check_base: 9_686_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_pairing_check_element: SAFETY_MULTIPLIER * 8858396182,
+            alt_bn128_pairing_check_element: 5_102_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
+            alt_bn128_g1_sum_base: 3_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            alt_bn128_g1_sum_element: SAFETY_MULTIPLIER * 25406181,
+            alt_bn128_g1_sum_element: 5_000_000_000,
         }
     }
 

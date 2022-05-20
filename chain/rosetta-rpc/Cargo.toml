@@ -14,11 +14,11 @@ derive_more = "0.99.9"
 hex = "0.4"
 strum = { version = "0.24", features = ["derive"] }
 
-awc = "3.0.0-beta.5"
+awc = "3.0.0"
 actix = "0.13.0"
-actix-web = "=4.0.0-beta.6"
-actix-http = "=3.0.0-beta.6"
-actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }
+actix-web = "4.0.1"
+actix-http = "3.0.4"
+actix-cors = "0.6.1"
 futures = "0.3.5"
 tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 
@@ -26,7 +26,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 validator = "0.12"
 
-paperclip = { git = "https://github.com/near/paperclip", branch = "actix-web-4-beta.6", features = ["actix"] }
+paperclip = { version = "0.7.0", features = ["actix4"] }
 
 near-primitives = { path = "../../core/primitives" }
 near-account-id = { path = "../../core/account-id" }
