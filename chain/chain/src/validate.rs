@@ -69,10 +69,10 @@ pub fn validate_chunk_proofs(
     } else {
         let shard_layout = {
             let prev_block_hash = match chunk {
-                ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
+                ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
                 ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
             };
-            runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?
+            runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
