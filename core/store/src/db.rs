@@ -408,7 +408,7 @@ impl Database for TestDB {
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let iterator = self.iter_raw_bytes(col);
-        RocksDB::iter_with_rc_logic(col, iterator)
+        Ok(RocksDB::iter_with_rc_logic(col, iterator))
     }
 
     fn iter_raw_bytes<'a>(
@@ -419,7 +419,7 @@ impl Database for TestDB {
             .clone()
             .into_iter()
             .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
-        Box::new(iterator)
+        Ok(Box::new(iterator))
     }
 
     fn iter_prefix<'a>(
@@ -427,10 +427,10 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        RocksDB::iter_with_rc_logic(
+        Ok(RocksDB::iter_with_rc_logic(
             col,
             self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
-        )
+        ))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
