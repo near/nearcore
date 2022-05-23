@@ -1240,7 +1240,7 @@ fn test_bad_orphan() {
             // Change the chunk in any way, chunk_headers_root won't match
             let body = match &mut block {
                 Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => body.as_mut(),
+                Block::BlockV2(body) => Arc::make_mut(body),
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
@@ -1276,7 +1276,7 @@ fn test_bad_orphan() {
         {
             let body = match &mut block {
                 Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => body.as_mut(),
+                Block::BlockV2(body) => Arc::make_mut(body),
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
@@ -3137,8 +3137,9 @@ fn test_header_version_downgrade() {
         let mut header = header_view.into();
 
         // BlockHeaderV1, but protocol version is newest
-        match header {
-            BlockHeader::BlockHeaderV1(ref mut header) => {
+        match &mut header {
+            BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
