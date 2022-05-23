@@ -3,10 +3,11 @@
 mod script;
 
 use crate::script::Script;
-use clap::Clap;
+use clap::Parser;
+use near_vm_logic::ProtocolVersion;
 use near_vm_logic::VMOutcome;
-use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
 use near_vm_runner::internal::VMKind;
+use near_vm_runner::VMResult;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
@@ -57,7 +58,7 @@ impl<'de> Deserialize<'de> for State {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CliArgs {
     /// Specifies the execution context in JSON format, see `VMContext`.
     #[clap(long)]
@@ -105,13 +106,17 @@ struct CliArgs {
 #[allow(unused)]
 #[derive(Debug, Clone)]
 struct StandaloneOutput {
-    pub outcome: Option<VMOutcome>,
+    pub outcome: VMOutcome,
     pub err: Option<String>,
-    pub receipts: Vec<Receipt>,
     pub state: State,
 }
 
 fn main() {
+    rayon::ThreadPoolBuilder::new()
+        .stack_size(8 * 1024 * 1024)
+        .build_global()
+        .expect("install rayon thread pool globally");
+
     let cli_args = CliArgs::parse();
 
     if cli_args.timings {
@@ -164,29 +169,25 @@ fn main() {
     step.promise_results(promise_results);
 
     let mut results = script.run();
-    let (outcome, err) = results.outcomes.pop().unwrap();
+    let last_result = results.outcomes.pop().unwrap();
+    let maybe_error = last_result.error();
 
-    println!(
-        "{:#?}",
-        StandaloneOutput {
-            outcome: outcome.clone(),
-            err: err.map(|it| it.to_string()),
-            receipts: results.state.get_receipt_create_calls().clone(),
-            state: State(results.state.fake_trie),
-        }
-    );
+    match &last_result {
+        VMResult::Aborted(outcome, _) | VMResult::Ok(outcome) => {
+            println!(
+                "{:#?}",
+                StandaloneOutput {
+                    outcome: outcome.clone(),
+                    err: maybe_error.map(|it| it.to_string()),
+                    state: State(results.state.fake_trie),
+                }
+            );
 
-    if let Some(outcome) = &outcome {
-        println!("\nLogs:");
-        for log in &outcome.logs {
-            println!("{}\n", log);
-        }
-    }
-
-    match &outcome {
-        Some(outcome) => {
+            println!("\nLogs:");
+            for log in &outcome.logs {
+                println!("{}\n", log);
+            }
             println!("{:#?}", outcome.profile);
         }
-        _ => {}
     }
 }

@@ -74,20 +74,6 @@ pub static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static CHUNKS_RECEIVING_DELAY_US: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_receiving_delay_us",
-        "Max delay between receiving a block and its chunks for several most recent blocks",
-    )
-    .unwrap()
-});
-pub static BLOCKS_AHEAD_OF_HEAD: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_blocks_ahead_of_head",
-        "Height difference between the current head and the newest block or chunk received",
-    )
-    .unwrap()
-});
 pub static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
     near_metrics::try_create_int_gauge_vec(
         "near_validators_chunks_produced",
@@ -133,13 +119,6 @@ pub static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
-        .unwrap()
-});
-pub static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
-});
 pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_skipped_total",
@@ -148,3 +127,97 @@ pub static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "partial_encoded_chunk_response_delay",
+        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
+    )
+        .unwrap()
+});
+pub static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_client_messages_count",
+        "Number of messages client actor received by message type",
+        &["type"],
+    )
+    .unwrap()
+});
+pub static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_client_messages_processing_time",
+        "Processing time of messages that client actor received, sorted by message type",
+        &["type"],
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+pub static CHECK_TRIGGERS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_client_triggers_time",
+        "Processing time of the check_triggers function in client",
+    )
+    .unwrap()
+});
+pub static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_client_triggers_time_by_type",
+        "Time spent on the different triggers in client",
+        &["trigger"],
+        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
+        .unwrap()
+});
+static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
+});
+static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_build_info",
+        "Metric whose labels indicate node’s version; see \
+             <https://www.robustperception.io/exposing-the-software-version-to-prometheus>.",
+        &["release", "build", "rustc_version"],
+    )
+    .unwrap()
+});
+
+pub(crate) static TRANSACTION_RECEIVED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_transaction_received_validator", "Validator received a transaction")
+        .unwrap()
+});
+pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_transaction_received_non_validator",
+        "Non-validator received a transaction",
+    )
+    .unwrap()
+});
+pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_transaction_received_non_validator_forwarded",
+        "Non-validator received a forwarded transaction",
+    )
+    .unwrap()
+});
+
+/// Exports neard, protocol and database versions via Prometheus metrics.
+///
+/// Sets metrics which export node’s max supported protocol version, used
+/// database version and build information.  The latter is taken from
+/// `neard_version` argument.
+pub fn export_version(neard_version: &near_primitives::version::Version) {
+    NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION as i64);
+    NODE_DB_VERSION.set(near_primitives::version::DB_VERSION as i64);
+    NODE_BUILD_INFO.reset();
+    NODE_BUILD_INFO
+        .with_label_values(&[
+            &neard_version.version,
+            &neard_version.build,
+            &neard_version.rustc_version,
+        ])
+        .inc();
+}

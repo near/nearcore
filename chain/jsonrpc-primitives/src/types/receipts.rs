@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiptReference {
@@ -30,13 +29,6 @@ pub enum RpcReceiptError {
 impl From<ReceiptReference> for near_client_primitives::types::GetReceipt {
     fn from(receipt_reference: ReceiptReference) -> Self {
         Self { receipt_id: receipt_reference.receipt_id }
-    }
-}
-
-impl RpcReceiptRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        let receipt_reference = crate::utils::parse_params::<ReceiptReference>(value)?;
-        Ok(Self { receipt_reference })
     }
 }
 

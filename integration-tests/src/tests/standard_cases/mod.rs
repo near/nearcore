@@ -4,6 +4,7 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
+use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -11,18 +12,22 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance, TrieNodesCount};
 use near_primitives::views::{
-    AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
+    FinalExecutionStatus,
 };
 use near_vm_errors::MethodResolveError;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;
 use crate::user::User;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::test_utils;
+use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
@@ -33,14 +38,6 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(RuntimeConfig::test().transaction_costs, node.genesis().config.min_gas_price)
-}
-
-fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-    let mut res = vec![];
-    for el in value {
-        res.extend_from_slice(&el.to_le_bytes());
-    }
-    res
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -819,10 +816,35 @@ pub fn test_delete_key_last(node: impl Node) {
     let root = node_user.get_state_root();
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    let transaction_result =
-        node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
+
+    match transaction_result {
+        Ok(transaction_result) => {
+            assert_eq!(
+                transaction_result.status,
+                FinalExecutionStatus::SuccessValue(String::new())
+            );
+            assert_eq!(transaction_result.receipts_outcome.len(), 1);
+        }
+        Err(err) => {
+            // TODO(#6724): This is a wrong error, the transaction actually
+            // succeeds. We get an error here when we retry the tx and the second
+            // time around it fails. Normally, retries are handled by nonces, but we
+            // forget the nonce when we delete a key!
+            assert_eq!(
+                err,
+                ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: account_id.clone(),
+                            public_key: node.signer().public_key(),
+                        },
+                    )
+                ))
+            )
+        }
+    }
+
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
@@ -1328,19 +1350,44 @@ pub fn test_smart_contract_free(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
+/// Get number of charged trie node accesses from the execution metadata.
+fn get_trie_nodes_count(
+    metadata: &ExecutionMetadataView,
+    runtime_config: &RuntimeConfig,
+) -> TrieNodesCount {
+    let mut count = TrieNodesCount { db_reads: 0, mem_reads: 0 };
+    for cost in metadata.gas_profile.clone().unwrap_or_default().iter() {
+        match cost.cost.as_str() {
+            "TOUCHING_TRIE_NODE" => {
+                count.db_reads +=
+                    cost.gas_used / runtime_config.wasm_config.ext_costs.touching_trie_node;
+            }
+            "READ_CACHED_TRIE_NODE" => {
+                count.mem_reads +=
+                    cost.gas_used / runtime_config.wasm_config.ext_costs.read_cached_trie_node;
+            }
+            _ => {}
+        };
+    }
+    count
+}
+
 /// Checks correctness of touching trie node cost for writing value into contract storage.
 /// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
-/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
+/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.
 pub fn test_contract_write_key_value_cost(node: impl Node) {
     let node_user = node.user();
-    let results: Vec<Gas> = vec![2, 4];
+    let results: Vec<_> = vec![
+        TrieNodesCount { db_reads: 2, mem_reads: 0 },
+        TrieNodesCount { db_reads: 4, mem_reads: 0 },
+    ];
     for i in 0..2 {
         let transaction_result = node_user
             .function_call(
                 alice_account(),
                 bob_account(),
                 "write_key_value",
-                arr_u64_to_u8(&[10u64, 20u64]),
+                test_utils::encode(&[10u64, 20u64]),
                 10u64.pow(14),
                 0,
             )
@@ -1348,15 +1395,160 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
         assert_matches!(transaction_result.status, FinalExecutionStatus::SuccessValue(_));
         assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-        let gas_profile = &transaction_result.receipts_outcome[0].outcome.metadata.gas_profile;
-        let touching_trie_node_cost: Gas = gas_profile
-            .clone()
-            .unwrap()
-            .iter()
-            .map(|cost| if cost.cost == "TOUCHING_TRIE_NODE" { cost.gas_used } else { 0 })
-            .sum();
-        let node_touches = touching_trie_node_cost
-            / RuntimeConfig::test().wasm_config.ext_costs.touching_trie_node;
-        assert_eq!(node_touches, results[i]);
+        let trie_nodes_count = get_trie_nodes_count(
+            &transaction_result.receipts_outcome[0].outcome.metadata,
+            &RuntimeConfig::test(),
+        );
+        assert_eq!(trie_nodes_count, results[i]);
     }
+}
+
+fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
+    let args: Vec<u64> = key.into_iter().chain(value.into_iter()).collect();
+    FunctionCallAction {
+        method_name: "write_key_value".to_string(),
+        args: test_utils::encode(&args),
+        gas: 10u64.pow(14),
+        deposit: 0,
+    }
+    .into()
+}
+
+fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) -> Receipt {
+    let receipt_enum = ReceiptEnum::Action(ActionReceipt {
+        signer_id: alice_account(),
+        signer_public_key: node.signer().as_ref().public_key(),
+        gas_price: 0,
+        output_data_receivers: vec![],
+        input_data_ids: vec![],
+        actions,
+    });
+    Receipt {
+        predecessor_id: alice_account(),
+        receiver_id,
+        receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
+        receipt: receipt_enum,
+    }
+}
+
+/// Check that numbers of charged trie node accesses during execution of the given receipts matches the provided
+/// results.
+/// Runs the list of receipts 2 times. 1st run establishes the state structure, 2nd run is used to get node counts.
+fn check_trie_nodes_count(
+    node: impl Node,
+    runtime_config: RuntimeConfig,
+    receipts: Vec<Receipt>,
+    results: Vec<TrieNodesCount>,
+) {
+    let node_user = node.user();
+    let mut node_touches: Vec<_> = vec![];
+    let receipt_hashes: Vec<CryptoHash> =
+        receipts.iter().map(|receipt| receipt.receipt_id.clone()).collect();
+
+    for i in 0..2 {
+        node_user.add_receipts(receipts.clone()).unwrap();
+
+        if i == 1 {
+            node_touches = receipt_hashes
+                .iter()
+                .map(|receipt_hash| {
+                    let result = node_user.get_transaction_result(receipt_hash);
+                    get_trie_nodes_count(&result.metadata, &runtime_config)
+                })
+                .collect();
+        }
+    }
+
+    assert_eq!(node_touches, results);
+}
+
+/// Check correctness of charging for trie node accesses with enabled chunk nodes cache.
+/// We run the same set of receipts 2 times and compare resulting trie node counts. Each receipt writes some key-value
+/// pair to the contract storage.
+/// 1st run establishes the trie structure. For our needs, the structure is:
+///
+///                                                    --> (Leaf) -> (Value 1)
+/// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
+///                                                    --> (Leaf) -> (Value 3)
+///
+/// 1st receipt should count 6 db reads.
+/// 2nd and 3rd receipts should count 2 db and 4 memory reads, because for them first 4 nodes were already put into the
+/// chunk cache.
+pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: RuntimeConfig) {
+    let receipts: Vec<Receipt> = (0..3)
+        .map(|i| {
+            make_receipt(
+                &node,
+                vec![make_write_key_value_action(vec![i], vec![10u64 + i])],
+                bob_account(),
+            )
+        })
+        .collect();
+
+    let results = vec![
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+    ];
+    check_trie_nodes_count(node, runtime_config, receipts, results);
+}
+
+/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+///
+///                                                    --> (Value 1)
+/// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
+///
+/// 1st receipt should count 5 db reads.
+/// 2nd receipt should count 2 db and 4 memory reads.
+pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: RuntimeConfig) {
+    let receipts: Vec<Receipt> = (0..2)
+        .map(|i| {
+            make_receipt(
+                &node,
+                vec![make_write_key_value_action(vec![1; i + 1], vec![10u64 + i as u64])],
+                bob_account(),
+            )
+        })
+        .collect();
+
+    let results = vec![
+        TrieNodesCount { db_reads: 5, mem_reads: 0 },
+        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+    ];
+    check_trie_nodes_count(node, runtime_config, receipts, results);
+}
+
+/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+///
+///                                                     --> (Leaf) -> (Value 1)
+/// (Extension) -> (Branch) --> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
+///                         |-> (Leaf) -> (Value 2)
+///
+/// Here we check that chunk cache is enabled *only during function calls execution*.
+/// 1st receipt writes `Value 1` and should count 6 db reads.
+/// 2nd receipt deploys a new contract which *code* is the same as `Value 2`. But this value shouldn't be put into the
+/// chunk cache.
+/// 3rd receipt writes `Value 2` and should count 2 db and 4 memory reads.
+///
+/// We have checked manually that if chunk cache mode is not disabled, then the following scenario happens:
+/// - 1st receipt enables chunk cache mode but doesn't disable it
+/// - 2nd receipt triggers insertion of `Value 2` into the chunk cache
+/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.
+pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
+    let receipts: Vec<Receipt> = vec![
+        make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
+        make_receipt(
+            &node,
+            vec![DeployContractAction { code: test_utils::encode(&vec![2]) }.into()],
+            alice_account(),
+        ),
+        make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
+    ];
+
+    let results = vec![
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        TrieNodesCount { db_reads: 0, mem_reads: 0 },
+        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+    ];
+    check_trie_nodes_count(node, runtime_config, receipts, results);
 }

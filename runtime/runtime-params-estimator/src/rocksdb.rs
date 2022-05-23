@@ -1,13 +1,13 @@
 use std::{io::prelude::*, iter, path::PathBuf};
 
-use clap::Clap;
+use clap::Parser;
 use rand::{prelude::SliceRandom, Rng};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 
 use crate::{config::Config, gas_cost::GasCost};
 
-#[derive(Debug, Clone, Clap)]
+#[derive(Debug, Clone, Parser)]
 pub struct RocksDBTestConfig {
     /// Value size used for all DB operations in RocksDB tests
     /// (`RocksDb*` estimations only)

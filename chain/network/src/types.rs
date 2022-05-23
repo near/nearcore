@@ -1,8 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
@@ -26,10 +25,31 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::QueryRequest;
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use strum::AsStaticStr;
+
+/// Peer stats query.
+#[derive(actix::Message)]
+#[rtype(result = "PeerStatsResult")]
+pub struct QueryPeerStats {}
+
+/// Peer stats result
+#[derive(Debug, actix::MessageResponse)]
+pub struct PeerStatsResult {
+    /// Chain info.
+    pub chain_info: PeerChainInfoV2,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Returns if this peer is abusive and should be banned.
+    pub is_abusive: bool,
+    /// Counts of incoming/outgoing messages from given peer.
+    pub message_counts: (usize, usize),
+    /// Encoding used for communication.
+    pub encoding: Option<Encoding>,
+}
 
 /// Message from peer to peer manager
 #[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
@@ -55,6 +75,17 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
+/// A struct wrapped std::Instant to support the deepsize feature
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrappedInstant(pub Instant);
+
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for WrappedInstant {
+    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
+        0
+    }
+}
+
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
@@ -73,7 +104,7 @@ pub struct PeersResponse {
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -260,6 +291,7 @@ pub enum NetworkRequests {
     PartialEncodedChunkRequest {
         target: AccountIdOrPeerTrackingShard,
         request: PartialEncodedChunkRequestMsg,
+        create_time: WrappedInstant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkResponse {
@@ -312,7 +344,6 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 
     // IbfMessage
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     IbfMessage {
         peer_id: PeerId,
         ibf_msg: RoutingSyncV2,
@@ -325,6 +356,22 @@ pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfoV2,
     pub partial_edge_info: PartialEdgeInfo,
+}
+
+impl From<&FullPeerInfo> for PeerInfoView {
+    fn from(full_peer_info: &FullPeerInfo) -> Self {
+        PeerInfoView {
+            addr: match full_peer_info.peer_info.addr {
+                Some(socket_addr) => socket_addr.to_string(),
+                None => "N/A".to_string(),
+            },
+            account_id: full_peer_info.peer_info.account_id.clone(),
+            height: full_peer_info.chain_info.height,
+            tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
+            archival: full_peer_info.chain_info.archival,
+            peer_id: full_peer_info.peer_info.id.public_key().clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, actix::MessageResponse)]
@@ -340,6 +387,32 @@ pub struct NetworkInfo {
     pub peer_counter: usize,
 }
 
+impl From<NetworkInfo> for NetworkInfoView {
+    fn from(network_info: NetworkInfo) -> Self {
+        NetworkInfoView {
+            peer_max_count: network_info.peer_max_count,
+            num_connected_peers: network_info.num_connected_peers,
+            connected_peers: network_info
+                .connected_peers
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
+            known_producers: network_info
+                .known_producers
+                .iter()
+                .map(|it| KnownProducerView {
+                    account_id: it.account_id.clone(),
+                    peer_id: it.peer_id.public_key().clone(),
+                    next_hops: it
+                        .next_hops
+                        .as_ref()
+                        .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, actix::MessageResponse)]
 pub enum NetworkResponses {
     NoResponse,
@@ -350,7 +423,7 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkClientResponses")]
@@ -385,7 +458,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)

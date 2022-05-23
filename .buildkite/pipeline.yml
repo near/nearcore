@@ -15,6 +15,7 @@ steps:
 
   - label: "cargo test not integration-tests*"
     command: |
+      docker rm -f $(docker ps --filter "publish=6379" -q) | true
       docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
       cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
@@ -27,7 +28,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests'
+      cargo test --features nightly,test_features -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -36,9 +37,10 @@ steps:
 
   - label: "cargo test nightly not integration-tests*"
     command: |
+      docker rm -f $(docker ps --filter "publish=6379" -q) | true
       docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
-      cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features -p '*' --exclude 'integration-tests*'
+      cargo test --workspace --features nightly,test_features -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -57,7 +59,7 @@ steps:
       cargo check -p neard --features test_features
       cargo check -p neard --features sandbox
 
-      cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
+      cargo build -p neard --bin neard --features nightly
       cd pytest
       python3 -m pip install --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py

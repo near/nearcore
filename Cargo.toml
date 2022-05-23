@@ -8,12 +8,14 @@ members = [
     "core/primitives-core",
     "core/store",
     "core/metrics",
+    "core/o11y",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
     "runtime/near-vm-runner-standalone",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
+    "runtime/runtime-params-estimator/estimator-warehouse",
     "chain/chain",
     "chain/chunks",
     "chain/epoch_manager",
@@ -42,6 +44,7 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/delay_detector",
     "tools/indexer/example",
+    "tools/mock_node",
     "tools/restaked",
     "tools/restored-receipts-verifier",
     "tools/rpctypegen/core",
@@ -56,16 +59,21 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.12.0"
+version = "0.13.0"
 exclude = [ "neard" ]
 
 [patch.crates-io]
 
+# Note that "bench" profile inherits from "release" profile and
+# "test" profile inherits from "dev" profile.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#test
+
 [profile.release]
 overflow-checks = true
+panic = 'abort'
 
-[profile.bench]
-overflow-checks = true
+[profile.dev]
+panic = 'abort'
 
 [profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug

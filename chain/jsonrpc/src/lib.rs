@@ -33,6 +33,9 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod metrics;
+mod parser;
+
+use parser::RpcRequest;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -1180,6 +1183,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
     > {
+        use near_network_primitives::types::SandboxResponse;
+
         self.client_addr
             .send(NetworkClientMessages::Sandbox(
                 near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
@@ -1187,6 +1192,36 @@ impl JsonRpcHandler {
                 ),
             ))
             .await?;
+
+        // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
+        // where we can leave it to the rpc clients to set their own timeouts if necessary.
+        timeout(Duration::from_secs(60 * 60), async {
+            loop {
+                let fast_forward_finished = self
+                    .client_addr
+                    .send(NetworkClientMessages::Sandbox(
+                        near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus {},
+                    ))
+                    .await;
+
+                match fast_forward_finished {
+                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFinished(true))) => break,
+                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFailed(err))) => return Err(err),
+                    _ => (),
+                }
+
+                let _ = sleep(self.polling_config.polling_interval).await;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+            error_message: "sandbox failed to fast forward within reasonable time of an hour".to_string()
+        })?
+        .map_err(|err| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+            error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+        })?;
+
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
 }
@@ -1399,6 +1434,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 lazy_static_include::lazy_static_include_str! {
     LAST_BLOCKS_HTML => "res/last_blocks.html",
     DEBUG_HTML => "res/debug.html",
+    NETWORK_INFO_HTML => "res/network_info.html",
+    EPOCH_INFO_HTML => "res/epoch_info.html",
+    CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
 }
 
 #[get("/debug")]
@@ -1409,6 +1447,21 @@ async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
 #[get("/debug/last_blocks")]
 async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
+}
+
+#[get("/debug/network_info")]
+async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
+}
+
+#[get("/debug/epoch_info")]
+async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
+}
+
+#[get("/debug/chain_n_chunk_info")]
+async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1429,7 +1482,7 @@ pub fn start_http(
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
-) -> Vec<(&'static str, actix_web::dev::Server)> {
+) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
         prometheus_addr,
@@ -1445,7 +1498,7 @@ pub fn start_http(
     let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
-            .data(JsonRpcHandler {
+            .app_data(web::Data::new(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
@@ -1455,7 +1508,7 @@ pub fn start_http(
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
                 routing_table_addr: routing_table_addr.clone(),
-            })
+            }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to(rpc_handler)))
@@ -1471,9 +1524,12 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/last_blocks").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
             .service(debug_html)
             .service(last_blocks_html)
+            .service(network_info_html)
+            .service(epoch_info_html)
+            .service(chain_n_chunk_info_html)
     })
     .bind(addr)
     .unwrap()
@@ -1482,7 +1538,9 @@ pub fn start_http(
     .disable_signals()
     .run();
 
-    servers.push(("JSON RPC", server));
+    servers.push(("JSON RPC", server.handle()));
+
+    tokio::spawn(server);
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
@@ -1500,7 +1558,10 @@ pub fn start_http(
         .shutdown_timeout(5)
         .disable_signals()
         .run();
-        servers.push(("Prometheus Metrics", server));
+
+        servers.push(("Prometheus Metrics", server.handle()));
+
+        tokio::spawn(server);
     }
 
     servers

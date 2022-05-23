@@ -5,8 +5,7 @@ use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
@@ -15,13 +14,10 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
-use near_store::PartialStorage;
 
-use crate::types::ApplyTransactionResult;
 use crate::{byzantine_assert, Chain};
-use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
+use crate::{ChainStore, Error, RuntimeAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -131,11 +127,11 @@ pub fn validate_chunk_with_chunk_extra(
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
-        return Err(ErrorKind::InvalidStateRoot.into());
+        return Err(Error::InvalidStateRoot.into());
     }
 
     if *prev_chunk_extra.outcome_root() != chunk_header.outcome_root() {
-        return Err(ErrorKind::InvalidOutcomesProof.into());
+        return Err(Error::InvalidOutcomesProof.into());
     }
 
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
@@ -143,19 +139,19 @@ pub fn validate_chunk_with_chunk_extra(
     if chunk_header_proposals.len() != chunk_extra_proposals.len()
         || !chunk_extra_proposals.eq(chunk_header_proposals)
     {
-        return Err(ErrorKind::InvalidValidatorProposals.into());
+        return Err(Error::InvalidValidatorProposals.into());
     }
 
     if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
-        return Err(ErrorKind::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit.into());
     }
 
     if prev_chunk_extra.gas_used() != chunk_header.gas_used() {
-        return Err(ErrorKind::InvalidGasUsed.into());
+        return Err(Error::InvalidGasUsed.into());
     }
 
     if prev_chunk_extra.balance_burnt() != chunk_header.balance_burnt() {
-        return Err(ErrorKind::InvalidBalanceBurnt.into());
+        return Err(Error::InvalidBalanceBurnt.into());
     }
 
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
@@ -171,14 +167,14 @@ pub fn validate_chunk_with_chunk_extra(
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     if outgoing_receipts_root != chunk_header.outgoing_receipts_root() {
-        return Err(ErrorKind::InvalidReceiptsProof.into());
+        return Err(Error::InvalidReceiptsProof.into());
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit();
     if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
         || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
-        return Err(ErrorKind::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit.into());
     }
 
     Ok(())
@@ -218,7 +214,7 @@ fn validate_double_sign(
             (*right_block_header.hash(), vec![block_producer])
         })
     } else {
-        Err(ErrorKind::MaliciousChallenge.into())
+        Err(Error::MaliciousChallenge.into())
     }
 }
 
@@ -229,7 +225,7 @@ fn validate_header_authorship(
     if runtime_adapter.verify_header_signature(block_header)? {
         Ok(())
     } else {
-        Err(ErrorKind::InvalidChallenge.into())
+        Err(Error::InvalidChallenge.into())
     }
 }
 
@@ -250,7 +246,7 @@ fn validate_chunk_authorship(
         )?;
         Ok(chunk_producer)
     } else {
-        Err(ErrorKind::InvalidChallenge.into())
+        Err(Error::InvalidChallenge.into())
     }
 }
 
@@ -272,7 +268,7 @@ fn validate_chunk_proofs_challenge(
         &chunk_proofs.merkle_proof,
     ) {
         // Merkle proof is invalid. It's a malicious challenge.
-        return Err(ErrorKind::MaliciousChallenge.into());
+        return Err(Error::MaliciousChallenge.into());
     }
     // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
     let tmp_chunk;
@@ -303,80 +299,85 @@ fn validate_chunk_proofs_challenge(
     }
 
     // The chunk is fine. It's a malicious challenge.
-    return Err(ErrorKind::MaliciousChallenge.into());
+    return Err(Error::MaliciousChallenge.into());
 }
 
 fn validate_chunk_state_challenge(
-    runtime_adapter: &dyn RuntimeAdapter,
-    chunk_state: &ChunkState,
+    _runtime_adapter: &dyn RuntimeAdapter,
+    _chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
-    let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
-    let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
-
-    // Validate previous chunk and block header.
-    validate_header_authorship(runtime_adapter, &prev_block_header)?;
-    let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
-    let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
-    if !Block::validate_chunk_header_proof(
-        &prev_chunk_header,
-        prev_block_header.chunk_headers_root(),
-        &chunk_state.prev_merkle_proof,
-    ) {
-        return Err(ErrorKind::MaliciousChallenge.into());
-    }
-
-    // Validate current chunk and block header.
-    validate_header_authorship(runtime_adapter, &block_header)?;
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
-    if !Block::validate_chunk_header_proof(
-        &chunk_state.chunk_header,
-        block_header.chunk_headers_root(),
-        &chunk_state.merkle_proof,
-    ) {
-        return Err(ErrorKind::MaliciousChallenge.into());
-    }
+    // TODO (#2445): Enable challenges when they are working correctly.
+    // let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
+    // let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
+    //
+    // // Validate previous chunk and block header.
+    // validate_header_authorship(runtime_adapter, &prev_block_header)?;
+    // let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
+    // let _ = validate_chunk_authorship(runtime_adapter, &prev_chunk_header)?;
+    // if !Block::validate_chunk_header_proof(
+    //     &prev_chunk_header,
+    //     prev_block_header.chunk_headers_root(),
+    //     &chunk_state.prev_merkle_proof,
+    // ) {
+    //     return Err(ErrorKind::MaliciousChallenge.into());
+    // }
+    //
+    // // Validate current chunk and block header.
+    // validate_header_authorship(runtime_adapter, &block_header)?;
+    // let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_state.chunk_header)?;
+    // if !Block::validate_chunk_header_proof(
+    //     &chunk_state.chunk_header,
+    //     block_header.chunk_headers_root(),
+    //     &chunk_state.merkle_proof,
+    // ) {
+    //     return Err(ErrorKind::MaliciousChallenge.into());
+    // }
 
     // Apply state transition and check that the result state and other data doesn't match.
-    let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
-    let result = runtime_adapter
-        .check_state_transition(
-            partial_storage,
-            prev_chunk_header.shard_id(),
-            &prev_chunk_header.prev_state_root(),
-            block_header.height(),
-            block_header.raw_timestamp(),
-            block_header.prev_hash(),
-            block_header.hash(),
-            chunk_state.prev_chunk.receipts(),
-            chunk_state.prev_chunk.transactions(),
-            ValidatorStakeIter::empty(),
-            prev_block_header.gas_price(),
-            prev_chunk_header.gas_limit(),
-            &ChallengesResult::default(),
-            *block_header.random_value(),
-            // TODO: set it properly when challenges are enabled
-            true,
-            false,
-        )
-        .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
-    let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
-    let proposals_match = result.validator_proposals.len()
-        == chunk_state.chunk_header.validator_proposals().len()
-        && result
-            .validator_proposals
-            .iter()
-            .zip(chunk_state.chunk_header.validator_proposals())
-            .all(|(x, y)| x == &y);
-    if result.new_root != chunk_state.chunk_header.prev_state_root()
-        || outcome_root != chunk_state.chunk_header.outcome_root()
-        || !proposals_match
-        || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
-    {
-        Ok((*block_header.hash(), vec![chunk_producer]))
-    } else {
-        // If all the data matches, this is actually valid chunk and challenge is malicious.
-        Err(ErrorKind::MaliciousChallenge.into())
-    }
+    // TODO (#6316): enable storage proof generation
+    // let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
+    // let result = runtime_adapter
+    //     .check_state_transition(
+    //         partial_storage,
+    //         prev_chunk_header.shard_id(),
+    //         &prev_chunk_header.prev_state_root(),
+    //         block_header.height(),
+    //         block_header.raw_timestamp(),
+    //         block_header.prev_hash(),
+    //         block_header.hash(),
+    //         chunk_state.prev_chunk.receipts(),
+    //         chunk_state.prev_chunk.transactions(),
+    //         ValidatorStakeIter::empty(),
+    //         prev_block_header.gas_price(),
+    //         prev_chunk_header.gas_limit(),
+    //         &ChallengesResult::default(),
+    //         *block_header.random_value(),
+    //         // TODO: set it properly when challenges are enabled
+    //         true,
+    //         false,
+    //     )
+    //     .map_err(|_| Error::from(ErrorKind::MaliciousChallenge))?;
+    // let outcome_root = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes).0;
+    // let proposals_match = result.validator_proposals.len()
+    //     == chunk_state.chunk_header.validator_proposals().len()
+    //     && result
+    //         .validator_proposals
+    //         .iter()
+    //         .zip(chunk_state.chunk_header.validator_proposals())
+    //         .all(|(x, y)| x == &y);
+    // if result.new_root != chunk_state.chunk_header.prev_state_root()
+    //     || outcome_root != chunk_state.chunk_header.outcome_root()
+    //     || !proposals_match
+    //     || result.total_gas_burnt != chunk_state.chunk_header.gas_used()
+    // {
+    //     Ok((*block_header.hash(), vec![chunk_producer]))
+    // } else {
+    //     // If all the data matches, this is actually valid chunk and challenge is malicious.
+    //     Err(ErrorKind::MaliciousChallenge.into())
+    // }
+    // Ok((*block_header.hash(), vec![chunk_producer]))
+
+    Err(Error::MaliciousChallenge.into())
 }
 
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
@@ -395,7 +396,7 @@ pub fn validate_challenge(
         challenge.hash.as_ref(),
         &challenge.signature,
     )? {
-        return Err(ErrorKind::InvalidChallenge.into());
+        return Err(Error::InvalidChallenge.into());
     }
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {

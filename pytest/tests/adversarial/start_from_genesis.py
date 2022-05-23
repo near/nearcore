@@ -16,7 +16,6 @@ doomslug = True
 if "doomslug_off" in sys.argv:
     doomslug = False  # turn off doomslug
 
-TIMEOUT = 300
 BLOCKS = 30
 
 # Low sync_check_period to sync from a new peer with greater height
@@ -43,7 +42,7 @@ started = time.time()
 
 time.sleep(2)
 logger.info(f'Waiting for {BLOCKS} blocks...')
-height, _ = utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
+height, _ = utils.wait_for_blocks(nodes[0], target=BLOCKS)
 logger.info(f'Got to {height} blocks, getting to fun stuff')
 
 status = nodes[0].get_status()

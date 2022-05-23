@@ -6,7 +6,7 @@ use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -14,7 +14,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -28,13 +28,13 @@ use near_vm_errors::{
     AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::VMContext;
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
-use near_vm_runner::precompile_contract;
+use near_vm_runner::{precompile_contract, VMResult};
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -49,7 +49,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> VMResult {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
         Ok(Some(code)) => code,
@@ -57,13 +57,12 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return (None, Some(VMError::FunctionCallError(error)));
+            return VMResult::nop_outcome(VMError::FunctionCallError(error));
         }
         Err(e) => {
-            return (
-                None,
-                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
-            );
+            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
+                ExternalError::StorageError(e),
+            )));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -99,7 +98,15 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    near_vm_runner::run(
+    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
+    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // charge only for trie nodes touched during function calls.
+    // TODO (#5920): Consider using RAII for switching the state back
+    let protocol_version = runtime_ext.protocol_version();
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    }
+    let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
@@ -109,7 +116,12 @@ pub(crate) fn execute_function_call(
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
-    )
+    );
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
+    result
 }
 
 pub(crate) fn action_function_call(
@@ -136,9 +148,6 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
-        &action_receipt.signer_id,
-        &action_receipt.signer_public_key,
-        action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
         &apply_state.prev_block_hash,
@@ -158,7 +167,8 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    );
+    )
+    .outcome_error();
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
             FunctionCallError::Nondeterministic(msg) => {
@@ -220,26 +230,44 @@ pub(crate) fn action_function_call(
         }
         None => true,
     };
-    if let Some(outcome) = outcome {
-        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
-        result.gas_burnt_for_function_call =
-            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
-        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
-        // `FunctionCall`s error.
-        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-        result.logs.extend(outcome.logs.into_iter());
-        result.profile.merge(&outcome.profile);
-        if execution_succeeded {
-            account.set_amount(outcome.balance);
-            account.set_storage_usage(outcome.storage_usage);
-            result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
-        }
-    } else {
-        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
+
+    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt_for_function_call =
+        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+    // `FunctionCall`s error.
+    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.logs.extend(outcome.logs);
+    result.profile.merge(&outcome.profile);
+    if execution_succeeded {
+        let new_receipts: Vec<_> = outcome
+            .action_receipts
+            .into_iter()
+            .map(|(receiver_id, receipt)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                }),
+            })
+            .collect();
+
+        account.set_amount(outcome.balance);
+        account.set_storage_usage(outcome.storage_usage);
+        result.result = Ok(outcome.return_data);
+        result.new_receipts.extend(new_receipts);
     }
+
     Ok(())
 }
 

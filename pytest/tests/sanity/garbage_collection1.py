@@ -68,4 +68,4 @@ nodes[2].start(boot_node=nodes[2])
 time.sleep(2)
 
 target = nodes[0].get_latest_block().height
-utils.wait_for_blocks(nodes[2], target=target, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[2], target=target)

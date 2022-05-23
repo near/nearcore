@@ -1,8 +1,10 @@
+use crate::receipt_manager::ReceiptMetadata;
 use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::Gas;
 use crate::{VMConfig, VMLogic};
+use near_primitives::transaction::{Action, FunctionCallAction};
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -102,81 +104,113 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
-fn function_call_weight_check(function_calls: impl IntoIterator<Item = (u64, u64)>) {
-    use near_primitives::types::GasWeight;
+#[track_caller]
+fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
+    match receipt.actions[0] {
+        Action::FunctionCall(FunctionCallAction { gas, .. }) => {
+            assert_eq!(expcted_gas, gas);
+        }
+        _ => {
+            panic!("expected function call action");
+        }
+    }
+}
 
-    let gas_limit = 10u64.pow(14);
+#[track_caller]
+fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+    let gas_limit = 10_000_000_000;
 
-    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic_builder = VMLogicBuilder::free().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
-    for (static_gas, gas_weight) in function_calls {
+    let mut ratios = vec![];
+
+    // Schedule all function calls
+    for &(static_gas, gas_weight, _) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_weight(
-            &mut logic,
-            index,
-            0,
-            static_gas,
-            GasWeight(gas_weight),
-        )
-        .expect("batch action function call should succeed");
+        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
+            .expect("batch action function call should succeed");
+        ratios.push((index, gas_weight));
     }
+
+    // Test static gas assigned before
+    let receipts = logic.receipt_manager().action_receipts.iter().map(|(_, rec)| rec);
+    for (receipt, &(static_gas, _, _)) in receipts.zip(function_calls) {
+        assert_with_gas(receipt, static_gas);
+    }
+
     let outcome = logic.compute_outcome_and_distribute_gas();
+
+    // Test gas is distributed after outcome calculated.
+    let receipts = outcome.action_receipts.iter().map(|(_, rec)| rec);
+
+    // Assert lengths are equal for zip
+    assert_eq!(receipts.len(), function_calls.len());
+
+    // Assert sufficient amount was given to
+    for (receipt, &(_, _, expected)) in receipts.zip(function_calls) {
+        assert_with_gas(receipt, expected);
+    }
 
     // Verify that all gas was consumed (assumes at least one ratio is provided)
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
-fn function_call_weight_single_smoke_test() {
+fn function_call_weight_basic_cases_test() {
+    // Following tests input are in the format (static gas, gas weight, expected gas)
+    // and the gas limit is `10_000_000_000`
+
     // Single function call
-    function_call_weight_check([(0, 1)]);
+    function_call_weight_check(&[(0, 1, 10_000_000_000)]);
 
     // Single function with static gas
-    function_call_weight_check([(888, 1)]);
+    function_call_weight_check(&[(888, 1, 10_000_000_000)]);
 
     // Large weight
-    function_call_weight_check([(0, 88888)]);
+    function_call_weight_check(&[(0, 88888, 10_000_000_000)]);
 
     // Weight larger than gas limit
-    function_call_weight_check([(0, 11u64.pow(14))]);
+    function_call_weight_check(&[(0, 11u64.pow(14), 10_000_000_000)]);
 
     // Split two
-    function_call_weight_check([(0, 3), (0, 2)]);
+    function_call_weight_check(&[(0, 3, 6_000_000_000), (0, 2, 4_000_000_000)]);
 
     // Split two with static gas
-    function_call_weight_check([(1_000_000, 3), (3_000_000, 2)]);
+    function_call_weight_check(&[(1_000_000, 3, 5_998_600_000), (3_000_000, 2, 4_001_400_000)]);
 
     // Many different gas weights
-    function_call_weight_check([
-        (1_000_000, 3),
-        (3_000_000, 2),
-        (0, 1),
-        (1_000_000_000, 0),
-        (0, 4),
+    function_call_weight_check(&[
+        (1_000_000, 3, 2_699_800_000),
+        (3_000_000, 2, 1_802_200_000),
+        (0, 1, 899_600_000),
+        (1_000_000_000, 0, 1_000_000_000),
+        (0, 4, 3_598_400_000),
     ]);
 
     // Weight over u64 bounds
-    function_call_weight_check([(0, u64::MAX), (0, 1000)]);
+    function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
+
+    // Weight over gas limit with three function calls
+    function_call_weight_check(&[
+        (0, 10_000_000_000, 4_999_999_999),
+        (0, 1, 0),
+        (0, 10_000_000_000, 5_000_000_001),
+    ]);
 
     // Weights with one zero and one non-zero
-    function_call_weight_check([(0, 0), (0, 1)])
+    function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
 }
 
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[test]
 fn function_call_no_weight_refund() {
-    use near_primitives::types::GasWeight;
-
     let gas_limit = 10u64.pow(14);
 
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, GasWeight(0))
+    promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
         .expect("batch action function call should succeed");
 
     let outcome = logic.compute_outcome_and_distribute_gas();

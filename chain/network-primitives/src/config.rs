@@ -2,9 +2,7 @@ use crate::network_protocol::PeerInfo;
 use crate::types::ROUTED_MESSAGE_TTL;
 use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_primitives::types::AccountId;
-use std::collections::{HashMap, HashSet};
-use std::net::{AddrParseError, IpAddr, SocketAddr};
-use std::str::FromStr;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// Configuration for the peer-to-peer manager.
@@ -15,6 +13,7 @@ pub struct NetworkConfig {
     pub account_id: Option<AccountId>,
     pub addr: Option<SocketAddr>,
     pub boot_nodes: Vec<PeerInfo>,
+    pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: Duration,
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
@@ -58,7 +57,7 @@ pub struct NetworkConfig {
     pub push_info_period: Duration,
     /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: HashMap<IpAddr, BlockedPorts>,
+    pub blacklist: Vec<String>,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -79,6 +78,7 @@ impl NetworkConfig {
             account_id: Some(seed.parse().unwrap()),
             addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
             boot_nodes: vec![],
+            whitelist_nodes: vec![],
             handshake_timeout: Duration::from_secs(60),
             reconnect_delay: Duration::from_secs(60),
             bootstrap_peers_period: Duration::from_millis(100),
@@ -98,7 +98,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
-            blacklist: HashMap::new(),
+            blacklist: vec![],
             outbound_disabled: false,
             archive: false,
         }
@@ -139,70 +139,6 @@ impl NetworkConfig {
             );
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockedPorts {
-    All,
-    Some(HashSet<u16>),
-}
-
-/// converts list of addresses represented by strings to <IpAddr, BlockedPorts> HashMap
-///
-/// Arguments:
-/// - `blacklist`- list of strings in following formats:
-///    - "IP" - for example 127.0.0.1 - if only IP is provided we will block all ports
-///    - "IP:PORT - for example 127.0.0.1:2134
-pub fn blacklist_from_iter<T>(blacklist: T) -> HashMap<IpAddr, BlockedPorts>
-where
-    T: IntoIterator<Item = String>,
-{
-    let mut blacklist_map = HashMap::new();
-    for addr in blacklist {
-        if let Ok(res) = addr.parse::<PatternAddr>() {
-            match res {
-                PatternAddr::Ip(addr) => {
-                    blacklist_map
-                        .entry(addr)
-                        .and_modify(|blocked_ports| *blocked_ports = BlockedPorts::All)
-                        .or_insert(BlockedPorts::All);
-                }
-                PatternAddr::IpPort(addr) => {
-                    blacklist_map
-                        .entry(addr.ip())
-                        .and_modify(|blocked_ports| {
-                            if let BlockedPorts::Some(ports) = blocked_ports {
-                                ports.insert(addr.port());
-                            }
-                        })
-                        .or_insert_with(|| {
-                            BlockedPorts::Some(HashSet::from_iter(vec![addr.port()]))
-                        });
-                }
-            }
-        }
-    }
-
-    blacklist_map
-}
-
-/// Used to match a socket addr by IP:Port or only by IP
-#[derive(Clone, Debug)]
-pub enum PatternAddr {
-    Ip(IpAddr),
-    IpPort(SocketAddr),
-}
-
-impl FromStr for PatternAddr {
-    type Err = AddrParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(pattern) = s.parse::<IpAddr>() {
-            return Ok(PatternAddr::Ip(pattern));
-        }
-
-        s.parse::<SocketAddr>().map(PatternAddr::IpPort)
     }
 }
 

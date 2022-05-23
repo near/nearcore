@@ -184,9 +184,6 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             contract_id,
-            originator_id,
-            &public_key,
-            0,
             &empty_hash,
             &view_state.epoch_id,
             &view_state.prev_block_hash,
@@ -240,21 +237,19 @@ impl TrieViewer {
             config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
-        );
+        )
+        .outcome_error();
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
 
         if let Some(err) = err {
-            if let Some(outcome) = outcome {
-                logs.extend(outcome.logs);
-            }
+            logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
-            let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
             logs.extend(outcome.logs);
             let result = match outcome.return_data {

@@ -4,14 +4,14 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
 ansi_term = "0.12"
 anyhow = "1"
 borsh = "0.9"
-clap = "=3.0.0-beta.2"
+clap = { version = "3.1.6", features = ["derive"] }
 once_cell = "1.5.2"
 rand = "0.7"
 rayon = "1.5"
@@ -45,5 +45,8 @@ sandbox = [
   "near-network/sandbox",
   "near-client/sandbox",
 ]
-nightly_protocol_features = ["nearcore/nightly_protocol_features"]
+nightly = [
+    "nightly_protocol",
+    "nearcore/nightly"
+]
 nightly_protocol = ["nearcore/nightly_protocol"]

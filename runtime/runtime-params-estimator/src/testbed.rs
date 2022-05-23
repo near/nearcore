@@ -6,7 +6,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
+use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
@@ -52,7 +52,6 @@ impl RuntimeTestbed {
             max_number_input_data_dependencies: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
-            max_number_bytes_method_names: u64::MAX,
 
             ..VMLimitConfig::test()
         };
@@ -112,7 +111,7 @@ impl RuntimeTestbed {
             .unwrap();
 
         let (store_update, root) =
-            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
@@ -131,10 +130,14 @@ impl RuntimeTestbed {
         total_burnt_gas
     }
 
-    pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) {
+    /// Returns the number of blocks required to reach quiescence
+    pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
+        let mut n = 0;
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
+            n += 1;
         }
+        n
     }
 
     /// Flushes RocksDB memtable
@@ -142,5 +145,9 @@ impl RuntimeTestbed {
         let store = self.tries.get_store();
         let rocksdb = store.get_rocksdb().unwrap();
         rocksdb.flush().unwrap();
+    }
+
+    pub fn store(&mut self) -> Store {
+        self.tries.get_store()
     }
 }

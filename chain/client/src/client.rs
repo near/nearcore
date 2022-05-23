@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -15,10 +15,10 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
     Provenance, RuntimeAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{
     FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
@@ -29,24 +29,27 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
     ShardChunkHeader, ShardInfo,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::{to_timestamp, MaybeValidated};
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
-use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
+use itertools::Itertools;
+use near_chain::chain::ChainAccess;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
 };
+use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -60,12 +63,19 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
 // TODO #3488 set 60_000
 pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
+/// number of blocks at the epoch start for which we will log more detailed info
+pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
+
 pub struct Client {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
+
+    /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
+    #[cfg(feature = "sandbox")]
+    pub(crate) accrued_fastforward_delta: near_primitives::types::BlockHeightDelta,
 
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
@@ -101,8 +111,32 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
-    /// Keeps track of when the latest blocks and chunks were received.
-    chunks_delay_tracker: ChunksDelayTracker,
+}
+
+// Debug information about the upcoming block.
+#[derive(Default)]
+pub struct UpcomingBlockDebugStatus {
+    // How long is this block 'in progress' (time since we first saw it).
+    pub in_progress_for: Option<Duration>,
+    // How long is this block in orphan pool.
+    pub in_orphan_for: Option<Duration>,
+    // Epoch id for the block.
+    pub epoch_id: EpochId,
+    // List of chunk hashes that belong to this block.
+    pub chunk_hashes: Vec<ChunkHash>,
+
+    // Chunk statuses are below:
+    // We first sent the request to fetch the chunk
+    // Later we get the response from the peer and we try to reconstruct it.
+    // If reconstructions suceeds, the chunk will be marked as complete.
+    // If it fails (or fragments are missing) - we're going to re-request the chunk again.
+
+    // Chunks that we reqeusted (sent the request to peers).
+    pub chunks_requested: HashSet<ChunkHash>,
+    // Chunks for which we've received the response.
+    pub chunks_received: HashSet<ChunkHash>,
+    // Chunks completed - fully rebuild and present in database.
+    pub chunks_completed: HashSet<ChunkHash>,
 }
 
 impl Client {
@@ -120,7 +154,12 @@ impl Client {
         } else {
             DoomslugThresholdMode::NoApprovals
         };
-        let chain = Chain::new(runtime_adapter.clone(), &chain_genesis, doomslug_threshold_mode)?;
+        let chain = Chain::new(
+            runtime_adapter.clone(),
+            &chain_genesis,
+            doomslug_threshold_mode,
+            !config.archive,
+        )?;
         let shards_mgr = ShardsManager::new(
             validator_signer.as_ref().map(|x| x.validator_id().clone()),
             runtime_adapter.clone(),
@@ -172,6 +211,8 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
+            #[cfg(feature = "sandbox")]
+            accrued_fastforward_delta: 0,
             config,
             sync_status,
             chain,
@@ -190,7 +231,6 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
-            chunks_delay_tracker: Default::default(),
         })
     }
 
@@ -445,6 +485,11 @@ impl Client {
             prev_next_bp_hash
         };
 
+        #[cfg(feature = "sandbox")]
+        let timestamp_override = Some(Clock::utc() + self.sandbox_delta_time());
+        #[cfg(not(feature = "sandbox"))]
+        let timestamp_override = None;
+
         // Get block extra from previous block.
         let mut block_merkle_tree =
             self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
@@ -514,12 +559,13 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
+            timestamp_override,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
-            seen: to_timestamp(Clock::utc()),
+            seen: block.header().raw_timestamp(),
         })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
@@ -701,7 +747,6 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
-        self.record_receive_block_timestamp(block.header().height());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -751,27 +796,26 @@ impl Client {
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
-            match &result {
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+            if let Err(e) = &result {
+                match e {
+                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
-                    near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
+                    near_chain::Error::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         }
 
@@ -823,8 +867,8 @@ impl Client {
                 return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
             }
             Err(near_chunks::Error::ChainError(chain_error)) => {
-                match chain_error.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
+                match chain_error {
+                    near_chain::Error::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, however the signature is checked when
                         // forwarded parts are later processed as partial encoded chunks, so we
@@ -903,7 +947,9 @@ impl Client {
             | ProcessPartialEncodedChunkResult::NeedBlock
             | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.record_receive_chunk_timestamp(header.height_created(), header.shard_id());
+                self.chain
+                    .blocks_delay_tracker
+                    .mark_chunk_received(&header.chunk_hash(), Clock::instant());
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 self.process_blocks_with_missing_chunks()
             }
@@ -960,6 +1006,22 @@ impl Client {
         Ok(())
     }
 
+    /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_delta_time(&self) -> chrono::Duration {
+        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
+            + self.config.max_block_production_delay.as_nanos())
+            / 2;
+        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
+            &format!(
+                "Too high of a delta_height {} to convert into u64",
+                self.accrued_fastforward_delta
+            ),
+        );
+
+        chrono::Duration::nanoseconds(ns)
+    }
+
     pub fn send_approval(
         &mut self,
         parent_hash: &CryptoHash,
@@ -990,6 +1052,13 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "on_block_accepted",
+            ?block_hash,
+            ?status,
+            ?provenance)
+        .entered();
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
@@ -1043,16 +1112,23 @@ impl Client {
                 self.chain.get_block_header(last_final_block).map_or(0, |header| header.height())
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
-            if !self.config.archive {
-                let timer = metrics::GC_TIME.start_timer();
-                if let Err(err) = self
-                    .chain
-                    .clear_data(self.runtime_adapter.get_tries(), self.config.gc_blocks_limit)
-                {
-                    error!(target: "client", "Can't clear old data, {:?}", err);
-                    debug_assert!(false);
+
+            {
+                let _span = tracing::info_span!(
+                    target: "client",
+                    "garbage_collection",
+                    block_hash = ?block.hash(),
+                    height = block.header().height())
+                .entered();
+                let _gc_timer = metrics::GC_TIME.start_timer();
+
+                let result = if self.config.archive {
+                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
+                } else {
+                    let tries = self.runtime_adapter.get_tries();
+                    self.chain.clear_data(tries, &self.config.gc)
                 };
-                timer.observe_duration();
+                log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
@@ -1186,6 +1262,10 @@ impl Client {
                 skip_produce_chunk,
             );
         }
+
+        let chunk_hashes: Vec<ChunkHash> =
+            block.chunks().iter().map(|chunk| chunk.chunk_hash()).collect();
+        self.chain.blocks_delay_tracker.finish_block_processing(&block_hash, &chunk_hashes);
     }
 
     pub fn request_missing_chunks(
@@ -1193,7 +1273,15 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
+        let now = Clock::instant();
+        for BlockMissingChunks { prev_hash, missing_chunks, block_hash } in blocks_missing_chunks {
+            for chunk in &missing_chunks {
+                self.chain.blocks_delay_tracker.mark_chunk_requested(
+                    &chunk.chunk_hash(),
+                    now,
+                    &block_hash,
+                );
+            }
             self.shards_mgr.request_chunks(
                 missing_chunks,
                 prev_hash,
@@ -1204,9 +1292,16 @@ impl Client {
             );
         }
 
-        for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in
+        for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash, requestor_block_hash } in
             orphans_missing_chunks
         {
+            for chunk in &missing_chunks {
+                self.chain.blocks_delay_tracker.mark_chunk_requested(
+                    &chunk.chunk_hash(),
+                    now,
+                    &requestor_block_hash,
+                );
+            }
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
                 &epoch_id,
@@ -1276,7 +1371,7 @@ impl Client {
                     Err(_) => false,
                 }
             };
-        if let ErrorKind::DBNotFoundErr(_) = error.kind() {
+        if let near_chain::Error::DBNotFoundErr(_) = error {
             if check_validator {
                 let head = unwrap_or_return!(self.chain.head());
                 if !is_validator(
@@ -1352,7 +1447,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(e) if e.kind() == ErrorKind::NotAValidator => {
+                Err(near_chain::Error::NotAValidator) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,
@@ -1439,7 +1534,7 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            debug!(target: "client",
+            trace!(target: "client",
                    "I'm {:?}, routing a transaction {:?} to {}, shard_id = {}",
                    self.validator_signer.as_ref().map(|bp| bp.validator_id()),
                    tx,
@@ -1549,9 +1644,7 @@ impl Client {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(
-                            ErrorKind::Other("Node has not caught up yet".to_string()).into()
-                        );
+                        return Err(Error::Other("Node has not caught up yet".to_string()).into());
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
                         return Ok(NetworkClientResponses::RequestRouted);
@@ -1570,15 +1663,11 @@ impl Client {
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
+                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
+                // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
-                debug!(
-                    target: "client",
-                    "Recording a transaction. I'm {:?}, {} is_forwarded: {}",
-                    me,
-                    shard_id,
-                    is_forwarded
-                );
                 self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                trace!(target: "client", shard_id, "Recorded a transaction.");
 
                 // Active validator:
                 //   possibly forward to next epoch validators
@@ -1586,14 +1675,21 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
+                    trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
+                    metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
+
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(NetworkClientResponses::ValidTx)
                 } else if !is_forwarded {
+                    trace!(target: "client", shard_id, "Forwarding a transaction.");
+                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(NetworkClientResponses::RequestRouted)
                 } else {
+                    trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
+                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(NetworkClientResponses::NoResponse)
                 }
             }
@@ -1783,19 +1879,189 @@ impl Client {
         Ok(())
     }
 
-    fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
-        if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Instant::now());
+    // Helper function to prepare the debug info about detailed upcoming blocks.
+    fn detailed_upcoming_blocks_info(
+        &self,
+    ) -> Result<HashMap<BlockHeight, HashMap<CryptoHash, UpcomingBlockDebugStatus>>, Error> {
+        let now = Instant::now();
+        let mut height_status_map: HashMap<
+            BlockHeight,
+            HashMap<CryptoHash, UpcomingBlockDebugStatus>,
+        > = HashMap::new();
+
+        // First - look at all the 'in progress' blocks.
+        for entry in self.chain.blocks_delay_tracker.blocks_in_progress.iter() {
+            if entry.1.height < self.chain.head()?.height {
+                // In case chunks delay tracker 'leaked' some old blocks - we don't want them to show up.
+                continue;
+            }
+            let height_status = height_status_map.entry(entry.1.height).or_default();
+            let mut block_status = height_status.entry(*entry.0).or_default();
+            block_status.in_progress_for = now.checked_duration_since(entry.1.received_timestamp);
+            block_status.chunk_hashes = entry.1.chunks.clone();
         }
+
+        // And in-progress chunks.
+        // Here we can see which ones we sent requests for and which responses already came back.
+        for entry in self.chain.blocks_delay_tracker.chunks_in_progress.iter() {
+            for height_entry in height_status_map.iter_mut() {
+                if height_entry.1.contains_key(&entry.1.block_hash) {
+                    let block_status_entry = height_entry.1.get_mut(&entry.1.block_hash).unwrap();
+                    block_status_entry.chunks_requested.insert(entry.0.clone());
+                    if entry.1.chunk_received.is_some() {
+                        block_status_entry.chunks_received.insert(entry.0.clone());
+                    }
+                }
+            }
+        }
+
+        // Look also on the orphans queue - some of the blocks here might already be processed,
+        // but others will be just waiting for their turn.
+        self.chain.orphans().map(&mut |chunk_hash, block, added| {
+            let h = block.header().height();
+            let height_status = height_status_map.entry(h).or_default();
+            let mut block_status = height_status.entry(*chunk_hash).or_default();
+            block_status.in_orphan_for = now.checked_duration_since(*added);
+            block_status.chunk_hashes =
+                block.chunks().iter().map(|it| it.chunk_hash()).collect_vec();
+        });
+
+        // Fetch the status of the chunks.
+        for height_entry in height_status_map.iter_mut() {
+            for block_entry in height_entry.1.iter_mut() {
+                for chunk_hash in block_entry.1.chunk_hashes.iter() {
+                    if let Ok(true) = self.chain.chain_store().chunk_exists(&chunk_hash) {
+                        block_entry.1.chunks_completed.insert(chunk_hash.clone());
+                    }
+                }
+            }
+        }
+        Ok(height_status_map)
     }
-    fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
-        if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_chunk_timestamp(
-                height,
-                shard_id,
-                tip.height,
-                Instant::now(),
-            );
+
+    // Returns detailed information about the upcoming blocks in the form of printables.
+    pub fn detailed_upcoming_blocks_info_as_printable(&self) -> Result<String, Error> {
+        let height_status_map = self.detailed_upcoming_blocks_info()?;
+        let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
+        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
+            None => ansi_term::Style::default().paint(""),
+            Some(text) if use_colour => colour.bold().paint(text),
+            Some(text) => ansi_term::Style::default().paint(text),
+        };
+
+        // Returns a status line for each block - also prints what is happening to its chunks.
+        let next_blocks_log = height_status_map
+            .keys()
+            .sorted()
+            .map(|height| {
+                let val = height_status_map.get(height).unwrap();
+
+                let block_debug = val
+                    .iter()
+                    .map(|entry| {
+                        let block_info = entry.1;
+                        let chunk_status = block_info
+                            .chunk_hashes
+                            .iter()
+                            .map(|it| {
+                                if block_info.chunks_completed.contains(it) {
+                                    "✔"
+                                } else if block_info.chunks_received.contains(it) {
+                                    "⬇"
+                                } else if block_info.chunks_requested.contains(it) {
+                                    "⬆"
+                                } else {
+                                    "."
+                                }
+                            })
+                            .collect::<Vec<&str>>();
+
+                        let chunk_status_color =
+                            if block_info.chunks_completed.len() == block_info.chunk_hashes.len() {
+                                paint(ansi_term::Colour::Green, Some(chunk_status.join("")))
+                            } else {
+                                paint(ansi_term::Colour::White, Some(chunk_status.join("")))
+                            };
+
+                        let in_progress_str = match block_info.in_progress_for {
+                            Some(duration) => format!("in progress for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        let in_orphan_str = match block_info.in_orphan_for {
+                            Some(duration) => format!("orphan for {:?}", duration),
+                            None => "".to_string(),
+                        };
+
+                        format!(
+                            "{} {} {} Chunks:({}))",
+                            entry.0, in_progress_str, in_orphan_str, chunk_status_color,
+                        )
+                    })
+                    .collect::<Vec<String>>();
+
+                format!("{} {}", height, block_debug.join("\n"))
+            })
+            .collect::<Vec<String>>();
+
+        Ok(format!(
+            "{:?} Blocks in progress: {} Chunks in progress: {} Orphans: {}{}{}",
+            self.chain.head()?.epoch_id,
+            self.chain.blocks_delay_tracker.blocks_in_progress.len(),
+            self.chain.blocks_delay_tracker.chunks_in_progress.len(),
+            self.chain.orphans().len(),
+            if next_blocks_log.len() > 0 { "\n" } else { "" },
+            next_blocks_log.join("\n")
+        ))
+    }
+
+    pub fn detailed_upcoming_blocks_info_as_web(&self) -> ChunkInfoView {
+        let height_status_map = self.detailed_upcoming_blocks_info().unwrap_or_default();
+        let next_blocks_by_chunks = height_status_map
+            .keys()
+            .sorted()
+            .map(|height| {
+                let val = height_status_map.get(height).unwrap();
+                val.iter()
+                    .map(|(block_hash, block_info)| {
+                        let chunk_status = block_info
+                            .chunk_hashes
+                            .iter()
+                            .map(|it| {
+                                if block_info.chunks_completed.contains(it) {
+                                    "(OK)"
+                                } else if block_info.chunks_received.contains(it) {
+                                    "(\\/)"
+                                } else if block_info.chunks_requested.contains(it) {
+                                    "(/\\)"
+                                } else {
+                                    "(..)"
+                                }
+                            })
+                            .collect::<Vec<&str>>();
+                        let in_progress_str = match block_info.in_progress_for {
+                            Some(duration) => format!("in progress for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        let in_orphan_str = match block_info.in_orphan_for {
+                            Some(duration) => format!("orphan for {:?}", duration),
+                            None => "".to_string(),
+                        };
+                        BlockByChunksView {
+                            height: height.clone(),
+                            hash: block_hash.clone(),
+                            block_status: format!("{} {}", in_progress_str, in_orphan_str),
+                            chunk_status: chunk_status.join(""),
+                        }
+                    })
+                    .collect::<Vec<BlockByChunksView>>()
+            })
+            .flatten()
+            .collect::<Vec<BlockByChunksView>>();
+        ChunkInfoView {
+            num_of_blocks_in_progress: self.chain.blocks_delay_tracker.blocks_in_progress.len(),
+            num_of_chunks_in_progress: self.chain.blocks_delay_tracker.chunks_in_progress.len(),
+            num_of_orphans: self.chain.orphans().len(),
+            next_blocks_by_chunks,
         }
     }
 }

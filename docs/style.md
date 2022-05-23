@@ -84,7 +84,7 @@ imports and rely on `rustfmt` to sort them.
 use crate::types::KnownPeerState;
 use borsh::BorshSerialize;
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::Peers, Store};
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -97,7 +97,7 @@ use borsh::BorshSerialize;
 use rand::seq::SliceRandom;
 
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::Peers, Store};
 
 use crate::types::KnownPeerState;
 ```
@@ -114,8 +114,9 @@ columns.
 ```markdown
 <!-- GOOD -->
 Manually reflowing paragraphs is tedious. Luckily, most editors have this
-functionality built in or available via extensions. For example, in Emacs you can
-use `fill-paragraph` (<kbd>M-q</kbd>), and VS Code has `stkb.rewrap` extension.
+functionality built in or available via extensions. For example, in Emacs you
+can use `fill-paragraph` (<kbd>M-q</kbd>), (neo)vim allows rewrapping with `gq`,
+and VS Code has `stkb.rewrap` extension.
 
 <!-- BAD -->
 One sentence per-line is also occasionally used for technical writing.
@@ -125,3 +126,96 @@ While convenient for editing, it may be poorly legible in unrendered form
 <!-- BAD -->
 Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
 ```
+
+## [Tracing](https://tracing.rs)
+
+When emitting events and spans with `tracing` prefer adding variable data via
+[`tracing`'s field mechanism][fields].
+
+[fields]: https://docs.rs/tracing/latest/tracing/#recording-fields
+
+```rust
+// GOOD
+debug!(
+    target: "client",
+    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+        tracing::field::display(vs.validator_id())
+    }),
+    %hash,
+    "block.previous_hash" = %block.header().prev_hash(),
+    "block.height" = block.header().height(),
+    %peer_id,
+    was_requested
+    "Received block",
+);
+```
+
+Most apparent violation of this rule will be when the event message utilizes any
+form of formatting, as seen in the following example:
+
+```rust
+// BAD
+debug!(
+    target: "client",
+    "{:?} Received block {} <- {} at {} from {}, requested: {}",
+    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    hash,
+    block.header().prev_hash(),
+    block.header().height(),
+    peer_id,
+    was_requested
+);
+```
+
+Always specify the `target` explicitly. A good default value to use is the crate
+name, or the module path (e.g. `chain::client`) so that events and spans common
+to a topic can be grouped together. This grouping can later be used for
+customizing of which events to output.
+
+**Rationale:** This makes the events structured – one of the major value
+propositions of the tracing ecosystem. Structured events allow for immediately
+actionable data without additional post-processing, especially when using some
+of the more advanced tracing subscribers. Of particular interest would be those
+that output events as JSON, or those that publish data to distributed event
+collection systems such as opentelemetry. Maintaining this rule will also
+usually result in faster execution (when logs at the relevant level are enabled.)
+
+### Spans
+
+Use the [spans][spans] to introduce context and grouping to and between events
+instead of manually adding such information as part of the events themselves.
+Most of the subscribers ingesting spans also provide a built-in timing facility,
+so prefer using spans for measuring the amount of time a section of code needs
+to execute.
+
+Give spans simple names that make them both easy to trace back to code, and to
+find a particular span in logs or other tools ingesting the span data. If a
+span begins at the top of a function, prefer giving it a name of that function,
+otherwise prefer a `snake_case` name.
+
+Use the regular span API over convenience macros such as `#[instrument]`, as
+this allows instrumenting portions of a function without affecting the code
+structure:
+
+```rust
+fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
+    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
+    // ...
+    // _span will be dropped when this scope ends, terminating the span created above.
+    // You can also `drop` it manually, to end the span early with `drop(_span)`.
+}
+```
+
+[spans]: https://docs.rs/tracing/latest/tracing/#spans
+
+**Rationale:** Much as with events, this makes the information provided by spans
+structured and contextual. This information can then be output to tooling in an
+industry standard format, and can be interpreted by an extensive ecosystem of
+`tracing` subscribers.
+
+### Event and span levels
+
+The `INFO` level is enabled by default, use it for information useful for node
+operators. The `DEBUG` level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The `TRACE` level is not
+generally enabled, use it for arbitrary debug output.

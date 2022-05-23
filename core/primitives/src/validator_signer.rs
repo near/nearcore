@@ -145,9 +145,9 @@ impl InMemoryValidatorSigner {
         self.signer.public_key()
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        let signer = InMemorySigner::from_file(path);
-        Self { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
+    pub fn from_file(path: &Path) -> std::io::Result<Self> {
+        let signer = InMemorySigner::from_file(path)?;
+        Ok(Self { account_id: signer.account_id.clone(), signer: Arc::new(signer) })
     }
 }
 

@@ -8,6 +8,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -26,15 +27,15 @@ impl Trie {
     /// StorageError if the storage is corrupted
     pub fn get_trie_items_for_part(
         &self,
-        part_id: u64,
-        num_parts: u64,
+        part_id: PartId,
         state_root: &StateRoot,
     ) -> Result<Vec<TrieItem>, StorageError> {
-        assert!(part_id < num_parts);
         assert!(self.storage.as_caching_storage().is_some());
 
-        let path_begin = self.find_path_for_part_boundary(state_root, part_id, num_parts)?;
-        let path_end = self.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
+        let path_begin =
+            self.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
+        let path_end =
+            self.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
         self.iter(state_root)?.get_trie_items(&path_begin, &path_end)
     }
 }
@@ -46,11 +47,11 @@ impl ShardTries {
     /// This function is used for applying updates to split states when processing blocks
     /// `add_values_to_split_states` are used to generate the initial states for shards split
     /// from the original parent shard.
-    pub fn apply_state_changes_to_split_states<'a>(
+    pub fn apply_state_changes_to_split_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         changes: StateChangesForSplitStates,
-        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<HashMap<ShardUId, TrieChanges>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         let mut insert_receipts = Vec::new();
@@ -118,11 +119,11 @@ impl ShardTries {
     /// that `key_to_shard_id` that may return
     /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
     /// Returns `store_update` and the new state_roots for split states
-    pub fn add_values_to_split_states<'a>(
+    pub fn add_values_to_split_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         self.add_values_to_split_states_impl(state_roots, values, &|raw_key| {
             // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
@@ -141,11 +142,11 @@ impl ShardTries {
         })
     }
 
-    fn add_values_to_split_states_impl<'a>(
+    fn add_values_to_split_states_impl(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        key_to_shard_id: &(dyn Fn(&[u8]) -> Result<Option<ShardUId>, StorageError> + 'a),
+        key_to_shard_id: &dyn Fn(&[u8]) -> Result<Option<ShardUId>, StorageError>,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut changes_by_shard: HashMap<_, Vec<_>> = HashMap::new();
         for (raw_key, value) in values.into_iter() {
@@ -159,7 +160,7 @@ impl ShardTries {
             let trie = self.get_trie_for_shard(shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that
             let trie_changes = trie.update(&state_roots[&shard_uid], changes.into_iter())?;
-            let (update, state_root) = self.apply_all(&trie_changes, shard_uid)?;
+            let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             store_update.merge(update);
         }
@@ -178,11 +179,11 @@ impl ShardTries {
             .collect()
     }
 
-    pub fn apply_delayed_receipts_to_split_states<'a>(
+    pub fn apply_delayed_receipts_to_split_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
-        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_split_states_impl(
@@ -202,7 +203,7 @@ impl ShardTries {
         let mut merged_store_update = StoreUpdate::new_with_tries(self.clone());
         for (shard_uid, update) in updates {
             let (trie_changes, _) = update.finalize()?;
-            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid)?;
+            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             merged_store_update.merge(store_update);
         }
@@ -210,11 +211,11 @@ impl ShardTries {
     }
 }
 
-fn apply_delayed_receipts_to_split_states_impl<'a>(
+fn apply_delayed_receipts_to_split_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_receipts: &[Receipt],
     delete_receipts: &[Receipt],
-    account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+    account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
     let mut delayed_receipts_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
@@ -339,6 +340,7 @@ mod tests {
     use near_primitives::borsh::BorshSerialize;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+    use near_primitives::state_part::PartId;
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{
@@ -379,11 +381,11 @@ mod tests {
             .collect()
     }
 
-    fn compare_state_and_split_states<'a>(
+    fn compare_state_and_split_states(
         tries: &ShardTries,
         state_root: &StateRoot,
         state_roots: &HashMap<ShardUId, StateRoot>,
-        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) {
         // check that the 4 tries combined to the orig trie
         let trie_items =
@@ -440,12 +442,14 @@ mod tests {
         expected_trie_items.sort();
 
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-        let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
+        let total_trie_items =
+            trie.get_trie_items_for_part(PartId::new(0, 1), &state_root).unwrap();
         assert_eq!(expected_trie_items, total_trie_items);
 
         let mut combined_trie_items = vec![];
         for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, &state_root).unwrap();
+            let trie_items =
+                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), &state_root).unwrap();
             combined_trie_items.extend_from_slice(&trie_items);
             // check that items are split relatively evenly across all parts
             assert!(
@@ -529,7 +533,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
 
             assert_eq!(
@@ -561,13 +565,13 @@ mod tests {
         }
     }
 
-    fn test_apply_delayed_receipts<'a>(
+    fn test_apply_delayed_receipts(
         tries: &ShardTries,
         new_receipts: &[Receipt],
         delete_receipts: &[Receipt],
         expected_all_receipts: &[Receipt],
         state_roots: HashMap<ShardUId, StateRoot>,
-        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> HashMap<ShardUId, StateRoot> {
         let mut trie_updates: HashMap<_, _> = tries.get_trie_updates(&state_roots);
         apply_delayed_receipts_to_split_states_impl(
@@ -665,7 +669,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
             let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
             state_root
         };
@@ -680,7 +684,7 @@ mod tests {
         let mut split_state_roots = {
             let trie_items = tries
                 .get_view_trie_for_shard(ShardUId::single_shard())
-                .get_trie_items_for_part(0, 1, &state_root)
+                .get_trie_items_for_part(PartId::new(0, 1), &state_root)
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|shard_id| {
@@ -768,7 +772,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, state_changes) = trie_update.finalize().unwrap();
             let (store_update, new_state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+                tries.apply_all(&trie_changes, ShardUId::single_shard());
             store_update.commit().unwrap();
             state_root = new_state_root;
 
@@ -786,8 +790,7 @@ mod tests {
             split_state_roots = trie_changes
                 .iter()
                 .map(|(shard_uid, trie_changes)| {
-                    let (state_update, state_root) =
-                        tries.apply_all(trie_changes, *shard_uid).unwrap();
+                    let (state_update, state_root) = tries.apply_all(trie_changes, *shard_uid);
                     state_update.commit().unwrap();
                     (*shard_uid, state_root)
                 })

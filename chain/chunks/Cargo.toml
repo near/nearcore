@@ -4,11 +4,11 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 futures = "0.3"
 rand = "0.7"
 chrono = "0.4.6"
@@ -16,12 +16,15 @@ tracing = "0.1.13"
 borsh = "0.9"
 lru = "0.7.2"
 reed-solomon-erasure = "4"
+once_cell = "1.5.2"
+prometheus = "0.11"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-chunks-primitives = { path = "../chunks-primitives" }
 near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
+near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
 near-network-primitives = { path = "../network-primitives" }

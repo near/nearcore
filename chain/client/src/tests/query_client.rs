@@ -9,7 +9,7 @@ use crate::{
     TxStatus,
 };
 use near_actix_test_utils::run_actix;
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -89,6 +89,7 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
+                None,
             );
             next_block.mut_header().get_mut().inner_lite.timestamp =
                 to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
@@ -251,7 +252,7 @@ fn test_garbage_collection() {
     run_actix(async {
         let block_prod_time = 100;
         let epoch_length = 5;
-        let target_height = epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1);
+        let target_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1);
         let network_mock: Arc<
             RwLock<
                 Box<

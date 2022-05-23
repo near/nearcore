@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
@@ -28,6 +28,8 @@ reed-solomon-erasure = "4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 smart-default = "0.6"
+strum = "0.24"
+thiserror = "1.0.30"
 
 borsh = { version = "0.9", features = ["rc"] }
 
@@ -46,15 +48,13 @@ protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
-protocol_feature_function_call_weight = ["near-primitives-core/protocol_feature_function_call_weight"]
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_routing_exchange_algorithm",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_function_call_weight",
 ]
 nightly_protocol = []
 deepsize_feature = [
@@ -65,7 +65,9 @@ deepsize_feature = [
 ]
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 bencher = "0.1.5"
+insta = "1.14.0"
 
 [[bench]]
 name = "serialization"

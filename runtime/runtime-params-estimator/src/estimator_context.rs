@@ -1,6 +1,8 @@
+use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
+use near_store::{TrieCache, TrieCachingStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -65,9 +67,18 @@ impl<'c> Testbed<'c> {
         &mut self.transaction_builder
     }
 
+    /// Apply and measure provided blocks one-by-one.
+    /// Because some transactions can span multiple blocks, each input block
+    /// might trigger multiple blocks in execution. The returned results are
+    /// exactly one per input block, regardless of how many blocks needed to be
+    /// executed. To avoid surprises in how many blocks are actually executed,
+    /// `block_latency` must be specified and the function will panic if it is
+    /// wrong. A latency of 0 means everything is done within a single block.
+    #[track_caller]
     pub(crate) fn measure_blocks<'a>(
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
+        block_latency: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
         let allow_failures = false;
 
@@ -75,13 +86,15 @@ impl<'c> Testbed<'c> {
 
         for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
+            let extra_blocks;
             let gas_cost = {
                 self.clear_caches();
                 let start = GasCost::measure(self.config.metric);
                 self.inner.process_block(&block, allow_failures);
-                self.inner.process_blocks_until_no_receipts(allow_failures);
+                extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
+            assert_eq!(block_latency, extra_blocks);
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {
@@ -93,6 +106,24 @@ impl<'c> Testbed<'c> {
         }
 
         res
+    }
+
+    pub(crate) fn process_block<'a>(
+        &'a mut self,
+        block: Vec<SignedTransaction>,
+        block_latency: usize,
+    ) {
+        let allow_failures = false;
+        self.inner.process_block(&block, allow_failures);
+        let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
+        assert_eq!(block_latency, extra_blocks);
+    }
+
+    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+        let store = self.inner.store();
+        let caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        caching_storage
     }
 
     fn clear_caches(&mut self) {

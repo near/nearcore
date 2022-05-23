@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
@@ -27,7 +27,7 @@ protocol_feature_chunk_only_producers = [
     "near-chain/protocol_feature_chunk_only_producers",
     "near-primitives/protocol_feature_chunk_only_producers",
 ]
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_alt_bn128",

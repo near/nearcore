@@ -1,4 +1,4 @@
-use crate::{metrics, SyncStatus};
+use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::ShardSyncStatus;
@@ -12,8 +12,9 @@ use near_primitives::telemetry::{
 use near_primitives::time::{Clock, Instant};
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::Version;
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
+use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
@@ -59,6 +60,7 @@ impl InfoHelper {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
         set_open_files_limit(0);
+        metrics::export_version(&client_config.version);
         InfoHelper {
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
@@ -100,6 +102,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
+        statistics: Option<StoreStatistics>,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -125,8 +128,8 @@ impl InfoHelper {
             " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
             s(network_info.num_connected_peers),
-            pretty_bytes_per_sec(network_info.received_bytes_per_sec),
-            pretty_bytes_per_sec(network_info.sent_bytes_per_sec)
+            PrettyNumber::bytes_per_sec(network_info.received_bytes_per_sec),
+            PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
 
         let avg_bls = (self.num_blocks_processed as f64)
@@ -140,7 +143,7 @@ impl InfoHelper {
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         let blocks_info_log =
-            Some(format!(" {:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used)));
+            Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
 
         let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
             let proc = self
@@ -149,9 +152,9 @@ impl InfoHelper {
                 .expect("refresh_process succeeds, this should be not None");
             (proc.cpu_usage(), proc.memory())
         });
-        let machine_info_log = proc_info
-            .as_ref()
-            .map(|(cpu, mem)| format!(" CPU: {:.0}%, Mem: {}", cpu, pretty_bytes(mem * 1024)));
+        let machine_info_log = proc_info.as_ref().map(|(cpu, mem)| {
+            format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
+        });
 
         info!(
             target: "stats", "{}{}{}{}{}",
@@ -161,6 +164,9 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
+        if let Some(statistics) = statistics {
+            rocksdb_metrics::export_stats_as_metrics(statistics);
+        }
 
         let (cpu_usage, memory_usage) = proc_info.unwrap_or_default();
         let is_validator = validator_info.map(|v| v.is_validator).unwrap_or_default();
@@ -174,8 +180,6 @@ impl InfoHelper {
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
         (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
-        (metrics::NODE_PROTOCOL_VERSION.set(PROTOCOL_VERSION as i64));
-        (metrics::NODE_DB_VERSION.set(DB_VERSION as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
@@ -233,7 +237,7 @@ impl InfoHelper {
     }
 }
 
-fn display_sync_status(
+pub fn display_sync_status(
     sync_status: &SyncStatus,
     head: &Tip,
     genesis_height: BlockHeight,
@@ -253,10 +257,11 @@ fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading headers {:.2}% ({})",
+                "#{:>8} Downloading headers {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::BodySync { current_height, highest_height } => {
@@ -267,10 +272,11 @@ fn display_sync_status(
                     / ((highest_height - genesis_height) as f64)
             };
             format!(
-                "#{:>8} Downloading blocks {:.2}% ({})",
+                "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
                 head.height,
                 percent,
-                highest_height - current_height
+                highest_height - current_height,
+                current_height
             )
         }
         SyncStatus::StateSync(sync_hash, shard_statuses) => {
@@ -301,46 +307,70 @@ fn display_sync_status(
     }
 }
 
-const KILOBYTE: u64 = 1024;
-const MEGABYTE: u64 = KILOBYTE * 1024;
-const GIGABYTE: u64 = MEGABYTE * 1024;
+/// Format number using SI prefixes.
+struct PrettyNumber(u64, &'static str);
 
-/// Format bytes per second in a nice way.
-fn pretty_bytes_per_sec(num: u64) -> String {
-    if num < 100 {
-        // Under 0.1 kiB, display in bytes.
-        format!("{} B/s", num)
-    } else if num < MEGABYTE {
-        // Under 1.0 MiB/sec display in kiB/sec.
-        format!("{:.1}kiB/s", num as f64 / KILOBYTE as f64)
-    } else {
-        format!("{:.1}MiB/s", num as f64 / MEGABYTE as f64)
+impl PrettyNumber {
+    fn bytes_per_sec(bps: u64) -> Self {
+        Self(bps, "B/s")
+    }
+
+    fn bytes(bytes: u64) -> Self {
+        Self(bytes, "B")
+    }
+
+    fn gas_per_sec(gps: u64) -> Self {
+        Self(gps, "gas/s")
     }
 }
 
-fn pretty_bytes(num: u64) -> String {
-    if num < 1024 {
-        format!("{} B", num)
-    } else if num < MEGABYTE {
-        format!("{:.1} kiB", num as f64 / KILOBYTE as f64)
-    } else if num < GIGABYTE {
-        format!("{:.1} MiB", num as f64 / MEGABYTE as f64)
-    } else {
-        format!("{:.1} GiB", num as f64 / GIGABYTE as f64)
+impl std::fmt::Display for PrettyNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self(mut num, unit) = self;
+        if num < 1_000 {
+            return write!(f, "{} {}", num, unit);
+        }
+        for prefix in b"kMGTPE" {
+            if num < 1_000_000 {
+                let precision = if num < 10_000 {
+                    2
+                } else if num < 100_000 {
+                    1
+                } else {
+                    0
+                };
+                return write!(
+                    f,
+                    "{:.*} {}{}",
+                    precision,
+                    num as f64 / 1_000.0,
+                    *prefix as char,
+                    unit
+                );
+            }
+            num /= 1000;
+        }
+        unreachable!()
     }
 }
 
-fn gas_used_per_sec(num: u64) -> String {
-    if num < 1000 {
-        format!("{} gas/s", num)
-    } else if num < 1_000_000 {
-        format!("{:.2} Kgas/s", num as f64 / 1_000.0)
-    } else if num < 1_000_000_000 {
-        format!("{:.2} Mgas/s", num as f64 / 1_000_000.0)
-    } else if num < 1_000_000_000_000 {
-        format!("{:.2} Ggas/s", num as f64 / 1_000_000_000.0)
-    } else {
-        format!("{:.2} Tgas/s", num as f64 / 1_000_000_000_000.0)
+#[test]
+fn test_pretty_number() {
+    for (want, num) in [
+        ("0 U", 0),
+        ("1 U", 1),
+        ("10 U", 10),
+        ("100 U", 100),
+        ("1.00 kU", 1_000),
+        ("10.0 kU", 10_000),
+        ("100 kU", 100_000),
+        ("1.00 MU", 1_000_000),
+        ("10.0 MU", 10_000_000),
+        ("100 MU", 100_000_000),
+        ("18.4 EU", u64::MAX),
+    ] {
+        let got = PrettyNumber(num, "U").to_string();
+        assert_eq!(want, &got, "num={}", num);
     }
 }
 

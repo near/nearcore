@@ -9,7 +9,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use nearcore::get_store_path;
-use num_traits::{CheckedSub, SaturatingSub};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -36,9 +35,9 @@ pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
 
     let tolerance = LeastSquaresTolerance::default().factor_rel_nn_tolerance(0.001);
     let (cost1_base, cost1_op) =
-        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug);
     let (cost2_base, cost2_op) =
-        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug);
 
     let cost_base = std::cmp::max(cost1_base, cost2_base);
     let cost_op = std::cmp::max(cost1_op, cost2_op);
@@ -156,11 +155,10 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        if result.1.is_some() {
-            let err = result.1.as_ref().unwrap();
+        if let Some(err) = result.error() {
             eprintln!("error: {}", err);
         }
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
 
     // Run with gas metering.
@@ -176,7 +174,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
     let total_raw_with_gas = start.elapsed();
 
@@ -192,7 +190,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
 
     // Run without gas metering.
@@ -208,7 +206,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             PROTOCOL_VERSION,
             cache,
         );
-        assert!(result.1.is_none());
+        assert!(result.error().is_none());
     }
     let total_raw_no_gas = start.elapsed();
 
@@ -216,18 +214,9 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
         // This might happen due to experimental error, especially when running
         // without warmup or too few iterations.
         let mut null_cost = GasCost::zero(gas_metric);
-        null_cost.set_uncertain(true);
+        null_cost.set_uncertain("NEGATIVE-COST");
         return null_cost;
     }
 
-    let cost_diff = match total_raw_with_gas.checked_sub(&total_raw_no_gas) {
-        Some(cost) => cost,
-        None => {
-            let mut cost = total_raw_with_gas.saturating_sub(&total_raw_no_gas);
-            cost.set_uncertain(true);
-            cost
-        }
-    };
-
-    cost_diff / repeats
+    (total_raw_with_gas - total_raw_no_gas) / repeats
 }

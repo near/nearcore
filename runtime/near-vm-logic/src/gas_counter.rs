@@ -1,4 +1,7 @@
 use crate::{HostError, VMLogicError};
+use near_primitives::types::TrieNodesCount;
+use near_primitives_core::config::ExtCosts::read_cached_trie_node;
+use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::runtime::fees::Fee;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
@@ -268,6 +271,12 @@ impl GasCounter {
         self.deduct_gas(burn_gas, use_gas)
     }
 
+    pub fn add_trie_fees(&mut self, count: TrieNodesCount) -> Result<()> {
+        self.pay_per(touching_trie_node, count.db_reads)?;
+        self.pay_per(read_cached_trie_node, count.mem_reads)?;
+        Ok(())
+    }
+
     pub fn prepay_gas(&mut self, use_gas: Gas) -> Result<()> {
         self.deduct_gas(0, use_gas)
     }
@@ -275,8 +284,15 @@ impl GasCounter {
     pub fn burnt_gas(&self) -> Gas {
         self.fast_counter.burnt_gas
     }
+
+    /// Amount of gas used through promises and amount burned.
     pub fn used_gas(&self) -> Gas {
         self.promises_gas + self.fast_counter.burnt_gas
+    }
+
+    /// Remaining gas based on the amount of prepaid gas not yet used.
+    pub fn unused_gas(&self) -> Gas {
+        self.prepaid_gas - self.used_gas()
     }
 
     pub fn profile_data(&self) -> ProfileData {

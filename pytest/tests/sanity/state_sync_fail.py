@@ -15,7 +15,6 @@ import requests
 import utils
 
 START_AT_BLOCK = 25
-TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
 near_root, node_dirs = init_cluster(
@@ -55,9 +54,7 @@ node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
 ctx = utils.TxContext([0, 0], [boot_node, node1])
 
-sent_txs = False
-
-utils.wait_for_blocks(boot_node, target=START_AT_BLOCK, timeout=TIMEOUT)
+utils.wait_for_blocks(boot_node, target=START_AT_BLOCK)
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
 tracker = utils.LogTracker(node2)
@@ -66,5 +63,5 @@ time.sleep(3)
 try:
     status = node2.get_status()
     sys.exit("node 2 successfully started while it should fail")
-except requests.exceptions.HTTPError:
+except requests.exceptions.ConnectionError:
     pass

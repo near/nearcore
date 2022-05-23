@@ -5,7 +5,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
@@ -54,10 +54,6 @@ protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
-]
-protocol_feature_function_call_weight = [
-    "near-primitives/protocol_feature_function_call_weight",
-    "near-vm-logic/protocol_feature_function_call_weight",
 ]
 sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 

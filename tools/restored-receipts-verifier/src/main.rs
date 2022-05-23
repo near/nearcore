@@ -1,6 +1,6 @@
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisValidationMode, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
@@ -32,20 +32,26 @@ fn main() -> Result<()> {
     eprintln!("restored-receipts-verifier started");
 
     let default_home = get_default_home();
-    let matches = App::new("restored-receipts-verifier")
+    let matches = Command::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
                 .default_value_os(default_home.as_os_str())
-                .about("Directory for config and data (default \"~/.near\")")
+                .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
         .get_matches();
 
     let shard_id = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(home_dir, GenesisValidationMode::Full);
+    let near_config = load_config(home_dir, GenesisValidationMode::Full)
+        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
     let store = create_store(&get_store_path(home_dir));
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        !near_config.client_config.archive,
+    );
     let runtime = NightshadeRuntime::new(
         home_dir,
         store,
@@ -54,6 +60,7 @@ fn main() -> Result<()> {
         None,
         near_config.client_config.max_gas_burnt_view,
         None,
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();

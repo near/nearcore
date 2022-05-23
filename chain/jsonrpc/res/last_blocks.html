@@ -32,12 +32,33 @@
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        function createHashElement(hashValue, creator) {
+            var element = $('<span>');
+            element.addClass('hashElem');
+            element.attr("hashValue", hashValue);
+            element.attr("creator", creator);
+            element.css("font-family", "monospace");
+            var suffix = "...";
+            if (creator.length <= 10) {
+                suffix = "";
+            }
+            element.text(hashValue.substring(0, 5) + "... " + creator.substring(0, 10) + suffix);
+            element.click(function () {
+                element.text(hashValue + " " + creator);
+            })
+            return element;
+        }
+
         $(document).ready(function () {
+            $(".expand_all").click(function () {
+                $(".hashElem").click();
+            })
+
             var root = $("#blocks_table_tbody");
             root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/last_blocks",
+                url: "/debug/api/status",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
                     root.html("");
@@ -56,9 +77,11 @@
                         var row = $('<tr>');
 
                         row.append($('<td>').text(element.block_height));
-                        row.append($('<td>').text(element.block_hash));
+                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer)));
+
                         row.append($('<td>').text(element.processing_time_ms));
                         row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
+                        row.append($('<td>').text(element.gas_price_ratio));
 
 
                         let shards_cells = []
@@ -66,7 +89,7 @@
                             shards_cells.push($('<td>'));
                         }
                         element.chunks.forEach(chunk => {
-                            shards_cells[chunk.shard_id * 3].text(chunk.chunk_hash);
+                            shards_cells[chunk.shard_id * 3].append(createHashElement(chunk.chunk_hash, chunk.chunk_producer));
                             shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
                             shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
                         });
@@ -94,9 +117,10 @@
         });
 
         function prepareTableHeader(max_shard) {
-            var headers = '<th>Block id</th> <th>Block hash</th><th>Processing Time(ms)</th><th>Next block time(s)</th>';
+            var headers = '<th>Block id</th> <th>Block hash</th>' +
+                '<th>Processing Time(ms)</th> <th>Next block time(s)</th> <th>Gas price ratio</th>';
             for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += `<th colspan=3>Shard ${i} (hash/gas/time)</th>`;
+                headers += `<th colspan=3>Shard ${i} (hash/gas(Tgas)/time(ms))</th>`;
             }
             $("#blocks_table_thead")[0].innerHTML = headers;
         }
@@ -107,6 +131,7 @@
     <h1>
         Most recent blocks.
     </h1>
+    <button class="expand_all">Expand all</button><br>
     <div id="blocks_table">
         <table>
             <thead id="blocks_table_thead">

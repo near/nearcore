@@ -12,11 +12,10 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import cluster
 import utils
 
-TIMEOUT = 150
 BLOCKS = 20
 
 nodes = cluster.start_cluster(4, 0, 4, None, [], {})
 trackers = [utils.LogTracker(node) for node in nodes]
-utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=BLOCKS)
 assert all(not tracker.check('Dropping handshake (Active Peer).')
            for tracker in trackers)

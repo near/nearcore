@@ -1,12 +1,13 @@
 use actix;
 
 use anyhow::Result;
-use clap::Clap;
+use clap::Parser;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use configs::{init_logging, Opts, SubCommand};
+use configs::{Opts, SubCommand};
 use near_indexer;
+use near_o11y::ColorOutput;
 
 mod configs;
 
@@ -260,8 +261,14 @@ fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    init_logging();
-
+    let env_filter = near_o11y::tracing_subscriber::EnvFilter::new(
+        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,\
+         stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
+    );
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+    });
     let opts: Opts = Opts::parse();
 
     let home_dir =

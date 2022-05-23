@@ -3,23 +3,25 @@ name = "master"
 weight = 10
 
 #[[branch]]
-#name = "1.25.0"
+#name = "1.26.0"
 #weight = 10
 #
 #[[branch]]
-#name = "1.24.0"
+#name = "1.25.0"
 #weight = 10
 
 [[target]]
 crate = "runtime/near-vm-runner/fuzz"
 runner = "runner"
 weight = 10
-flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=3072"]
 
 [[target]]
+# Disabled for now because of the frequent intermittent failures,
+# should re-enable once they've been investigated
 crate = "test-utils/runtime-tester/fuzz"
 runner = "runtime_fuzzer"
-weight = 10
+weight = 0
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
 
 [[target]]
@@ -32,4 +34,11 @@ flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
 crate = "core/account-id/fuzz"
 runner = "serde"
 weight = 1
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
+
+# TODO(#1234): Enable the test again once <some condition>
+[[target]]
+crate = "chain/jsonrpc/fuzz"
+runner = "fuzz_target_1"
+weight = 0
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]

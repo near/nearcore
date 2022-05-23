@@ -48,9 +48,7 @@ nodes[1].reset_node_key(node_key)
 nodes[1].start(boot_node=nodes[0])
 time.sleep(2)
 
-utils.wait_for_blocks(nodes[1],
-                      target=EPOCH_LENGTH * 2 + 5,
-                      timeout=TIMEOUT * 2)
+utils.wait_for_blocks(nodes[1], target=EPOCH_LENGTH * 2 + 5)
 
 validators = nodes[1].get_validators()
 assert len(

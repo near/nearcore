@@ -13,7 +13,6 @@ from configured_logger import logger
 import utils
 
 BLOCKS = 10
-TIMEOUT = 25
 
 consensus_config0 = {
     "consensus": {
@@ -52,7 +51,7 @@ nodes = start_cluster(
      })
 time.sleep(3)
 
-utils.wait_for_blocks(nodes[0], target=BLOCKS, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=BLOCKS)
 
 logger.info("kill node 0")
 nodes[0].kill()
@@ -63,4 +62,4 @@ nodes[0].start(boot_node=nodes[0])
 time.sleep(3)
 
 node1_height = nodes[1].get_latest_block().height
-utils.wait_for_blocks(nodes[0], target=node1_height, timeout=TIMEOUT)
+utils.wait_for_blocks(nodes[0], target=node1_height)

@@ -1,6 +1,7 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, ErrorKind};
+use crate::{Block, ChainStoreAccess, Error};
+use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
@@ -8,35 +9,41 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
-use std::str::FromStr;
 use std::time::Instant;
-
-#[test]
-fn empty_chain() {
-    init_test_logger();
-    let mock_clock_guard = MockClockGuard::default();
-    let now = chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 1, 444);
-    mock_clock_guard.add_utc(now);
-
-    let (chain, _, _) = setup();
-    let count_utc = { mock_clock_guard.utc_call_count() };
-
-    assert_eq!(chain.head().unwrap().height, 0);
-    let hash = chain.head().unwrap().last_block_hash;
-    // The hashes here will have to be modified after each change to genesis file.
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(hash, CryptoHash::from_str("2VFkBfWwcTqyVJ83zy78n5WUNadwGuJbLc2KEp9SJ8dV").unwrap());
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(hash, CryptoHash::from_str("8UF2TCELQ2sSqorskN5myyC7h1XfgxYm68JHJMKo5n8X").unwrap());
-    assert_eq!(count_utc, 1);
-}
 
 #[test]
 fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
-    // Adding first mock entry for genesis block
+
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+
+    let (mut chain, _, signer) = setup();
+
+    assert_eq!(mock_clock_guard.utc_call_count(), 1);
+    assert_eq!(mock_clock_guard.instant_call_count(), 0);
+    assert_eq!(chain.head().unwrap().height, 0);
+
+    // The hashes here will have to be modified after changes to the protocol.
+    // In particular if you update protocol version or add new protocol
+    // features.  If this assert is failing without you adding any new or
+    // stabilising any existing protocol features, this indicates bug in your
+    // code which unexpectedly changes the protocol.
+    //
+    // To update the hashes you can use cargo-insta.  Note that you’ll need to
+    // run the test twice: once with default features and once with
+    // ‘nightly’ feature enabled:
+    //
+    //     cargo install cargo-insta
+    //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
+    } else {
+        insta::assert_display_snapshot!(hash, @"sFAi6Xq5jWcbRetAkMQ3A44GvfLHSLMnb8SqaRsmWmo");
+    }
+
     for i in 1..5 {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
@@ -46,44 +53,25 @@ fn build_chain() {
         // Instant calls for CryptoHashTimer.
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
-    }
+        mock_clock_guard.add_instant(Instant::now());
 
-    let (mut chain, _, signer) = setup();
-
-    let prev_hash = *chain.head_header().unwrap().hash();
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("299HrY4hpubeFXa3V9DNtR36dGEtiz4AVfMbfL6hT2sq").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        prev_hash,
-        CryptoHash::from_str("BkRwcuuVjS86zNvP8DDC9FzsJfWQLV92YyX7NCAz3TNu").unwrap()
-    );
-
-    for i in 0..4 {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i + 1);
+        assert_eq!(tip.unwrap().height, i as u64);
     }
+
+    assert_eq!(mock_clock_guard.utc_call_count(), 9);
+    assert_eq!(mock_clock_guard.instant_call_count(), 12);
     assert_eq!(chain.head().unwrap().height, 4);
-    let count_instant = mock_clock_guard.instant_call_count();
-    let count_utc = mock_clock_guard.utc_call_count();
-    assert_eq!(count_utc, 9);
-    assert_eq!(count_instant, 8);
-    #[cfg(feature = "nightly_protocol")]
-    assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("A1ZqLuyanSg6YeD3HxGco2tJYEAsmHvAva5n4dsPTgij").unwrap()
-    );
-    #[cfg(not(feature = "nightly_protocol"))]
-    assert_eq!(
-        chain.head().unwrap().last_block_hash,
-        CryptoHash::from_str("8FkFyWKsnAvAEVAwR41GFTY9i9eQnvGCm52FCYR7qEhy").unwrap()
-    );
+
+    let hash = chain.head().unwrap().last_block_hash;
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
+    } else {
+        insta::assert_display_snapshot!(hash, @"F5srbRRkG5KBzvDzEpDiiJp257SCVUaeFhNeXAddbHGZ");
+    }
 }
 
 #[test]
@@ -116,21 +104,22 @@ fn build_chain_with_orhpans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
+        None,
     );
-    assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
+    assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
     );
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
     );
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
     assert_eq!(res.unwrap().unwrap().height, 10);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
+        Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 

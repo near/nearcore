@@ -1,0 +1,148 @@
+<html>
+
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        function convertTime(millis) {
+            let total_seconds = Math.floor(millis / 1000);
+            let hours = Math.floor(total_seconds / 3600)
+            let minutes = Math.floor((total_seconds - (hours * 3600)) / 60)
+            let seconds = total_seconds - (hours * 3600) - (minutes * 60)
+            if (hours > 0) {
+                if (minutes > 0) {
+                    return `${hours}h ${minutes}m ${seconds}s`
+                } else {
+                    return `${hours}h ${seconds}s`
+                }
+            }
+            if (minutes > 0) {
+                return `${minutes}m ${seconds}s`
+            }
+            return `${seconds}s`
+        }
+        $(document).ready(() => {
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: data => {
+                    let validatorMap = new Map();
+                    data.detailed_debug_status.epochs_info.forEach((epoch, index) => {
+                        let row = $('<tr>');
+                        row.append($('<td>').append(epoch.epoch_id));
+                        row.append($('<td>').append(epoch.height));
+                        row.append($('<td>').append(epoch.protocol_version));
+                        if (epoch.first_block === null) {
+                            if (index == 0) {
+                                let blocks_remaining = (epoch.height - data.sync_info.latest_block_height);
+                                let milliseconds_remaining = blocks_remaining * data.detailed_debug_status.block_production_delay_millis;
+                                row.append($('<td>').append("Next epoch - in " + blocks_remaining + " blocks "));
+                                $('.js-next-epoch').append("Next epoch in " + convertTime(milliseconds_remaining));
+                            } else {
+                                row.append($('<td>'));
+                            }
+                            row.append($('<td>'));
+                        } else {
+                            row.append($('<td>').append(epoch.first_block[0]));
+                            row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
+                        }
+                        $('.js-tbody-epochs').append(row);
+
+                        $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
+                        epoch.validators.forEach((validator, validator_index) => {
+                            let account_id = validator.account_id;
+                            console.log(account_id);
+                            if (validatorMap.has(account_id)) {
+                                validatorMap.set(account_id, validatorMap.get(account_id) + 2 ** index);
+                            } else {
+                                validatorMap.set(account_id, 2 ** index);
+                            }
+                        });
+                    });
+                    validatorMap.forEach((value, key) => {
+                        let row = $('<tr>').append($('<td>').append(key));
+                        for (i = 0; i < data.detailed_debug_status.epochs_info.length; i = i + 1) {
+                            let cell = $('<td>');
+                            if (value & 2 ** i) {
+                                cell.append('1');
+                            } else {
+                                cell.append('0');
+                            }
+                            row.append(cell);
+                        }
+                        $('.js-tbody-validators').append(row);
+                    });
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+    </script>
+</head>
+
+<body>
+
+    <h2>Epochs </h2>
+    <h3><span class="js-next-epoch"></span></h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Epoch id</th>
+                <th>Start height</th>
+                <th>Protocol version</th>
+                <th>First block</th>
+                <th>Epoch start</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-epochs">
+        </tbody>
+    </table>
+
+
+    <h2> Validators </h2>
+
+    <table>
+        <thead>
+            <tr class="js-head-validators">
+                <th>Account ID</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-validators">
+        </tbody>
+    </table>
+</body>
+
+</html>

@@ -4,17 +4,17 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
-clap = "3.0.0-beta.1"
+actix = "0.13.0"
+anyhow = "1.0"
+clap = { version = "3.1.6", features = ["derive", "env"] }
 openssl-probe = "0.1.2"
 serde_json = "1.0.55"
-tokio = { version = "1.1", features = ["sync"] }
+tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
-anyhow = "1.0"
 
 near-indexer = { path = "../../../chain/indexer" }
+near-o11y = { path = "../../../core/o11y" }

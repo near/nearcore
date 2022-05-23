@@ -775,6 +775,7 @@ fn test_chunk_grieving() {
                                     AccountIdOrPeerTrackingShard {
                                         account_id: Some(account_id), ..
                                     },
+                                ..
                             } = msg
                             {
                                 if request.chunk_hash == *grieving_chunk_hash {
@@ -783,11 +784,7 @@ fn test_chunk_grieving() {
                                         return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
-                            } else if let NetworkRequests::PartialEncodedChunkRequest {
-                                request: _,
-                                target: _,
-                            } = msg
-                            {
+                            } else if let NetworkRequests::PartialEncodedChunkRequest { .. } = msg {
                                 // this test was written before the feature that allows
                                 // sending requests directly to the peer. The test likely never
                                 // triggers this path, but if this assert triggers, the above
@@ -922,8 +919,7 @@ fn test_all_chunks_accepted_common(
                             header.shard_id(),
                         ));
                     }
-                    if let NetworkRequests::PartialEncodedChunkRequest { target: _, request } = msg
-                    {
+                    if let NetworkRequests::PartialEncodedChunkRequest { request, .. } = msg {
                         if verbose {
                             if requested.contains(&(
                                 sender_account_id.clone(),

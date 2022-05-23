@@ -4,23 +4,16 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"] }
 near-primitives = { path = "../../core/primitives" }
 
-near-jsonrpc-primitives = { path = "../jsonrpc-primitives", optional = true }
 near-network-primitives = { path = "../network-primitives" }
 deepsize = { version = "0.2.0", optional = true }
 
 [features]
-ser_de = [
-  "serde_json",
-  "serde",
-  "near-jsonrpc-primitives",
-  "near-network-primitives/test_features"
-]
+test_features = ["near-network-primitives/test_features"] 
 deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]

@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use tracing::error;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -17,7 +16,7 @@ use crate::EpochManager;
 pub type RngSeed = [u8; 32];
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(Clone, BorshSerialize, BorshDeserialize, Debug)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, Default)]
 pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
@@ -45,7 +44,24 @@ impl EpochInfoAggregator {
         }
     }
 
-    pub fn update(
+    /// Aggregates data from a block which directly precede the first block this
+    /// aggregator has statistic on.
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through G are blocks ordered in increasing height and arrows denote
+    /// ‘is parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     ┌─ block_info
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I
+    ///         │←── self ─→│
+    /// ```
+    ///
+    /// Note that there is no method which allows adding information about G,
+    /// H or I blocks into the aggregator.  The expected usage is to create
+    /// a new aggregator starting from I, add H and G into it (using this
+    /// method) and then [merge][`Self::merge`] it into `self`.
+    pub fn update_tail(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
@@ -104,46 +120,105 @@ impl EpochInfoAggregator {
         }
     }
 
-    pub fn merge(&mut self, new_aggregator: EpochInfoAggregator, overwrite: bool) {
-        if self.epoch_id != new_aggregator.epoch_id {
-            debug_assert!(false);
-            error!(target: "epoch_manager", "Trying to merge an aggregator with epoch id {:?}, but our epoch id is {:?}", new_aggregator.epoch_id, self.epoch_id);
-            return;
+    /// Merges information from `other` aggregator into `self`.
+    ///
+    /// The `other` aggregator must hold statistics from blocks which **follow**
+    /// the ones this aggregator has.  Both aggregators have to be for the same
+    /// epoch (the function panics if they aren’t).
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     │←─── self ────→│   │←─ other ─→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
+    /// ```
+    ///
+    /// Once the method finishes `self` will hold statistics for blocks from
+    /// B till J.
+    pub fn merge(&mut self, other: EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.extend(other.version_tracker);
+        // merge proposals
+        self.all_proposals.extend(other.all_proposals);
+
+        self.last_block_hash = other.last_block_hash;
+    }
+
+    /// Merges information from `other` aggregator into `self`.
+    ///
+    /// The `other` aggregator must hold statistics from blocks which
+    /// **precede** the ones this aggregator has.  Both aggregators have to be
+    /// for the same epoch (the function panics if they aren’t).
+    ///
+    /// For example, this method can be used in the following situation (where
+    /// A through J are blocks ordered in increasing height, arrows denote ‘is
+    /// parent’ relationship and B is start of a new epoch):
+    ///
+    /// ```text
+    ///     │←─── other ───→│   │←─ self ──→│
+    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
+    ///     └── new epoch ──→
+    /// ```
+    ///
+    /// Once the method finishes `self` will hold statistics for blocks from
+    /// B till J.
+    ///
+    /// The method is a bit like doing `other.merge(self)` except that `other`
+    /// is not changed.
+    pub fn merge_prefix(&mut self, other: &EpochInfoAggregator) {
+        self.merge_common(&other);
+
+        // merge version tracker
+        self.version_tracker.reserve(other.version_tracker.len());
+        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        for (k, v) in other.version_tracker.iter() {
+            self.version_tracker.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        if overwrite {
-            *self = new_aggregator;
-        } else {
-            // merge block tracker
-            for (block_producer_id, stats) in new_aggregator.block_tracker {
-                self.block_tracker
-                    .entry(block_producer_id)
-                    .and_modify(|e| {
-                        e.expected += stats.expected;
-                        e.produced += stats.produced
-                    })
-                    .or_insert_with(|| stats);
-            }
-            // merge shard tracker
-            for (shard_id, stats) in new_aggregator.shard_tracker {
-                self.shard_tracker
-                    .entry(shard_id)
-                    .and_modify(|e| {
-                        for (chunk_producer_id, stat) in stats.iter() {
-                            e.entry(*chunk_producer_id)
-                                .and_modify(|entry| {
-                                    entry.expected += stat.expected;
-                                    entry.produced += stat.produced;
-                                })
-                                .or_insert_with(|| stat.clone());
-                        }
-                    })
-                    .or_insert_with(|| stats);
-            }
-            // merge version tracker
-            self.version_tracker.extend(new_aggregator.version_tracker.into_iter());
-            // merge proposals
-            self.all_proposals.extend(new_aggregator.all_proposals.into_iter());
-            self.last_block_hash = new_aggregator.last_block_hash;
+
+        // merge proposals
+        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        for (k, v) in other.all_proposals.iter() {
+            self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+
+    /// Merges block and shard trackers from `other` into `self`.
+    ///
+    /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
+    /// merging.
+    fn merge_common(&mut self, other: &EpochInfoAggregator) {
+        assert_eq!(self.epoch_id, other.epoch_id);
+
+        // merge block tracker
+        for (block_producer_id, stats) in other.block_tracker.iter() {
+            self.block_tracker
+                .entry(block_producer_id.clone())
+                .and_modify(|e| {
+                    e.expected += stats.expected;
+                    e.produced += stats.produced
+                })
+                .or_insert_with(|| stats.clone());
+        }
+        // merge shard tracker
+        for (shard_id, stats) in other.shard_tracker.iter() {
+            self.shard_tracker
+                .entry(shard_id.clone())
+                .and_modify(|e| {
+                    for (chunk_producer_id, stat) in stats.iter() {
+                        e.entry(*chunk_producer_id)
+                            .and_modify(|entry| {
+                                entry.expected += stat.expected;
+                                entry.produced += stat.produced;
+                            })
+                            .or_insert_with(|| stat.clone());
+                    }
+                })
+                .or_insert_with(|| stats.clone());
         }
     }
 }

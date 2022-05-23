@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 default-run = "chainsync-loadtest"
 
@@ -13,18 +13,16 @@ path = "src/main.rs"
 name = "chainsync-loadtest"
 
 [dependencies]
-clap = "=3.0.0-beta.2"
-actix = "=0.11.0-beta.2"
-parking_lot = "0.11.2"
-tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
-openssl-probe = "0.1.4"
-futures = "0.3"
+actix = "0.13.0"
 anyhow = "1.0.55"
-rand = "0.8"
+clap = { version = "3.1.6", features = ["derive"] }
 dirs = "3"
-tokio = "1.16.1"
+futures = "0.3"
 log = "0.4"
+openssl-probe = "0.1.4"
+parking_lot = "0.11.2"
+rand = "0.8"
+tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -33,7 +31,4 @@ near-store = { path = "../../core/store" }
 nearcore = { path = "../../nearcore" }
 near-network = { path = "../../chain/network" }
 near-network-primitives = { path = "../../chain/network-primitives" }
-
-[features]
-[package.metadata.workspaces]
-independent = true
+near-o11y = { path = "../../core/o11y" }

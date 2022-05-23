@@ -12,7 +12,6 @@ valid_blocks_only = False  # creating invalid blocks, should be banned instantly
 if "valid_blocks_only" in sys.argv:
     valid_blocks_only = True  # creating valid blocks, should be fixed by doom slug
 
-TIMEOUT = 300
 BLOCKS = 25
 MALICIOUS_BLOCKS = 50
 
@@ -23,7 +22,7 @@ nodes = start_cluster(
 started = time.time()
 
 logger.info(f'Waiting for {BLOCKS} blocks...')
-height, _ = utils.wait_for_blocks(nodes[1], target=BLOCKS, timeout=TIMEOUT)
+height, _ = utils.wait_for_blocks(nodes[1], target=BLOCKS)
 logger.info(f'Got to {height} blocks, getting to fun stuff')
 
 nodes[1].get_status(verbose=True)

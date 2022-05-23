@@ -1,12 +1,29 @@
-use crate::types::PeerMessage;
+use crate::network_protocol::Encoding;
 use near_metrics::{
-    inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
-    try_create_int_gauge, Histogram, IntCounter, IntGauge,
+    do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
-use near_network_primitives::types::RoutedMessageBody;
+use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use strum::VariantNames;
+
+static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_peer_connections",
+        "Number of connected peers",
+        &["peer_type", "encoding"],
+    )
+    .unwrap()
+});
+
+pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
+    for ((pt, enc), v) in values {
+        PEER_CONNECTIONS
+            .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
+            .set(v);
+    }
+}
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
@@ -15,10 +32,26 @@ pub static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+pub static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_received_by_type_bytes",
+        "Total data received from peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
 pub static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_peer_message_received_total",
         "Number of messages received from peers",
+    )
+    .unwrap()
+});
+pub static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_received_by_type_total",
+        "Number of messages received from peers, by message types",
+        &["type"],
     )
     .unwrap()
 });
@@ -29,14 +62,19 @@ pub static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PEER_BLOCK_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter("near_peer_block_received_total", "Number of blocks received by peers")
-        .unwrap()
+pub static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_client_message_received_by_type_total",
+        "Number of messages for client received from peers, by message types",
+        &["type"],
+    )
+    .unwrap()
 });
-pub static PEER_TRANSACTION_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_transaction_received_total",
-        "Number of transactions received by peers",
+pub static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_requests_count_by_type_total",
+        "Number of network requests we send out, by message types",
+        &["type"],
     )
     .unwrap()
 });
@@ -68,13 +106,6 @@ pub static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static DROP_MESSAGE_UNKNOWN_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_drop_message_unknown_account",
-        "Total messages dropped because target account is not known",
-    )
-    .unwrap()
-});
 pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "received_info_about_itself",
@@ -82,63 +113,64 @@ pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static DROPPED_MESSAGES_COUNT: Lazy<IntCounter> = Lazy::new(|| {
-    near_metrics::try_create_int_counter(
-        "near_dropped_messages_count",
-        "Total count of messages which were dropped, because write buffer was full",
+static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    near_metrics::try_create_int_counter_vec(
+        "near_dropped_message_by_type_and_reason_count",
+        "Total count of messages which were dropped by type of message and \
+         reason why the message has been dropped",
+        &["type", "reason"],
     )
     .unwrap()
 });
+pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "partial_encoded_chunk_request_delay",
+        "Delay between when a partial encoded chunk request is sent from ClientActor and when it is received by PeerManagerActor",
+    )
+        .unwrap()
+});
 
-#[derive(Clone)]
+#[derive(Clone, Copy, strum::AsRefStr)]
+pub(crate) enum MessageDropped {
+    NoRouteFound,
+    UnknownAccount,
+    InputTooLong,
+    MaxCapacityExceeded,
+}
+
+impl MessageDropped {
+    pub fn inc(self, msg: &RoutedMessageBody) {
+        self.inc_msg_type(msg.into())
+    }
+
+    pub fn inc_unknown_msg(self) {
+        self.inc_msg_type("unknown")
+    }
+
+    fn inc_msg_type(self, msg_type: &str) {
+        let reason = self.as_ref();
+        DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
+    }
+}
+
+#[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
-    pub peer_messages: HashMap<String, Option<IntCounter>>,
+    // sent messages (broadcast style)
+    pub broadcast_messages: IntCounterVec,
 }
 
 impl NetworkMetrics {
     pub fn new() -> Self {
         Self {
-            peer_messages: PeerMessage::VARIANTS
-                .iter()
-                .filter(|&name| *name != "Routed")
-                .chain(RoutedMessageBody::VARIANTS.iter())
-                .flat_map(|name: &&str| {
-                    [
-                        NetworkMetrics::peer_message_total_rx,
-                        NetworkMetrics::peer_message_bytes_rx,
-                        NetworkMetrics::peer_message_dropped,
-                    ]
-                    .map(|method| {
-                        let counter_name = method(name);
-                        let counter = try_create_int_counter(&counter_name, &counter_name).ok();
-                        (counter_name, counter)
-                    })
-                })
-                .collect(),
+            broadcast_messages: do_create_int_counter_vec(
+                "near_broadcast_msg",
+                "Broadcasted messages",
+                &["type"],
+            ),
         }
     }
 
-    pub fn peer_message_total_rx(message_name: &str) -> String {
-        format!("near_{}_total", message_name.to_lowercase())
-    }
-
-    pub fn peer_message_bytes_rx(message_name: &str) -> String {
-        format!("near_{}_bytes", message_name.to_lowercase())
-    }
-
-    pub fn peer_message_dropped(message_name: &str) -> String {
-        format!("near_{}_dropped", message_name.to_lowercase())
-    }
-
-    pub fn inc(&self, message_name: &str) {
-        if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_opt(counter.as_ref());
-        }
-    }
-
-    pub fn inc_by(&self, message_name: &str, value: u64) {
-        if let Some(counter) = self.peer_messages.get(message_name) {
-            inc_counter_by_opt(counter.as_ref(), value);
-        }
+    pub fn inc_broadcast(&self, message_name: &str) {
+        self.broadcast_messages.with_label_values(&[message_name]).inc();
     }
 }

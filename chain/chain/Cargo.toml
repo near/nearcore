@@ -4,11 +4,11 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
+rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-actix = "=0.11.0-beta.2"
+actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 itertools = "0.10.0"
@@ -17,9 +17,10 @@ num-rational = "0.3"
 once_cell = "1.5.2"
 rand = "0.7"
 rayon = "1.5"
-strum = "0.20"
+strum = "0.24"
 thiserror = "1.0"
 tracing = "0.1.13"
+prometheus = "0.11"
 
 delay-detector = { path = "../../tools/delay_detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -31,6 +32,9 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
+insta = "1"
+assert_matches = "1.5.0"
+
 near-logger-utils = {path = "../../test-utils/logger"}
 
 [features]
@@ -46,7 +50,7 @@ protocol_feature_chunk_only_producers = [
 ]
 
 protocol_feature_routing_exchange_algorithm = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_routing_exchange_algorithm",
@@ -55,4 +59,5 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
+mock_node = []
 sandbox = []

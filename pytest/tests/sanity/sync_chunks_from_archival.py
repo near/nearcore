@@ -91,6 +91,25 @@ class Handler(ProxyHandler):
         return True
 
 
+# TODO(mina86): Make it a utility class
+class Timeout:
+
+    def __init__(self, sesconds: float) -> None:
+        if sesconds <= 0:
+            raise ValueError('sesconds must be positive')
+        self.__start = time.monotonic()
+        self.__end = self.__start + sesconds
+
+    def check(self) -> bool:
+        return time.monotonic() < self.__end
+
+    def elapsed_seconds(self) -> float:
+        return time.monotonic() - self.__start
+
+    def left_seconds(self) -> float:
+        return self.__end - time.monotonic()
+
+
 if __name__ == '__main__':
     manager = multiprocessing.Manager()
     hash_to_metadata = manager.dict()
@@ -103,7 +122,7 @@ if __name__ == '__main__':
                 requests=requests,
                 responses=responses))
 
-    started = time.time()
+    timeout = Timeout(TIMEOUT)
 
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
@@ -174,7 +193,7 @@ if __name__ == '__main__':
     logging.info(f'Getting to height {HEIGHTS_BEFORE_ROTATE}')
     utils.wait_for_blocks(boot_node,
                           target=HEIGHTS_BEFORE_ROTATE,
-                          timeout=TIMEOUT)
+                          timeout=timeout.left_seconds())
 
     node2 = spin_up_node(config,
                          near_root,
@@ -211,7 +230,7 @@ if __name__ == '__main__':
 
         logging.info("Waiting for rotation to occur")
         while True:
-            assert time.time() - started < TIMEOUT, get_validators(boot_node)
+            assert timeout.check(), get_validators(boot_node)
             if set(get_validators(boot_node)) == set(expected_vals):
                 break
             else:
@@ -227,15 +246,15 @@ if __name__ == '__main__':
     logging.info(f'Getting to height {target}')
     height_to_sync_to, _ = utils.wait_for_blocks(node2,
                                                  target=target,
-                                                 timeout=TIMEOUT)
+                                                 timeout=timeout.left_seconds())
 
     logging.info("Spinning up one more node")
     node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)
 
-    logging.info("Waiting for the new node to sync. We are %s seconds in" %
-                 (time.time() - started))
+    logging.info('Waiting for the new node to sync.  '
+                 f'We are {timeout.elapsed_seconds()} seconds in')
     while True:
-        assert time.time() - started < TIMEOUT
+        assert timeout.check()
         sync_info = node4.get_status()['sync_info']
         if not sync_info['syncing']:
             new_height = sync_info['latest_block_height']
@@ -280,4 +299,4 @@ if __name__ == '__main__':
                     found = True
             assert found, f'Missing request for shard {shard} in block {height}'
 
-    logging.info("Done. Took %s seconds" % (time.time() - started))
+    logging.info(f'Done.  Took {timeout.elapsed_seconds()} seconds')

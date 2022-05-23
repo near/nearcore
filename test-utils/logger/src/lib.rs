@@ -1,6 +1,6 @@
 mod tracing_capture;
 
-use tracing_subscriber::EnvFilter;
+use near_o11y::tracing_subscriber::{fmt as subscriber_fmt, EnvFilter};
 
 pub use tracing_capture::TracingCapture;
 
@@ -17,10 +17,10 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
         }
     }
 
-    let _ = tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+    let _ = subscriber_fmt::Subscriber::builder()
+        .with_span_events(subscriber_fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
-        .with_writer(tracing_subscriber::fmt::TestWriter::new())
+        .with_writer(subscriber_fmt::TestWriter::new())
         .try_init();
 }
 

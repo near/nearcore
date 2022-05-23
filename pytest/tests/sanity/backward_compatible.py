@@ -50,7 +50,6 @@ def main():
 
     # Check it all works.
     BLOCKS = 100
-    TIMEOUT = 150
     max_height = -1
     started = time.time()
 
@@ -122,7 +121,7 @@ def main():
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    utils.wait_for_blocks(current_node, target=BLOCKS, timeout=TIMEOUT)
+    utils.wait_for_blocks(current_node, target=BLOCKS)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,0 @@
-pytest --skip-build --timeout=2h fuzz.py test-utils/runtime-tester/fuzz runtime_fuzzer
-pytest --skip-build --timeout=2h fuzz.py runtime/near-vm-runner/fuzz runner
-pytest --skip-build --timeout=2h fuzz.py core/account-id/fuzz borsh
-pytest --skip-build --timeout=2h fuzz.py core/account-id/fuzz serde
-# TODO(#5859): Currently broken.
-#pytest --skip-build --timeout=2h fuzz.py chain/jsonrpc/fuzz fuzz_target_1

@@ -27,4 +27,6 @@ Use this tool to measure the running time of elementary runtime operations that 
    Rather, the costs are hard-codded in the `Default` impl for `RuntimeConfig`.
    You can run `cargo run --package runtime-params-estimator --bin runtime-params-estimator -- --costs-file costs.txt` to convert cost table into `RuntimeConfig`.
 
+3. **Continuous Estimation**: Take a look at [`continuous-estimation/README.md`](./continuous-estimation/README.md) to learn about the automated setup around the parameter estimator.
+
 Note, if you use the plotting functionality you would need to install [gnuplot](http://gnuplot.info/) to see the graphs.

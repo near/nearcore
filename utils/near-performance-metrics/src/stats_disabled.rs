@@ -1,5 +1,4 @@
 use std::time::Duration;
-use strum::AsStaticRef;
 
 pub fn measure_performance<F, Message, Result>(
     _class_name: &'static str,
@@ -19,7 +18,7 @@ pub fn measure_performance_with_debug<F, Message, Result>(
 ) -> Result
 where
     F: FnOnce(Message) -> Result,
-    Message: AsStaticRef<str>,
+    for<'a> &'a Message: Into<&'static str>,
 {
     f(msg)
 }

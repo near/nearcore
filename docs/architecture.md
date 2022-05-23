@@ -143,60 +143,11 @@ This file contains schema (DBCol) of our internal RocksDB storage - a good start
 
 ## Cross Cutting Concerns
 
-### Logging & Observability
+### Observability
 
-The [tracing](https://tracing.rs) crate is used for logging:
-
-```rust
-tracing::warn!(
-    target: "jsonrpc",
-    "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}", tx_hash, signer_account_id,
-);
-```
-
-tracing supports structured logging. That is, you are not restricted to logging
-strings, and can log key-value pairs. Keys go *before* free-form message, and
-support various shortcut syntaxes:
-
-```rust
-tracing::warn!(
-    // Explicit `key = value` syntax.
-    msg_received_count = active_peer.throttle_controller.consume_msg_seen(),
-    // Shorthand for `bandwidth_used = bandwidth_used`.
-    bandwidth_used,
-    // Use `fmt::Debug` to format the value.
-    ?peer_id,
-    // Free form string
-    "Peer bandwidth exceeded threshold",
-);
-```
-
-Qualified `tracing::warn!` syntax is preferred to reduce the amount of imports.
-Tracing supports `format!`-like arguments, but prefer `key=value` paris instead.
-
-The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to
-measure durations of long-running operations:
-
-```rust
-fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
-    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
-    //
-}
-```
-
-This will record when the `_span` object is created and dropped, logging the
-time diff between the two events:
-
-```
-May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=5ms time.idle=6ns
-```
-
-Always specify the `target` explicitly.
-
-The `INFO` level is enabled by default, use it for information useful for node
-operators. The `DEBUG` level is enabled on the canary nodes, use it for
-information useful in debugging testnet failures. The `TRACE` level is not
-generally enabled, use it for arbitrary debug output.
+The [tracing](https://tracing.rs) crate is used for structured, hierarchical event output
+and logging. We also integrate [Prometheus](https://prometheus.io) for light-weight metric output.
+See the [style](./style.md) documentation for more information on the usage.
 
 ### Testing
 
@@ -230,7 +181,7 @@ included in `nightly/expensive.txt` file; for example:
 
 ```text
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
 ```
 
 For more details regarding nightly tests see `nightly/README.md`.

@@ -1,6 +1,7 @@
+use crate::apply_block_cost;
 use crate::config::Config;
-use crate::estimator_context::{EstimatorContext, Testbed};
-use crate::gas_cost::GasCost;
+use crate::estimator_context::EstimatorContext;
+use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
@@ -29,20 +30,27 @@ pub fn clear_linux_page_cache() -> std::io::Result<()> {
     std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
+#[track_caller]
 pub(crate) fn transaction_cost(
-    testbed: Testbed,
+    ctx: &mut EstimatorContext,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(testbed, block_size, make_transaction);
+    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
     gas_cost
 }
 
+#[track_caller]
 pub(crate) fn transaction_cost_ext(
-    mut testbed: Testbed,
+    ctx: &mut EstimatorContext,
     block_size: usize,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
+    block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let per_block_overhead = apply_block_cost(ctx);
+    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64 / block_size as u64;
+
+    let mut testbed = ctx.testbed();
     let blocks = {
         let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
         let mut blocks = Vec::with_capacity(n_blocks);
@@ -57,39 +65,53 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks);
-    let measurements =
+    let measurements = testbed.measure_blocks(blocks, block_latency);
+    let mut measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
+
+    // The assumption is that the overhead in the measurement due to applying blocks
+    // is negligible (<1%) and can therefore be ignored. This code is here to verify .
+    for (cost, _ext) in &mut measurements {
+        if measurement_overhead.clone() * 100 >= *cost {
+            cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
+        }
+    }
 
     aggregate_per_block_measurements(testbed.config, block_size, measurements)
 }
 
+#[track_caller]
 pub(crate) fn fn_cost(
     ctx: &mut EstimatorContext,
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
 ) -> GasCost {
-    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
+    // Most functions finish execution in a single block. Other measurements
+    // should use `fn_cost_count`.
+    let block_latency = 0;
+    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
     assert_eq!(measured_count, count);
 
     let base_cost = noop_function_call_cost(ctx);
 
-    (total_cost - base_cost) / count
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / count
 }
 
+#[track_caller]
 pub(crate) fn fn_cost_count(
     ctx: &mut EstimatorContext,
     method: &str,
     ext_cost: ExtCosts,
+    block_latency: usize,
 ) -> (GasCost, u64) {
     let block_size = 2;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
-    let testbed = ctx.testbed();
-    let (gas_cost, ext_costs) = transaction_cost_ext(testbed, block_size, &mut make_transaction);
+    let (gas_cost, ext_costs) =
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }
@@ -100,13 +122,11 @@ pub(crate) fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
     }
 
     let cost = {
-        let testbed = ctx.testbed();
-
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", Vec::new())
         };
-        transaction_cost(testbed, &mut make_transaction)
+        transaction_cost(ctx, &mut make_transaction)
     };
 
     ctx.cached.noop_function_call_cost = Some(cost.clone());
@@ -154,7 +174,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks);
+        let measurements = testbed.measure_blocks(blocks, 0);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()
@@ -196,8 +216,20 @@ pub(crate) fn aggregate_per_block_measurements(
         *v /= n;
     }
     let mut gas_cost = total / n;
-    gas_cost.set_uncertain(is_high_variance(&block_costs));
+    if is_high_variance(&block_costs) {
+        gas_cost.set_uncertain("HIGH-VARIANCE");
+    }
     (gas_cost, total_ext_costs)
+}
+
+pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost {
+    let total = measurements.iter().fold(GasCost::zero(config.metric), |acc, x| acc + x.clone());
+    let mut avg = total / measurements.len() as u64;
+    let scalar_costs = measurements.iter().map(|cost| cost.to_gas() as f64).collect::<Vec<_>>();
+    if is_high_variance(&scalar_costs) {
+        avg.set_uncertain("HIGH-VARIANCE");
+    }
+    avg
 }
 
 /// We expect our cost computations to be fairly reproducible, and just flag
@@ -218,6 +250,23 @@ pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
         samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
 
     !all_below_threshold
+}
+
+/// Returns several percentile values from the given vector of costs. For
+/// example, the input 0.9 represents the 90th percentile, which is the largest
+/// gas cost in the vector for which no more than 90% of all values are smaller.
+pub(crate) fn percentiles(
+    mut costs: Vec<GasCost>,
+    percentiles: &[f32],
+) -> impl Iterator<Item = GasCost> + '_ {
+    costs.sort();
+    let sample_size = costs.len();
+    percentiles
+        .into_iter()
+        .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
+        .map(move |idx| costs[idx].clone())
+    // .collect::<Vec<_>>()
+    // .into_iter()
 }
 
 /// Get account id from its index.
@@ -244,4 +293,36 @@ pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
     let wat_code = format!("(module (data \"{payload}\") (func (export \"main\")))");
     wat::parse_str(wat_code).unwrap()
+}
+
+#[cfg(test)]
+mod test {
+    use super::percentiles;
+    use crate::{config::GasMetric, gas_cost::GasCost};
+    use rand::prelude::SliceRandom;
+
+    #[track_caller]
+    fn check_percentiles(gas_values: &[u64], p_values: &[f32], expected_gas_results: &[u64]) {
+        let costs =
+            gas_values.iter().map(|n| GasCost::from_gas((*n).into(), GasMetric::Time)).collect();
+
+        let results = percentiles(costs, p_values).map(|cost| cost.to_gas()).collect::<Vec<_>>();
+
+        assert_eq!(results, expected_gas_results,)
+    }
+
+    #[test]
+    fn test_percentiles() {
+        let mut one_to_thousand = (1..=1000u64).collect::<Vec<_>>();
+        one_to_thousand.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_thousand, &[0.1, 0.5, 0.995], &[100, 500, 995]);
+
+        let mut one_to_ninety_nine = (1..=99u64).collect::<Vec<_>>();
+        one_to_ninety_nine.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_ninety_nine, &[0.1, 0.5, 0.995], &[10, 50, 99]);
+
+        let mut one_to_one_o_one = (1..=101u64).collect::<Vec<_>>();
+        one_to_one_o_one.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_one_o_one, &[0.1, 0.5, 0.995], &[11, 51, 101]);
+    }
 }

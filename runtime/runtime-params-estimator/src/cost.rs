@@ -34,8 +34,31 @@ pub enum Cost {
     /// Estimation: Measure the creation and execution of an empty action
     /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
+    /// Estimates `data_receipt_creation_config.base_cost`, which is charged for
+    /// every data dependency of created receipts. This occurs either through
+    /// calls to `promise_batch_then` or `value_return`. Dispatch and execution
+    /// costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises but
+    /// only one of them also creates a callback that depends on the promise
+    /// results. The difference in execution cost is divided by 1000.
     DataReceiptCreationBase,
+    /// Estimates `data_receipt_creation_config.cost_per_byte`, which is charged
+    /// for every byte in data dependency of created receipts. This occurs
+    /// either through calls to `promise_batch_then` or `value_return`. Dispatch
+    /// and execution costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises with a
+    /// callback that depends on the promise results. One of the functions
+    /// creates small data receipts, the other large ones. The difference in
+    /// execution cost is divided by the total byte difference.
     DataReceiptCreationPerByte,
+    /// Estimates `action_creation_config.create_account_cost` which is charged
+    /// for `CreateAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that creates an account and transfers
+    /// an initial balance to it. Subtract the base cost of creating a receipt.
+    /// (TODO[jakmeier] consider also subtracting transfer fee)
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -60,15 +83,83 @@ pub enum Cost {
     ActionFunctionCallPerByte,
     ActionFunctionCallBaseV2,
     ActionFunctionCallPerByteV2,
+    /// Estimates `action_creation_config.transfer_cost` which is charged for
+    /// every `Action::Transfer`, the same value for sending and executing.
+    ///
+    /// Estimation: Measure a transaction with only a transfer and subtract the
+    /// base cost of creating a receipt.
     ActionTransfer,
+    /// Estimates `action_creation_config.stake_cost` which is charged for every
+    /// `Action::Stake`, a slightly higher value for sending than executing.
+    ///
+    /// Estimation: Measure a transaction with only a staking action and
+    /// subtract the base cost of creating a sir-receipt.
+    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
+    /// values in this specific case)
     ActionStake,
+    /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
+    /// is charged for every `Action::AddKey` where the key is a full access
+    /// key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a full access key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFullAccessKey,
+    /// Estimates `action_creation_config.add_key_cost.function_call_cost` which
+    /// is charged once for every `Action::AddKey` where the key is a function
+    /// call key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFunctionAccessKeyBase,
+    /// Estimates
+    /// `action_creation_config.add_key_cost.function_call_cost_per_byte` which
+    /// is charged once for every byte in null-terminated method names listed in
+    /// an `Action::AddKey` where the key is a function call key. The same value
+    /// is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key with
+    /// many methods. Subtract the cost of adding a function call key with a
+    /// single method and of creating a sir-receipt. The result is divided by
+    /// total bytes in the method names.
     ActionAddFunctionAccessKeyPerByte,
+    /// Estimates `action_creation_config.delete_key_cost` which is charged for
+    /// `DeleteKey` actions, the same value on sending and executing. It does
+    /// not matter whether it is a function call or full access key.
+    ///
+    /// Estimation: Measure a transaction that deletes a full access key and
+    /// transfers an initial balance to it. Subtract the base cost of creating a
+    /// receipt.
+    /// (TODO[jakmeier] check cost for function call keys with many methods)
     ActionDeleteKey,
+    /// Estimates `action_creation_config.delete_account_cost` which is charged
+    /// for `DeleteAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that deletes an existing account.
+    /// Subtract the base cost of creating a sir-receipt.
+    /// (TODO[jakmeier] Consider different account states.
     ActionDeleteAccount,
 
+    /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
+    /// once on every host function call. However, this is currently
+    /// inconsistent. First, we do not charge on Math API methods (`sha256`,
+    /// `keccak256`, `keccak512`, `ripemd160`, `alt_bn128_g1_multiexp`,
+    /// `alt_bn128_g1_sum`, `alt_bn128_pairing_check`). Furthermore,
+    /// `promise_then` and `promise_create` are convenience wrapper around two
+    /// other host functions, which means they end up charing this fee twice.
+    ///
+    /// Estimation: Measure a transaction with a smart contract function call
+    /// that, from within the WASM runtime, invokes the host function
+    /// `block_index()` many times. Subtract the cost of executing a smart
+    /// contract function that does nothing. Divide the difference by the number
+    /// of host function calls.
     HostFunctionCall,
+    /// Estimates `wasm_config.regular_op_cost` which is charged for every
+    /// executed WASM operation in function calls, as counted dynamically during
+    /// execution.
+    ///
+    /// Estimation: Run a contract that reads and writes lots of memory in an
+    /// attempt to cause slow loads and stores. The total time spent in the
+    /// runtime is divided by the number of executed instructions.
     WasmInstruction,
 
     // # Reading and writing memory
@@ -158,10 +249,55 @@ pub enum Cost {
     /// writes 1 MiB to a register 10'000 times. Subtract the cost of an empty
     /// function call and divide the rest by 10'000 * 1Mi.
     WriteRegisterByte,
+
+    /// Estimates `utf8_decoding_base` which is charged once for each time
+    /// something is logged in UTF8 or when panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf8DecodingBase,
+    /// Estimates `utf8_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF8 or panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// a 10kiB string many times. Divide the cost by total bytes
+    /// logged. One more details, to cover both null-terminated strings and
+    /// fixed-length strings, both versions are measured and the maximum is
+    /// taken.
     Utf8DecodingByte,
+    /// Estimates `utf16_decoding_base` which is charged once for each time
+    /// something is logged in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string. Divide the cost by 10'000.
     Utf16DecodingBase,
+    /// Estimates `utf16_decoding_byte` which is charged for each byte in the
+    /// output of logging in UTF16.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string many times. Divide the cost by total bytes logged. One more
+    /// details, to cover both null-terminated strings and fixed-length strings,
+    /// both versions are measured and the maximum is taken.
     Utf16DecodingByte,
+    /// Estimates `log_base` which is charged once every time log output is
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs
+    /// 10'000 times a small string (using UTF16 to be pessimistic). Divide the
+    /// cost by 10'000.
+    ///
+    /// Note: This currently uses the identical estimation as
+    /// `Utf16DecodingBase`
+    LogBase,
+    /// Estimates `log_byte` which is charged for every byte of log output
+    /// produced, either through logging functions (UTF8 or UTF16) or when
+    /// panicking.
+    ///
+    /// Estimation: Execute a transaction with a single function that logs a
+    /// 10kiB string N times (using UTF16 to be pessimistic). Divide the cost by
+    /// total bytes of output produced, which is 3/2 * N * 10 * 1024.
+    LogByte,
 
     // Cryptographic host functions:
     // The runtime provides host functions for sha256, keccak256, keccak512,
@@ -202,8 +338,6 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-    LogBase,
-    LogByte,
 
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
@@ -310,13 +444,26 @@ pub enum Cost {
     StorageIterNextValueByte,
 
     /// Estimates `touching_trie_node` which is charged when smart contracts
-    /// access storage either through `storage_has_key`, `storage_read`, or
-    /// `storage_write`. The fee is paid once for each unique trie node
-    /// accessed.
+    /// access storage either through `storage_has_key`, `storage_read`,
+    /// `storage_write` or `storage_remove`. The fee is paid once for each
+    /// unique trie node accessed.
     ///
     /// Estimation: Take the maximum of estimations for `TouchingTrieNodeRead`
     /// and `TouchingTrieNodeWrite`
     TouchingTrieNode,
+    /// It is similar to `TouchingTrieNode`, but it is charged instead of this
+    /// cost when we can guarantee that trie node is cached in memory, which
+    /// allows us to charge less costs.
+    ///
+    /// Estimation: Since this is a small cost, it cannot be measured accurately
+    /// through the normal process of measuring several transactions and
+    /// calculating the difference. Instead, the estimation directly
+    /// instantiates the caching storage and reads nodes of the largest possible
+    /// size from it. This is done in a pessimistic setup and the 90th
+    /// percentile of measured samples is taken as the final cost. The details
+    /// for this are a bit involved but roughly speaking, it just forces values
+    /// out of CPU caches so that they are always read from memory.
+    ReadCachedTrieNode,
     /// Helper estimation for `TouchingTrieNode`
     ///
     /// Estimation: Prepare an account that has many keys stored that are
@@ -365,12 +512,12 @@ pub enum Cost {
     ValidatorTotalStakeBase,
 
     AltBn128G1MultiexpBase,
-    AltBn128G1MultiexpByte,
+    AltBn128G1MultiexpElement,
     AltBn128G1MultiexpSublinear,
     AltBn128PairingCheckBase,
-    AltBn128PairingCheckByte,
+    AltBn128PairingCheckElement,
     AltBn128G1SumBase,
-    AltBn128G1SumByte,
+    AltBn128G1SumElement,
 
     // Costs used only in estimator
     //

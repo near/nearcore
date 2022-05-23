@@ -543,9 +543,9 @@ where
 }
 
 impl actix_web::ResponseError for Error {
-    fn error_response(&self) -> actix_web::BaseHttpResponse<actix_web::body::Body> {
+    fn error_response(&self) -> actix_web::HttpResponse {
         let data = paperclip::actix::web::Json(self);
-        actix_web::HttpResponse::InternalServerError().json(data).into()
+        actix_web::HttpResponse::InternalServerError().json(data)
     }
 }
 

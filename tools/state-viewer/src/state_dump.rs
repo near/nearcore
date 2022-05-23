@@ -5,6 +5,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
+use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use near_store::TrieIterator;
 use nearcore::config::NearConfig;
@@ -52,6 +53,7 @@ pub fn state_dump(
 
     let mut genesis_config = near_config.genesis.config.clone();
     genesis_config.genesis_height = genesis_height;
+    genesis_config.genesis_time = Utc::now();
     genesis_config.validators = validators
         .iter()
         .map(|(account_id, (public_key, amount))| AccountInfo {

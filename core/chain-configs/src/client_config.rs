@@ -1,4 +1,5 @@
 //! Chain Client Configuration
+use std::cmp::max;
 use std::cmp::min;
 use std::time::Duration;
 
@@ -15,6 +16,58 @@ pub enum LogSummaryStyle {
     Plain,
     #[serde(rename = "colored")]
     Colored,
+}
+
+/// Minimum number of epochs for which we keep store data
+pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+
+/// Default number of epochs for which we keep store data
+pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
+
+/// Configuration for garbage collection.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GCConfig {
+    /// Maximum number of blocks to garbage collect at every garbage collection
+    /// call.
+    #[serde(default = "default_gc_blocks_limit")]
+    pub gc_blocks_limit: NumBlocks,
+
+    /// Maximum number of height to go through at each garbage collection step
+    /// when cleaning forks during garbage collection.
+    #[serde(default = "default_gc_fork_clean_step")]
+    pub gc_fork_clean_step: u64,
+
+    /// Number of epochs for which we keep store data.
+    #[serde(default = "default_gc_num_epochs_to_keep")]
+    pub gc_num_epochs_to_keep: u64,
+}
+
+impl Default for GCConfig {
+    fn default() -> Self {
+        Self {
+            gc_blocks_limit: 2,
+            gc_fork_clean_step: 100,
+            gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+        }
+    }
+}
+
+fn default_gc_blocks_limit() -> NumBlocks {
+    GCConfig::default().gc_blocks_limit
+}
+
+fn default_gc_fork_clean_step() -> u64 {
+    GCConfig::default().gc_fork_clean_step
+}
+
+fn default_gc_num_epochs_to_keep() -> u64 {
+    GCConfig::default().gc_num_epochs_to_keep()
+}
+
+impl GCConfig {
+    pub fn gc_num_epochs_to_keep(&self) -> u64 {
+        max(MIN_GC_NUM_EPOCHS_TO_KEEP, self.gc_num_epochs_to_keep)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -81,8 +134,8 @@ pub struct ClientConfig {
     pub doosmslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
-    /// Number of blocks to garbage collect at every gc call.
-    pub gc_blocks_limit: NumBlocks,
+    /// Garbage collection configuration.
+    pub gc: GCConfig,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -101,6 +154,8 @@ pub struct ClientConfig {
     /// genesis file.  The value only affects the RPCs without influencing the
     /// protocol thus changing it per-node doesn’t affect the blockchain.
     pub max_gas_burnt_view: Option<Gas>,
+    /// Re-export storage layer statistics as prometheus metrics.
+    pub enable_statistics_export: bool,
 }
 
 impl ClientConfig {
@@ -149,7 +204,7 @@ impl ClientConfig {
             ),
             doosmslug_step_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
-            gc_blocks_limit: 100,
+            gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
@@ -159,6 +214,7 @@ impl ClientConfig {
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
+            enable_statistics_export: true,
         }
     }
 }

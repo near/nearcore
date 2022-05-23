@@ -168,6 +168,7 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
         if !self.header_sync_due(sync_status, &header_head, highest_height) {
             return Ok(());
@@ -427,6 +428,7 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
         if self.block_sync_due(chain)? {
             if self.block_sync(chain, highest_height_peers)? {
                 debug!(target: "sync", "Sync: transition to State Sync.");
@@ -494,8 +496,8 @@ impl BlockSync {
             // First go back until we find the common block
             while match chain.get_header_by_height(candidate.0) {
                 Ok(header) => header.hash() != &candidate.1,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => true,
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => true,
                     _ => return Err(e),
                 },
             } {
@@ -515,8 +517,8 @@ impl BlockSync {
                             break;
                         }
                     }
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
+                    Err(e) => match e {
+                        near_chain::Error::DBNotFoundErr(_) => break,
                         _ => return Err(e),
                     },
                 }
@@ -531,10 +533,8 @@ impl BlockSync {
         for _ in 0..MAX_BLOCK_REQUESTS {
             match chain.mut_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = *hash,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
-                        break;
-                    }
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => break,
                     _ => return Err(e),
                 },
             }
@@ -1178,7 +1178,8 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
-        debug!(target:"sync", "syncing state sync_hash {:?} new_shard_sync {:?} tracking_shards {:?}", sync_hash, new_shard_sync, tracking_shards);
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        debug!(target: "sync", %sync_hash, ?new_shard_sync, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
@@ -1502,6 +1503,7 @@ mod test {
                 &*signers[3],
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
+                None,
             );
             block_merkle_tree.insert(*block.hash());
 

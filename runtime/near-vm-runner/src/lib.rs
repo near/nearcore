@@ -3,6 +3,7 @@
 mod cache;
 mod errors;
 mod imports;
+mod instrument;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
 #[cfg(target_arch = "x86_64")]
@@ -27,7 +28,7 @@ pub use cache::{
 };
 #[cfg(target_arch = "x86_64")]
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};
-pub use runner::{run, VM};
+pub use runner::{run, VMResult, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

@@ -1,3 +1,4 @@
+use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ pub trait Signer: Sync + Send {
     fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, _path: &Path) -> std::io::Result<()> {
+    fn write_to_file(&self, _path: &Path) -> io::Result<()> {
         unimplemented!();
     }
 }
@@ -60,8 +61,8 @@ impl InMemorySigner {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        KeyFile::from_file(path).into()
+    pub fn from_file(path: &Path) -> io::Result<Self> {
+        KeyFile::from_file(path).map(Self::from)
     }
 }
 
@@ -79,7 +80,7 @@ impl Signer for InMemorySigner {
         secret_key.compute_vrf_with_proof(&data)
     }
 
-    fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+    fn write_to_file(&self, path: &Path) -> io::Result<()> {
         KeyFile::from(self).write_to_file(path)
     }
 }

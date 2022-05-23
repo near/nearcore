@@ -5,7 +5,6 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcGasPriceRequest {
-    #[serde(flatten)]
     pub block_id: MaybeBlockId,
 }
 
@@ -74,12 +73,5 @@ impl From<RpcGasPriceError> for crate::errors::RpcError {
         };
 
         Self::new_internal_or_handler_error(error_data, error_data_value)
-    }
-}
-
-impl RpcGasPriceRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcGasPriceRequest, crate::errors::RpcParseError> {
-        crate::utils::parse_params::<(MaybeBlockId,)>(value)
-            .map(|(block_id,)| RpcGasPriceRequest { block_id })
     }
 }
