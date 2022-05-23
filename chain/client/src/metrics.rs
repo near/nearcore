@@ -1,7 +1,7 @@
 use near_metrics::{
-    try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, Gauge, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_counter, try_create_gauge, try_create_histogram, try_create_histogram_vec,
+    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge, Counter, Gauge,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -12,6 +12,7 @@ pub(crate) static BLOCK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+
 pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_chunk_produced_total",
@@ -19,10 +20,12 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_is_validator", "Bool to denote if it is currently validating")
         .unwrap()
 });
+
 pub(crate) static RECEIVED_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_received_bytes_per_second",
@@ -30,6 +33,7 @@ pub(crate) static RECEIVED_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+
 pub(crate) static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_sent_bytes_per_second",
@@ -37,9 +41,13 @@ pub(crate) static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+// Deprecated.
 pub(crate) static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
 });
+
+// Deprecated.
 pub(crate) static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_chunks_per_block_millis",
@@ -47,14 +55,19 @@ pub(crate) static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+
 pub(crate) static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
+
 pub(crate) static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_memory_usage_bytes", "Amount of RAM memory usage").unwrap()
 });
+
 pub(crate) static GC_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_gc_time", "Time taken to do garbage collection").unwrap()
 });
+
+// Deprecated.
 pub(crate) static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_chunk_tgas_used",
@@ -62,6 +75,7 @@ pub(crate) static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+
 pub(crate) static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_tgas_used_hist",
@@ -181,9 +195,8 @@ pub(crate) static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static TGAS_USED: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter("near_tgas_used", "Gas used by processed blocks, measured in Tgas")
-        .unwrap()
+pub(crate) static GAS_USED: Lazy<Counter> = Lazy::new(|| {
+    try_create_counter("near_gas_used", "Gas used by processed blocks, measured in gas").unwrap()
 });
 
 pub(crate) static BLOCKS_PROCESSED: Lazy<IntCounter> = Lazy::new(|| {
@@ -198,13 +211,13 @@ pub(crate) static GAS_PRICE: Lazy<Gauge> = Lazy::new(|| {
     try_create_gauge("near_gas_price", "Gas price of the latest processed block").unwrap()
 });
 
-pub(crate) static BALANCE_BURNT: Lazy<Gauge> = Lazy::new(|| {
-    try_create_gauge("near_balance_burnt", "Balance burnt by processed blocks in NEAR tokens")
+pub(crate) static BALANCE_BURNT: Lazy<Counter> = Lazy::new(|| {
+    try_create_counter("near_balance_burnt", "Balance burnt by processed blocks in NEAR tokens")
         .unwrap()
 });
 
 pub(crate) static TOTAL_SUPPLY: Lazy<Gauge> = Lazy::new(|| {
-    try_create_gauge("near_gas_price", "Gas price of the latest processed block").unwrap()
+    try_create_gauge("near_total_supply", "Gas price of the latest processed block").unwrap()
 });
 
 pub(crate) static FINAL_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
@@ -223,6 +236,7 @@ pub(crate) static FINAL_DOOMSLUG_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
 static NODE_DB_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_db_version", "DB version used by the node").unwrap()
 });
+
 static NODE_BUILD_INFO: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_build_info",
@@ -237,6 +251,7 @@ pub(crate) static TRANSACTION_RECEIVED_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| 
     try_create_int_gauge("near_transaction_received_validator", "Validator received a transaction")
         .unwrap()
 });
+
 pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_transaction_received_non_validator",
@@ -244,6 +259,7 @@ pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR: Lazy<IntGauge> = Lazy::new
     )
     .unwrap()
 });
+
 pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_transaction_received_non_validator_forwarded",
@@ -251,6 +267,7 @@ pub(crate) static TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED: Lazy<IntGauge> =
     )
     .unwrap()
 });
+
 pub(crate) static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_node_protocol_version", "Max protocol version supported by the node")
         .unwrap()

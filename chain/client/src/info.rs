@@ -53,8 +53,6 @@ pub struct InfoHelper {
     telemetry_actor: Addr<TelemetryActor>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
-    /// Total balance burnt.
-    balance_burnt: Balance,
 }
 
 impl InfoHelper {
@@ -76,7 +74,6 @@ impl InfoHelper {
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
-            balance_burnt: 0,
         }
     }
 
@@ -84,8 +81,7 @@ impl InfoHelper {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&format!("{}", shard_id)])
             .observe(gas_used as f64 / TERAGAS);
-        self.balance_burnt += balance_burnt;
-        metrics::BALANCE_BURNT.set(self.balance_burnt as f64);
+        metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
     pub fn chunk_skipped(&mut self, shard_id: ShardId) {
@@ -100,17 +96,19 @@ impl InfoHelper {
         total_supply: Balance,
         last_final_block_height: BlockHeight,
         last_final_ds_block_height: BlockHeight,
+        epoch_height: EpochHeight,
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
         self.gas_used += gas_used;
-        metrics::TGAS_USED.inc_by(gas_used);
+        metrics::GAS_USED.inc_by(gas_used as f64);
         metrics::BLOCKS_PROCESSED.inc();
         metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
         metrics::GAS_PRICE.set(gas_price as f64);
         metrics::TOTAL_SUPPLY.set(total_supply as f64);
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
+        metrics::EPOCH_HEIGHT.set(epoch_height as i64);
     }
 
     pub fn info(
@@ -122,7 +120,6 @@ impl InfoHelper {
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
         validator_epoch_stats: Vec<ValidatorProductionStats>,
-        epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
     ) {
@@ -195,16 +192,16 @@ impl InfoHelper {
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
+        (metrics::CPU_USAGE.set(cpu_usage as i64));
+        (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
+        (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
+
         // TODO: Deprecated.
         (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
         // TODO: Deprecated.
         (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
-        (metrics::CPU_USAGE.set(cpu_usage as i64));
-        (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         // TODO: Deprecated.
         (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
-        (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
-        (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.

@@ -1369,6 +1369,12 @@ impl ClientActor {
                 }
             }
 
+            let epoch_height = self
+                .client
+                .runtime_adapter
+                .get_epoch_height_from_prev_block(block.hash())
+                .unwrap_or(0);
+
             self.info_helper.block_processed(
                 gas_used,
                 chunks_in_block as u64,
@@ -1376,6 +1382,7 @@ impl ClientActor {
                 block.header().total_supply(),
                 last_final_block_height,
                 last_final_ds_block_height,
+                epoch_height,
             );
             self.check_send_announce_account(*last_final_hash);
         }
@@ -1920,10 +1927,6 @@ impl ClientActor {
             &self.network_info,
             validator_info,
             validator_epoch_stats,
-            self.client
-                .runtime_adapter
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap_or(0),
             self.client
                 .runtime_adapter
                 .get_protocol_upgrade_block_height(head.last_block_hash)
