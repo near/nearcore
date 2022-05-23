@@ -282,7 +282,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BYTE",
-            gas_used: 1417983372,
+            gas_used: 1904583564,
         },
     ],
     [
