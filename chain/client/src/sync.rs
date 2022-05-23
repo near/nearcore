@@ -1340,7 +1340,7 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer);
+            let block = Block::empty(&prev, &*signer);
             chain
                 .process_block(
                     &None,
@@ -1356,7 +1356,7 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer2);
+            let block = Block::empty(&prev, &*signer2);
             chain2
                 .process_block(
                     &None,

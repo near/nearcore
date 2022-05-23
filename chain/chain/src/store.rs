@@ -35,9 +35,9 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, read_with_cell_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    WrappedTrieChanges, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    read_with_cache, read_with_cell_cache, DBCol, KeyForStateChanges, ShardTries, Store,
+    StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
+    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::types::{Block, BlockHeader, LatestKnown};
@@ -92,7 +92,7 @@ pub trait ChainStoreAccess {
     /// Larget approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
-    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
+    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
     /// Get partial chunk.
@@ -140,7 +140,7 @@ pub trait ChainStoreAccess {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error>;
     /// Returns hash of the first available block after genesis.
-    fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
+    fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
         // To find the earliest available block we use the `tail` marker primarily
         // used by garbage collection system.
         // NOTE: `tail` is the block height at which we can say that there is
@@ -298,7 +298,7 @@ pub struct ChainStore {
     /// Cache with headers.
     headers: CellLruCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
-    blocks: LruCache<Vec<u8>, Block>,
+    blocks: CellLruCache<Vec<u8>, Block>,
     /// Cache with chunks
     chunks: LruCache<Vec<u8>, ShardChunk>,
     /// Cache with partial chunks
@@ -361,7 +361,7 @@ impl ChainStore {
             latest_known: None,
             head: None,
             tail: None,
-            blocks: LruCache::new(CACHE_SIZE),
+            blocks: CellLruCache::new(CACHE_SIZE),
             headers: CellLruCache::new(CACHE_SIZE),
             chunks: LruCache::new(CHUNK_CACHE_SIZE),
             partial_chunks: LruCache::new(CHUNK_CACHE_SIZE),
@@ -833,9 +833,9 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full block.
-    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         option_to_not_found(
-            read_with_cache(&self.store, DBCol::Block, &mut self.blocks, h.as_ref()),
+            read_with_cell_cache(&self.store, DBCol::Block, &self.blocks, h.as_ref()),
             &format!("BLOCK: {}", h),
         )
     }
@@ -1320,9 +1320,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Get full block.
-    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
+    fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         if let Some(block) = self.chain_store_cache_update.blocks.get(h) {
-            Ok(block)
+            Ok(block.clone())
         } else {
             self.chain_store.get_block(h)
         }

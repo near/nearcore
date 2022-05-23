@@ -2841,7 +2841,7 @@ impl Chain {
 
     /// Gets a block by hash.
     #[inline]
-    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<&Block, Error> {
+    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<Block, Error> {
         self.store.get_block(hash)
     }
 
@@ -2862,7 +2862,7 @@ impl Chain {
 
     /// Gets a block from the current chain by height.
     #[inline]
-    pub fn get_block_by_height(&mut self, height: BlockHeight) -> Result<&Block, Error> {
+    pub fn get_block_by_height(&self, height: BlockHeight) -> Result<Block, Error> {
         let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block(&hash)
     }

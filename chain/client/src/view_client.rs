@@ -163,7 +163,7 @@ impl ViewClientActor {
     }
 
     fn get_block_hash_by_finality(
-        &mut self,
+        &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
@@ -530,19 +530,17 @@ impl Handler<GetBlock> for ViewClientActor {
         let block = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block(&block_hash).map(Clone::clone)
+                self.chain.get_block(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_by_height(height).map(Clone::clone)
+                self.chain.get_block_by_height(height)
             }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block(&hash).map(Clone::clone)
-            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
                 if let Some(block_hash) =
                     self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
                 {
-                    self.chain.get_block(&block_hash).map(Clone::clone)
+                    self.chain.get_block(&block_hash)
                 } else {
                     return Err(GetBlockError::NotSyncedYet);
                 }
@@ -868,9 +866,10 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
         match self.chain.get_execution_outcome(&id) {
             Ok(outcome) => {
                 let mut outcome_proof = outcome.clone();
-                let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
+                let epoch_id =
+                    self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
                 let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
+                    self.runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,

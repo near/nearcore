@@ -1352,7 +1352,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-            let maybe_block = chain_store.get_block(header.hash()).ok().cloned();
+            let maybe_block = chain_store.get_block(header.hash()).ok();
             let epoch_id =
                 runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =

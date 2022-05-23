@@ -1073,7 +1073,7 @@ fn test_time_attack() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
     b1.mut_header().resign(&signer);
@@ -1106,7 +1106,7 @@ fn test_invalid_approvals() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
@@ -1161,7 +1161,7 @@ fn test_invalid_gas_price() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
     b1.mut_header().resign(&signer);
 
@@ -1975,7 +1975,7 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     let root = head.header().block_merkle_root();
     // verify that the mapping from block ordinal to block hash is correct
     for h in 0..head.header().height() {
-        if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
+        if let Ok(block) = env.clients[0].chain.get_block_by_height(h) {
             let block_hash = *block.hash();
             let block_ordinal =
                 env.clients[0].chain.mut_store().get_block_merkle_tree(&block_hash).unwrap().size();

@@ -681,7 +681,7 @@ fn load_trie_stop_at_height(
     near_config: &NearConfig,
     mode: LoadTrieMode,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
