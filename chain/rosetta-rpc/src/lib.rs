@@ -125,24 +125,14 @@ async fn network_status(
         .map(|block| (&block.header).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
-    let final_block = match view_client_addr
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        )))
-        .await?
-    {
-        Ok(block) => block,
-        Err(_) => {
-            return Err(errors::ErrorKind::InternalError("final block not found".to_string()).into())
-        }
-    };
+    let final_block = get_final_block(&view_client_addr).await?;
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
             index: final_block.header.height.try_into().unwrap(),
             hash: final_block.header.hash.to_base(),
         },
-        current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec).unwrap()
-            / (10 ^ 6),
+        current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec / 1_000_000)
+            .unwrap(),
         genesis_block_identifier,
         oldest_block_identifier,
         sync_status: if status.sync_info.syncing {
@@ -205,17 +195,7 @@ async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
     view_client_addr: &Addr<ViewClientActor>,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
-    let final_block = match view_client_addr
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        )))
-        .await?
-    {
-        Ok(block) => block,
-        Err(_) => {
-            return Err(errors::ErrorKind::InternalError("final block not found".to_string()).into())
-        }
-    };
+    let final_block = get_final_block(view_client_addr).await?;
     let is_query_by_height = match block_id {
         near_primitives::types::BlockReference::Finality(
             near_primitives::types::Finality::Final,
@@ -225,6 +205,9 @@ async fn get_block_if_final(
         ) => {
             if height > &final_block.header.height {
                 return Ok(None);
+            }
+            if height == &final_block.header.height {
+                return Ok(Some(final_block));
             }
             true
         }
@@ -263,6 +246,20 @@ async fn get_block_if_final(
             Ok(None)
         }
     }
+}
+
+async fn get_final_block(
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<near_primitives::views::BlockView, models::Error> {
+    return match view_client_addr
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        )))
+        .await?
+    {
+        Ok(block) => Ok(block),
+        Err(_) => Err(errors::ErrorKind::InternalError("final block not found".to_string()).into()),
+    };
 }
 
 #[api_v2_operation]
