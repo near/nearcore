@@ -62,12 +62,6 @@ impl From<near_chunks_primitives::Error> for Error {
     }
 }
 
-impl From<String> for Error {
-    fn from(e: String) -> Self {
-        Error::Other(e)
-    }
-}
-
 #[derive(Debug)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
