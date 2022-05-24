@@ -324,7 +324,8 @@ const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
 const RC_COLUMNS: [bool; DBCol::COUNT] =
     col_set(&[DBCol::State, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptIdToShardId]);
 
-const INSERT_ONLY_COLUMNS: [bool; DBCol::COUNT] = col_set(&[DBCol::BlockInfo]);
+const INSERT_ONLY_COLUMNS: [bool; DBCol::COUNT] =
+    col_set(&[DBCol::BlockInfo, DBCol::ChunkPerHeightShard, DBCol::Chunks, DBCol::InvalidChunks]);
 
 const fn col_set(cols: &[DBCol]) -> [bool; DBCol::COUNT] {
     let mut res = [false; DBCol::COUNT];
