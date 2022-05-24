@@ -30,7 +30,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, REDUCED_MIN_GAS_PRICE
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
@@ -171,7 +171,9 @@ impl BlockEconomicsConfig {
     const MAX_GAS_MULTIPLIER: u128 = 20;
     /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
+        if cfg!(feature = "protocol_feature_lower_min_gas_price") {
+           REDUCED_MIN_GAS_PRICE
+        } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
             if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
                 MIN_GAS_PRICE_NEP_92_FIX
             } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {

@@ -31,6 +31,8 @@ pub const MIN_PROTOCOL_VERSION_NEP_92: ProtocolVersion = 31;
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = 100_000_000;
 pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
+pub const REDUCED_MIN_GAS_PRICE: Balance = 10_000_000;
+
 pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 
 /// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
@@ -162,6 +164,9 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
+
+    #[cfg(feature = "protocol_feature_lower_min_gas_price")]
+    LowerMinGasPrice,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -178,7 +183,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 54;
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 128;
+pub const PROTOCOL_VERSION: ProtocolVersion = 129;
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -243,6 +248,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
+            #[cfg(feature = "protocol_feature_lower_min_gas_price")]
+            ProtocolFeature::LowerMinGasPrice => 129,
         }
     }
 }
