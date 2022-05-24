@@ -304,7 +304,7 @@ pub struct ChainStore {
     /// Cache with chunk extra.
     chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
     /// Cache with height to hash on the main chain.
-    height: LruCache<Vec<u8>, CryptoHash>,
+    height: CellLruCache<Vec<u8>, CryptoHash>,
     /// Cache with height to block hash on any chain.
     block_hash_per_height: LruCache<Vec<u8>, HashMap<EpochId, HashSet<CryptoHash>>>,
     /// Cache with height and shard_id to any chunk hash.
@@ -363,7 +363,7 @@ impl ChainStore {
             partial_chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_extras: CellLruCache::new(CACHE_SIZE),
             chunk_extras: CellLruCache::new(CACHE_SIZE),
-            height: LruCache::new(CACHE_SIZE),
+            height: CellLruCache::new(CACHE_SIZE),
             block_hash_per_height: LruCache::new(CACHE_SIZE),
             block_refcounts: LruCache::new(CACHE_SIZE),
             chunk_hash_per_height_shard: LruCache::new(CACHE_SIZE),
@@ -3347,7 +3347,7 @@ mod tests {
             .insert(*block1.header().hash(), block1.clone());
         store_update.commit().unwrap();
 
-        let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec()).cloned();
+        let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash =
             chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
 
@@ -3359,7 +3359,7 @@ mod tests {
             .insert(*block2.header().hash(), block2.clone());
         store_update.commit().unwrap();
 
-        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec()).cloned();
+        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash1 =
             chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
 
