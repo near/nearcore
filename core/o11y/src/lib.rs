@@ -3,20 +3,17 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use once_cell::sync::OnceCell;
+use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use std::borrow::Cow;
+use tracing::level_filters::LevelFilter;
 use tracing_appender::non_blocking::NonBlocking;
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Layer, Registry};
-#[cfg(feature = "opentelemetry")]
-use {
-    opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer},
-    tracing::level_filters::LevelFilter,
-    tracing_opentelemetry::OpenTelemetryLayer,
-    tracing_subscriber::registry::LookupSpan,
-};
 
 static LOG_LAYER_RELOAD_HANDLE: OnceCell<
     Handle<
@@ -46,7 +43,7 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
 ///
 /// Once dropped, the subscriber is unregistered, and the output is flushed. Any messages output
 /// after this value is dropped will be delivered to a previously active subscriber, if any.
-pub struct DefaultSubcriberGuard<S> {
+pub struct DefaultSubscriberGuard<S> {
     // NB: the field order matters here. I would've used `ManuallyDrop` to indicate this
     // particularity, but somebody decided at some point that doing so is unconventional Rust and
     // that implicit is better than explicit.
@@ -61,7 +58,11 @@ pub struct DefaultSubcriberGuard<S> {
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
-impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
+// Configures exporter of span and trace data.
+// Currently empty, but more fields will be added in the future.
+pub struct OpenTelemetryConfig {}
+
+impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
     /// Register this default subscriber globally , for all threads.
     ///
     /// Must not be called more than once. Mutually exclusive with `Self::local`.
@@ -123,8 +124,11 @@ fn make_log_layer(
     layer
 }
 
-#[cfg(feature = "opentelemetry")]
-fn make_opentelemetry_layer<S>() -> Filtered<OpenTelemetryLayer<S, Tracer>, LevelFilter, S>
+// Constructs an OpenTelemetryConfig which sends span data to an external collector.
+// OpenTelemetryConfig is currently empty, but more configuration will be added to it later.
+fn make_opentelemetry_layer<S>(
+    config: Option<OpenTelemetryConfig>,
+) -> Filtered<OpenTelemetryLayer<S, Tracer>, LevelFilter, S>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
@@ -141,7 +145,8 @@ where
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
-    let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(LevelFilter::DEBUG);
+    let filter = if let Some(_) = config { LevelFilter::DEBUG } else { LevelFilter::OFF };
+    let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
     layer
 }
 
@@ -156,12 +161,13 @@ where
 /// ```rust
 /// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto).await.global() });
+/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto, None).await.global() });
 /// ```
 pub async fn default_subscriber(
     env_filter: EnvFilter,
     color_output: &ColorOutput,
-) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
+    opentelemetry_config: Option<OpenTelemetryConfig>,
+) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
@@ -181,10 +187,9 @@ pub async fn default_subscriber(
 
     let subscriber = tracing_subscriber::registry();
     let subscriber = subscriber.with(log_layer);
-    #[cfg(feature = "opentelemetry")]
-    let subscriber = subscriber.with(make_opentelemetry_layer());
+    let subscriber = subscriber.with(make_opentelemetry_layer(opentelemetry_config));
 
-    DefaultSubcriberGuard {
+    DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard,

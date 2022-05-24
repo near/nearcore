@@ -24,7 +24,7 @@ fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto, None).await.global()
     });
 
     let default_home = get_default_home();

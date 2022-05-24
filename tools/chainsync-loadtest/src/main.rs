@@ -137,7 +137,7 @@ fn main() {
         .add_directive(near_o11y::tracing::Level::INFO.into());
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto, None).await.global()
     });
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
