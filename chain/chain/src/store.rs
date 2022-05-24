@@ -93,14 +93,11 @@ pub trait ChainStoreAccess {
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
     /// Get full chunk.
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error>;
     /// Get partial chunk.
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error>;
+    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retrieval.
-    fn get_chunk_clone_from_header(
-        &mut self,
-        header: &ShardChunkHeader,
-    ) -> Result<ShardChunk, Error> {
+    fn get_chunk_clone_from_header(&self, header: &ShardChunkHeader) -> Result<ShardChunk, Error> {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
             Err(_) => {
@@ -114,7 +111,7 @@ pub trait ChainStoreAccess {
                         header, shard_chunk
                     )));
                 }
-                let mut shard_chunk_clone = shard_chunk.clone();
+                let mut shard_chunk_clone = ShardChunk::clone(&shard_chunk);
                 shard_chunk_clone.set_height_included(header.height_included());
                 Ok(shard_chunk_clone)
             }
@@ -299,9 +296,9 @@ pub struct ChainStore {
     /// Cache with blocks.
     blocks: CellLruCache<Vec<u8>, Block>,
     /// Cache with chunks
-    chunks: LruCache<Vec<u8>, ShardChunk>,
+    chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,
     /// Cache with partial chunks
-    partial_chunks: LruCache<Vec<u8>, PartialEncodedChunk>,
+    partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
     /// Cache with block extra.
     block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
     /// Cache with chunk extra.
@@ -362,8 +359,8 @@ impl ChainStore {
             tail: None,
             blocks: CellLruCache::new(CACHE_SIZE),
             headers: CellLruCache::new(CACHE_SIZE),
-            chunks: LruCache::new(CHUNK_CACHE_SIZE),
-            partial_chunks: LruCache::new(CHUNK_CACHE_SIZE),
+            chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
+            partial_chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_extras: CellLruCache::new(CACHE_SIZE),
             chunk_extras: CellLruCache::new(CACHE_SIZE),
             height: LruCache::new(CACHE_SIZE),
@@ -840,19 +837,19 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full chunk.
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        match read_with_cache(&self.store, DBCol::Chunks, &mut self.chunks, chunk_hash.as_ref()) {
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
+        match read_with_cell_cache(&self.store, DBCol::Chunks, &self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
             _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
     }
 
     /// Get partial chunk.
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
-        match read_with_cache(
+    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
+        match read_with_cell_cache(
             &self.store,
             DBCol::PartialChunks,
-            &mut self.partial_chunks,
+            &self.partial_chunks,
             chunk_hash.as_ref(),
         ) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
@@ -1121,8 +1118,8 @@ struct ChainStoreCacheUpdate {
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
     chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
-    chunks: HashMap<ChunkHash, ShardChunk>,
-    partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
+    chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
+    partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
     chunk_hash_per_height_shard: HashMap<(BlockHeight, ShardId), ChunkHash>,
     height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
@@ -1464,28 +1461,25 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         if let Some(chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
-            Ok(chunk)
+            Ok(Arc::clone(chunk))
         } else {
             self.chain_store.get_chunk(chunk_hash)
         }
     }
 
-    fn get_partial_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&PartialEncodedChunk, Error> {
+    fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
         if let Some(partial_chunk) = self.chain_store_cache_update.partial_chunks.get(chunk_hash) {
-            Ok(partial_chunk)
+            Ok(Arc::clone(partial_chunk))
         } else {
             self.chain_store.get_partial_chunk(chunk_hash)
         }
     }
 
-    fn get_chunk_clone_from_header(
-        &mut self,
-        header: &ShardChunkHeader,
-    ) -> Result<ShardChunk, Error> {
+    fn get_chunk_clone_from_header(&self, header: &ShardChunkHeader) -> Result<ShardChunk, Error> {
         if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.chunk_hash()) {
-            Ok(chunk.clone())
+            Ok(ShardChunk::clone(chunk))
         } else {
             self.chain_store.get_chunk_clone_from_header(header)
         }
@@ -1754,13 +1748,13 @@ impl<'a> ChainStoreUpdate<'a> {
         for receipt in chunk.receipts() {
             self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
         }
-        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), chunk);
+        self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
 
     pub fn save_partial_chunk(&mut self, partial_chunk: PartialEncodedChunk) {
         self.chain_store_cache_update
             .partial_chunks
-            .insert(partial_chunk.chunk_hash(), partial_chunk);
+            .insert(partial_chunk.chunk_hash(), Arc::new(partial_chunk));
     }
 
     pub fn save_block_merkle_tree(

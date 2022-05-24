@@ -217,7 +217,7 @@ pub(crate) fn print_chain(
     near_config: NearConfig,
     store: Store,
 ) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
@@ -498,7 +498,7 @@ pub(crate) fn view_chain(
     near_config: NearConfig,
     store: Store,
 ) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
@@ -567,7 +567,7 @@ pub(crate) fn view_chain(
 
 pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
     let genesis_height = near_config.genesis.config.genesis_height;
-    let mut chain_store =
+    let chain_store =
         ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
@@ -634,7 +634,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 }
 
 pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
@@ -648,7 +648,7 @@ pub(crate) fn get_partial_chunk(
     near_config: NearConfig,
     store: Store,
 ) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,

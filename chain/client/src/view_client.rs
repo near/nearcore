@@ -601,7 +601,7 @@ impl Handler<GetChunk> for ViewClientActor {
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         let get_chunk_from_block = |block: Block,
                                     shard_id: ShardId,
-                                    chain: &mut Chain|
+                                    chain: &Chain|
          -> Result<ShardChunk, near_chain::Error> {
             let chunk_header = block
                 .chunks()
@@ -609,25 +609,28 @@ impl Handler<GetChunk> for ViewClientActor {
                 .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
                 .clone();
             let chunk_hash = chunk_header.chunk_hash();
-            chain.get_chunk(&chunk_hash).and_then(|chunk| {
-                ShardChunk::with_header(chunk.clone(), chunk_header).ok_or(
-                    near_chain::Error::Other(format!(
-                        "Mismatched versions for chunk with hash {}",
-                        chunk_hash.0
-                    )),
-                )
-            })
+            let chunk = chain.get_chunk(&chunk_hash)?;
+            let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
+                near_chain::Error::Other(format!(
+                    "Mismatched versions for chunk with hash {}",
+                    chunk_hash.0
+                )),
+            )?;
+            Ok(res)
         };
 
         let chunk = match msg {
-            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash)?.clone(),
+            GetChunk::ChunkHash(chunk_hash) => {
+                let chunk = self.chain.get_chunk(&chunk_hash)?;
+                ShardChunk::clone(&chunk)
+            }
             GetChunk::BlockHash(block_hash, shard_id) => {
-                let block = self.chain.get_block(&block_hash)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                let block = self.chain.get_block(&block_hash)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
-                let block = self.chain.get_block_by_height(height)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                let block = self.chain.get_block_by_height(height)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
             }
         };
 

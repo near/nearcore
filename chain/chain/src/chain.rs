@@ -2847,7 +2847,7 @@ impl Chain {
 
     /// Gets a chunk from hash.
     #[inline]
-    pub fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         self.store.get_chunk(chunk_hash)
     }
 
