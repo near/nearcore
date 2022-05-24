@@ -1765,7 +1765,10 @@ impl ShardsManager {
             return Err(Error::UnknownChunk);
         }
 
-        // Now check whether we have all parts and receipts for the given chunk
+        // Now check whether we have all parts and receipts needed for the given chunk
+        // Note that have_all_parts and have_all_receipts don't mean that we have every part and receipt
+        // in this chunk, it simply means that we have the parts and receipts that we need for this
+        // chunk. See comments in has_all_parts and has_all_receipts to see the conditions.
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
@@ -1804,22 +1807,21 @@ impl ShardsManager {
                 true,
             );
 
-            if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
+            // If we don't care about the shard, we don't need to reconstruct the full chunk for
+            // this shard, so we can mark this chunk as completed since we have all the necessary
+            // parts and receipts.
+            if !cares_about_shard {
                 let mut store_update = chain_store.store_update();
                 self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
                 store_update.commit()?;
-            }
 
-            // If all the parts and receipts are received, and we don't care about the shard,
-            //    no need to request anything else.
-            // If we do care about the shard, we will remove the request once the full chunk is
-            //    assembled.
-            if !cares_about_shard {
                 self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
             }
         }
 
+        // If we do care about the shard, we will remove the request once the full chunk is
+        //    assembled.
         if can_reconstruct {
             let height = header.height_created();
             let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
@@ -1927,6 +1929,9 @@ impl ShardsManager {
         Ok(Some(self.runtime_adapter.get_part_owner(prev_block_hash, part_ord)?) == self.me)
     }
 
+    /// Returns true if we have all the necessary receipts for this chunk entry to process it.
+    /// NOTE: this doesn't mean that we got *all* the receipts.
+    /// It means that we have all receipts included in this chunk sending to the shards we track.
     fn has_all_receipts(
         &self,
         prev_block_hash: &CryptoHash,
