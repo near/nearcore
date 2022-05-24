@@ -26,7 +26,6 @@ use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 /// Peer stats query.

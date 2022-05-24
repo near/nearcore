@@ -176,7 +176,9 @@ impl RoutingTableView {
     }
 
     pub(crate) fn add_ping(&mut self, ping: Ping) {
-        self.ping_info.push(ping.clone());
+        if self.ping_info.len() < PING_PONG_CACHE_SIZE {
+            self.ping_info.push(ping.clone());
+        }
     }
 
     /// Return time of the round trip of ping + pong
@@ -188,7 +190,9 @@ impl RoutingTableView {
                 Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
             });
         }
-        self.pong_info.push(pong.clone());
+        if self.pong_info.len() < PING_PONG_CACHE_SIZE {
+            self.pong_info.push(pong.clone());
+        }
         res
     }
 
