@@ -627,7 +627,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
-        let timeout = Duration::from_secs(15);
+        let timeout = Duration::from_secs(30);
         let step = Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
