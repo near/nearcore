@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::sync::Arc;
 
 use crate::time::{Clock, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -75,8 +76,8 @@ pub struct BlockV2 {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
-    BlockV1(Box<BlockV1>),
-    BlockV2(Box<BlockV2>),
+    BlockV1(Arc<BlockV1>),
+    BlockV2(Arc<BlockV2>),
 }
 
 pub fn genesis_chunks(
@@ -140,7 +141,7 @@ impl Block {
                 })
                 .collect();
 
-            Block::BlockV1(Box::new(BlockV1 {
+            Block::BlockV1(Arc::new(BlockV1 {
                 header,
                 chunks: legacy_chunks,
                 challenges,
@@ -148,7 +149,7 @@ impl Block {
                 vrf_proof,
             }))
         } else {
-            Block::BlockV2(Box::new(BlockV2 { header, chunks, challenges, vrf_value, vrf_proof }))
+            Block::BlockV2(Arc::new(BlockV2 { header, chunks, challenges, vrf_value, vrf_proof }))
         }
     }
 

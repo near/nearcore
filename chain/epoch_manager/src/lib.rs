@@ -604,15 +604,15 @@ impl EpochManager {
                     self.save_epoch_start(
                         &mut store_update,
                         block_info.epoch_id(),
-                        *block_info.height(),
+                        block_info.height(),
                     )?;
                 }
 
                 let block_info = Arc::new(block_info);
                 // Save current block info.
                 self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
-                if block_info.last_finalized_height() > &self.largest_final_height {
-                    self.largest_final_height = *block_info.last_finalized_height();
+                if block_info.last_finalized_height() > self.largest_final_height {
+                    self.largest_final_height = block_info.last_finalized_height();
 
                     // Update epoch info aggregator.  We only update the if
                     // there is a change in the last final block.  This way we
@@ -886,7 +886,7 @@ impl EpochManager {
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
         let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        Ok(*self.get_block_info(&epoch_first_block)?.height())
+        Ok(self.get_block_info(&epoch_first_block)?.height())
     }
 
     /// Compute stake return info based on the last block hash of the epoch that is just finalized
@@ -1231,15 +1231,15 @@ impl EpochManager {
         let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
 
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(*block_info.height() + 1 >= estimated_next_epoch_start);
+            return Ok(block_info.height() + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(*block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
+        Ok(block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1258,9 +1258,9 @@ impl EpochManager {
             config.epoch_length
         };
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
-        Ok(*block_info.last_finalized_height() + 3 < estimated_next_epoch_start
-            && *block_info.height() + 3 >= estimated_next_epoch_start)
+            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+        Ok(block_info.last_finalized_height() + 3 < estimated_next_epoch_start
+            && block_info.height() + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns epoch id for the next epoch (T+1), given an block info in current epoch (T).
@@ -1423,7 +1423,7 @@ impl EpochManager {
             } else {
                 self.epoch_info_aggregator.merge(aggregator);
                 let block_info = self.get_block_info(last_final_block_hash)?;
-                *block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
+                block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
             if save {
                 store_update.set_ser(
@@ -1488,8 +1488,8 @@ impl EpochManager {
 
         if cfg!(debug) {
             let agg_hash = self.epoch_info_aggregator.last_block_hash.clone();
-            let agg_height = *self.get_block_info(&agg_hash)?.height();
-            let block_height = *self.get_block_info(block_hash)?.height();
+            let agg_height = self.get_block_info(&agg_hash)?.height();
+            let block_height = self.get_block_info(block_hash)?.height();
             assert!(
                 agg_height < block_height,
                 "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
@@ -1526,7 +1526,7 @@ impl EpochManager {
             }
 
             let prev_info = self.get_block_info(&prev_hash)?;
-            let prev_height = *prev_info.height();
+            let prev_height = prev_info.height();
             let prev_epoch = prev_info.epoch_id().clone();
 
             let block_info = self.get_block_info(&cur_hash)?;

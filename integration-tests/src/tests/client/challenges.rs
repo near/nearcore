@@ -1,8 +1,5 @@
-use std::path::Path;
-use std::sync::Arc;
-
+use assert_matches::assert_matches;
 use borsh::BorshSerialize;
-
 use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
@@ -34,6 +31,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::NightshadeRuntime;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -48,7 +47,7 @@ fn test_block_with_challenges() {
     {
         let body = match &mut block {
             Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => body.as_mut(),
+            Block::BlockV2(body) => Arc::make_mut(body),
         };
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: genesis.header().try_to_vec().unwrap(),
@@ -62,7 +61,7 @@ fn test_block_with_challenges() {
     }
 
     let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
-    assert_eq!(result.unwrap_err(), Error::InvalidChallengeRoot);
+    assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
 }
 
 #[test]
@@ -197,7 +196,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -233,7 +232,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -457,7 +456,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let runtime_adapter = client.chain.runtime_adapter.clone();
     // Invalidate chunk state challenges because they are not supported yet.
     // TODO (#2445): Enable challenges when they are working correctly.
-    assert_eq!(
+    assert_matches!(
         validate_challenge(
             &*runtime_adapter,
             block.header().epoch_id(),

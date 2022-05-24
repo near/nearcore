@@ -1447,7 +1447,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(e) if e == near_chain::Error::NotAValidator => {
+                Err(near_chain::Error::NotAValidator) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,
@@ -1644,7 +1644,7 @@ impl Client {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(Error::Other("Node has not caught up yet".to_string()).into());
+                        return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
                         return Ok(NetworkClientResponses::RequestRouted);
@@ -1663,7 +1663,11 @@ impl Client {
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
+                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
+                // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
+                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                trace!(target: "client", shard_id, "Recorded a transaction.");
 
                 // Active validator:
                 //   possibly forward to next epoch validators
@@ -1673,7 +1677,6 @@ impl Client {
                 if active_validator {
                     trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-                    self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;

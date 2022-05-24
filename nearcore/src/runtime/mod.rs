@@ -1239,12 +1239,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             // maintain pointers to avoid cloning.
             let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = *epoch_first_block_info.height();
+            let mut epoch_start_height = epoch_first_block_info.height();
             for _ in 0..self.gc_num_epochs_to_keep - 1 {
                 let epoch_first_block =
                     *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = *epoch_first_block_info.height();
+                epoch_start_height = epoch_first_block_info.height();
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)

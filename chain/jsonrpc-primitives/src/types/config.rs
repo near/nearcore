@@ -7,15 +7,6 @@ pub struct RpcProtocolConfigRequest {
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-impl RpcProtocolConfigRequest {
-    pub fn parse(
-        value: Option<Value>,
-    ) -> Result<RpcProtocolConfigRequest, crate::errors::RpcParseError> {
-        crate::utils::parse_params::<near_primitives::types::BlockReference>(value)
-            .map(|block_reference| RpcProtocolConfigRequest { block_reference })
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcProtocolConfigResponse {
     #[serde(flatten)]
