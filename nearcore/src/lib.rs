@@ -254,7 +254,7 @@ pub fn start_with_config_and_synchronization(
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
+    let node_id = PeerId::new(config.network_config.public_key.clone());
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 

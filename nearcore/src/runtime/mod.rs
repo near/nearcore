@@ -563,14 +563,14 @@ impl NightshadeRuntime {
                 states_to_patch,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::from(Error::InvalidTransactions),
+                RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
                 }
-                RuntimeError::StorageError(e) => Error::from(Error::StorageError(e)),
+                RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
@@ -744,7 +744,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap();
 
         if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(Error::InvalidRandomnessBeaconOutput.into());
+            return Err(Error::InvalidRandomnessBeaconOutput);
         }
         Ok(())
     }
@@ -781,7 +781,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         } else {
@@ -798,7 +798,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
@@ -854,7 +854,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 state_update.rollback();
                             }
                             Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::from(Error::StorageError(err)))
+                                return Err(Error::StorageError(err))
                             }
                             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                         }
@@ -945,7 +945,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
         } else {
-            Err(Error::NotAValidator.into())
+            Err(Error::NotAValidator)
         }
     }
 
@@ -975,7 +975,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(Error::InvalidApprovals.into());
+                    return Err(Error::InvalidApprovals);
                 }
             }
         }
@@ -984,7 +984,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
             .collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(Error::NotEnoughApprovals.into())
+            Err(Error::NotEnoughApprovals)
         } else {
             Ok(())
         }
@@ -1073,7 +1073,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((validator, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(Error::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -1090,7 +1090,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((fisherman, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(Error::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -1239,12 +1239,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             // maintain pointers to avoid cloning.
             let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = *epoch_first_block_info.height();
+            let mut epoch_start_height = epoch_first_block_info.height();
             for _ in 0..self.gc_num_epochs_to_keep - 1 {
                 let epoch_first_block =
                     *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = *epoch_first_block_info.height();
+                epoch_start_height = epoch_first_block_info.height();
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
@@ -2897,8 +2897,7 @@ mod test {
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-            }
-            .into()]
+            }]
         );
         assert!(response.current_proposals.is_empty());
         assert_eq!(

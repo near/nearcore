@@ -68,10 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    Encoder, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Result,
-    TextEncoder,
+    Counter, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
-use prometheus::{GaugeVec, HistogramOpts, Opts};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -96,6 +95,15 @@ pub fn try_create_int_counter_vec(
 ) -> Result<IntCounterVec> {
     let opts = Opts::new(name, help);
     let counter = IntCounterVec::new(opts, labels)?;
+    prometheus::register(Box::new(counter.clone()))?;
+    Ok(counter)
+}
+
+/// Attempts to crate an `Counter`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
+    let opts = Opts::new(name, help);
+    let counter = Counter::with_opts(opts)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
 }
@@ -136,6 +144,24 @@ pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Resu
     Ok(gauge)
 }
 
+/// Attempts to crate an `Gauge`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
+    let opts = Opts::new(name, help);
+    let gauge = Gauge::with_opts(opts)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}
+
+/// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
+    let opts = Opts::new(name, help);
+    let gauge = GaugeVec::new(opts, labels)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}
+
 /// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
@@ -160,13 +186,4 @@ pub fn try_create_histogram_vec(
     let histogram = HistogramVec::new(opts, labels)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
-}
-
-/// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not accept the gauge
-/// (potentially due to naming conflict).
-pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
-    let opts = Opts::new(name, help);
-    let gauge = GaugeVec::new(opts, labels)?;
-    prometheus::register(Box::new(gauge.clone()))?;
-    Ok(gauge)
 }
