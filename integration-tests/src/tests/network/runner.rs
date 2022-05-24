@@ -58,7 +58,7 @@ impl<T: Hash + Eq> MultiSet<T> {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 
