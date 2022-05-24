@@ -726,7 +726,7 @@ impl Handler<Status> for ClientActor {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = (*head_header.prev_state_root()).into();
+        let latest_state_root = *head_header.prev_state_root();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -921,7 +921,7 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash.into(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 latest_state_root,
                 latest_block_time: from_timestamp(latest_block_time),

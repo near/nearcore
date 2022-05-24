@@ -626,42 +626,4 @@ mod test {
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
-
-    #[test]
-    fn test_dump_state_redis() {
-        let epoch_length = 4;
-        let (store, genesis, mut env, _) = setup(epoch_length, PROTOCOL_VERSION, None);
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-        let tx = SignedTransaction::stake(
-            1,
-            "test1".parse().unwrap(),
-            &signer,
-            TESTING_INIT_STAKE,
-            signer.public_key.clone(),
-            genesis_hash,
-        );
-        env.clients[0].process_tx(tx, false, false);
-
-        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
-
-        let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
-        let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
-        assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
-        );
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
-        let state_roots: Vec<CryptoHash> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        use crate::state_dump::state_dump_redis;
-        let res = state_dump_redis(runtime, &state_roots, last_block.header().clone());
-        assert_eq!(res, Ok(()));
-    }
 }

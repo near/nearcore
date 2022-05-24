@@ -271,8 +271,7 @@ fn main() -> Result<()> {
     });
     let opts: Opts = Opts::parse();
 
-    let home_dir =
-        opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
+    let home_dir = opts.home_dir.unwrap_or(near_indexer::get_default_home());
 
     match opts.subcmd {
         SubCommand::Run => {
