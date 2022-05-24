@@ -178,7 +178,7 @@ impl Client {
                     genesis_block.hash(),
                 )?
                 .iter()
-                .map(|x| x.0.clone().into())
+                .map(|x| x.0.clone())
                 .collect(),
             EPOCH_SYNC_REQUEST_TIMEOUT,
             EPOCH_SYNC_PEER_TIMEOUT,
