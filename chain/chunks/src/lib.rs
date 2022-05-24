@@ -1537,10 +1537,8 @@ impl ShardsManager {
                     // we are not sure if we are using the correct epoch id for validation, so
                     // we can't be sure if the chunk header is actually invalid. Let's return
                     // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(near_chain::Error::from(DBNotFoundErr(
-                        format!("block {:?}", header.prev_block_hash()).to_string(),
-                    ))
-                    .into())
+                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
+                        .into())
                 };
             }
             Ok(true) => (),
@@ -1555,10 +1553,8 @@ impl ShardsManager {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
-                Err(near_chain::Error::from(DBNotFoundErr(
-                    format!("block {:?}", header.prev_block_hash()).to_string(),
-                ))
-                .into())
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
+                    .into())
             };
         }
         Ok(())
@@ -1618,7 +1614,7 @@ impl ShardsManager {
             {
                 if *hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
-                    return Err(Error::DuplicateChunkHeight.into());
+                    return Err(Error::DuplicateChunkHeight);
                 }
             }
         }
