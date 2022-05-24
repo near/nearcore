@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
@@ -27,19 +28,49 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
+    NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
+    ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use std::hash::Hash;
 use std::pin::Pin;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 pub type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
+
+#[derive(Debug, PartialEq, Eq)]
+struct MultiSet<T: Hash + Eq>(HashMap<T, usize>);
+
+impl<T: Hash + Eq> MultiSet<T> {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn is_subset(&self, other: &Self) -> bool {
+        for (k, v) in &self.0 {
+            if other.0.get(&k).unwrap_or(&0) < &v {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+impl<T: Hash + Eq> FromIterator<T> for MultiSet<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut s = Self::new();
+        for v in iter {
+            *s.0.entry(v).or_default() += 1;
+        }
+        s
+    }
+}
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -107,6 +138,18 @@ pub fn setup_network_node(
     peer_manager
 }
 
+#[derive(Debug, Clone)]
+pub struct Ping {
+    pub source: usize,
+    pub nonce: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pong {
+    pub source: usize,
+    pub nonce: u64,
+}
+
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -118,9 +161,13 @@ pub enum Action {
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
     // Send ping from `source` with `nonce` to `target`
-    PingTo(usize, usize, usize),
+    PingTo {
+        source: usize,
+        target: usize,
+        nonce: u64,
+    },
     // Check for `source` received pings and pongs.
-    CheckPingPong(usize, Vec<(usize, usize, Option<usize>)>, Vec<(usize, usize, Option<usize>)>),
+    CheckPingPong(usize, Vec<Ping>, Vec<Pong>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
@@ -144,15 +191,15 @@ struct StateMachine {
 async fn check_routing_table(
     info: &mut RunningInfo,
     u: usize,
-    expected: Vec<(usize, Vec<usize>)>,
+    want: Vec<(usize, Vec<usize>)>,
 ) -> anyhow::Result<ControlFlow> {
-    let mut expected_rt = vec![];
-    for (target, routes) in expected {
+    let mut want_rt = vec![];
+    for (target, routes) in want {
         let mut peers = vec![];
         for hop in routes {
             peers.push(info.runner.test_config[hop].peer_id());
         }
-        expected_rt.push((info.runner.test_config[target].peer_id(), peers));
+        want_rt.push((info.runner.test_config[target].peer_id(), peers));
     }
     let pm = info.get_node(u)?.addr.clone();
     let resp = pm
@@ -163,7 +210,7 @@ async fn check_routing_table(
     } else {
         bail!("bad response")
     };
-    if expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt) {
+    if expected_routing_tables(&rt.peer_forwarding, &want_rt) {
         return Ok(ControlFlow::Break(()));
     }
     Ok(ControlFlow::Continue(()))
@@ -198,54 +245,37 @@ async fn check_account_id(
 async fn check_ping_pong(
     info: &mut RunningInfo,
     source: usize,
-    pings: Vec<(usize, usize, Option<usize>)>,
-    pongs: Vec<(usize, usize, Option<usize>)>,
+    want_pings: Vec<Ping>,
+    want_pongs: Vec<Pong>,
 ) -> anyhow::Result<ControlFlow> {
-    let mut pings_expected = vec![];
-    for (nonce, source, count) in pings {
-        pings_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
-    }
-    let mut pongs_expected = vec![];
-    for (nonce, source, count) in pongs {
-        pongs_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
-    }
+    let want_pings: MultiSet<NetPing> = want_pings
+        .iter()
+        .map(|p| NetPing { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
+        .collect();
+    let want_pongs: MultiSet<NetPong> = want_pongs
+        .iter()
+        .map(|p| NetPong { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
+        .collect();
     let pm = &info.get_node(source)?.addr;
     let resp = pm
         .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchPingPongInfo))
         .await?;
-    let (pings, pongs) =
+    let (got_pings, got_pongs): (MultiSet<_>, MultiSet<_>) =
         if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() {
-            (pings, pongs)
+            (pings.into_iter().collect(), pongs.into_iter().collect())
         } else {
             bail!("bad response")
         };
-    if pings.len() != pings_expected.len() {
-        return Ok(ControlFlow::Continue(()));
+    if !got_pings.is_subset(&want_pings) {
+        bail!("got_pings = {got_pings:?}, want_pings = {want_pings:?}");
     }
-    for (nonce, source, count) in pings_expected {
-        let ping = if let Some(ping) = pings.get(&nonce) {
-            ping
-        } else {
-            return Ok(ControlFlow::Continue(()));
-        };
-        if ping.0.source != source || count.map_or(false, |c| c != ping.1) {
-            return Ok(ControlFlow::Continue(()));
-        }
+    if !got_pongs.is_subset(&want_pongs) {
+        bail!("got_pongs = {got_pongs:?}, want_pongs = {want_pongs:?}");
     }
-    if pongs.len() != pongs_expected.len() {
-        return Ok(ControlFlow::Continue(()));
+    if got_pings == want_pings && got_pongs == want_pongs {
+        return Ok(ControlFlow::Break(()));
     }
-    for (nonce, source, count) in pongs_expected {
-        let pong = if let Some(pong) = pongs.get(&nonce) {
-            pong
-        } else {
-            return Ok(ControlFlow::Continue(()));
-        };
-        if pong.0.source != source || count.map_or(false, |c| c != pong.1) {
-            return Ok(ControlFlow::Continue(()));
-        }
-    }
-    Ok(ControlFlow::Break(()))
+    Ok(ControlFlow::Continue(()))
 }
 
 impl StateMachine {
@@ -308,13 +338,13 @@ impl StateMachine {
                     Box::pin(check_account_id(info, source, known_validators.clone()))
                 }));
             }
-            Action::PingTo(source, nonce, target) => {
+            Action::PingTo { source, nonce, target } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let target = info.runner.test_config[target].peer_id();
-                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo{
                         nonce, target,
-                    ))).await?;
+                    })).await?;
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -627,7 +657,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
-        let timeout = Duration::from_secs(30);
+        let timeout = Duration::from_secs(15);
         let step = Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {

@@ -149,29 +149,28 @@ pub fn random_epoch_id() -> EpochId {
 
 // Compare whenever routing table match.
 pub fn expected_routing_tables(
-    current: HashMap<PeerId, Vec<PeerId>>,
-    expected: Vec<(PeerId, Vec<PeerId>)>,
+    got: &HashMap<PeerId, Vec<PeerId>>,
+    want: &Vec<(PeerId, Vec<PeerId>)>,
 ) -> bool {
-    if current.len() != expected.len() {
+    if got.len() != want.len() {
         return false;
     }
 
-    for (peer, paths) in expected.into_iter() {
-        let cur_paths = current.get(&peer);
-        if cur_paths.is_none() {
+    for (target, want_peers) in want {
+        let got_peers = if let Some(ps) = got.get(target) {
+            ps
+        } else {
+            return false;
+        };
+        if got_peers.len() != want_peers.len() {
             return false;
         }
-        let cur_paths = cur_paths.unwrap();
-        if cur_paths.len() != paths.len() {
-            return false;
-        }
-        for next_hop in paths.into_iter() {
-            if !cur_paths.contains(&next_hop) {
+        for peer in want_peers {
+            if !got_peers.contains(peer) {
                 return false;
             }
         }
     }
-
     true
 }
 

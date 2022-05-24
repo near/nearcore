@@ -336,7 +336,10 @@ pub enum NetworkRequests {
     ResponseUpdateNonce(Edge),
 
     /// (Unit tests) Start ping to `PeerId` with `nonce`.
-    PingTo(usize, PeerId),
+    PingTo {
+        nonce: u64,
+        target: PeerId,
+    },
     /// (Unit tests) Fetch all received ping and pong so far.
     FetchPingPongInfo,
 
@@ -417,7 +420,7 @@ impl From<NetworkInfo> for NetworkInfoView {
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
-    PingPongInfo { pings: HashMap<usize, (Ping, usize)>, pongs: HashMap<usize, (Pong, usize)> },
+    PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,

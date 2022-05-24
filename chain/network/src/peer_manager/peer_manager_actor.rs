@@ -1515,9 +1515,8 @@ impl PeerManagerActor {
     // Ping pong useful functions.
 
     // for unit tests
-    fn send_ping(&mut self, nonce: usize, target: PeerId) {
-        let body =
-            RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.my_peer_id.clone() });
+    fn send_ping(&mut self, nonce: u64, target: PeerId) {
+        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         self.routing_table_view.sending_ping(nonce, target.clone());
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(msg);
@@ -1940,17 +1939,14 @@ impl PeerManagerActor {
                 }
             }
             // For unit tests
-            NetworkRequests::PingTo(nonce, target) => {
+            NetworkRequests::PingTo { nonce, target } => {
                 self.send_ping(nonce, target);
                 NetworkResponses::NoResponse
             }
             // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table_view.fetch_ping_pong();
-                NetworkResponses::PingPongInfo {
-                    pings: pings.map(|(k, v)| (*k, v.clone())).collect(),
-                    pongs: pongs.map(|(k, v)| (*k, v.clone())).collect(),
-                }
+                NetworkResponses::PingPongInfo { pings, pongs }
             }
         }
     }
