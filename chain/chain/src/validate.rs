@@ -127,11 +127,11 @@ pub fn validate_chunk_with_chunk_extra(
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
-        return Err(Error::InvalidStateRoot.into());
+        return Err(Error::InvalidStateRoot);
     }
 
     if *prev_chunk_extra.outcome_root() != chunk_header.outcome_root() {
-        return Err(Error::InvalidOutcomesProof.into());
+        return Err(Error::InvalidOutcomesProof);
     }
 
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
@@ -139,19 +139,19 @@ pub fn validate_chunk_with_chunk_extra(
     if chunk_header_proposals.len() != chunk_extra_proposals.len()
         || !chunk_extra_proposals.eq(chunk_header_proposals)
     {
-        return Err(Error::InvalidValidatorProposals.into());
+        return Err(Error::InvalidValidatorProposals);
     }
 
     if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
-        return Err(Error::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit);
     }
 
     if prev_chunk_extra.gas_used() != chunk_header.gas_used() {
-        return Err(Error::InvalidGasUsed.into());
+        return Err(Error::InvalidGasUsed);
     }
 
     if prev_chunk_extra.balance_burnt() != chunk_header.balance_burnt() {
-        return Err(Error::InvalidBalanceBurnt.into());
+        return Err(Error::InvalidBalanceBurnt);
     }
 
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
@@ -167,14 +167,14 @@ pub fn validate_chunk_with_chunk_extra(
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     if outgoing_receipts_root != chunk_header.outgoing_receipts_root() {
-        return Err(Error::InvalidReceiptsProof.into());
+        return Err(Error::InvalidReceiptsProof);
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit();
     if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
         || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
-        return Err(Error::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit);
     }
 
     Ok(())
@@ -214,7 +214,7 @@ fn validate_double_sign(
             (*right_block_header.hash(), vec![block_producer])
         })
     } else {
-        Err(Error::MaliciousChallenge.into())
+        Err(Error::MaliciousChallenge)
     }
 }
 
@@ -225,7 +225,7 @@ fn validate_header_authorship(
     if runtime_adapter.verify_header_signature(block_header)? {
         Ok(())
     } else {
-        Err(Error::InvalidChallenge.into())
+        Err(Error::InvalidChallenge)
     }
 }
 
@@ -246,7 +246,7 @@ fn validate_chunk_authorship(
         )?;
         Ok(chunk_producer)
     } else {
-        Err(Error::InvalidChallenge.into())
+        Err(Error::InvalidChallenge)
     }
 }
 
@@ -268,7 +268,7 @@ fn validate_chunk_proofs_challenge(
         &chunk_proofs.merkle_proof,
     ) {
         // Merkle proof is invalid. It's a malicious challenge.
-        return Err(Error::MaliciousChallenge.into());
+        return Err(Error::MaliciousChallenge);
     }
     // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
     let tmp_chunk;
@@ -299,7 +299,7 @@ fn validate_chunk_proofs_challenge(
     }
 
     // The chunk is fine. It's a malicious challenge.
-    return Err(Error::MaliciousChallenge.into());
+    return Err(Error::MaliciousChallenge);
 }
 
 fn validate_chunk_state_challenge(
@@ -377,7 +377,7 @@ fn validate_chunk_state_challenge(
     // }
     // Ok((*block_header.hash(), vec![chunk_producer]))
 
-    Err(Error::MaliciousChallenge.into())
+    Err(Error::MaliciousChallenge)
 }
 
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
@@ -396,7 +396,7 @@ pub fn validate_challenge(
         challenge.hash.as_ref(),
         &challenge.signature,
     )? {
-        return Err(Error::InvalidChallenge.into());
+        return Err(Error::InvalidChallenge);
     }
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
