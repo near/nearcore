@@ -232,7 +232,7 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<Bloc
         assert!(block_info.last_finalized_height() >= prev_block_info.last_finalized_height());
         if epoch_manager.is_next_block_epoch_start(block_infos[i].prev_hash()).unwrap() {
             assert_ne!(prev_block_info.epoch_first_block(), block_info.epoch_first_block());
-            if *prev_block_info.height() == 0 {
+            if prev_block_info.height() == 0 {
                 // special case: epochs 0 and 1
                 assert_eq!(
                     prev_block_info.epoch_id(),
@@ -320,8 +320,7 @@ fn verify_block_stats(
     for i in 1..block_infos.len() {
         let prev_epoch_end =
             *epoch_manager.get_block_info(block_infos[i].epoch_first_block()).unwrap().prev_hash();
-        let prev_epoch_end_height =
-            *epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
+        let prev_epoch_end_height = epoch_manager.get_block_info(&prev_epoch_end).unwrap().height();
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
