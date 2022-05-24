@@ -150,7 +150,7 @@ pub fn random_epoch_id() -> EpochId {
 // Compare whenever routing table match.
 pub fn expected_routing_tables(
     got: &HashMap<PeerId, Vec<PeerId>>,
-    want: &Vec<(PeerId, Vec<PeerId>)>,
+    want: &[(PeerId, Vec<PeerId>)],
 ) -> bool {
     if got.len() != want.len() {
         return false;
