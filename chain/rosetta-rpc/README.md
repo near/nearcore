@@ -52,13 +52,48 @@ transactions to a blockchain network.
 | - `/construction/hash`       | Done                                                                                                                                |
 | - `/construction/submit`     | Done                                                                                                                                |
 
-To verify the API compliance use:
+## API Compliance
+You can verify the API compliance in each network differently. You can run the commands below to check `Data` and `Construction` compliances mentioned in [Rosetta Testing](https://www.rosetta-api.org/docs/rosetta_test.html#run-the-tool). Each network has it's own `.ros` and `.cfg` files that you can configure and run. 
 
 ```bash
-rosetta-cli check:data --configuration-file=./rosetta.cfg
-rosetta-cli check:construction --configuration-file=./rosetta.cfg
+rosetta-cli check:data --configuration-file=./rosetta-<mainnet|testnet|localnet>.cfg
+rosetta-cli check:construction --configuration-file=./rosetta-<mainnet|testnet|localnet>.cfg
 ```
+##### Localnet
+For `localnet` you can use the account `test.near` to run the tests. You should replace the `<privateKey>` value in `rosetta-localnet.cfg` with the `privateKey` of `test.near` which you can find in `~/.near-credentials/local` in the `test.near.json` file. 
+```json
+  ...
+  "prefunded_accounts": [{
+        "privkey": "<privateKey>",
+        "account_identifier": {
+            "address": "test.near"
+        },
+  ...
+```
+After replacing the `privateKey` you will need to replace the `test-chain-I4wNe` with the name of your localnet in `rosetta-localnet.cfg`. 
+```json
+"network": {
+  "blockchain": "nearprotocol",
+  "network": "test-chain-I4wNe"
+ },
+ ```
 
+##### Testnet
+To run it against testnet or mainnet would require to also have the `pre-funded accounts` as well as network set to a proper value in the `.ros` and `rosetta-<mainnet|testnet>.cfg` files.
+
+Start by [creating an account](https://docs.near.org/docs/tools/near-cli#near-create-account). Created account will be placed in `~/.near-credentials/testnet/<accountname>.testnet.json`. Change `<privateKey>` with the private key of newly created account and `<accountName>`  with the account name of the newly created account in `rosetta-testnet.cfg`.
+```json
+  ...
+  "prefunded_accounts": [{
+        "privkey": "<privateKey>",
+        "account_identifier": {
+            "address": "<accountName>"
+        },
+  ...
+```
+Next you will need to change the `faucet` with `{"address":"<accountName>"}` in `nearprotocol-testnet.ros`. Now you are ready to run the test in testnet.
+##### Mainnet
+For mainnet you can follow the same steps that you have followed in Testnet documentation. The difference is that the configuration files are named `rosetta-mainnet.cfg` and `nearprotocol-mainnet.ros`. The credentials can be found in `~/.near-credentials/mainnet/<accountname>.near.json`.
 ## How to Compile
 
 To compile the `neard` executable you’ll need Rust and make installed.
