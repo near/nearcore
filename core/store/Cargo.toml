@@ -10,9 +10,10 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1.1"
+bytesize = { version = "1.1", features = ["serde"] }
 derive_more = "0.99.3"
 elastic-array = "0.11"
+enum-map = "2.1.0"
 rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

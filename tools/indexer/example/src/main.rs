@@ -265,7 +265,10 @@ fn main() -> Result<()> {
         "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,\
          stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
     );
-    let _susbcriber = near_o11y::default_subscriber(env_filter, ColorOutput::Auto).global();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+    });
     let opts: Opts = Opts::parse();
 
     let home_dir =
