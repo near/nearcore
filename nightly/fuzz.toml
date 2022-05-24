@@ -2,12 +2,12 @@
 name = "master"
 weight = 10
 
+[[branch]]
+name = "1.27.0"
+weight = 10
+
 #[[branch]]
 #name = "1.26.0"
-#weight = 10
-#
-#[[branch]]
-#name = "1.25.0"
 #weight = 10
 
 [[target]]
