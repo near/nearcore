@@ -679,7 +679,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
                     BlockId::Height(h) => self.chain.get_header_by_height(h)?.clone(),
                 };
                 let next_block_hash =
-                    *self.chain.mut_store().get_next_block_hash(block_header.hash())?;
+                    self.chain.mut_store().get_next_block_hash(block_header.hash())?;
                 let next_block_header = self.chain.get_block_header(&next_block_hash)?.clone();
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()

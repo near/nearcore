@@ -2953,7 +2953,6 @@ impl Chain {
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
-            let next_block_hash = *next_block_hash;
             let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;

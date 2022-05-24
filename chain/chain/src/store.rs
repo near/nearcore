@@ -167,7 +167,7 @@ pub trait ChainStoreAccess {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
-    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error>;
+    fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error>;
     fn get_epoch_light_client_block(
         &mut self,
         hash: &CryptoHash,
@@ -176,10 +176,10 @@ pub trait ChainStoreAccess {
     fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error>;
     /// Check if we saw chunk hash at given height and shard id.
     fn get_any_chunk_hash_by_height_shard(
-        &mut self,
+        &self,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&ChunkHash, Error>;
+    ) -> Result<ChunkHash, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     fn get_header_on_chain_by_height(
         &self,
@@ -308,9 +308,9 @@ pub struct ChainStore {
     /// Cache with height to block hash on any chain.
     block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
     /// Cache with height and shard_id to any chunk hash.
-    chunk_hash_per_height_shard: LruCache<Vec<u8>, ChunkHash>,
+    chunk_hash_per_height_shard: CellLruCache<Vec<u8>, ChunkHash>,
     /// Next block hashes for each block on the canonical chain
-    next_block_hashes: LruCache<Vec<u8>, CryptoHash>,
+    next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
     /// Light client blocks corresponding to the last finalized block of each epoch
     epoch_light_client_blocks: LruCache<Vec<u8>, LightClientBlockView>,
     /// Cache of my last approvals
@@ -366,8 +366,8 @@ impl ChainStore {
             height: CellLruCache::new(CACHE_SIZE),
             block_hash_per_height: CellLruCache::new(CACHE_SIZE),
             block_refcounts: LruCache::new(CACHE_SIZE),
-            chunk_hash_per_height_shard: LruCache::new(CACHE_SIZE),
-            next_block_hashes: LruCache::new(CACHE_SIZE),
+            chunk_hash_per_height_shard: CellLruCache::new(CACHE_SIZE),
+            next_block_hashes: CellLruCache::new(CACHE_SIZE),
             epoch_light_client_blocks: LruCache::new(CACHE_SIZE),
             my_last_approvals: LruCache::new(CACHE_SIZE),
             last_approvals_per_account: LruCache::new(CACHE_SIZE),
@@ -927,12 +927,12 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
-    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+    fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::NextBlockHashes,
-                &mut self.next_block_hashes,
+                &self.next_block_hashes,
                 hash.as_ref(),
             ),
             &format!("NEXT BLOCK HASH: {}", hash),
@@ -967,15 +967,15 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_any_chunk_hash_by_height_shard(
-        &mut self,
+        &self,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&ChunkHash, Error> {
+    ) -> Result<ChunkHash, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::ChunkPerHeightShard,
-                &mut self.chunk_hash_per_height_shard,
+                &self.chunk_hash_per_height_shard,
                 &get_height_shard_id(height, shard_id),
             ),
             &format!("CHUNK PER HEIGHT AND SHARD ID: {} {}", height, shard_id),
@@ -1397,22 +1397,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn get_any_chunk_hash_by_height_shard(
-        &mut self,
+        &self,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<&ChunkHash, Error> {
+    ) -> Result<ChunkHash, Error> {
         if let Some(chunk_hash) =
             self.chain_store_cache_update.chunk_hash_per_height_shard.get(&(height, shard_id))
         {
-            Ok(chunk_hash)
+            Ok(chunk_hash.clone())
         } else {
             self.chain_store.get_any_chunk_hash_by_height_shard(height, shard_id)
         }
     }
 
-    fn get_next_block_hash(&mut self, hash: &CryptoHash) -> Result<&CryptoHash, Error> {
+    fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
         if let Some(next_hash) = self.chain_store_cache_update.next_block_hashes.get(hash) {
-            Ok(next_hash)
+            Ok(*next_hash)
         } else {
             self.chain_store.get_next_block_hash(hash)
         }

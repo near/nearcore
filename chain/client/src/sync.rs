@@ -510,7 +510,6 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = *hash;
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
                         } else {
@@ -532,7 +531,7 @@ impl BlockSync {
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
             match chain.mut_store().get_next_block_hash(&next_hash) {
-                Ok(hash) => next_hash = *hash,
+                Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,
                     _ => return Err(e),

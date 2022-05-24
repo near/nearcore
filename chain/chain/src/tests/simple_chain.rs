@@ -238,9 +238,9 @@ fn next_blocks() {
     let b4_hash = *b4.hash();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
-    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
 }
