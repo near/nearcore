@@ -1,8 +1,9 @@
 use crate::network_protocol::Encoding;
+#[cfg(not(feature = "test_features"))]
+use near_metrics::do_create_int_counter_vec;
 use near_metrics::{
-    do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec,
+    try_create_histogram, try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
+    Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
@@ -24,6 +25,9 @@ pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) 
             .set(v);
     }
 }
+
+#[cfg(feature = "test_features")]
+use std::sync::{Arc, Mutex};
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
@@ -130,6 +134,11 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
+#[cfg(not(feature = "test_features"))]
+pub static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
+    do_create_int_counter_vec("near_broadcast_msg", "Broadcasted messages", &["type"])
+});
+
 #[derive(Clone, Copy, strum::AsRefStr)]
 pub(crate) enum MessageDropped {
     NoRouteFound,
@@ -156,21 +165,38 @@ impl MessageDropped {
 #[derive(Clone, Debug, actix::MessageResponse)]
 pub struct NetworkMetrics {
     // sent messages (broadcast style)
-    pub broadcast_messages: IntCounterVec,
+    #[cfg(feature = "test_features")]
+    broadcast_messages: Arc<Mutex<HashMap<&'static str, u64>>>,
 }
 
 impl NetworkMetrics {
     pub fn new() -> Self {
         Self {
-            broadcast_messages: do_create_int_counter_vec(
-                "near_broadcast_msg",
-                "Broadcasted messages",
-                &["type"],
-            ),
+            #[cfg(feature = "test_features")]
+            broadcast_messages: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    #[cfg(feature = "test_features")]
+    pub fn inc_broadcast(&self, message_name: &'static str) {
+        let mut map = self.broadcast_messages.lock().unwrap();
+        let count = map.entry(message_name).or_insert(0);
+        *count += 1;
+    }
+
+    #[cfg(not(feature = "test_features"))]
     pub fn inc_broadcast(&self, message_name: &str) {
-        self.broadcast_messages.with_label_values(&[message_name]).inc();
+        BROADCAST_MESSAGES.with_label_values(&[message_name]).inc();
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn get_broadcast_count(&self, msg_type: &'static str) -> u64 {
+        let hm = self.broadcast_messages.lock().unwrap();
+        hm.get(msg_type).map_or(0, |v| *v)
+    }
+
+    #[cfg(not(feature = "test_features"))]
+    pub fn get_broadcast_count(&self, msg_type: &'static str) -> u64 {
+        BROADCAST_MESSAGES.get_metric_with_label_values(&[msg_type]).unwrap().get()
     }
 }

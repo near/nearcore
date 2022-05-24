@@ -202,7 +202,7 @@ pub struct PeerManagerActor {
     /// Connected peers we have sent new edge update, but we haven't received response so far.
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Dynamic Prometheus metrics
-    pub(crate) network_metrics: Arc<NetworkMetrics>,
+    pub(crate) network_metrics: NetworkMetrics,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     routing_table_addr: Addr<RoutingTableActor>,
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -330,7 +330,7 @@ impl PeerManagerActor {
             routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
-            network_metrics: Arc::new(NetworkMetrics::new()),
+            network_metrics: NetworkMetrics::new(),
             routing_table_addr,
             txns_since_last_block,
             peer_counter: Arc::new(AtomicUsize::new(0)),
@@ -717,7 +717,7 @@ impl PeerManagerActor {
     }
 
     fn send_sync(
-        network_metrics: Arc<NetworkMetrics>,
+        network_metrics: NetworkMetrics,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
@@ -1028,11 +1028,7 @@ impl PeerManagerActor {
         self.routing_table_addr.do_send(RoutingTableMessages::AdvRemoveEdges(edges));
     }
 
-    fn wait_peer_or_remove(
-        ctx: &mut Context<Self>,
-        edge: Edge,
-        network_metrics: Arc<NetworkMetrics>,
-    ) {
+    fn wait_peer_or_remove(ctx: &mut Context<Self>, edge: Edge, network_metrics: NetworkMetrics) {
         // This edge says this is an connected peer, which is currently not in the set of connected peers.
         // Wait for some time to let the connection begin or broadcast edge removal instead.
 
@@ -1341,7 +1337,7 @@ impl PeerManagerActor {
 
     /// Broadcast message to all active peers.
     fn broadcast_message(
-        network_metrics: Arc<NetworkMetrics>,
+        network_metrics: NetworkMetrics,
         connected_peers: &HashMap<PeerId, ConnectedPeer>,
         msg: SendMessage,
     ) {

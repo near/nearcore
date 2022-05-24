@@ -11,7 +11,7 @@ use near_logger_utils::init_test_logger;
 
 use near_network::routing::start_routing_table_actor;
 
-use near_network::test_utils::{open_port, GetMetrics, WaitOrTimeoutActor};
+use near_network::test_utils::{open_port, GetBroadcastMessageCount, WaitOrTimeoutActor};
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
     RoutingTableUpdate,
@@ -133,25 +133,22 @@ fn repeated_announce_accounts() {
             Box::new(move |_| {
                 actix::spawn({
                     let foo = successes.clone();
-                    pm.send(GetMetrics {}).then(move |res| {
-                        let metrics = res.unwrap();
-                        let sync_routing_table_sent = metrics
-                            .broadcast_messages
-                            .get_metric_with_label_values(&["SyncRoutingTable"])
-                            .unwrap()
-                            .get();
-                        if sync_routing_table_sent == 1 {
-                            // Try it couple times - we want to be sure that it didn't hit in the middle of processing.
-                            if foo.fetch_add(1, Ordering::SeqCst) > 4 {
-                                System::current().stop();
+                    pm.send(GetBroadcastMessageCount { msg_type: "SyncRoutingTable" }).then(
+                        move |res| {
+                            let sync_routing_table_sent = res.unwrap();
+                            if sync_routing_table_sent == 1 {
+                                // Try it couple times - we want to be sure that it didn't hit in the middle of processing.
+                                if foo.fetch_add(1, Ordering::SeqCst) > 4 {
+                                    System::current().stop();
+                                }
                             }
-                        }
-                        assert!(
-                            sync_routing_table_sent <= 1,
-                            "Too many sync routing table requests"
-                        );
-                        future::ready(())
-                    })
+                            assert!(
+                                sync_routing_table_sent <= 1,
+                                "Too many sync routing table requests"
+                            );
+                            future::ready(())
+                        },
+                    )
                 });
             }),
             100,
