@@ -21,8 +21,12 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    let filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(filter, ColorOutput::Auto).global();
+    let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+    });
+
     let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .about(

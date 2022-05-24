@@ -1,5 +1,6 @@
 use crate::test_utils::setup;
 use crate::{Block, Error};
+use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
 
 #[test]
@@ -44,7 +45,7 @@ fn challenges_new_head_prev() {
     // Try to add a block on top of the fifth block.
 
     if let Err(e) = chain.process_block_test(&None, last_block) {
-        assert_eq!(e, Error::ChallengedBlockOnChain)
+        assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {
         assert!(false);
     }

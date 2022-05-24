@@ -2697,7 +2697,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
         {
             let key = get_height_shard_id(*height, *shard_id);
-            store_update.set_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
+            store_update.insert_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
@@ -2744,7 +2744,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
             }
 
-            store_update.set_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
         }
         for (height, hash_set) in chunk_hashes_by_height {
             store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
@@ -2919,7 +2919,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::ChallengedBlocks, hash.as_ref(), &true)?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
-            store_update.set_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
         for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
             store_update.set_ser(

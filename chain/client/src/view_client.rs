@@ -81,26 +81,9 @@ pub struct ViewClientRequestManager {
     pub receipt_outcome_requests: lru::LruCache<CryptoHash, Instant>,
 }
 
-#[cfg(feature = "test_features")]
-#[derive(Default)]
-pub struct AdversarialControls {
-    pub adv_disable_header_sync: bool,
-    pub adv_disable_doomslug: bool,
-    pub adv_sync_height: Option<u64>,
-    pub is_archival: bool,
-}
-
-#[cfg(feature = "test_features")]
-impl AdversarialControls {
-    pub fn new(is_archival: bool) -> Self {
-        Self { is_archival, ..Self::default() }
-    }
-}
-
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
-    #[cfg(feature = "test_features")]
-    pub adv: Arc<RwLock<AdversarialControls>>,
+    pub adv: crate::adversarial::Controls,
 
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
@@ -135,7 +118,7 @@ impl ViewClientActor {
         network_adapter: Arc<dyn PeerManagerAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
-        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+        adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -145,7 +128,6 @@ impl ViewClientActor {
             !config.archive,
         )?;
         Ok(ViewClientActor {
-            #[cfg(feature = "test_features")]
             adv,
             validator_account_id,
             chain,
@@ -224,8 +206,8 @@ impl ViewClientActor {
                                 block_reference: msg.block_reference.clone(),
                             }
                         }
-                        near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                            QueryError::InternalError { error_message }
+                        near_chain::near_chain_primitives::Error::IOErr(error) => {
+                            QueryError::InternalError { error_message: error.to_string() }
                         }
                         _ => QueryError::Unreachable { error_message: err.to_string() },
                     })?
@@ -241,8 +223,8 @@ impl ViewClientActor {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
                     QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
                 }
-                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                    QueryError::InternalError { error_message }
+                near_chain::near_chain_primitives::Error::IOErr(error) => {
+                    QueryError::InternalError { error_message: error.to_string() }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
             })?
@@ -283,8 +265,8 @@ impl ViewClientActor {
                     }
                     Err(err) => QueryError::InternalError { error_message: err.to_string() },
                 },
-                near_chain::near_chain_primitives::Error::IOErr(error_message) => {
-                    QueryError::InternalError { error_message }
+                near_chain::near_chain_primitives::Error::IOErr(error) => {
+                    QueryError::InternalError { error_message: error.to_string() }
                 }
                 _ => QueryError::Unreachable { error_message: err.to_string() },
             })?;
@@ -502,14 +484,11 @@ impl ViewClientActor {
     }
 
     fn get_height(&self, head: &Tip) -> BlockHeight {
-        #[cfg(feature = "test_features")]
-        {
-            if let Some(height) = self.adv.read().unwrap().adv_sync_height {
-                return height;
-            }
+        if let Some(height) = self.adv.sync_height() {
+            height
+        } else {
+            head.height
         }
-
-        head.height
     }
 
     fn check_state_sync_request(&self) -> bool {
@@ -1043,18 +1022,18 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv.write().unwrap().adv_disable_doomslug = true;
+                        self.adv.set_disable_doomslug(true);
                         self.chain.adv_disable_doomslug();
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
                         info!(target: "adversary", "Setting adversarial sync height: {}", height);
-                        self.adv.write().unwrap().adv_sync_height = Some(height);
+                        self.adv.set_sync_height(height);
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv.write().unwrap().adv_disable_header_sync = true;
+                        self.adv.set_disable_header_sync(true);
                         NetworkViewClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
@@ -1147,14 +1126,9 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                #[cfg(feature = "test_features")]
-                {
-                    if self.adv.read().unwrap().adv_disable_header_sync {
-                        return NetworkViewClientResponses::NoResponse;
-                    }
-                }
-
-                if let Ok(headers) = self.retrieve_headers(hashes) {
+                if self.adv.disable_header_sync() {
+                    NetworkViewClientResponses::NoResponse
+                } else if let Ok(headers) = self.retrieve_headers(hashes) {
                     NetworkViewClientResponses::BlockHeaders(headers)
                 } else {
                     NetworkViewClientResponses::NoResponse
@@ -1395,7 +1369,7 @@ pub fn start_view_client(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
-    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
+    adv: crate::adversarial::Controls,
 ) -> Addr<ViewClientActor> {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
@@ -1412,7 +1386,6 @@ pub fn start_view_client(
             network_adapter1,
             config1,
             request_manager1,
-            #[cfg(feature = "test_features")]
             adv.clone(),
         )
         .unwrap()
