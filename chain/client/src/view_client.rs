@@ -608,9 +608,7 @@ impl Handler<GetChunk> for ViewClientActor {
             let chunk_header = block
                 .chunks()
                 .get(shard_id as usize)
-                .ok_or_else(|| {
-                    near_chain::Error::from(near_chain::Error::InvalidShardId(shard_id))
-                })?
+                .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
                 .clone();
             let chunk_hash = chunk_header.chunk_hash();
             chain.get_chunk(&chunk_hash).and_then(|chunk| {

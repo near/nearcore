@@ -47,7 +47,7 @@ impl From<ChunkReference> for near_client_primitives::types::GetChunk {
             ChunkReference::BlockShardId { block_id, shard_id } => match block_id {
                 near_primitives::types::BlockId::Height(height) => Self::Height(height, shard_id),
                 near_primitives::types::BlockId::Hash(block_hash) => {
-                    Self::BlockHash(block_hash.into(), shard_id)
+                    Self::BlockHash(block_hash, shard_id)
                 }
             },
             ChunkReference::ChunkHash { chunk_id } => Self::ChunkHash(chunk_id.into()),
