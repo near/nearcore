@@ -2914,17 +2914,17 @@ impl Chain {
 
     /// Get block extra that was computer after applying previous block.
     #[inline]
-    pub fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
         self.store.get_block_extra(block_hash)
     }
 
     /// Get chunk extra that was computed after applying chunk with given hash.
     #[inline]
     pub fn get_chunk_extra(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-    ) -> Result<&ChunkExtra, Error> {
+    ) -> Result<Arc<ChunkExtra>, Error> {
         self.store.get_chunk_extra(block_hash, shard_uid)
     }
 
@@ -4186,9 +4186,10 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let mut new_extra =
-                    self.chain_store_update.get_chunk_extra(&prev_block_hash, &shard_uid)?.clone();
+                let old_extra =
+                    self.chain_store_update.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
+                let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 self.chain_store_update.save_chunk_extra(&block_hash, &shard_uid, new_extra);
@@ -5041,7 +5042,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(block_header.prev_hash())?.clone();
 
         let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let mut chunk_extra =
+        let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?.clone();
 
         let apply_result = self.runtime_adapter.apply_transactions(
@@ -5064,9 +5065,11 @@ impl<'a> ChainUpdate<'a> {
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        *chunk_extra.state_root_mut() = apply_result.new_root;
 
-        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
+        let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
+        *new_chunk_extra.state_root_mut() = apply_result.new_root;
+
+        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)
     }
 

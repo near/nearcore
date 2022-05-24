@@ -43,7 +43,6 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-#[cfg(feature = "mock_node")]
 use std::sync::Arc;
 
 /// lru cache size
@@ -128,13 +127,13 @@ pub trait ChainStoreAccess {
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error>;
     /// GEt block extra for given block.
-    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error>;
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error>;
     /// Get chunk extra info for given block hash + shard id.
     fn get_chunk_extra(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-    ) -> Result<&ChunkExtra, Error>;
+    ) -> Result<Arc<ChunkExtra>, Error>;
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -304,9 +303,9 @@ pub struct ChainStore {
     /// Cache with partial chunks
     partial_chunks: LruCache<Vec<u8>, PartialEncodedChunk>,
     /// Cache with block extra.
-    block_extras: LruCache<Vec<u8>, BlockExtra>,
+    block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
     /// Cache with chunk extra.
-    chunk_extras: LruCache<Vec<u8>, ChunkExtra>,
+    chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
     /// Cache with height to hash on the main chain.
     height: LruCache<Vec<u8>, CryptoHash>,
     /// Cache with height to block hash on any chain.
@@ -365,8 +364,8 @@ impl ChainStore {
             headers: CellLruCache::new(CACHE_SIZE),
             chunks: LruCache::new(CHUNK_CACHE_SIZE),
             partial_chunks: LruCache::new(CHUNK_CACHE_SIZE),
-            block_extras: LruCache::new(CACHE_SIZE),
-            chunk_extras: LruCache::new(CACHE_SIZE),
+            block_extras: CellLruCache::new(CACHE_SIZE),
+            chunk_extras: CellLruCache::new(CACHE_SIZE),
             height: LruCache::new(CACHE_SIZE),
             block_hash_per_height: LruCache::new(CACHE_SIZE),
             block_refcounts: LruCache::new(CACHE_SIZE),
@@ -876,12 +875,12 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Information from applying block.
-    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::BlockExtra,
-                &mut self.block_extras,
+                &self.block_extras,
                 block_hash.as_ref(),
             ),
             &format!("BLOCK EXTRA: {}", block_hash),
@@ -890,15 +889,15 @@ impl ChainStoreAccess for ChainStore {
 
     /// Information from applying chunk.
     fn get_chunk_extra(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-    ) -> Result<&ChunkExtra, Error> {
+    ) -> Result<Arc<ChunkExtra>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::ChunkExtra,
-                &mut self.chunk_extras,
+                &self.chunk_extras,
                 &get_block_shard_uid(block_hash, shard_uid),
             ),
             &format!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
@@ -1120,8 +1119,8 @@ impl ChainStoreAccess for ChainStore {
 struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    block_extras: HashMap<CryptoHash, BlockExtra>,
-    chunk_extras: HashMap<(CryptoHash, ShardUId), ChunkExtra>,
+    block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
+    chunk_extras: HashMap<(CryptoHash, ShardUId), Arc<ChunkExtra>>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
@@ -1344,9 +1343,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.get_block_header(header.prev_hash())
     }
 
-    fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+    fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
         if let Some(block_extra) = self.chain_store_cache_update.block_extras.get(block_hash) {
-            Ok(block_extra)
+            Ok(Arc::clone(block_extra))
         } else {
             self.chain_store.get_block_extra(block_hash)
         }
@@ -1354,14 +1353,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get state root hash after applying header with given hash.
     fn get_chunk_extra(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-    ) -> Result<&ChunkExtra, Error> {
+    ) -> Result<Arc<ChunkExtra>, Error> {
         if let Some(chunk_extra) =
             self.chain_store_cache_update.chunk_extras.get(&(*block_hash, *shard_uid))
         {
-            Ok(chunk_extra)
+            Ok(Arc::clone(chunk_extra))
         } else {
             self.chain_store.get_chunk_extra(block_hash, shard_uid)
         }
@@ -1733,7 +1732,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Save post applying block extra info.
     pub fn save_block_extra(&mut self, block_hash: &CryptoHash, block_extra: BlockExtra) {
-        self.chain_store_cache_update.block_extras.insert(*block_hash, block_extra);
+        self.chain_store_cache_update.block_extras.insert(*block_hash, Arc::new(block_extra));
     }
 
     /// Save post applying chunk extra info.
@@ -1743,7 +1742,9 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_uid: &ShardUId,
         chunk_extra: ChunkExtra,
     ) {
-        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
+        self.chain_store_cache_update
+            .chunk_extras
+            .insert((*block_hash, *shard_uid), Arc::new(chunk_extra));
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
