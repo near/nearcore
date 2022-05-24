@@ -4636,7 +4636,6 @@ impl<'a> ChainUpdate<'a> {
             .chain_store_update
             .get_chain_store()
             .get_all_block_hashes_by_height(header.height())
-            .map(Clone::clone)
         {
             // Check if there is already known block of the same height that has the same epoch id
             if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {

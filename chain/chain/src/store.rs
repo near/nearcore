@@ -306,7 +306,7 @@ pub struct ChainStore {
     /// Cache with height to hash on the main chain.
     height: CellLruCache<Vec<u8>, CryptoHash>,
     /// Cache with height to block hash on any chain.
-    block_hash_per_height: LruCache<Vec<u8>, HashMap<EpochId, HashSet<CryptoHash>>>,
+    block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
     /// Cache with height and shard_id to any chunk hash.
     chunk_hash_per_height_shard: LruCache<Vec<u8>, ChunkHash>,
     /// Next block hashes for each block on the canonical chain
@@ -364,7 +364,7 @@ impl ChainStore {
             block_extras: CellLruCache::new(CACHE_SIZE),
             chunk_extras: CellLruCache::new(CACHE_SIZE),
             height: CellLruCache::new(CACHE_SIZE),
-            block_hash_per_height: LruCache::new(CACHE_SIZE),
+            block_hash_per_height: CellLruCache::new(CACHE_SIZE),
             block_refcounts: LruCache::new(CACHE_SIZE),
             chunk_hash_per_height_shard: LruCache::new(CACHE_SIZE),
             next_block_hashes: LruCache::new(CACHE_SIZE),
@@ -561,14 +561,14 @@ impl ChainStore {
 
     /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
     pub fn get_all_block_hashes_by_height(
-        &mut self,
+        &self,
         height: BlockHeight,
-    ) -> Result<&HashMap<EpochId, HashSet<CryptoHash>>, Error> {
+    ) -> Result<Arc<HashMap<EpochId, HashSet<CryptoHash>>>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::BlockPerHeight,
-                &mut self.block_hash_per_height,
+                &self.block_hash_per_height,
                 &index_to_bytes(height),
             ),
             &format!("BLOCK PER HEIGHT: {}", height),
@@ -2246,8 +2246,8 @@ impl<'a> ChainStoreUpdate<'a> {
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
-        let epoch_to_hashes_ref = self.chain_store.get_all_block_hashes_by_height(height)?;
-        let mut epoch_to_hashes = epoch_to_hashes_ref.clone();
+        let epoch_to_hashes = self.chain_store.get_all_block_hashes_by_height(height)?;
+        let mut epoch_to_hashes = HashMap::clone(&epoch_to_hashes);
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
             near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;
@@ -2261,7 +2261,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.block_hash_per_height.pop(&key);
         } else {
             store_update.set_ser(DBCol::BlockPerHeight, &key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(key.clone(), epoch_to_hashes);
+            self.chain_store.block_hash_per_height.put(key.clone(), Arc::new(epoch_to_hashes));
         }
         self.inc_gc(DBCol::BlockPerHeight);
         if self.is_height_processed(height)? {
@@ -2630,7 +2630,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
             let mut map =
                 match self.chain_store.get_all_block_hashes_by_height(block.header().height()) {
-                    Ok(m) => m.clone(),
+                    Ok(m) => HashMap::clone(&m),
                     Err(_) => HashMap::new(),
                 };
             map.entry(block.header().epoch_id().clone())
@@ -2990,7 +2990,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (height, epoch_id_to_hash) in block_hash_per_height {
             self.chain_store
                 .block_hash_per_height
-                .put(index_to_bytes(height).to_vec(), epoch_id_to_hash);
+                .put(index_to_bytes(height).to_vec(), Arc::new(epoch_id_to_hash));
         }
         for ((height, shard_id), chunk_hash) in chunk_hash_per_height_shard {
             let key = get_height_shard_id(height, shard_id);
@@ -3349,7 +3349,7 @@ mod tests {
 
         let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
+            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
@@ -3361,7 +3361,7 @@ mod tests {
 
         let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash1 =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec()).cloned();
+            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
