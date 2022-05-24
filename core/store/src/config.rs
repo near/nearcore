@@ -123,9 +123,27 @@ pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
 ///     .open();
 /// ```
 pub struct StoreOpener<'a> {
-    path: Option<&'a std::path::Path>,
+    /// Near home directory.
+    ///
+    /// If `path` is relative, it is resolved relative to this home directory.
+    /// On the other hand, if `path` is absolute, `home` is effecively ignored.
+    ///
+    /// If home directory is not given (i.e. this field is `None`), current
+    /// working directory is assumed.
     home: Option<&'a std::path::Path>,
+
+    /// The path relative to home directory where the storage resides.
+    ///
+    /// It is `STORE_PATH` by default but can be overwriten with arbitrary
+    /// absolute path for the cases where code needs to point at the storage
+    /// directory directly without relation to tho home directory
+    // TODO(#6857): Remove cases where this field is needed.
+    path: Option<&'a std::path::Path>,
+
+    /// Configuration as provided by the user.
     config: &'a StoreConfig,
+
+    /// Whether to open the storeg in read-only mode.
     read_only: bool,
 }
 
@@ -165,9 +183,8 @@ impl<'a> StoreOpener<'a> {
     /// relying on the opener resolving path to the storage relative to the near
     /// home direcotry.
     ///
-    /// If the path is absolute, it simply points at the database.  Otherwise,
-    /// it is resolved relative to home dir (which is set via [`Self::home`]
-    /// method.
+    /// If the path is absolute, it points at the database.  Otherwise, it is
+    /// resolved relative to home dir (which is set via [`Self::home`] method.
     ///
     /// TODO(#6857): Get rid of this method.
     pub fn path(mut self, path: &'a std::path::Path) -> Self {
@@ -180,13 +197,10 @@ impl<'a> StoreOpener<'a> {
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
     pub fn open(&self) -> crate::Store {
-        tracing::warn!(target: "near", "self.path={:?}; self.home={:?}", self.path, self.home);
         let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
-        tracing::warn!(target: "near", "path={path:?}");
         let path = self.home.map_or(std::borrow::Cow::Borrowed(path), |home| {
             std::borrow::Cow::Owned(home.join(path))
         });
-        tracing::warn!(target: "near", "path={path:?}");
         if std::fs::canonicalize(&path).is_ok() {
             tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
         } else if self.read_only {
