@@ -14,10 +14,9 @@ use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
-use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use std::cmp::min;
@@ -37,8 +36,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        let path = get_store_path(home_dir);
-        create_store(&path)
+        near_store::StoreOpener::new(&config.config.store).home(home_dir).open()
     };
 
     Arc::new(NightshadeRuntime::with_config(
