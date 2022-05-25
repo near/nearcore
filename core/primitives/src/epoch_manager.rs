@@ -214,18 +214,18 @@ pub mod block_info {
         }
 
         #[inline]
-        pub fn height(&self) -> &BlockHeight {
+        pub fn height(&self) -> BlockHeight {
             match self {
-                Self::V1(v1) => &v1.height,
-                Self::V2(v2) => &v2.height,
+                Self::V1(v1) => v1.height,
+                Self::V2(v2) => v2.height,
             }
         }
 
         #[inline]
-        pub fn last_finalized_height(&self) -> &BlockHeight {
+        pub fn last_finalized_height(&self) -> BlockHeight {
             match self {
-                Self::V1(v1) => &v1.last_finalized_height,
-                Self::V2(v2) => &v2.last_finalized_height,
+                Self::V1(v1) => v1.last_finalized_height,
+                Self::V2(v2) => v2.last_finalized_height,
             }
         }
 
