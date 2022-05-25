@@ -545,8 +545,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     if !receiver_transfer_operation.amount.value.is_positive() {
                         return Err(crate::errors::ErrorKind::InvalidInput(
                             "Receiver TRANSFER operations must have positive `amount`".to_string(),
-                        )
-                        .into());
+                        ));
                     }
 
                     let sender_transfer_operation =
@@ -634,8 +633,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                             return Err(crate::errors::ErrorKind::InvalidInput(
                                 "The sum of amounts of Sender TRANSFER and Receiver FUNCTION_CALL operations must be zero"
                                     .to_string(),
-                            )
-                            .into());
+                            ));
                         }
                         sender_account_id.try_set(&transfer_operation.account)?;
                     }

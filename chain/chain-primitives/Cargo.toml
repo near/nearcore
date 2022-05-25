@@ -13,7 +13,6 @@ description = "This crate hosts NEAR chain-related error types"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1.0", features = ["backtrace"] }
 chrono = { version = "0.4.4", features = ["serde"] }
 tracing = "0.1.13"
 thiserror = "1.0"

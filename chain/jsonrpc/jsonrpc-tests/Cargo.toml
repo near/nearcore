@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 actix = "0.13.0"
-awc = "3.0.0-beta.5"
+awc = "3.0.0"
 once_cell = "1.5.2"
 futures = "0.3"
 borsh = "0.9"
@@ -30,6 +30,7 @@ near-actix-test-utils = { path = "../../../test-utils/actix-test-utils" }
 
 [features]
 test_features = ["near-jsonrpc/test_features"]
+nightly = ["nightly_protocol"]
 nightly_protocol = ["near-jsonrpc/nightly_protocol"]
 sandbox = ["near-jsonrpc/sandbox"]
 protocol_feature_routing_exchange_algorithm = ["near-jsonrpc/protocol_feature_routing_exchange_algorithm"]

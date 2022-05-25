@@ -1,16 +1,15 @@
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
-
 use clap::{Arg, Command};
-
 use near_crypto::{InMemorySigner, KeyFile};
 use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use integration_tests::user::{rpc_user::RpcUser, User};
+use near_o11y::ColorOutput;
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";
@@ -22,8 +21,12 @@ fn maybe_kicked_out(validator_info: &CurrentEpochValidatorInfo) -> bool {
 }
 
 fn main() {
-    let filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(filter).global();
+    let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+    });
+
     let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .about(

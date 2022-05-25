@@ -1,12 +1,8 @@
-use std::io::prelude::*;
-
+use crate::db::{Db, EstimationRow};
 use anyhow::Context;
-
 use clap::Parser;
 use serde::Deserialize;
 use std::time::Duration;
-
-use crate::db::{Db, EstimationRow};
 
 /// Additional information required for import
 #[derive(Debug, Parser)]
@@ -39,13 +35,9 @@ struct EstimationResult {
 }
 
 impl Db {
-    pub(crate) fn import_json_lines(
-        &self,
-        info: &ImportConfig,
-        input: impl BufRead,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn import_json_lines(&self, info: &ImportConfig, input: &str) -> anyhow::Result<()> {
         for line in input.lines() {
-            self.import(info, &line?)?;
+            self.import(info, &line)?;
         }
         Ok(())
     }
@@ -74,13 +66,9 @@ impl Db {
 
 #[cfg(test)]
 mod test {
-    use rusqlite::Connection;
-
-    use crate::{
-        db::{Db, EstimationRow},
-        import::ImportConfig,
-        Metric,
-    };
+    use crate::db::{Db, EstimationRow};
+    use crate::import::ImportConfig;
+    use crate::Metric;
 
     #[test]
     fn test_import_time() {
@@ -162,7 +150,7 @@ mod test {
         metric: Metric,
     ) {
         let db = Db::test();
-        db.import_json_lines(info, input.as_bytes()).unwrap();
+        db.import_json_lines(info, input).unwrap();
         let output = EstimationRow::select_by_commit_and_metric(
             &db,
             info.commit_hash.as_ref().unwrap(),
@@ -170,14 +158,5 @@ mod test {
         )
         .unwrap();
         assert_eq!(expected_output, output);
-    }
-
-    impl Db {
-        pub(crate) fn test() -> Self {
-            let conn = Connection::open_in_memory().unwrap();
-            let init_sql = include_str!("init.sql");
-            conn.execute(init_sql, []).unwrap();
-            Self::new(conn)
-        }
     }
 }

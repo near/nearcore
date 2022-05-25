@@ -5,11 +5,12 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 use once_cell::sync::OnceCell;
 use std::borrow::Cow;
 use tracing_appender::non_blocking::NonBlocking;
-
 use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
 use tracing_subscriber::fmt::Layer;
 use tracing_subscriber::layer::Layered;
+#[cfg(feature = "opentelemetry")]
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Registry};
 
@@ -75,27 +76,52 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubcriberGuard<S> {
     }
 }
 
+/// Whether to use colored log format.
+/// Option `Auto` enables color output only if the logging is done to a terminal and
+/// `NO_COLOR` environment variable is not set.
+#[derive(clap::ArgEnum, Debug, Clone)]
+pub enum ColorOutput {
+    Always,
+    Never,
+    Auto,
+}
+
+fn is_terminal() -> bool {
+    // Crate `atty` provides a platform-independent way of checking whether the output is a tty.
+    atty::is(atty::Stream::Stderr)
+}
+
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
 /// returned by this function goes out of scope.
+/// Subscriber creation needs an async runtime.
 ///
 /// # Example
 ///
 /// ```rust
+/// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = near_o11y::default_subscriber(filter);
-/// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
+/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto).await.global() });
 /// ```
-pub fn default_subscriber(
+pub async fn default_subscriber(
     log_filter: EnvFilter,
+    color_output: &ColorOutput,
 ) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
+    let ansi = match color_output {
+        ColorOutput::Always => true,
+        ColorOutput::Never => false,
+        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+    };
+
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
+        .with_ansi(ansi)
+        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
@@ -107,6 +133,17 @@ pub fn default_subscriber(
     ENV_FILTER_RELOAD_HANDLE.set(reload_handle).unwrap();
 
     let subscriber = subscriber_builder.finish();
+
+    #[cfg(feature = "opentelemetry")]
+    let subscriber = {
+        let tracer = opentelemetry_jaeger::new_pipeline()
+            .with_service_name("neard")
+            .install_batch(opentelemetry::runtime::Tokio)
+            .unwrap();
+        let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        subscriber.with(opentelemetry)
+    };
+
     DefaultSubcriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
@@ -161,7 +198,7 @@ pub enum BuildEnvFilterError {
 #[derive(Debug)]
 pub struct EnvFilterBuilder<'a> {
     rust_log: Cow<'a, str>,
-    verbose: Option<Cow<'a, str>>,
+    verbose: Option<&'a str>,
 }
 
 impl<'a> EnvFilterBuilder<'a> {
@@ -184,8 +221,8 @@ impl<'a> EnvFilterBuilder<'a> {
     ///
     /// If the `module` string is empty, all targets will log debug output. Otherwise only the
     /// specified target will log the debug output.
-    pub fn verbose<S: Into<Cow<'a, str>>>(mut self, target: Option<S>) -> Self {
-        self.verbose = target.map(Into::into);
+    pub fn verbose(mut self, target: Option<&'a str>) -> Self {
+        self.verbose = target;
         self
     }
 

@@ -8,7 +8,7 @@ use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerMessage, PeerRequest,
-    PeerResponse, PeersResponse,
+    PeerResponse, PeerStatsResult, PeersResponse, QueryPeerStats,
 };
 use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
@@ -18,9 +18,8 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerStatsResult, PeerType, QueryPeerStats, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerInfo, PeerManagerRequest, PeerType, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
@@ -175,33 +174,33 @@ impl PeerActor {
         }
     }
 
-    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        if let Some(e) = self.force_encoding {
-            return PeerMessage::deserialize(e, msg);
+    // Determines the encoding to use for communication with the peer.
+    // It can be None while Handshake with the peer has not been finished yet.
+    // In case it is None, both encodings are attempted for parsing, and each message
+    // is sent twice.
+    fn encoding(&self) -> Option<Encoding> {
+        if self.force_encoding.is_some() {
+            return self.force_encoding;
+        }
+        if self.protocol_buffers_supported {
+            return Some(Encoding::Proto);
         }
         if self.peer_status == PeerStatus::Connecting {
-            if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
-                self.protocol_buffers_supported = true;
-                return Ok(msg);
-            }
-            match PeerMessage::deserialize(Encoding::Borsh, msg) {
-                Ok(msg) => Ok(msg),
-                Err(err) => {
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::ProtocolVersionMismatch {
-                            version: PROTOCOL_VERSION,
-                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                        },
-                    ));
-                    Err(err)
-                }
-            }
-        } else if self.protocol_buffers_supported {
-            PeerMessage::deserialize(Encoding::Proto, msg)
-        } else {
-            PeerMessage::deserialize(Encoding::Borsh, msg)
+            return None;
         }
+        return Some(Encoding::Borsh);
+    }
+
+    fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+        let _span = tracing::trace_span!(target: "network", "parse_message").entered();
+        if let Some(e) = self.encoding() {
+            return PeerMessage::deserialize(e, msg);
+        }
+        if let Ok(msg) = PeerMessage::deserialize(Encoding::Proto, msg) {
+            self.protocol_buffers_supported = true;
+            return Ok(msg);
+        }
+        return PeerMessage::deserialize(Encoding::Borsh, msg);
     }
 
     fn send_message_or_log(&mut self, msg: &PeerMessage) {
@@ -211,17 +210,11 @@ impl PeerActor {
     }
 
     fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
-        if let Some(enc) = self.force_encoding {
+        if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
-        if self.peer_status == PeerStatus::Connecting {
-            self.send_message_with_encoding(msg, Encoding::Proto)?;
-            self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        } else if self.protocol_buffers_supported {
-            self.send_message_with_encoding(msg, Encoding::Proto)?;
-        } else {
-            self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        }
+        self.send_message_with_encoding(msg, Encoding::Proto)?;
+        self.send_message_with_encoding(msg, Encoding::Borsh)?;
         Ok(())
     }
 
@@ -246,11 +239,8 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            return Err(IOError::Send {
-                tid,
-                message_type: msg.as_ref().to_string(),
-                size: bytes_len,
-            });
+            let msg_type: &str = msg.into();
+            return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
         Ok(())
     }
@@ -457,6 +447,7 @@ impl PeerActor {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
+        let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
@@ -693,6 +684,7 @@ impl WriteHandler<io::Error> for PeerActor {}
 impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
+        let _span = tracing::trace_span!(target: "network", "handle").entered();
         let msg = match msg {
             Ok(msg) => msg,
             Err(ban_reason) => {
@@ -791,11 +783,23 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
 
-                debug_assert!(
-                    PEER_MIN_ALLOWED_PROTOCOL_VERSION <= handshake.protocol_version
-                        && handshake.protocol_version <= PROTOCOL_VERSION
-                );
-
+                if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
+                    || handshake.protocol_version > PROTOCOL_VERSION
+                {
+                    debug!(
+                        target: "network",
+                        version = handshake.protocol_version,
+                        "Received connection from node with unsupported PROTOCOL_VERSION.");
+                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                        self.my_node_info.clone(),
+                        HandshakeFailureReason::ProtocolVersionMismatch {
+                            version: PROTOCOL_VERSION,
+                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                        },
+                    ));
+                    return;
+                    // Connection will be closed by a handshake timeout
+                }
                 let target_version = std::cmp::min(handshake.protocol_version, PROTOCOL_VERSION);
                 self.protocol_version = target_version;
 
@@ -1064,6 +1068,7 @@ impl Handler<SendMessage> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+        trace!(target: "network", "SendMessage");
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1074,6 +1079,7 @@ impl Handler<Arc<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
+        trace!(target: "network", "SendMessage");
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.as_ref().message);
     }
@@ -1084,6 +1090,7 @@ impl Handler<QueryPeerStats> for PeerActor {
 
     #[perf]
     fn handle(&mut self, _msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        trace!(target: "network", "QueryPeerStats");
         let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
@@ -1103,6 +1110,7 @@ impl Handler<QueryPeerStats> for PeerActor {
             sent_bytes_per_sec: sent.bytes_per_min / 60,
             is_abusive,
             message_counts: (sent.count_per_min, received.count_per_min),
+            encoding: self.encoding(),
         }
     }
 }
@@ -1112,6 +1120,7 @@ impl Handler<PeerManagerRequest> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+        trace!(target: "network", "PeerManagerRequest");
         let _d =
             delay_detector::DelayDetector::new(|| format!("peer manager request {:?}", msg).into());
         match msg {

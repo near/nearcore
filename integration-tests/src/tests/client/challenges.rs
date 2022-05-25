@@ -1,14 +1,10 @@
-use std::path::Path;
-use std::sync::Arc;
-
+use assert_matches::assert_matches;
 use borsh::BorshSerialize;
-
 use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind,
-    Provenance,
+    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance,
 };
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
@@ -19,7 +15,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -35,6 +31,38 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::NightshadeRuntime;
+use std::path::Path;
+use std::sync::Arc;
+
+/// Check that block containing a challenge is rejected.
+/// TODO (#2445): Enable challenges when they are working correctly.
+#[test]
+fn test_block_with_challenges() {
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+
+    {
+        let body = match &mut block {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => Arc::make_mut(body),
+        };
+        let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: genesis.header().try_to_vec().unwrap(),
+            right_block_header: genesis.header().try_to_vec().unwrap(),
+        });
+        let challenge = Challenge::produce(challenge_body, &*signer);
+        body.challenges = vec![challenge];
+        block.mut_header().get_mut().inner_rest.challenges_root =
+            Block::compute_challenges_root(&body.challenges);
+        block.mut_header().resign(&*signer);
+    }
+
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
+}
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -168,7 +196,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -204,7 +232,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -403,37 +431,51 @@ fn test_verify_chunk_invalid_state_challenge() {
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
-        assert_eq!(
-            challenge_body.partial_state.0,
-            vec![
-                vec![
-                    1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
-                    227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
-                    171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
-                    148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
-                    0, 0, 0
-                ],
-                vec![
-                    3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
-                    236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
-                    133, 232, 213, 5, 0, 0, 0, 0, 0, 0
-                ]
-            ],
-        );
+        // TODO (#6316): enable storage proof generation
+        assert_eq!(challenge_body.partial_state.0, Vec::<StateItem>::new());
+        // assert_eq!(
+        //     challenge_body.partial_state.0,
+        //     vec![
+        //         vec![
+        //             1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
+        //             227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
+        //             171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
+        //             148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
+        //             0, 0, 0
+        //         ],
+        //         vec![
+        //             3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
+        //             236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
+        //             133, 232, 213, 5, 0, 0, 0, 0, 0, 0
+        //         ]
+        //     ],
+        // );
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
     let runtime_adapter = client.chain.runtime_adapter.clone();
-    assert_eq!(
+    // Invalidate chunk state challenges because they are not supported yet.
+    // TODO (#2445): Enable challenges when they are working correctly.
+    assert_matches!(
         validate_challenge(
             &*runtime_adapter,
             block.header().epoch_id(),
             block.header().prev_hash(),
             &challenge,
         )
-        .unwrap(),
-        (*block.hash(), vec!["test0".parse().unwrap()])
+        .unwrap_err(),
+        Error::MaliciousChallenge
     );
+    // assert_eq!(
+    //     validate_challenge(
+    //         &*runtime_adapter,
+    //         block.header().epoch_id(),
+    //         block.header().prev_hash(),
+    //         &challenge,
+    //     )
+    //     .unwrap(),
+    //     (*block.hash(), vec!["test0".parse().unwrap()])
+    // );
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
@@ -694,8 +736,8 @@ fn test_challenge_in_different_epoch() {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {
-                match e.kind() {
-                    ErrorKind::ChunksMissing(_) => {}
+                match e {
+                    Error::ChunksMissing(_) => {}
                     _ => panic!("unexpected error: {}", e),
                 }
             }

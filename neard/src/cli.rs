@@ -1,14 +1,18 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::{default_subscriber, BuildEnvFilterError, EnvFilterBuilder};
+use near_o11y::{
+    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubcriberGuard, EnvFilterBuilder,
+};
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
-use nearcore::get_store_path;
+use std::cell::Cell;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
@@ -27,17 +31,12 @@ pub(super) struct NeardCmd {
 impl NeardCmd {
     pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
-        let verbose = neard_cmd.opts.verbose.as_deref();
-        let env_filter =
-            EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
-        // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-        // This is hidden by default so we enable it for sandbox node.
-        let env_filter = if cfg!(feature = "sandbox") {
-            env_filter.add_directive("sandbox=debug".parse().unwrap())
-        } else {
-            env_filter
-        };
-        let _subscriber = default_subscriber(env_filter).global();
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        // Opentelemetry needs a running Tokio system to report spans asynchronously and in batches,
+        // which is great for the overall system performance.
+        let _subscriber_guard =
+            runtime.block_on(async { init_logging(&neard_cmd.opts).await.unwrap() });
 
         info!(
             target: "neard",
@@ -76,11 +75,11 @@ impl NeardCmd {
                 );
                 cmd.run(&home_dir);
             }
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation),
+            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
-                let store_path = get_store_path(&home_dir);
+                let store_path = near_store::get_store_path(&home_dir);
                 unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
             // TODO(mina86): Remove the command in Q3 2022.
@@ -98,6 +97,23 @@ impl NeardCmd {
         };
         Ok(())
     }
+}
+
+async fn init_logging(
+    opts: &NeardOpts,
+) -> Result<DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
+    let verbose = opts.verbose_target();
+    let env_filter =
+        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
+    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+    // This is hidden by default so we enable it for sandbox node.
+    let env_filter = if cfg!(feature = "sandbox") {
+        env_filter.add_directive("sandbox=debug".parse().unwrap())
+    } else {
+        env_filter
+    };
+    let subscriber = default_subscriber(env_filter, &opts.color).await.global();
+    Ok(subscriber)
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -130,10 +146,10 @@ fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str
 
 #[derive(Parser, Debug)]
 struct NeardOpts {
-    /// Sets verbose logging for the given target, or for all targets
-    /// if "debug" is given.
+    /// Sets verbose logging for the given target, or for all targets if no
+    /// target is given.
     #[clap(long, name = "target")]
-    verbose: Option<String>,
+    verbose: Option<Option<String>>,
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
@@ -141,6 +157,19 @@ struct NeardOpts {
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     pub unsafe_fast_startup: bool,
+    /// Whether the log needs to be colored.
+    #[clap(long, arg_enum, default_value = "auto")]
+    pub color: ColorOutput,
+}
+
+impl NeardOpts {
+    pub fn verbose_target(&self) -> Option<&str> {
+        match self.verbose {
+            None => None,
+            Some(None) => Some(""),
+            Some(Some(ref target)) => Some(target.as_str()),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -253,12 +282,12 @@ pub(super) struct InitCmd {
 ///
 /// The detection is done by checking that `NEAR_RELEASE_BUILD` environment
 /// variable was set to `release` during compilation (which is what Makefile
-/// sets) and that neither `nightly_protocol` nor `nightly_protocol_features`
-/// features are enabled.
+/// sets) and that neither `nightly` nor `nightly_protocol` features are
+/// enabled.
 fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
-        && !cfg!(feature = "nightly_protocol")
-        && !cfg!(feature = "nightly_protocol_features");
+        && !cfg!(feature = "nightly")
+        && !cfg!(feature = "nightly_protocol");
     if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
         warn!(
             target: "neard",
@@ -353,7 +382,12 @@ pub(super) struct RunCmd {
 }
 
 impl RunCmd {
-    pub(super) fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode) {
+    pub(super) fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+        runtime: Runtime,
+    ) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
@@ -418,7 +452,7 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<()>();
-        let sys = actix::System::new();
+        let sys = new_actix_system(runtime);
         sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
@@ -437,6 +471,19 @@ impl RunCmd {
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
+}
+
+/// Creates a new actix SystemRunner using the given tokio Runtime.
+fn new_actix_system(runtime: Runtime) -> SystemRunner {
+    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
+    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
+    // using a `swap` of `Cell<Option<Runtime>>`s.
+    let runtime_cell = Cell::new(Some(runtime));
+    actix::System::with_tokio_rt(|| {
+        let r = Cell::new(None);
+        runtime_cell.swap(&r);
+        r.into_inner().unwrap()
+    })
 }
 
 #[cfg(not(unix))]
@@ -474,21 +521,23 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
 #[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
-    #[clap(long = "n", default_value = "0")]
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
     non_validators: NumSeats,
-    /// Prefix the directory name for each node with (node results in node0, node1, ...)
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the localnet with.
-    #[clap(long, default_value = "1")]
+    #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
-    #[clap(long = "v", default_value = "4")]
+    #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    // Whether to create fixed shards accounts (that are tied to a given shard).
+    /// Whether to create fixed shards accounts (that are tied to a given
+    /// shard).
     #[clap(long)]
     fixed_shards: bool,
-    // Archival nodes
+    /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
 }

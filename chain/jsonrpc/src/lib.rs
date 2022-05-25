@@ -33,6 +33,9 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod metrics;
+mod parser;
+
+use parser::RpcRequest;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -919,10 +922,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
         near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
     > {
-        let config_view = self
-            .view_client_addr
-            .send(GetProtocolConfig(request_data.block_reference.into()))
-            .await??;
+        let config_view =
+            self.view_client_addr.send(GetProtocolConfig(request_data.block_reference)).await??;
         Ok(RpcProtocolConfigResponse { config_view })
     }
 
@@ -956,7 +957,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
         let block_view =
-            self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??;
+            self.view_client_addr.send(GetBlock(request_data.block_reference)).await??;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
@@ -1002,7 +1003,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
+        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
 
         let block_hash = block.header.hash.clone();
         let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
@@ -1020,7 +1021,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
+        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
 
         let block_hash = block.header.hash.clone();
         let changes = self
@@ -1129,7 +1130,7 @@ impl JsonRpcHandler {
     > {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
-        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??.into())
+        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??)
     }
 }
 
@@ -1431,9 +1432,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 lazy_static_include::lazy_static_include_str! {
     LAST_BLOCKS_HTML => "res/last_blocks.html",
     DEBUG_HTML => "res/debug.html",
-    SYNC_INFO_HTML => "res/sync_info.html",
-    CHAIN_INFO_HTML => "res/chain_info.html",
+    NETWORK_INFO_HTML => "res/network_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
+    CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
 }
 
 #[get("/debug")]
@@ -1446,19 +1447,19 @@ async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
 }
 
-#[get("/debug/sync_info")]
-async fn sync_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*SYNC_INFO_HTML))
-}
-
-#[get("/debug/chain_info")]
-async fn chain_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHAIN_INFO_HTML))
+#[get("/debug/network_info")]
+async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
 }
 
 #[get("/debug/epoch_info")]
 async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
+}
+
+#[get("/debug/chain_n_chunk_info")]
+async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1479,7 +1480,7 @@ pub fn start_http(
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
-) -> Vec<(&'static str, actix_web::dev::Server)> {
+) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
         prometheus_addr,
@@ -1495,7 +1496,7 @@ pub fn start_http(
     let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
-            .data(JsonRpcHandler {
+            .app_data(web::Data::new(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
@@ -1505,7 +1506,7 @@ pub fn start_http(
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
                 routing_table_addr: routing_table_addr.clone(),
-            })
+            }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to(rpc_handler)))
@@ -1524,9 +1525,9 @@ pub fn start_http(
             .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
             .service(debug_html)
             .service(last_blocks_html)
-            .service(sync_info_html)
-            .service(chain_info_html)
+            .service(network_info_html)
             .service(epoch_info_html)
+            .service(chain_n_chunk_info_html)
     })
     .bind(addr)
     .unwrap()
@@ -1535,7 +1536,9 @@ pub fn start_http(
     .disable_signals()
     .run();
 
-    servers.push(("JSON RPC", server));
+    servers.push(("JSON RPC", server.handle()));
+
+    tokio::spawn(server);
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
@@ -1553,7 +1556,10 @@ pub fn start_http(
         .shutdown_timeout(5)
         .disable_signals()
         .run();
-        servers.push(("Prometheus Metrics", server));
+
+        servers.push(("Prometheus Metrics", server.handle()));
+
+        tokio::spawn(server);
     }
 
     servers

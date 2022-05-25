@@ -14,7 +14,7 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
+    Block, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -126,7 +126,7 @@ fn check_tx_processing(
     env.clients[0].process_tx(tx, false, false);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-    assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+    assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
     next_height
 }
 
@@ -1124,8 +1124,8 @@ fn test_invalid_approvals() {
 
     let (_, tip) = client.process_block(b1.into(), Provenance::NONE);
     match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidApprovals => {}
+        Err(e) => match e {
+            Error::InvalidApprovals => {}
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
@@ -1167,8 +1167,8 @@ fn test_invalid_gas_price() {
 
     let (_, result) = client.process_block(b1.into(), Provenance::NONE);
     match result {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidGasPrice => {}
+        Err(e) => match e {
+            Error::InvalidGasPrice => {}
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", result),
@@ -1184,7 +1184,7 @@ fn test_invalid_height_too_large() {
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
     let (_, res) = env.clients[0].process_block(b2.into(), Provenance::NONE);
-    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+    assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
 #[test]
@@ -1198,7 +1198,7 @@ fn test_invalid_height_too_old() {
         env.produce_block(0, i);
     }
     let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-    assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+    assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
 #[test]
@@ -1218,10 +1218,12 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert_eq!(
-            res.as_ref().unwrap_err().kind(),
-            ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone())
-        );
+        match res {
+            Err(Error::EpochOutOfBounds(epoch_id)) => {
+                assert_eq!(&epoch_id, block.header().epoch_id())
+            }
+            _ => panic!("expected EpochOutOfBounds error, got {res:?}"),
+        }
     }
     {
         // Orphan block with invalid signature
@@ -1229,7 +1231,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().get_mut().init();
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidSignature);
+        assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
         // Orphan block with a valid header, but garbage in body
@@ -1238,7 +1240,7 @@ fn test_bad_orphan() {
             // Change the chunk in any way, chunk_headers_root won't match
             let body = match &mut block {
                 Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => body.as_mut(),
+                Block::BlockV2(body) => Arc::make_mut(body),
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
@@ -1254,7 +1256,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidChunkHeadersRoot);
+        assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
     }
     {
         // Orphan block with invalid approvals. Allowed for now.
@@ -1265,7 +1267,7 @@ fn test_bad_orphan() {
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
 
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
+        assert_matches!(res.unwrap_err(), Error::Orphan);
     }
     {
         // Orphan block with no chunk signatures. Allowed for now.
@@ -1274,7 +1276,7 @@ fn test_bad_orphan() {
         {
             let body = match &mut block {
                 Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => body.as_mut(),
+                Block::BlockV2(body) => Arc::make_mut(body),
             };
             let chunk = match &mut body.chunks[0] {
                 ShardChunkHeader::V1(_) => unreachable!(),
@@ -1287,7 +1289,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
+        assert_matches!(res.unwrap_err(), Error::Orphan);
     }
     {
         // Orphan block that's too far ahead: 20 * epoch_length
@@ -1296,7 +1298,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().inner_lite.height += 2000;
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert!(matches!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidBlockHeight(_)));
+        assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
     }
     let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
     assert!(res.is_ok());
@@ -1410,14 +1412,14 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         println!("height = {}", i);
         if i < epoch_length {
             let block_hash = *blocks[i as usize].hash();
-            assert!(matches!(
-                env.clients[0].chain.get_block(&block_hash).unwrap_err().kind(),
-                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
-            ));
-            assert!(matches!(
-                env.clients[0].chain.get_block_by_height(i).unwrap_err().kind(),
-                ErrorKind::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
-            ));
+            assert_matches!(
+                env.clients[0].chain.get_block(&block_hash).unwrap_err(),
+                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
+            );
+            assert_matches!(
+                env.clients[0].chain.get_block_by_height(i).unwrap_err(),
+                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
+            );
             assert!(env.clients[0]
                 .chain
                 .mut_store()
@@ -1749,7 +1751,7 @@ fn test_not_resync_old_blocks() {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert!(matches!(res, Err(x) if matches!(x.kind(), ErrorKind::Orphan)));
+        assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
 }
@@ -1899,8 +1901,8 @@ fn test_invalid_block_root() {
     b1.mut_header().resign(&signer);
     let (_, tip) = env.clients[0].process_block(b1.into(), Provenance::NONE);
     match tip {
-        Err(e) => match e.kind() {
-            ErrorKind::InvalidBlockMerkleRoot => {}
+        Err(e) => match e {
+            Error::InvalidBlockMerkleRoot => {}
             _ => assert!(false, "wrong error: {}", e),
         },
         _ => assert!(false, "succeeded, tip: {:?}", tip),
@@ -1934,7 +1936,7 @@ fn test_incorrect_validator_key_produce_block() {
     )
     .unwrap();
     let res = client.produce_block(1);
-    assert!(matches!(res, Ok(None)));
+    assert_matches!(res, Ok(None));
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
@@ -2048,7 +2050,7 @@ fn test_data_reset_before_state_sync() {
             &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
         )
         .unwrap();
-    assert!(matches!(response.kind, QueryResponseKind::ViewAccount(_)));
+    assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
@@ -2093,8 +2095,8 @@ fn test_sync_hash_validity() {
     println!("bad hash -> {:?}", res.is_ok());
     match res {
         Ok(_) => assert!(false),
-        Err(e) => match e.kind() {
-            ErrorKind::DBNotFoundErr(_) => { /* the only expected error */ }
+        Err(e) => match e {
+            Error::DBNotFoundErr(_) => { /* the only expected error */ }
             _ => assert!(false),
         },
     }
@@ -2124,7 +2126,7 @@ fn test_not_process_height_twice() {
     let (accepted_blocks, res) =
         env.clients[0].process_block(invalid_block.into(), Provenance::NONE);
     assert!(accepted_blocks.is_empty());
-    assert!(matches!(res, Ok(None)));
+    assert_matches!(res, Ok(None));
 }
 
 #[test]
@@ -2138,7 +2140,7 @@ fn test_block_height_processed_orphan() {
     orphan_block.mut_header().resign(&validator_signer);
     let block_height = orphan_block.header().height();
     let (_, tip) = env.clients[0].process_block(orphan_block.into(), Provenance::NONE);
-    assert!(matches!(tip.unwrap_err().kind(), ErrorKind::Orphan));
+    assert_matches!(tip.unwrap_err(), Error::Orphan);
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
@@ -2194,7 +2196,7 @@ fn test_validate_chunk_extra() {
         } else {
             let (_, res) =
                 env.clients[0].process_block(last_block.clone().into(), Provenance::NONE);
-            assert!(matches!(res, Ok(Some(_))));
+            assert_matches!(res, Ok(Some(_)));
         }
     }
 
@@ -2224,7 +2226,7 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(matches!(res.unwrap_err().kind(), near_chain::ErrorKind::ChunksMissing(_)));
+        assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
     }
 
     // Process the previously unavailable chunk. This causes two blocks to be accepted.
@@ -2569,10 +2571,10 @@ fn test_refund_receipts_processing() {
         match execution_outcome.outcome_with_id.outcome.status {
             ExecutionStatus::SuccessReceiptId(id) => {
                 let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-                assert!(matches!(
+                assert_matches!(
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
-                ));
+                );
                 receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
                     refund_receipt_ids.insert(*id);
                 });
@@ -3135,8 +3137,9 @@ fn test_header_version_downgrade() {
         let mut header = header_view.into();
 
         // BlockHeaderV1, but protocol version is newest
-        match header {
-            BlockHeader::BlockHeaderV1(ref mut header) => {
+        match &mut header {
+            BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
@@ -3277,7 +3280,7 @@ fn test_congestion_receipt_execution() {
 
     for tx_hash in &tx_hashes {
         let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
-        assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+        assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
         // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
         let transaction_outcome = env.clients[0].chain.get_execution_outcome(tx_hash).unwrap();
@@ -3440,7 +3443,7 @@ fn verify_contract_limits_upgrade(
         env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     };
 
-    assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+    assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     let e = match new_outcome.status {
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => e,
         status => panic!("expected transaction to fail, got {:?}", status),
@@ -3578,8 +3581,8 @@ fn test_deploy_cost_increased() {
 
     let new_outcome = deploy_contract(&mut env, 11);
 
-    assert!(matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_)));
-    assert!(matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+    assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
+    assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
     let old_deploy_gas = old_outcome.receipts_outcome[0].outcome.gas_burnt;
     let new_deploy_gas = new_outcome.receipts_outcome[0].outcome.gas_burnt;
@@ -3647,13 +3650,13 @@ mod access_key_nonce_range_tests {
             *genesis_block.hash(),
         );
         let res = env.clients[0].process_tx(create_account_tx, false, false);
-        assert!(matches!(res, NetworkClientResponses::ValidTx));
+        assert_matches!(res, NetworkClientResponses::ValidTx);
         for i in 4..8 {
             env.produce_block(0, i);
         }
 
         let res = env.clients[0].process_tx(send_money_tx, false, false);
-        assert!(matches!(res, NetworkClientResponses::InvalidTx(_)));
+        assert_matches!(res, NetworkClientResponses::InvalidTx(_));
     }
 
     /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
@@ -3754,10 +3757,10 @@ mod access_key_nonce_range_tests {
     fn test_transaction_hash_collision_for_implicit_account_fail() {
         let protocol_version =
             ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
-        assert!(matches!(
+        assert_matches!(
             get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
-        ));
+        );
     }
 
     /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
@@ -3765,10 +3768,10 @@ mod access_key_nonce_range_tests {
     fn test_transaction_hash_collision_for_implicit_account_ok() {
         let protocol_version =
             ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-        assert!(matches!(
+        assert_matches!(
             get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
             NetworkClientResponses::ValidTx
-        ));
+        );
     }
 
     /// Test that chunks with transactions that have expired are considered invalid.
@@ -3806,7 +3809,7 @@ mod access_key_nonce_range_tests {
             .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
             .unwrap();
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
-        assert!(matches!(res.unwrap_err().kind(), ErrorKind::InvalidTransactions));
+        assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
     }
 
     #[test]
@@ -3830,10 +3833,10 @@ mod access_key_nonce_range_tests {
             *genesis_block.hash(),
         );
         let res = env.clients[0].process_tx(tx, false, false);
-        assert!(matches!(
+        assert_matches!(
             res,
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
-        ));
+        );
     }
 
     #[test]
@@ -3913,7 +3916,7 @@ mod access_key_nonce_range_tests {
             let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
             run_catchup(&mut env.clients[1], &vec![]).unwrap();
             assert_matches!(res, Err(e) => {
-                assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+                assert_matches!(e, near_chain::Error::ChunksMissing(_));
             });
             env.process_partial_encoded_chunks_requests(1);
         }
@@ -3922,7 +3925,7 @@ mod access_key_nonce_range_tests {
         // block 3 will be put into the blocks_with_missing_chunks pool
         let (_, res) = env.clients[1].process_block(blocks[3].clone().into(), Provenance::NONE);
         assert_matches!(res, Err(e) => {
-            assert_matches!(e.kind(), near_chain::ErrorKind::ChunksMissing(_));
+            assert_matches!(e, near_chain::Error::ChunksMissing(_));
         });
         // remove the missing chunk request from the network queue because we want to process it later
         let missing_chunk_request = env.network_adapters[1].pop().unwrap();
@@ -3930,7 +3933,7 @@ mod access_key_nonce_range_tests {
         for i in 4..20 {
             let (_, res) = env.clients[1].process_block(blocks[i].clone().into(), Provenance::NONE);
             assert_matches!(res, Err(e) => {
-                assert_eq!(e.kind(), near_chain::ErrorKind::Orphan);
+                assert_matches!(e, near_chain::Error::Orphan);
             });
         }
         // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded chunks already
@@ -4800,7 +4803,7 @@ mod chunk_nodes_cache_test {
 
                 let final_result =
                     env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-                assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+                assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
                 let transaction_outcome =
                     env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
                 let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
@@ -4909,7 +4912,7 @@ mod lower_storage_key_limit_test {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
             }
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+            assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
 
         // Move to the new protocol version.
@@ -4949,10 +4952,10 @@ mod lower_storage_key_limit_test {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
             }
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert!(matches!(
+            assert_matches!(
                 final_result.status,
                 FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-            ));
+            );
         }
 
         // Run transaction where storage key exactly fits the new limit, check that execution succeeds.
@@ -4989,7 +4992,7 @@ mod lower_storage_key_limit_test {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
             }
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert!(matches!(final_result.status, FinalExecutionStatus::SuccessValue(_)));
+            assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
     }
 }

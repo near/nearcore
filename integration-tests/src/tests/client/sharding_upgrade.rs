@@ -3,7 +3,8 @@ use borsh::BorshSerialize;
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
 };
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::near_chain_primitives::Error;
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -11,11 +12,11 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
@@ -309,6 +310,59 @@ impl TestShardUpgradeEnv {
         }
         successful_txs
     }
+
+    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
+    // latest block
+    fn check_receipt_id_to_shard_id(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let shard_layout = env.clients[0]
+            .runtime_adapter
+            .get_shard_layout_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.height_included() == block.header().height() {
+                let outgoing_receipts = env.clients[0]
+                    .chain
+                    .mut_store()
+                    .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
+                    .unwrap()
+                    .clone();
+                for receipt in outgoing_receipts {
+                    let target_shard_id = env.clients[0]
+                        .chain
+                        .get_shard_id_for_receipt_id(&receipt.receipt_id)
+                        .unwrap();
+                    assert_eq!(
+                        target_shard_id,
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check that after split state is finished, the artifacts stored in storage is removed
+    fn check_split_states_artifacts(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        for height in 0..head.height {
+            let (block_hash, num_shards) = {
+                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                (*block.hash(), block.chunks().len() as NumShards)
+            };
+            for shard_id in 0..num_shards {
+                let res = env.clients[0]
+                    .chain
+                    .store()
+                    .get_state_changes_for_split_states(&block_hash, shard_id);
+                assert_matches!(res, Err(error) => {
+                    assert_matches!(error, Error::DBNotFoundErr(_));
+                })
+            }
+        }
+    }
 }
 
 /// Checks that account exists in the state after `block` is processed
@@ -453,6 +507,8 @@ fn test_shard_layout_upgrade_simple() {
     // sharding upgrade
     test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     test_env.check_accounts(accounts_to_check.iter().collect());
+
+    test_env.check_split_states_artifacts();
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -628,12 +684,15 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     for _ in 1..5 * epoch_length {
         test_env.step(0.);
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 // Test cross contract calls
@@ -658,6 +717,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     // make sure all included transactions finished processing
@@ -667,12 +727,15 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 #[test]

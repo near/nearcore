@@ -1,14 +1,13 @@
 ---
 source: integration-tests/src/tests/runtime/sanity_checks.rs
 expression: receipts_gas_profile
-
 ---
 [
     [
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "ADD_KEY",
-            gas_used: 101765125000,
+            gas_used: 203992376655,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -33,7 +32,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "ACTION_COST",
             cost: "FUNCTION_CALL",
-            gas_used: 20981188693517,
+            gas_used: 20878961441862,
         },
         CostGasUsed {
             cost_category: "ACTION_COST",
@@ -113,7 +112,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_REGISTER_BYTE",
-            gas_used: 18628218,
+            gas_used: 25034748,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -233,7 +232,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 24159407184,
+            gas_used: 27893896668,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -243,7 +242,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BYTE",
-            gas_used: 689114316,
+            gas_used: 866159496,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -253,7 +252,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BYTE",
-            gas_used: 1170881712,
+            gas_used: 1417983372,
         },
     ],
     [

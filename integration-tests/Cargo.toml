@@ -79,8 +79,9 @@ protocol_feature_access_key_nonce_for_implicit_accounts = [
   "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
   "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
 ]
-nightly_protocol_features = [
-  "nearcore/nightly_protocol_features",
+nightly = [
+  "nightly_protocol",
+  "nearcore/nightly",
   "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_access_key_nonce_for_implicit_accounts",

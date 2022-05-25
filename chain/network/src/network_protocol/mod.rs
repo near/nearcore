@@ -69,14 +69,14 @@ impl Handshake {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
     GenesisMismatch(GenesisId),
     InvalidTarget,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, strum::AsRefStr, strum::EnumVariantNames)]
+#[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
@@ -117,7 +117,7 @@ impl fmt::Display for PeerMessage {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, strum::IntoStaticStr)]
 pub enum Encoding {
     Borsh,
     Proto,
@@ -159,10 +159,10 @@ impl PeerMessage {
         })
     }
 
-    pub(crate) fn msg_variant(&self) -> &str {
+    pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
-            PeerMessage::Routed(routed_message) => routed_message.body.as_ref(),
-            _ => self.as_ref(),
+            PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
+            _ => self.into(),
         }
     }
 
