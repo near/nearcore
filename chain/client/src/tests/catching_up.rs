@@ -590,8 +590,9 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                             } = msg
                             {
                                 if partial_encoded_chunk.header.height_created() == 22 {
-                                    seen_heights_same_block
-                                        .insert(partial_encoded_chunk.header.prev_block_hash());
+                                    seen_heights_same_block.insert(
+                                        partial_encoded_chunk.header.prev_block_hash().clone(),
+                                    );
                                 }
                                 if skip_15 {
                                     if partial_encoded_chunk.header.height_created() == 14
