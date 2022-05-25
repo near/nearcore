@@ -47,7 +47,7 @@ fn test_block_with_challenges() {
     {
         let body = match &mut block {
             Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => body.as_mut(),
+            Block::BlockV2(body) => Arc::make_mut(body),
         };
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: genesis.header().try_to_vec().unwrap(),

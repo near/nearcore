@@ -922,10 +922,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
         near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
     > {
-        let config_view = self
-            .view_client_addr
-            .send(GetProtocolConfig(request_data.block_reference.into()))
-            .await??;
+        let config_view =
+            self.view_client_addr.send(GetProtocolConfig(request_data.block_reference)).await??;
         Ok(RpcProtocolConfigResponse { config_view })
     }
 
@@ -959,7 +957,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
         let block_view =
-            self.view_client_addr.send(GetBlock(request_data.block_reference.into())).await??;
+            self.view_client_addr.send(GetBlock(request_data.block_reference)).await??;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
@@ -1005,7 +1003,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
+        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
 
         let block_hash = block.header.hash.clone();
         let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
@@ -1023,7 +1021,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
+        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
 
         let block_hash = block.header.hash.clone();
         let changes = self
@@ -1132,7 +1130,7 @@ impl JsonRpcHandler {
     > {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
-        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??.into())
+        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??)
     }
 }
 

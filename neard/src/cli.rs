@@ -8,7 +8,6 @@ use near_o11y::{
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
-use nearcore::get_store_path;
 use std::cell::Cell;
 use std::fs;
 use std::net::SocketAddr;
@@ -80,7 +79,7 @@ impl NeardCmd {
 
             // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
-                let store_path = get_store_path(&home_dir);
+                let store_path = near_store::get_store_path(&home_dir);
                 unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
             // TODO(mina86): Remove the command in Q3 2022.
@@ -522,21 +521,23 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
 #[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
-    #[clap(long = "n", default_value = "0")]
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
     non_validators: NumSeats,
-    /// Prefix the directory name for each node with (node results in node0, node1, ...)
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the localnet with.
-    #[clap(long, default_value = "1")]
+    #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
-    #[clap(long = "v", default_value = "4")]
+    #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    // Whether to create fixed shards accounts (that are tied to a given shard).
+    /// Whether to create fixed shards accounts (that are tied to a given
+    /// shard).
     #[clap(long)]
     fixed_shards: bool,
-    // Archival nodes
+    /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
 }
