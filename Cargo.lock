@@ -2853,7 +2853,6 @@ dependencies = [
  "derive_more",
  "ed25519-dalek",
  "hex-literal",
- "libc",
  "near-account-id",
  "once_cell",
  "parity-secp256k1",
