@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use clap::{Arg, Command};
 
-use near_store::create_store;
-use nearcore::{get_default_home, get_store_path, load_config};
+use nearcore::{get_default_home, load_config};
 
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
@@ -30,7 +29,7 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = near_store::StoreOpener::with_default_config().home(home_dir).open();
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())
