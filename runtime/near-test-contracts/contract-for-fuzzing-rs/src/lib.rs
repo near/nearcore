@@ -196,7 +196,7 @@ pub unsafe fn sum_of_numbers() {
     let number_of_numbers = u64::from_le_bytes(data);
     let mut promise_ids = vec![];
 
-    for i in 1..=number_of_numbers {
+    for _ in 1..=number_of_numbers {
         let i: u64 = 1;
         let method_name = "number_from_input".as_bytes();
         let account_id = {
@@ -274,7 +274,6 @@ pub unsafe fn data_receipt_with_size() {
 
     let method_name = b"data_producer";
     let args = size.to_le_bytes();
-    let mut ids = [0u64; 10];
     let amount = 0u128;
     let gas = prepaid_gas();
     let id = promise_create(

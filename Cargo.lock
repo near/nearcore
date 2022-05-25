@@ -2901,6 +2901,7 @@ dependencies = [
  "near-crypto",
  "near-indexer-primitives",
  "near-primitives",
+ "near-store",
  "nearcore",
  "node-runtime",
  "rocksdb",
