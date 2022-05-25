@@ -1089,13 +1089,13 @@ impl Chain {
                     match chain_update.mark_block_as_challenged(&block_hash, None) {
                         Ok(()) => {}
                         Err(err) => {
-                            warn!(target: "chain", %block_hash, error = ?err, "Error saving block as challenged");
+                            warn!(target: "chain", %block_hash, ?err, "Error saving block as challenged");
                         }
                     }
                 }
             }
             Err(err) => {
-                warn!(target: "chain", error = ?err, "Invalid challenge: {:#?}", challenge);
+                warn!(target: "chain", ?err, "Invalid challenge: {:#?}", challenge);
             }
         }
         unwrap_or_return!(chain_update.commit());
