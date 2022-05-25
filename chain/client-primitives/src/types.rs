@@ -413,7 +413,7 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
 }
 
 impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 }
 
 pub struct GetNetworkInfo {}

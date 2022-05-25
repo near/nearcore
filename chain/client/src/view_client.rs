@@ -815,7 +815,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
@@ -836,11 +836,11 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             if ret.inner_lite.height <= last_height {
                 Ok(None)
             } else {
-                Ok(Some(ret))
+                Ok(Some(Arc::new(ret)))
             }
         } else {
             match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
-                Ok(light_block) => Ok(Some(light_block.clone())),
+                Ok(light_block) => Ok(Some(light_block)),
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
                         Ok(None)
