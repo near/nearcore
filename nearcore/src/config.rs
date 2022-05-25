@@ -486,7 +486,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
-            store: near_store::StoreConfig::read_write(),
+            store: near_store::StoreConfig::default(),
         }
     }
 }
