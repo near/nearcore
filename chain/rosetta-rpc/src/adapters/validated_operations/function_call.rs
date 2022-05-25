@@ -64,8 +64,7 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
             if !attached_amount.value.is_positive() {
                 return Err(crate::errors::ErrorKind::InvalidInput(
                     "FUNCTION_CALL operations must have non-negative `amount`".to_string(),
-                )
-                .into());
+                ));
             }
             attached_amount.value.absolute_difference()
         } else {
