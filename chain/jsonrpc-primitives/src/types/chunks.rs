@@ -47,31 +47,11 @@ impl From<ChunkReference> for near_client_primitives::types::GetChunk {
             ChunkReference::BlockShardId { block_id, shard_id } => match block_id {
                 near_primitives::types::BlockId::Height(height) => Self::Height(height, shard_id),
                 near_primitives::types::BlockId::Hash(block_hash) => {
-                    Self::BlockHash(block_hash.into(), shard_id)
+                    Self::BlockHash(block_hash, shard_id)
                 }
             },
             ChunkReference::ChunkHash { chunk_id } => Self::ChunkHash(chunk_id.into()),
         }
-    }
-}
-
-impl RpcChunkRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        // Try to parse legacy positioned args and if it fails parse newer named args
-        let chunk_reference = if let Ok((chunk_id,)) =
-            crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
-        {
-            ChunkReference::ChunkHash { chunk_id }
-        } else if let Ok(((block_id, shard_id),)) = crate::utils::parse_params::<((
-            near_primitives::types::BlockId,
-            near_primitives::types::ShardId,
-        ),)>(value.clone())
-        {
-            ChunkReference::BlockShardId { block_id, shard_id }
-        } else {
-            crate::utils::parse_params::<ChunkReference>(value)?
-        };
-        Ok(Self { chunk_reference })
     }
 }
 

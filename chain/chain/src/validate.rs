@@ -17,7 +17,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
 use crate::{byzantine_assert, Chain};
-use crate::{ChainStore, Error, ErrorKind, RuntimeAdapter};
+use crate::{ChainStore, Error, RuntimeAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -69,10 +69,10 @@ pub fn validate_chunk_proofs(
     } else {
         let shard_layout = {
             let prev_block_hash = match chunk {
-                ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
+                ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
                 ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
             };
-            runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?
+            runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -127,11 +127,11 @@ pub fn validate_chunk_with_chunk_extra(
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
-        return Err(ErrorKind::InvalidStateRoot.into());
+        return Err(Error::InvalidStateRoot);
     }
 
     if *prev_chunk_extra.outcome_root() != chunk_header.outcome_root() {
-        return Err(ErrorKind::InvalidOutcomesProof.into());
+        return Err(Error::InvalidOutcomesProof);
     }
 
     let chunk_extra_proposals = prev_chunk_extra.validator_proposals();
@@ -139,19 +139,19 @@ pub fn validate_chunk_with_chunk_extra(
     if chunk_header_proposals.len() != chunk_extra_proposals.len()
         || !chunk_extra_proposals.eq(chunk_header_proposals)
     {
-        return Err(ErrorKind::InvalidValidatorProposals.into());
+        return Err(Error::InvalidValidatorProposals);
     }
 
     if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
-        return Err(ErrorKind::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit);
     }
 
     if prev_chunk_extra.gas_used() != chunk_header.gas_used() {
-        return Err(ErrorKind::InvalidGasUsed.into());
+        return Err(Error::InvalidGasUsed);
     }
 
     if prev_chunk_extra.balance_burnt() != chunk_header.balance_burnt() {
-        return Err(ErrorKind::InvalidBalanceBurnt.into());
+        return Err(Error::InvalidBalanceBurnt);
     }
 
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
@@ -167,14 +167,14 @@ pub fn validate_chunk_with_chunk_extra(
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     if outgoing_receipts_root != chunk_header.outgoing_receipts_root() {
-        return Err(ErrorKind::InvalidReceiptsProof.into());
+        return Err(Error::InvalidReceiptsProof);
     }
 
     let prev_gas_limit = prev_chunk_extra.gas_limit();
     if chunk_header.gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
         || chunk_header.gas_limit() > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
-        return Err(ErrorKind::InvalidGasLimit.into());
+        return Err(Error::InvalidGasLimit);
     }
 
     Ok(())
@@ -214,7 +214,7 @@ fn validate_double_sign(
             (*right_block_header.hash(), vec![block_producer])
         })
     } else {
-        Err(ErrorKind::MaliciousChallenge.into())
+        Err(Error::MaliciousChallenge)
     }
 }
 
@@ -225,7 +225,7 @@ fn validate_header_authorship(
     if runtime_adapter.verify_header_signature(block_header)? {
         Ok(())
     } else {
-        Err(ErrorKind::InvalidChallenge.into())
+        Err(Error::InvalidChallenge)
     }
 }
 
@@ -246,7 +246,7 @@ fn validate_chunk_authorship(
         )?;
         Ok(chunk_producer)
     } else {
-        Err(ErrorKind::InvalidChallenge.into())
+        Err(Error::InvalidChallenge)
     }
 }
 
@@ -268,7 +268,7 @@ fn validate_chunk_proofs_challenge(
         &chunk_proofs.merkle_proof,
     ) {
         // Merkle proof is invalid. It's a malicious challenge.
-        return Err(ErrorKind::MaliciousChallenge.into());
+        return Err(Error::MaliciousChallenge);
     }
     // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
     let tmp_chunk;
@@ -299,7 +299,7 @@ fn validate_chunk_proofs_challenge(
     }
 
     // The chunk is fine. It's a malicious challenge.
-    return Err(ErrorKind::MaliciousChallenge.into());
+    return Err(Error::MaliciousChallenge);
 }
 
 fn validate_chunk_state_challenge(
@@ -377,7 +377,7 @@ fn validate_chunk_state_challenge(
     // }
     // Ok((*block_header.hash(), vec![chunk_producer]))
 
-    Err(ErrorKind::MaliciousChallenge.into())
+    Err(Error::MaliciousChallenge)
 }
 
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
@@ -396,7 +396,7 @@ pub fn validate_challenge(
         challenge.hash.as_ref(),
         &challenge.signature,
     )? {
-        return Err(ErrorKind::InvalidChallenge.into());
+        return Err(Error::InvalidChallenge);
     }
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {

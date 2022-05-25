@@ -188,6 +188,11 @@ Most of the subscribers ingesting spans also provide a built-in timing facility,
 so prefer using spans for measuring the amount of time a section of code needs
 to execute.
 
+Give spans simple names that make them both easy to trace back to code, and to
+find a particular span in logs or other tools ingesting the span data. If a
+span begins at the top of a function, prefer giving it a name of that function,
+otherwise prefer a `snake_case` name.
+
 Use the regular span API over convenience macros such as `#[instrument]`, as
 this allows instrumenting portions of a function without affecting the code
 structure:

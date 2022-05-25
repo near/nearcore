@@ -384,7 +384,7 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(100),
                 receiver_id,
-                method_names: vec!["method1".to_string()],
+                method_names: vec!["m".to_string()],
             });
             add_key_transaction(tb, sender, permission)
         };
@@ -399,8 +399,15 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+    let base_cost = action_add_function_access_key_base(ctx) + action_sir_receipt_creation(ctx);
+
+    // Set up estimation with varying method length and total bytes.
+    let mut estimate = |method_len: usize, total_len: usize| {
+        // Nothing prevents a key to list the same method many times. Performance should not be affected.
+        let method_name = "x".repeat(method_len);
+        let num_methods = total_len / (method_len + 1);
+        let method_names = vec![method_name; num_methods];
+
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
@@ -408,19 +415,37 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(100),
                 receiver_id,
-                method_names: many_methods.clone(),
+                method_names: method_names.clone(),
             });
             add_key_transaction(tb, sender, permission)
         };
-        transaction_cost(ctx, &mut make_transaction)
+
+        let total_cost = transaction_cost(ctx, &mut make_transaction);
+        // +1 for null-terminator
+        let actual_total_len = num_methods * (method_len + 1);
+        let per_byte_cost = total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+            / actual_total_len as u64;
+
+        if ctx.config.debug {
+            eprintln!("{num_methods}x{method_len}: {per_byte_cost:?}");
+        }
+        per_byte_cost
     };
 
-    let base_cost = action_add_function_access_key_base(ctx);
+    // A single action can have up to 2kB bytes of comma-separated method names.
+    // As defined by the parameter `max_number_bytes_method_names`.
+    let max_bytes = 2_000;
+    // Methods name lengths are limited by the runtime parameter `max_length_method_name`.
+    let max_method_len = 256;
 
-    // 1k methods for 10 bytes each
-    let bytes_per_transaction = 10 * 1000;
+    // Try a couple of combinations that could potentially be the worst-case.
+    let cost_a = estimate(max_method_len, max_bytes);
+    let cost_b = estimate(1, max_bytes); // This is the worst at time of writing.
+    let cost_c = estimate(8, max_bytes);
+    let cost_d = estimate(max_method_len, max_method_len + 1);
+    let cost_e = estimate(max_method_len / 2, max_bytes / 2);
 
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
+    [cost_a, cost_b, cost_c, cost_d, cost_e].into_iter().max().unwrap()
 }
 
 fn add_key_transaction(
@@ -726,7 +751,7 @@ fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
 fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
-    let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+    let code = read_resource(if cfg!(feature = "nightly") {
         "test-contract/res/nightly_large_contract.wasm"
     } else {
         "test-contract/res/stable_large_contract.wasm"

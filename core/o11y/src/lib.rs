@@ -95,17 +95,18 @@ fn is_terminal() -> bool {
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
 /// returned by this function goes out of scope.
+/// Subscriber creation needs an async runtime.
 ///
 /// # Example
 ///
 /// ```rust
+/// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = near_o11y::default_subscriber(filter, near_o11y::ColorOutput::Auto);
-/// near_o11y::tracing::info!(message = "Still a lot of work remains to make it proper o11y");
+/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto).await.global() });
 /// ```
-pub fn default_subscriber(
+pub async fn default_subscriber(
     log_filter: EnvFilter,
-    color_output: ColorOutput,
+    color_output: &ColorOutput,
 ) -> DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
@@ -120,6 +121,7 @@ pub fn default_subscriber(
 
     let subscriber_builder = tracing_subscriber::FmtSubscriber::builder()
         .with_ansi(ansi)
+        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
@@ -136,7 +138,7 @@ pub fn default_subscriber(
     let subscriber = {
         let tracer = opentelemetry_jaeger::new_pipeline()
             .with_service_name("neard")
-            .install_simple()
+            .install_batch(opentelemetry::runtime::Tokio)
             .unwrap();
         let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
         subscriber.with(opentelemetry)
@@ -196,7 +198,7 @@ pub enum BuildEnvFilterError {
 #[derive(Debug)]
 pub struct EnvFilterBuilder<'a> {
     rust_log: Cow<'a, str>,
-    verbose: Option<Cow<'a, str>>,
+    verbose: Option<&'a str>,
 }
 
 impl<'a> EnvFilterBuilder<'a> {
@@ -219,8 +221,8 @@ impl<'a> EnvFilterBuilder<'a> {
     ///
     /// If the `module` string is empty, all targets will log debug output. Otherwise only the
     /// specified target will log the debug output.
-    pub fn verbose<S: Into<Cow<'a, str>>>(mut self, target: Option<S>) -> Self {
-        self.verbose = target.map(Into::into);
+    pub fn verbose(mut self, target: Option<&'a str>) -> Self {
+        self.verbose = target;
         self
     }
 

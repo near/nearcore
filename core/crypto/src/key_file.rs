@@ -22,7 +22,7 @@ impl KeyFile {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perm = std::fs::Permissions::from_mode(u32::from(libc::S_IWUSR | libc::S_IRUSR));
+            let perm = std::fs::Permissions::from_mode((libc::S_IWUSR | libc::S_IRUSR).into());
             file.set_permissions(perm)?;
         }
         let str = serde_json::to_string_pretty(self)?;

@@ -3,9 +3,8 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::{GenesisValidationMode, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_store::create_store;
 use nearcore::migrations::load_migration_data;
-use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
+use nearcore::{get_default_home, load_config, NightshadeRuntime, TrackedConfig};
 use std::collections::HashSet;
 use std::io::Result;
 use std::path::Path;
@@ -46,7 +45,7 @@ fn main() -> Result<()> {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = near_store::StoreOpener::new(&near_config.config.store).home(home_dir).open();
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,

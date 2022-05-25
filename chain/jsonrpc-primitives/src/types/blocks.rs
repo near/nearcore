@@ -82,16 +82,3 @@ impl From<RpcBlockError> for crate::errors::RpcError {
         Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
-
-impl RpcBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<RpcBlockRequest, crate::errors::RpcParseError> {
-        let block_reference = if let Ok((block_id,)) =
-            crate::utils::parse_params::<(near_primitives::types::BlockId,)>(value.clone())
-        {
-            near_primitives::types::BlockReference::BlockId(block_id)
-        } else {
-            crate::utils::parse_params::<near_primitives::types::BlockReference>(value)?
-        };
-        Ok(RpcBlockRequest { block_reference })
-    }
-}

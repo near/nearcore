@@ -15,7 +15,7 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
+    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
@@ -49,6 +49,7 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
 };
+use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -177,7 +178,7 @@ impl Client {
                     genesis_block.hash(),
                 )?
                 .iter()
-                .map(|x| x.0.clone().into())
+                .map(|x| x.0.clone())
                 .collect(),
             EPOCH_SYNC_REQUEST_TIMEOUT,
             EPOCH_SYNC_PEER_TIMEOUT,
@@ -795,27 +796,26 @@ impl Client {
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
-            match &result {
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+            if let Err(e) = &result {
+                match e {
+                    near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs),
+                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
-                    near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
+                    near_chain::Error::InvalidChunkState(chunk_state) => {
                         self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state),
+                                ChallengeBody::ChunkState(*chunk_state.clone()),
                                 &**validator_signer,
                             )),
                         ));
                     }
                     _ => {}
-                },
-                _ => {}
+                }
             }
         }
 
@@ -867,8 +867,8 @@ impl Client {
                 return Err(Error::Chunk(near_chunks::Error::UnknownChunk));
             }
             Err(near_chunks::Error::ChainError(chain_error)) => {
-                match chain_error.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
+                match chain_error {
+                    near_chain::Error::DBNotFoundErr(_) => {
                         // We can't check if this chunk came from a valid chunk producer because
                         // we don't know `prev_block`, however the signature is checked when
                         // forwarded parts are later processed as partial encoded chunks, so we
@@ -1052,6 +1052,13 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "on_block_accepted",
+            ?block_hash,
+            ?status,
+            ?provenance)
+        .entered();
         self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
@@ -1106,30 +1113,22 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
-            let now = Clock::instant();
-            let result = if self.config.archive {
-                self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
-            } else {
-                let tries = self.runtime_adapter.get_tries();
-                self.chain.clear_data(tries, &self.config.gc)
-            };
-            if let Err(err) = result {
-                error!(target: "client", "Can't clear old data, {:?}", err);
-                debug_assert!(false);
-            };
-            let gc_time = now.elapsed();
-            metrics::GC_TIME.observe(gc_time.as_secs_f64());
-            // it's safe to unwrap here because block is already accepted
-            if block.header().height()
-                - self.runtime_adapter.get_epoch_start_height(block.hash()).unwrap()
-                < EPOCH_START_INFO_BLOCKS
             {
-                info!(
-                    "spent {:?} on gc after processing block {:?} at height {}",
-                    gc_time,
-                    block.hash(),
-                    block.header().height()
-                );
+                let _span = tracing::info_span!(
+                    target: "client",
+                    "garbage_collection",
+                    block_hash = ?block.hash(),
+                    height = block.header().height())
+                .entered();
+                let _gc_timer = metrics::GC_TIME.start_timer();
+
+                let result = if self.config.archive {
+                    self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
+                } else {
+                    let tries = self.runtime_adapter.get_tries();
+                    self.chain.clear_data(tries, &self.config.gc)
+                };
+                log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
             if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
@@ -1372,7 +1371,7 @@ impl Client {
                     Err(_) => false,
                 }
             };
-        if let ErrorKind::DBNotFoundErr(_) = error.kind() {
+        if let near_chain::Error::DBNotFoundErr(_) = error {
             if check_validator {
                 let head = unwrap_or_return!(self.chain.head());
                 if !is_validator(
@@ -1448,7 +1447,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(e) if e.kind() == ErrorKind::NotAValidator => {
+                Err(near_chain::Error::NotAValidator) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,
@@ -1645,9 +1644,7 @@ impl Client {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(
-                            ErrorKind::Other("Node has not caught up yet".to_string()).into()
-                        );
+                        return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
                         return Ok(NetworkClientResponses::RequestRouted);
@@ -1666,7 +1663,11 @@ impl Client {
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
+                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
+                // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
+                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                trace!(target: "client", shard_id, "Recorded a transaction.");
 
                 // Active validator:
                 //   possibly forward to next epoch validators
@@ -1674,9 +1675,8 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if active_validator {
-                    trace!(target: "client", account=?me, shard_id, is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-                    self.shards_mgr.insert_transaction(shard_id, tx.clone());
 
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;

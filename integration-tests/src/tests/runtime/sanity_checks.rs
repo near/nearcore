@@ -95,25 +95,32 @@ fn get_receipts_status_with_clear_hash(
 /// This test intends to catch accidental configuration changes, see #4961.
 #[test]
 fn test_cost_sanity() {
-    let test_contract = if cfg!(feature = "nightly_protocol") {
+    let test_contract = if cfg!(feature = "nightly") {
         near_test_contracts::nightly_rs_contract()
     } else {
         near_test_contracts::rs_contract()
     };
     let node = setup_runtime_node_with_contract(test_contract);
-    let data = serde_json::json!({
-        "contract_code": to_base64(near_test_contracts::trivial_contract()),
-        "method_name": "main",
-        "method_args": to_base64(&[]),
-        "validator_id": bob_account().as_str(),
-    });
+
+    let args = format!(
+        r#"{{
+            "contract_code": {:?},
+            "method_name": "main",
+            "method_args": "",
+            "validator_id": {:?}
+        }}"#,
+        to_base64(near_test_contracts::trivial_contract()),
+        bob_account().as_str()
+    );
+    eprintln!("{args}");
+
     let res = node
         .user()
         .function_call(
             alice_account(),
             test_contract_account(),
             "sanity_check",
-            serde_json::to_vec(&data).unwrap(),
+            args.into_bytes(),
             MAX_GAS,
             0,
         )
@@ -145,7 +152,7 @@ fn test_cost_sanity() {
         .collect::<Vec<_>>();
 
     insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             "receipts_gas_profile_nightly"
         } else {
             "receipts_gas_profile"
@@ -178,7 +185,7 @@ fn test_cost_sanity_nondeterministic() {
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
         .collect::<Vec<_>>();
     insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             "receipts_gas_profile_nondeterministic_nightly"
         } else {
             "receipts_gas_profile_nondeterministic"

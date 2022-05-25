@@ -8,7 +8,6 @@ use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
-use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::path::Path;
 use std::sync::Arc;
@@ -28,7 +27,7 @@ impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let store_path = get_store_path(workdir.path());
+        let store_path = near_store::get_store_path(workdir.path());
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 0, 1);
 
@@ -52,7 +51,6 @@ impl RuntimeTestbed {
             max_number_input_data_dependencies: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
-            max_number_bytes_method_names: u64::MAX,
 
             ..VMLimitConfig::test()
         };

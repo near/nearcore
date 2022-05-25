@@ -98,8 +98,8 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
 
-nightly_protocol_features = [
-    "near-primitives/nightly_protocol_features",
+nightly = [
+    "near-primitives/nightly",
     "protocol_feature_alt_bn128",
 ]
 sandbox = ["near-vm-logic/sandbox"]

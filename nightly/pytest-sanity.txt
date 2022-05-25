@@ -1,143 +1,143 @@
 # python sanity tests
 pytest sanity/block_production.py
-pytest sanity/block_production.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/block_production.py --features nightly
 pytest sanity/transactions.py
-pytest sanity/transactions.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/transactions.py --features nightly
 pytest sanity/staking1.py
-pytest sanity/staking1.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/staking1.py --features nightly
 pytest --timeout=800 sanity/staking2.py
-pytest --timeout=800 sanity/staking2.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=800 sanity/staking2.py --features nightly
 pytest --timeout=800 sanity/staking_repro1.py
-pytest --timeout=800 sanity/staking_repro1.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=800 sanity/staking_repro1.py --features nightly
 pytest --timeout=800 sanity/staking_repro2.py
-pytest --timeout=800 sanity/staking_repro2.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=800 sanity/staking_repro2.py --features nightly
 pytest sanity/epoch_switches.py
-pytest sanity/epoch_switches.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/epoch_switches.py --features nightly
 pytest sanity/state_sync.py manytx 30
-pytest sanity/state_sync.py manytx 30 --features nightly_protocol,nightly_protocol_features
+pytest sanity/state_sync.py manytx 30 --features nightly
 pytest --timeout=600 sanity/state_sync.py manytx 265
-pytest --timeout=600 sanity/state_sync.py manytx 265 --features nightly_protocol,nightly_protocol_features
+pytest --timeout=600 sanity/state_sync.py manytx 265 --features nightly
 pytest sanity/state_sync.py onetx 30
-pytest sanity/state_sync.py onetx 30 --features nightly_protocol,nightly_protocol_features
+pytest sanity/state_sync.py onetx 30 --features nightly
 pytest --timeout=600 sanity/state_sync.py onetx 265
-pytest --timeout=600 sanity/state_sync.py onetx 265 --features nightly_protocol,nightly_protocol_features
+pytest --timeout=600 sanity/state_sync.py onetx 265 --features nightly
 pytest --timeout=240 sanity/state_sync1.py
-pytest --timeout=240 sanity/state_sync1.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/state_sync1.py --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=900 sanity/state_sync2.py
-#pytest --timeout=900 sanity/state_sync2.py nightly --features nightly_protocol,nightly_protocol_features
+#pytest --timeout=900 sanity/state_sync2.py nightly --features nightly
 pytest --timeout=1200 sanity/state_sync3.py
-pytest --timeout=1200 sanity/state_sync3.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=1200 sanity/state_sync3.py --features nightly
 pytest --timeout=240 sanity/state_sync4.py
-pytest --timeout=240 sanity/state_sync4.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/state_sync4.py --features nightly
 pytest --timeout=240 sanity/state_sync5.py
-pytest --timeout=240 sanity/state_sync5.py --features nightly_protocol,nightly_protocol_features
-pytest --timeout=480 sanity/routing_table_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/state_sync5.py --features nightly
+pytest --timeout=480 sanity/routing_table_sync.py --features nightly
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
-pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly_protocol,nightly_protocol_features
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 #pytest --timeout=300 sanity/state_sync_late.py notx
-#pytest --timeout=300 sanity/state_sync_late.py notx --features nightly_protocol,nightly_protocol_features
+#pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
 
 pytest --timeout=3600 sanity/state_sync_massive.py
-pytest --timeout=3600 sanity/state_sync_massive.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
 pytest --timeout=3600 sanity/state_sync_massive_validator.py
-pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 pytest sanity/sync_chunks_from_archival.py
-pytest sanity/sync_chunks_from_archival.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/sync_chunks_from_archival.py --features nightly
 
 pytest sanity/rpc_tx_forwarding.py
-pytest sanity/rpc_tx_forwarding.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_tx_forwarding.py --features nightly
 pytest --timeout=240 sanity/skip_epoch.py
-pytest --timeout=240 sanity/skip_epoch.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/skip_epoch.py --features nightly
 pytest --timeout=240 sanity/one_val.py
-pytest --timeout=240 sanity/one_val.py nightly --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/one_val.py nightly --features nightly
 pytest --timeout=240 sanity/lightclnt.py
-pytest --timeout=240 sanity/lightclnt.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/lightclnt.py --features nightly
 pytest sanity/rpc_light_client_execution_outcome_proof.py
-pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly
 pytest --timeout=240 sanity/block_sync.py
-pytest --timeout=240 sanity/block_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/block_sync.py --features nightly
 pytest --timeout=10m sanity/block_sync_archival.py
-pytest --timeout=10m sanity/block_sync_archival.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=10m sanity/block_sync_archival.py --features nightly
 pytest --timeout=240 sanity/validator_switch.py
-pytest --timeout=240 sanity/validator_switch.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/validator_switch.py --features nightly
 pytest --timeout=240 sanity/rpc_state_changes.py
-pytest --timeout=240 sanity/rpc_state_changes.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/rpc_state_changes.py --features nightly
 pytest sanity/rpc_max_gas_burnt.py
-pytest sanity/rpc_max_gas_burnt.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_max_gas_burnt.py --features nightly
 pytest sanity/rpc_tx_status.py
-pytest sanity/rpc_tx_status.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_tx_status.py --features nightly
 pytest --timeout=120 sanity/garbage_collection.py
-pytest --timeout=120 sanity/garbage_collection.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=120 sanity/garbage_collection.py --features nightly
 pytest --timeout=120 sanity/garbage_collection1.py
-pytest --timeout=120 sanity/garbage_collection1.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=120 sanity/garbage_collection1.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync.py
-pytest --timeout=300 sanity/gc_after_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 sanity/gc_after_sync.py --features nightly
 pytest --timeout=300 sanity/gc_after_sync1.py
-pytest --timeout=300 sanity/gc_after_sync1.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 sanity/gc_after_sync1.py --features nightly
 pytest --timeout=300 sanity/gc_sync_after_sync.py
-pytest --timeout=300 sanity/gc_sync_after_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 sanity/gc_sync_after_sync.py --features nightly
 pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
-pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes --features nightly
 pytest --timeout=300 sanity/large_messages.py
-pytest --timeout=300 sanity/large_messages.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 sanity/large_messages.py --features nightly
 pytest --timeout=120 sanity/handshake_tie_resolution.py
-pytest --timeout=120 sanity/handshake_tie_resolution.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=120 sanity/handshake_tie_resolution.py --features nightly
 pytest sanity/repro_2916.py
-pytest sanity/repro_2916.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/repro_2916.py --features nightly
 pytest --timeout=240 sanity/switch_node_key.py
-pytest --timeout=240 sanity/switch_node_key.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/switch_node_key.py --features nightly
 # TODO: re-enable after #2949 is fixed
 # pytest --timeout=240 sanity/validator_switch_key.py
-# pytest --timeout=240 sanity/validator_switch_key.py --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=240 sanity/validator_switch_key.py --features nightly
 pytest sanity/proxy_simple.py
-pytest sanity/proxy_simple.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/proxy_simple.py --features nightly
 pytest sanity/proxy_restart.py
-pytest sanity/proxy_restart.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/proxy_restart.py --features nightly
 pytest sanity/network_drop_package.py
-pytest sanity/network_drop_package.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/network_drop_package.py --features nightly
 # TODO: enable them when we fix the issue with proxy shutdown (#2942)
 # pytest --timeout=900 sanity/sync_ban.py true
-# pytest --timeout=900 sanity/sync_ban.py true --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=900 sanity/sync_ban.py true --features nightly
 # pytest --timeout=900 sanity/sync_ban.py false
-# pytest --timeout=900 sanity/sync_ban.py false --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=900 sanity/sync_ban.py false --features nightly
 pytest sanity/block_chunk_signature.py
-pytest sanity/block_chunk_signature.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/block_chunk_signature.py --features nightly
 pytest sanity/concurrent_function_calls.py
-pytest sanity/concurrent_function_calls.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/concurrent_function_calls.py --features nightly
 pytest sanity/proxy_example.py
-pytest sanity/proxy_example.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/proxy_example.py --features nightly
 pytest sanity/rpc_tx_submission.py
-pytest sanity/rpc_tx_submission.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_tx_submission.py --features nightly
 pytest sanity/state_sync_fail.py
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-#pytest sanity/state_sync_fail.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/state_sync_fail.py --features nightly
 # TODO(#5095): Currently broken.
 #pytest sanity/garbage_collection_sharding_upgrade.py
-#pytest sanity/garbage_collection_sharding_upgrade.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/garbage_collection_sharding_upgrade.py --features nightly
 
 pytest sanity/restart.py
-pytest sanity/restart.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/restart.py --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 #pytest sanity/rpc_finality.py
-#pytest sanity/rpc_finality.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/rpc_finality.py --features nightly
 #pytest sanity/state_migration.py
-#pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/state_migration.py --features nightly
 
 pytest sanity/rpc_hash.py
-pytest sanity/rpc_hash.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_hash.py --features nightly
 
 # Rosetta RPC tests
 pytest sanity/rosetta.py
-pytest sanity/rosetta.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rosetta.py --features nightly
 
 # Make sure Docker image can be build and run
 pytest --skip-build --timeout=1h sanity/docker.py
 
 pytest sanity/recompress_storage.py
-pytest sanity/recompress_storage.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/recompress_storage.py --features nightly

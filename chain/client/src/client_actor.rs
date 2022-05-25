@@ -71,8 +71,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
-    #[cfg(feature = "test_features")]
-    pub adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+    pub adv: crate::adversarial::Controls,
 
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -141,7 +140,7 @@ impl ClientActor {
         rng_seed: RngSeed,
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<oneshot::Sender<()>>,
-        #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+        adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -169,7 +168,6 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            #[cfg(feature = "test_features")]
             adv,
             client,
             network_adapter,
@@ -255,6 +253,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="NetworkClientMessages")
+        .entered();
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -278,14 +281,14 @@ impl ClientActor {
                 return match adversarial_msg {
                     near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv.write().unwrap().adv_disable_doomslug = true;
+                        self.adv.set_disable_doomslug(true);
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv.write().unwrap().adv_disable_header_sync = true;
+                        self.adv.set_disable_header_sync(true);
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
@@ -356,7 +359,7 @@ impl ClientActor {
                             genesis,
                             self.client.runtime_adapter.clone(),
                             self.client.chain.store().store().clone(),
-                            self.adv.read().unwrap().is_archival,
+                            self.adv.is_archival(),
                         );
                         store_validator.set_timeout(timeout);
                         store_validator.validate();
@@ -716,13 +719,14 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", handler="Status").entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = (*head_header.prev_state_root()).into();
+        let latest_state_root = *head_header.prev_state_root();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -917,7 +921,7 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash.into(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 latest_state_root,
                 latest_block_time: from_timestamp(latest_block_time),
@@ -939,6 +943,11 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler="GetNetworkInfo")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -1091,6 +1100,7 @@ impl ClientActor {
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
             return Ok(());
@@ -1247,15 +1257,13 @@ impl ClientActor {
     }
 
     fn try_handle_block_production(&mut self) {
-        match self.handle_block_production() {
-            Ok(()) => {}
-            Err(err) => {
-                error!(target: "client", "Handle block production failed: {:?}", err);
-            }
+        if let Err(err) = self.handle_block_production() {
+            tracing::error!(target: "client", ?err, "Handle block production failed")
         }
     }
 
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(Clock::instant());
 
@@ -1287,6 +1295,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();
@@ -1295,8 +1304,8 @@ impl ClientActor {
                 let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::ChunksMissing(_) => {
+                    Err(e) => match e {
+                        near_chain::Error::ChunksMissing(_) => {
                             // missing chunks were already handled in Client::process_block, we don't need to
                             // do anything here
                             Ok(())
@@ -1316,29 +1325,63 @@ impl ClientActor {
 
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_accepted_blocks",
+            num_blocks = accepted_blocks.len())
+        .entered();
         for accepted_block in accepted_blocks {
             self.client.on_block_accepted(
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
             );
-            let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let block = self.client.chain.get_block(&accepted_block.hash).unwrap().clone();
             let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
-            let last_final_hash = *block.header().last_final_block();
+            let last_final_hash = block.header().last_final_block();
+            let last_final_ds_hash = block.header().last_ds_final_block();
+            let last_final_block_height = self
+                .client
+                .chain
+                .get_block(&last_final_hash)
+                .map_or(0, |block| block.header().height());
+            let last_final_ds_block_height = self
+                .client
+                .chain
+                .get_block(&last_final_ds_hash)
+                .map_or(0, |block| block.header().height());
 
             let chunks = block.chunks();
             for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
                 if included {
-                    self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+                    self.info_helper.chunk_processed(
+                        chunk.shard_id(),
+                        chunk.gas_used(),
+                        chunk.balance_burnt(),
+                    );
                 } else {
                     self.info_helper.chunk_skipped(chunk.shard_id());
                 }
             }
 
-            self.info_helper.block_processed(gas_used, chunks_in_block as u64);
-            self.check_send_announce_account(last_final_hash);
+            let epoch_height = self
+                .client
+                .runtime_adapter
+                .get_epoch_height_from_prev_block(block.hash())
+                .unwrap_or(0);
+
+            self.info_helper.block_processed(
+                gas_used,
+                chunks_in_block as u64,
+                block.header().gas_price(),
+                block.header().total_supply(),
+                last_final_block_height,
+                last_final_ds_block_height,
+                epoch_height,
+            );
+            self.check_send_announce_account(*last_final_hash);
         }
     }
 
@@ -1349,6 +1392,12 @@ impl ClientActor {
         provenance: Provenance,
         peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "process_block",
+            height = block.header().height())
+        .entered();
+        debug!(target: "client", ?provenance, ?peer_id);
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
@@ -1401,16 +1450,25 @@ impl ClientActor {
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
+        let _span = tracing::debug_span!(
+            target: "client",
+            "receive_block",
+            me = ?self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            prev_hash = %block.header().prev_hash(),
+            %hash,
+            height = block.header().height(),
+            %peer_id,
+            was_requested)
+        .entered();
         let head = unwrap_or_return!(self.client.chain.head());
         let is_syncing = self.client.sync_status.is_syncing();
         if block.header().height() >= head.height + BLOCK_HORIZON && is_syncing && !was_requested {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
+            debug!(target: "client", head_height = head.height, "Dropping a block that is too far ahead.");
             return;
         }
         let tail = unwrap_or_return!(self.client.chain.tail());
         if block.header().height() < tail {
-            debug!(target: "client", "dropping block {} that is too far behind. Block height {} current tail height {}", block.hash(), block.header().height(), tail);
+            debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
         }
         let prev_hash = *block.header().prev_hash();
@@ -1419,10 +1477,10 @@ impl ClientActor {
         match self.process_block(block.into(), provenance, &peer_id) {
             Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                warn!(target: "client", "receive bad block: {}", err);
+                warn!(target: "client", "Receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
-                if let near_chain::ErrorKind::DBNotFoundErr(msg) = err.kind() {
+                if let near_chain::Error::DBNotFoundErr(msg) = err {
                     debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
                 }
                 if self.client.sync_status.is_syncing() {
@@ -1433,17 +1491,17 @@ impl ClientActor {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
             }
-            Err(e) => match e.kind() {
-                near_chain::ErrorKind::Orphan => {
+            Err(e) => match e {
+                near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
                 }
                 // missing chunks are already handled in self.client.process_block()
                 // we don't need to do anything here
-                near_chain::ErrorKind::ChunksMissing(_) => {}
+                near_chain::Error::ChunksMissing(_) => {}
                 _ => {
-                    debug!(target: "client", "Process block: block {} refused by chain: {:?}", hash, e.kind());
+                    debug!(target: "client", error = %e, "Process block: refused by chain");
                 }
             },
         }
@@ -1527,14 +1585,7 @@ impl ClientActor {
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv.read().unwrap().adv_disable_header_sync {
-                return false;
-            }
-        }
-
-        needs_syncing
+        !self.adv.disable_header_sync() && needs_syncing
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -1638,13 +1689,14 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
+        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
     /// Main syncing job responsible for syncing client with other peers.
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "sync").entered();
         let _d = delay_detector::DelayDetector::new(|| "client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
@@ -1813,6 +1865,7 @@ impl ClientActor {
 
     /// Print current summary.
     fn log_summary(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "log_summary").entered();
         let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         let is_syncing = self.client.sync_status.is_syncing();
         let head = unwrap_or_return!(self.client.chain.head());
@@ -1873,10 +1926,6 @@ impl ClientActor {
             validator_epoch_stats,
             self.client
                 .runtime_adapter
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap_or(0),
-            self.client
-                .runtime_adapter
                 .get_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
@@ -1888,6 +1937,7 @@ impl ClientActor {
 
 impl Drop for ClientActor {
     fn drop(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "drop").entered();
         self.state_parts_client_arbiter.stop();
     }
 }
@@ -1903,6 +1953,7 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
+        let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
         let store = msg.runtime.get_store();
 
         for part_id in 0..msg.num_parts {
@@ -1930,6 +1981,9 @@ impl Handler<ApplyStatePartsRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsRequest")
+                .entered();
         let result = self.apply_parts(&msg);
 
         self.client_addr.do_send(ApplyStatePartsResponse {
@@ -1944,6 +1998,9 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsResponse")
+                .entered();
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1957,6 +2014,9 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: BlockCatchUpRequest, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "BlockCatchUpRequest")
+                .entered();
         let results = do_apply_chunks(msg.work);
 
         self.client_addr.do_send(BlockCatchUpResponse {
@@ -1991,6 +2051,8 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", handler = "StateSplitRequest")
+            .entered();
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
@@ -2035,7 +2097,7 @@ pub fn start_client(
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<oneshot::Sender<()>>,
-    #[cfg(feature = "test_features")] adv: Arc<std::sync::RwLock<crate::AdversarialControls>>,
+    adv: crate::adversarial::Controls,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
@@ -2052,7 +2114,6 @@ pub fn start_client(
             random_seed_from_thread(),
             ctx,
             sender,
-            #[cfg(feature = "test_features")]
             adv,
         )
         .unwrap()
