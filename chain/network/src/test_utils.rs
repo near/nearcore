@@ -157,10 +157,11 @@ pub fn expected_routing_tables(
     }
 
     for (target, want_peers) in want {
-        let got_peers = if let Some(ps) = got.get(target) {
-            ps
-        } else {
-            return false;
+        let got_peers = match got.get(target) {
+            Some(ps) => ps,
+            None => {
+                return false;
+            }
         };
         if got_peers.len() != want_peers.len() {
             return false;
@@ -378,6 +379,7 @@ pub mod test_features {
                 client_addr.recipient(),
                 view_client_addr.recipient(),
                 routing_table_addr,
+                Box::new(()),
             )
             .unwrap(),
             peer_id,

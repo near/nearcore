@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
@@ -9,6 +8,7 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail};
+use parking_lot::Mutex;
 use tracing::debug;
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -21,6 +21,7 @@ use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
 
+use crate::tests::network::multiset::MultiSet;
 use near_network::routing::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::test_utils::SetAdvOptions;
@@ -36,7 +37,6 @@ use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
-use std::hash::Hash;
 use std::pin::Pin;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
@@ -44,40 +44,31 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 pub type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
-#[derive(Debug, PartialEq, Eq)]
-struct MultiSet<T: Hash + Eq>(HashMap<T, usize>);
-
-impl<T: Hash + Eq> MultiSet<T> {
-    pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-
-    fn is_subset(&self, other: &Self) -> bool {
-        for (k, v) in &self.0 {
-            if other.0.get(&k).unwrap_or(&0) < &v {
-                return false;
-            }
-        }
-        true
-    }
+#[derive(Default)]
+struct PingCounterInner {
+    pings: MultiSet<NetPing>,
+    pongs: MultiSet<NetPong>,
 }
 
-impl<T: Hash + Eq> FromIterator<T> for MultiSet<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut s = Self::new();
-        for v in iter {
-            *s.0.entry(v).or_default() += 1;
-        }
-        s
+#[derive(Clone, Default)]
+struct PingCounter(Arc<Mutex<PingCounterInner>>);
+
+impl near_network::PingCounter for PingCounter {
+    fn add_ping(&self, ping: &NetPing) {
+        self.0.lock().pings.insert(ping.clone());
+    }
+    fn add_pong(&self, pong: &NetPong) {
+        self.0.lock().pongs.insert(pong.clone());
     }
 }
 
 /// Sets up a node with a valid Client, Peer
-pub fn setup_network_node(
+fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: NetworkConfig,
+    ping_counter: PingCounter,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
@@ -131,6 +122,7 @@ pub fn setup_network_node(
             client_actor.recipient(),
             view_client_actor.recipient(),
             routing_table_addr,
+            Box::new(ping_counter),
         )
         .unwrap()
     });
@@ -193,22 +185,21 @@ async fn check_routing_table(
     u: usize,
     want: Vec<(usize, Vec<usize>)>,
 ) -> anyhow::Result<ControlFlow> {
-    let mut want_rt = vec![];
-    for (target, routes) in want {
-        let mut peers = vec![];
-        for hop in routes {
-            peers.push(info.runner.test_config[hop].peer_id());
-        }
-        want_rt.push((info.runner.test_config[target].peer_id(), peers));
-    }
+    let want_rt: Vec<_> = want
+        .into_iter()
+        .map(|(target, routes)| {
+            let peers =
+                routes.into_iter().map(|hop| info.runner.test_config[hop].peer_id()).collect();
+            (info.runner.test_config[target].peer_id(), peers)
+        })
+        .collect();
     let pm = info.get_node(u)?.addr.clone();
     let resp = pm
         .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
         .await?;
-    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
-        rt
-    } else {
-        bail!("bad response")
+    let rt = match resp.as_network_response() {
+        NetworkResponses::RoutingTableInfo(rt) => rt,
+        _ => bail!("bad response"),
     };
     if expected_routing_tables(&rt.peer_forwarding, &want_rt) {
         return Ok(ControlFlow::Break(()));
@@ -256,23 +247,14 @@ async fn check_ping_pong(
         .iter()
         .map(|p| NetPong { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
         .collect();
-    let pm = &info.get_node(source)?.addr;
-    let resp = pm
-        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchPingPongInfo))
-        .await?;
-    let (got_pings, got_pongs): (MultiSet<_>, MultiSet<_>) =
-        if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() {
-            (pings.into_iter().collect(), pongs.into_iter().collect())
-        } else {
-            bail!("bad response")
-        };
-    if !got_pings.is_subset(&want_pings) {
-        bail!("got_pings = {got_pings:?}, want_pings = {want_pings:?}");
+    let got = info.nodes[source].as_ref().unwrap().ping_counter.0.lock();
+    if !got.pings.is_subset(&want_pings) {
+        bail!("got_pings = {:?}, want_pings = {want_pings:?}", got.pings);
     }
-    if !got_pongs.is_subset(&want_pongs) {
-        bail!("got_pongs = {got_pongs:?}, want_pongs = {want_pongs:?}");
+    if !got.pongs.is_subset(&want_pongs) {
+        bail!("got_pongs = {:?}, want_pongs = {want_pongs:?}", got.pongs);
     }
-    if got_pings == want_pings && got_pongs == want_pongs {
+    if got.pings == want_pings && got.pongs == want_pongs {
         return Ok(ControlFlow::Break(()));
     }
     Ok(ControlFlow::Continue(()))
@@ -431,6 +413,7 @@ pub struct Runner {
 
 struct NodeHandle {
     addr: Addr<PeerManagerActor>,
+    ping_counter: PingCounter,
     send_stop: tokio::sync::oneshot::Sender<std::convert::Infallible>,
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
 }
@@ -611,12 +594,14 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
+        let ping_counter = PingCounter::default();
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({
             let account_id = config.account_id.clone();
             let validators = self.validators.clone();
             let chain_genesis = self.chain_genesis.clone();
+            let ping_counter = ping_counter.clone();
             move || {
                 actix::System::new().block_on(async move {
                     send_pm
@@ -625,6 +610,7 @@ impl Runner {
                             validators,
                             chain_genesis,
                             network_config,
+                            ping_counter,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
                     // recv_stop is expected to get closed.
@@ -634,7 +620,7 @@ impl Runner {
             }
         });
         let addr = recv_pm.await?;
-        Ok(NodeHandle { addr, send_stop, handle })
+        Ok(NodeHandle { addr, send_stop, handle, ping_counter })
     }
 
     async fn build(self) -> anyhow::Result<RunningInfo> {

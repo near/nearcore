@@ -77,6 +77,7 @@ pub fn make_peer_manager(
             client_addr.recipient(),
             view_client_addr.recipient(),
             routing_table_addr,
+            Box::new(()),
         )
         .unwrap(),
         peer_id,

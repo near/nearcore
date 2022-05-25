@@ -44,6 +44,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),
             routing_table_addr,
+            Box::new(()),
         )
         .unwrap()
     })

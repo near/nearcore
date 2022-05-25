@@ -339,8 +339,6 @@ pub enum NetworkRequests {
         nonce: u64,
         target: PeerId,
     },
-    /// (Unit tests) Fetch all received ping and pong so far.
-    FetchPingPongInfo,
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
