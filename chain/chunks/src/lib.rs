@@ -740,7 +740,7 @@ impl ShardsManager {
     /// Only marks this chunk as being requested
     /// Note no requests are actually sent at this point.
     fn request_chunk_single_mark_only(&mut self, chunk_header: &ShardChunkHeader) {
-        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash(), None, false)
+        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash().clone(), None, false)
     }
 
     /// send partial chunk requests for one chunk
@@ -770,7 +770,7 @@ impl ShardsManager {
 
         self.encoded_chunks.try_insert(&chunk_header);
 
-        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block_hash = chunk_header.prev_block_hash().clone();
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
             ChunkRequestInfo {
@@ -1153,7 +1153,7 @@ impl ShardsManager {
         let shard_id = chunk_header.shard_id();
         let shard_layout = self
             .runtime_adapter
-            .get_shard_layout_from_prev_block(chunk_header.prev_block_hash_ref())?;
+            .get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
 
         let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (root, proofs) = merklize(&hashes);
@@ -1505,7 +1505,7 @@ impl ShardsManager {
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
         let (ancestor_hash, epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = header.prev_block_hash();
+            let prev_block_hash = header.prev_block_hash().clone();
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
                 (prev_block_hash, epoch_id, true)
@@ -1537,10 +1537,8 @@ impl ShardsManager {
                     // we are not sure if we are using the correct epoch id for validation, so
                     // we can't be sure if the chunk header is actually invalid. Let's return
                     // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(near_chain::Error::from(DBNotFoundErr(
-                        format!("block {:?}", header.prev_block_hash()).to_string(),
-                    ))
-                    .into())
+                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
+                        .into())
                 };
             }
             Ok(true) => (),
@@ -1555,10 +1553,8 @@ impl ShardsManager {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
-                Err(near_chain::Error::from(DBNotFoundErr(
-                    format!("block {:?}", header.prev_block_hash()).to_string(),
-                ))
-                .into())
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
+                    .into())
             };
         }
         Ok(())
@@ -1618,7 +1614,7 @@ impl ShardsManager {
             {
                 if *hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
-                    return Err(Error::DuplicateChunkHeight.into());
+                    return Err(Error::DuplicateChunkHeight);
                 }
             }
         }
@@ -2322,12 +2318,13 @@ mod test {
         )
         .unwrap();
         let header = encoded_chunk.cloned_header();
+        let prev_block_hash = header.prev_block_hash();
         shards_manager.requested_partial_encoded_chunks.insert(
             header.chunk_hash(),
             ChunkRequestInfo {
                 height: header.height_created(),
-                ancestor_hash: header.prev_block_hash(),
-                prev_block_hash: header.prev_block_hash(),
+                ancestor_hash: prev_block_hash.clone(),
+                prev_block_hash: prev_block_hash.clone(),
                 shard_id: header.shard_id(),
                 last_requested: Clock::instant(),
                 added: Clock::instant(),
@@ -2634,7 +2631,7 @@ mod test {
         };
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager
@@ -2655,7 +2652,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager
@@ -2676,7 +2673,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager
