@@ -1894,7 +1894,7 @@ impl Chain {
 
             let mut root_proofs_cur = vec![];
             assert_eq!(receipt_proofs.len(), block_header.chunks_included() as usize);
-            for receipt_proof in receipt_proofs {
+            for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
@@ -2528,7 +2528,7 @@ impl Chain {
                     None
                 } else {
                     Some(self.store.get_receipt(&outcome.id).and_then(|r| {
-                        r.cloned().map(Into::into).ok_or_else(|| {
+                        r.map(|r| Receipt::clone(&r).into()).ok_or_else(|| {
                             Error::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
                         })
                     }))
@@ -3607,7 +3607,7 @@ impl<'a> ChainUpdate<'a> {
                         let shard_layout =
                             self.runtime_adapter.get_shard_layout_from_prev_block(hash)?;
                         outgoing_receipts
-                            .into_iter()
+                            .iter()
                             .map(|receipt| {
                                 (
                                     receipt.receipt_id,
@@ -4519,7 +4519,11 @@ impl<'a> ChainUpdate<'a> {
         }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
-            self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
+            self.chain_store_update.save_incoming_receipt(
+                block.hash(),
+                shard_id,
+                Arc::new(receipt_proofs),
+            );
         }
         if let Some(state_dl_info) = state_dl_info {
             self.chain_store_update.add_state_dl_info(state_dl_info);
@@ -5158,7 +5162,7 @@ pub fn collect_receipts_from_response(
     receipt_proof_response: &[ReceiptProofResponse],
 ) -> Vec<Receipt> {
     collect_receipts(
-        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
+        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs.iter()),
     )
 }
 

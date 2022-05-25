@@ -624,7 +624,7 @@ pub(crate) fn print_epoch_info(
 }
 
 pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Store) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,

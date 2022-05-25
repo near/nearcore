@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
@@ -960,7 +961,7 @@ impl Handler<GetReceipt> for ViewClientActor {
             .chain
             .mut_store()
             .get_receipt(&msg.receipt_id)?
-            .map(|receipt| receipt.clone().into()))
+            .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }
 

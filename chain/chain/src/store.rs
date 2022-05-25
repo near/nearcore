@@ -200,15 +200,15 @@ pub trait ChainStoreAccess {
     }
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
-        &mut self,
+        &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<Receipt>, Error>;
+    ) -> Result<Arc<Vec<Receipt>>, Error>;
     fn get_incoming_receipts(
-        &mut self,
+        &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<ReceiptProof>, Error>;
+    ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -228,7 +228,7 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<&SignedTransaction>, Error>;
 
-    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error>;
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
 
     fn get_genesis_height(&self) -> BlockHeight;
 
@@ -318,9 +318,9 @@ pub struct ChainStore {
     /// Cache of last approvals for each account
     last_approvals_per_account: CellLruCache<Vec<u8>, Arc<Approval>>,
     /// Cache with outgoing receipts.
-    outgoing_receipts: LruCache<Vec<u8>, Vec<Receipt>>,
+    outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
     /// Cache with incoming receipts.
-    incoming_receipts: LruCache<Vec<u8>, Vec<ReceiptProof>>,
+    incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
     /// Invalid chunks.
     invalid_chunks: LruCache<Vec<u8>, EncodedShardChunk>,
     /// Mapping from receipt id to destination shard id
@@ -328,7 +328,7 @@ pub struct ChainStore {
     /// Transactions
     transactions: LruCache<Vec<u8>, SignedTransaction>,
     /// Receipts
-    receipts: LruCache<Vec<u8>, Receipt>,
+    receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
     /// Cache with Block Refcounts
     block_refcounts: LruCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
@@ -371,12 +371,12 @@ impl ChainStore {
             epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),
             my_last_approvals: CellLruCache::new(CACHE_SIZE),
             last_approvals_per_account: CellLruCache::new(CACHE_SIZE),
-            outgoing_receipts: LruCache::new(CACHE_SIZE),
-            incoming_receipts: LruCache::new(CACHE_SIZE),
+            outgoing_receipts: CellLruCache::new(CACHE_SIZE),
+            incoming_receipts: CellLruCache::new(CACHE_SIZE),
             invalid_chunks: LruCache::new(CACHE_SIZE),
             receipt_id_to_shard_id: LruCache::new(CHUNK_CACHE_SIZE),
             transactions: LruCache::new(CHUNK_CACHE_SIZE),
-            receipts: LruCache::new(CHUNK_CACHE_SIZE),
+            receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_merkle_tree: LruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: LruCache::new(CACHE_SIZE),
             processed_block_heights: LruCache::new(CACHE_SIZE),
@@ -459,7 +459,7 @@ impl ChainStore {
                 };
                 let mut receipts = self
                     .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
-                    .map(|v| v.clone())
+                    .map(|v| v.to_vec())
                     .unwrap_or_default();
 
                 // filter to receipts that belong to `shard_id` in the current shard layout
@@ -985,15 +985,15 @@ impl ChainStoreAccess for ChainStore {
     /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
     /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
     fn get_outgoing_receipts(
-        &mut self,
+        &self,
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<Receipt>, Error> {
+    ) -> Result<Arc<Vec<Receipt>>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::OutgoingReceipts,
-                &mut self.outgoing_receipts,
+                &self.outgoing_receipts,
                 &get_block_shard_id(prev_block_hash, shard_id),
             ),
             &format!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
@@ -1001,15 +1001,15 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_incoming_receipts(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<ReceiptProof>, Error> {
+    ) -> Result<Arc<Vec<ReceiptProof>>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::IncomingReceipts,
-                &mut self.incoming_receipts,
+                &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
             &format!("INCOMING RECEIPT: {}", block_hash),
@@ -1060,8 +1060,8 @@ impl ChainStoreAccess for ChainStore {
             .map_err(|e| e.into())
     }
 
-    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error> {
-        read_with_cache(&self.store, DBCol::Receipts, &mut self.receipts, receipt_id.as_ref())
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+        read_with_cell_cache(&self.store, DBCol::Receipts, &self.receipts, receipt_id.as_ref())
             .map_err(|e| e.into())
     }
 
@@ -1127,14 +1127,14 @@ struct ChainStoreCacheUpdate {
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     my_last_approvals: HashMap<CryptoHash, Approval>,
     last_approvals_per_account: HashMap<AccountId, Approval>,
-    outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
-    incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
+    outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
+    incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<CryptoHash, Vec<ExecutionOutcomeWithIdAndProof>>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     transactions: HashSet<SignedTransaction>,
-    receipts: HashMap<CryptoHash, Receipt>,
+    receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
@@ -1223,9 +1223,9 @@ impl<'a> ChainStoreUpdate<'a> {
             let prev_hash = *header.prev_hash();
 
             if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs.clone()));
+                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
             } else {
-                ret.push(ReceiptProofResponse(block_hash, vec![]));
+                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
             }
 
             block_hash = prev_hash;
@@ -1433,14 +1433,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get receipts produced for block with given hash.
     fn get_outgoing_receipts(
-        &mut self,
+        &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<Receipt>, Error> {
+    ) -> Result<Arc<Vec<Receipt>>, Error> {
         if let Some(receipts) =
             self.chain_store_cache_update.outgoing_receipts.get(&(*hash, shard_id))
         {
-            Ok(receipts)
+            Ok(Arc::clone(receipts))
         } else {
             self.chain_store.get_outgoing_receipts(hash, shard_id)
         }
@@ -1448,14 +1448,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// Get receipts produced for block with given hash.
     fn get_incoming_receipts(
-        &mut self,
+        &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<&Vec<ReceiptProof>, Error> {
+    ) -> Result<Arc<Vec<ReceiptProof>>, Error> {
         if let Some(receipt_proofs) =
             self.chain_store_cache_update.incoming_receipts.get(&(*hash, shard_id))
         {
-            Ok(receipt_proofs)
+            Ok(Arc::clone(receipt_proofs))
         } else {
             self.chain_store.get_incoming_receipts(hash, shard_id)
         }
@@ -1532,9 +1532,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_receipt(&mut self, receipt_id: &CryptoHash) -> Result<Option<&Receipt>, Error> {
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
         if let Some(receipt) = self.chain_store_cache_update.receipts.get(receipt_id) {
-            Ok(Some(receipt))
+            Ok(Some(Arc::clone(receipt)))
         } else {
             self.chain_store.get_receipt(receipt_id)
         }
@@ -1746,7 +1746,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.transactions.insert(transaction.clone());
         }
         for receipt in chunk.receipts() {
-            self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
+            self.chain_store_cache_update
+                .receipts
+                .insert(receipt.receipt_id, Arc::new(receipt.clone()));
         }
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
@@ -1813,7 +1815,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) {
         self.chain_store_cache_update
             .outgoing_receipts
-            .insert((*hash, shard_id), outgoing_receipts);
+            .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
     pub fn save_receipt_id_to_shard_id(&mut self, receipt_id: CryptoHash, shard_id: ShardId) {
@@ -1824,7 +1826,7 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipt_proof: Vec<ReceiptProof>,
+        receipt_proof: Arc<Vec<ReceiptProof>>,
     ) {
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
     }
