@@ -59,8 +59,11 @@ You can verify the API compliance in each network differently. You can run the c
 rosetta-cli check:data --configuration-file=./rosetta-<mainnet|testnet|localnet>.cfg
 rosetta-cli check:construction --configuration-file=./rosetta-<mainnet|testnet|localnet>.cfg
 ```
+
 ##### Localnet
 For `localnet` you can use the account `test.near` to run the tests. You should replace the `<privateKey>` value in `rosetta-localnet.cfg` with the `privateKey` of `test.near` which you can find in `~/.near-credentials/local` in the `test.near.json` file. 
+
+
 ```json
   ...
   "prefunded_accounts": [{
@@ -70,7 +73,9 @@ For `localnet` you can use the account `test.near` to run the tests. You should 
         },
   ...
 ```
+
 After replacing the `privateKey` you will need to replace the `test-chain-I4wNe` with the name of your localnet in `rosetta-localnet.cfg`. 
+
 ```json
 "network": {
   "blockchain": "nearprotocol",
@@ -82,6 +87,7 @@ After replacing the `privateKey` you will need to replace the `test-chain-I4wNe`
 To run it against testnet or mainnet would require to also have the `pre-funded accounts` as well as network set to a proper value in the `.ros` and `rosetta-<mainnet|testnet>.cfg` files.
 
 Start by [creating an account](https://docs.near.org/docs/tools/near-cli#near-create-account). Created account will be placed in `~/.near-credentials/testnet/<accountname>.testnet.json`. Change `<privateKey>` with the private key of newly created account and `<accountName>`  with the account name of the newly created account in `rosetta-testnet.cfg`.
+
 ```json
   ...
   "prefunded_accounts": [{
@@ -91,6 +97,7 @@ Start by [creating an account](https://docs.near.org/docs/tools/near-cli#near-cr
         },
   ...
 ```
+
 Next you will need to change the `faucet` with `{"address":"<accountName>"}` in `nearprotocol-testnet.ros`. Now you are ready to run the test in testnet.
 ##### Mainnet
 For mainnet you can follow the same steps that you have followed in Testnet documentation. The difference is that the configuration files are named `rosetta-mainnet.cfg` and `nearprotocol-mainnet.ros`. The credentials can be found in `~/.near-credentials/mainnet/<accountname>.near.json`.
