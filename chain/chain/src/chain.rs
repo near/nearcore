@@ -1469,44 +1469,38 @@ impl Chain {
         // 3) finally, store the block on chain. Here we write all the necessary changes in chain_update,
         //    which will be committed to storage all at once.
         let mut chain_update = self.chain_update();
-        let maybe_new_head =
-            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results);
-        match maybe_new_head {
-            Ok(head) => {
-                chain_update.chain_store_update.save_block_height_processed(block_height);
-                chain_update.commit()?;
+        let new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
+        chain_update.chain_store_update.save_block_height_processed(block_height);
+        chain_update.commit()?;
 
-                self.pending_states_to_patch = None;
+        self.pending_states_to_patch = None;
 
-                if let Some(tip) = &head {
-                    if let Ok(producers) = self
-                        .runtime_adapter
-                        .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-                    {
-                        let mut count = 0;
-                        let mut stake = 0;
-                        for (info, is_slashed) in producers.iter() {
-                            if !*is_slashed {
-                                stake += info.stake();
-                                count += 1;
-                            }
-                        }
-                        stake /= NEAR_BASE;
-                        metrics::VALIDATOR_AMOUNT_STAKED
-                            .set(i64::try_from(stake).unwrap_or(i64::MAX));
-                        metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+        if let Some(tip) = &new_head {
+            if let Ok(producers) = self
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+            {
+                let mut count = 0;
+                let mut stake = 0;
+                for (info, is_slashed) in producers.iter() {
+                    if !*is_slashed {
+                        stake += info.stake();
+                        count += 1;
                     }
-                };
-
-                let status = self.determine_status(head.clone(), prev_head);
-
-                // Notify other parts of the system of the update.
-                block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
-
-                Ok(head)
+                }
+                stake /= NEAR_BASE;
+                metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+                metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
             }
-            Err(e) => Err(e),
-        }
+        };
+
+        let status = self.determine_status(new_head.clone(), prev_head);
+
+        // Notify other parts of the system of the update.
+        block_accepted(AcceptedBlock { hash: *block.hash(), status, provenance });
+
+        Ok(new_head)
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
