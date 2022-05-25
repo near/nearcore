@@ -26,7 +26,7 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
@@ -491,8 +491,8 @@ impl Client {
         let timestamp_override = None;
 
         // Get block extra from previous block.
-        let mut block_merkle_tree =
-            self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
+        let block_merkle_tree = self.chain.mut_store().get_block_merkle_tree(&prev_hash)?;
+        let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.

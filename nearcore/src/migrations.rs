@@ -21,7 +21,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
     let store = near_store::StoreOpener::new(&near_config.config.store).path(path).open();
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().unwrap();
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut count = 0;
@@ -31,7 +31,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
                 let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
                 let block_hash_from_block_ordinal =
                     chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
-                if *block_hash_from_block_ordinal != block_hash {
+                if block_hash_from_block_ordinal != block_hash {
                     println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
                     count += 1;
                     store_update

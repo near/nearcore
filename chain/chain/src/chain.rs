@@ -21,7 +21,7 @@ use near_primitives::challenge::{
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
+    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
@@ -2667,7 +2667,7 @@ impl Chain {
                 let maybe_hash = if index >= tree_size {
                     None
                 } else {
-                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                    Some(self.store().get_block_hash_from_ordinal(index)?)
                 };
                 tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
@@ -2725,7 +2725,7 @@ impl Chain {
                 let maybe_hash = if index >= tree_size {
                     None
                 } else {
-                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                    Some(self.store().get_block_hash_from_ordinal(index)?)
                 };
                 tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
@@ -4756,8 +4756,9 @@ impl<'a> ChainUpdate<'a> {
                 return Err(Error::InvalidFinalityInfo);
             }
 
-            let mut block_merkle_tree =
-                self.chain_store_update.get_block_merkle_tree(header.prev_hash())?.clone();
+            let block_merkle_tree =
+                self.chain_store_update.get_block_merkle_tree(header.prev_hash())?;
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(*header.prev_hash());
             if &block_merkle_tree.root() != header.block_merkle_root() {
                 return Err(Error::InvalidBlockMerkleRoot);

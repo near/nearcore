@@ -194,7 +194,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.

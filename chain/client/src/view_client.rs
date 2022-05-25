@@ -582,7 +582,7 @@ impl Handler<GetBlockHash> for ViewClientActor {
 }
 
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
@@ -590,7 +590,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
         self.chain
             .mut_store()
             .get_block_merkle_tree(&block_view.header.hash)
-            .map(|merkle_tree| (block_view, merkle_tree.clone()))
+            .map(|merkle_tree| (block_view, merkle_tree))
             .map_err(|e| e.into())
     }
 }

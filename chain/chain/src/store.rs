@@ -233,20 +233,17 @@ pub trait ChainStoreAccess {
     fn get_genesis_height(&self) -> BlockHeight;
 
     fn get_block_merkle_tree(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
-    ) -> Result<&PartialMerkleTree, Error>;
+    ) -> Result<Arc<PartialMerkleTree>, Error>;
 
-    fn get_block_hash_from_ordinal(
-        &mut self,
-        block_ordinal: NumBlocks,
-    ) -> Result<&CryptoHash, Error>;
+    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
 
     fn get_block_merkle_tree_from_ordinal(
-        &mut self,
+        &self,
         block_ordinal: NumBlocks,
-    ) -> Result<&PartialMerkleTree, Error> {
-        let block_hash = *self.get_block_hash_from_ordinal(block_ordinal)?;
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
         self.get_block_merkle_tree(&block_hash)
     }
 
@@ -332,9 +329,9 @@ pub struct ChainStore {
     /// Cache with Block Refcounts
     block_refcounts: LruCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
-    block_merkle_tree: LruCache<Vec<u8>, PartialMerkleTree>,
+    block_merkle_tree: CellLruCache<Vec<u8>, Arc<PartialMerkleTree>>,
     /// Cache of block ordinal to block hash.
-    block_ordinal_to_hash: LruCache<Vec<u8>, CryptoHash>,
+    block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
     processed_block_heights: LruCache<Vec<u8>, ()>,
     /// Is this a non-archival node that needs to store to DBCol::TrieChanges?
@@ -377,8 +374,8 @@ impl ChainStore {
             receipt_id_to_shard_id: LruCache::new(CHUNK_CACHE_SIZE),
             transactions: LruCache::new(CHUNK_CACHE_SIZE),
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
-            block_merkle_tree: LruCache::new(CACHE_SIZE),
-            block_ordinal_to_hash: LruCache::new(CACHE_SIZE),
+            block_merkle_tree: CellLruCache::new(CACHE_SIZE),
+            block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
             processed_block_heights: LruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
@@ -1070,29 +1067,26 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_block_merkle_tree(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
-    ) -> Result<&PartialMerkleTree, Error> {
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::BlockMerkleTree,
-                &mut self.block_merkle_tree,
+                &self.block_merkle_tree,
                 block_hash.as_ref(),
             ),
             &format!("BLOCK MERKLE TREE: {}", block_hash),
         )
     }
 
-    fn get_block_hash_from_ordinal(
-        &mut self,
-        block_ordinal: NumBlocks,
-    ) -> Result<&CryptoHash, Error> {
+    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::BlockOrdinal,
-                &mut self.block_ordinal_to_hash,
+                &self.block_ordinal_to_hash,
                 &index_to_bytes(block_ordinal),
             ),
             &format!("BLOCK ORDINAL: {}", block_ordinal),
@@ -1136,7 +1130,7 @@ struct ChainStoreCacheUpdate {
     transactions: HashSet<SignedTransaction>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
     block_refcounts: HashMap<CryptoHash, u64>,
-    block_merkle_tree: HashMap<CryptoHash, PartialMerkleTree>,
+    block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     gc_count: HashMap<DBCol, GCCount>,
     processed_block_heights: HashSet<BlockHeight>,
@@ -1545,24 +1539,21 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn get_block_merkle_tree(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
-    ) -> Result<&PartialMerkleTree, Error> {
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
         if let Some(merkle_tree) = self.chain_store_cache_update.block_merkle_tree.get(block_hash) {
-            Ok(merkle_tree)
+            Ok(Arc::clone(&merkle_tree))
         } else {
             self.chain_store.get_block_merkle_tree(block_hash)
         }
     }
 
-    fn get_block_hash_from_ordinal(
-        &mut self,
-        block_ordinal: NumBlocks,
-    ) -> Result<&CryptoHash, Error> {
+    fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
         if let Some(block_hash) =
             self.chain_store_cache_update.block_ordinal_to_hash.get(&block_ordinal)
         {
-            Ok(block_hash)
+            Ok(*block_hash)
         } else {
             self.chain_store.get_block_hash_from_ordinal(block_ordinal)
         }
@@ -1764,7 +1755,9 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         block_merkle_tree: PartialMerkleTree,
     ) {
-        self.chain_store_cache_update.block_merkle_tree.insert(block_hash, block_merkle_tree);
+        self.chain_store_cache_update
+            .block_merkle_tree
+            .insert(block_hash, Arc::new(block_merkle_tree));
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
@@ -1772,9 +1765,10 @@ impl<'a> ChainStoreUpdate<'a> {
         if prev_hash == CryptoHash::default() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
         } else {
-            let mut block_merkle_tree = self.get_block_merkle_tree(&prev_hash)?.clone();
-            block_merkle_tree.insert(prev_hash);
-            self.save_block_merkle_tree(*header.hash(), block_merkle_tree);
+            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
+            let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
+            new_merkle_tree.insert(prev_hash);
+            self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
         Ok(())
     }

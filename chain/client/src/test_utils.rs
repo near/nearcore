@@ -29,7 +29,7 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
@@ -1643,8 +1643,9 @@ pub fn create_chunk(
             *chunk.header.height_included_mut() = next_height;
         }
     }
-    let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
+    let block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
