@@ -295,18 +295,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn prev_block_hash(&self) -> CryptoHash {
-        match self {
-            Self::V1(header) => header.inner.prev_block_hash,
-            Self::V2(header) => header.inner.prev_block_hash,
-            Self::V3(header) => *header.inner.prev_block_hash(),
-        }
-    }
-
-    // TODO(mina86): Change return type of prev_block_hash to &CryptoHash and
-    // then this method can be deleted.
-    #[inline]
-    pub fn prev_block_hash_ref(&self) -> &CryptoHash {
+    pub fn prev_block_hash(&self) -> &CryptoHash {
         match self {
             Self::V1(header) => &header.inner.prev_block_hash,
             Self::V2(header) => &header.inner.prev_block_hash,
@@ -538,7 +527,7 @@ impl PartialEncodedChunk {
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-            PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
+            PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -711,7 +700,7 @@ impl ShardChunk {
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-            ShardChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
+            ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
