@@ -1100,6 +1100,7 @@ impl ClientActor {
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
             return Ok(());
@@ -1171,7 +1172,6 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
@@ -1257,11 +1257,8 @@ impl ClientActor {
     }
 
     fn try_handle_block_production(&mut self) {
-        match self.handle_block_production() {
-            Ok(()) => {}
-            Err(err) => {
-                error!(target: "client", "Handle block production failed: {:?}", err);
-            }
+        if let Err(err) = self.handle_block_production() {
+            tracing::error!(target: "client", ?err, "Handle block production failed")
         }
     }
 
@@ -1692,7 +1689,7 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
+        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
     /// Main syncing job responsible for syncing client with other peers.
