@@ -387,6 +387,15 @@ pub struct ExtCostsConfig {
     /// Cost of calling `validator_total_stake`.
     pub validator_total_stake_base: Gas,
 
+    // Workaround to keep JSON serialization backwards-compatible
+    // <https://github.com/near/nearcore/pull/6587#discussion_r876113324>.
+    //
+    // Remove once #5516 is fixed.
+    #[serde(default, rename = "contract_compile_base")]
+    pub _unused1: Gas,
+    #[serde(default, rename = "contract_compile_bytes")]
+    pub _unused2: Gas,
+
     // #############
     // # Alt BN128 #
     // #############
@@ -477,6 +486,8 @@ impl ExtCostsConfig {
             promise_return: SAFETY_MULTIPLIER * 186717462,
             validator_stake_base: SAFETY_MULTIPLIER * 303944908800,
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
+            _unused1: 0,
+            _unused2: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 713_000_000_000,
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -547,6 +558,8 @@ impl ExtCostsConfig {
             promise_return: 0,
             validator_stake_base: 0,
             validator_total_stake_base: 0,
+            _unused1: 0,
+            _unused2: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
