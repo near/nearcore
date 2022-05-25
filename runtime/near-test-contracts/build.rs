@@ -43,10 +43,15 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
 
 fn cargo_build_cmd(target_dir: &Path) -> Command {
     let mut res = Command::new("cargo");
-    res.env_remove("RUSTFLAGS");
+
+    res.env_remove("CARGO_BUILD_RUSTFLAGS");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
+
+    res.env("RUSTFLAGS", "-Dwarnings");
     res.env("CARGO_TARGET_DIR", target_dir);
+
     res.args(&["build", "--target=wasm32-unknown-unknown", "--release"]);
+
     res
 }
 
