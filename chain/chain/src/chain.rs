@@ -3840,7 +3840,7 @@ impl<'a> ChainUpdate<'a> {
                     let gas_price = prev_block.header().gas_price();
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
-                    let prev_block_hash = chunk_header.prev_block_hash();
+                    let prev_block_hash = chunk_header.prev_block_hash().clone();
                     #[cfg(feature = "sandbox")]
                     let states_to_patch = self.states_to_patch.take();
 
@@ -4275,7 +4275,7 @@ impl<'a> ChainUpdate<'a> {
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {
             if chunk_header.height_included() == block.header().height() {
-                if &chunk_header.prev_block_hash() != block.header().prev_hash() {
+                if chunk_header.prev_block_hash() != block.header().prev_hash() {
                     return Err(Error::InvalidChunk);
                 }
             } else {
