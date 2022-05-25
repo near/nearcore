@@ -2,6 +2,7 @@
 
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
+use clap::Parser;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use std::borrow::Cow;
@@ -25,7 +26,6 @@ static LOG_LAYER_RELOAD_HANDLE: OnceCell<
         Registry,
     >,
 > = OnceCell::new();
-static LOG_LAYER_DATA: OnceCell<(NonBlocking, bool)> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
@@ -58,9 +58,14 @@ pub struct DefaultSubscriberGuard<S> {
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
-// Configures exporter of span and trace data.
+/// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-pub struct OpenTelemetryConfig {}
+#[derive(Debug, Parser)]
+pub struct OpenTelemetryConfig {
+    #[clap(long)]
+    /// Enables export of span data using opentelemetry exporters.
+    opentelemetry: bool,
+}
 
 impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
     /// Register this default subscriber globally , for all threads.
@@ -104,30 +109,30 @@ fn is_terminal() -> bool {
     atty::is(atty::Stream::Stderr)
 }
 
-fn make_log_layer(
-    env_filter: EnvFilter,
-) -> Filtered<
-    tracing_subscriber::fmt::Layer<Registry, DefaultFields, Format, NonBlocking>,
-    EnvFilter,
-    Registry,
-> {
-    let (writer, ansi) = LOG_LAYER_DATA.get().unwrap();
+fn make_log_layer<S>(
+    filter: EnvFilter,
+    writer: NonBlocking,
+    ansi: bool,
+) -> Filtered<tracing_subscriber::fmt::Layer<S, DefaultFields, Format, NonBlocking>, EnvFilter, S>
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+{
     let layer = tracing_subscriber::fmt::layer()
-        .with_ansi(*ansi)
+        .with_ansi(ansi)
         // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
         .with_span_events(
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
         )
-        .with_writer(writer.clone())
-        .with_filter(env_filter);
+        .with_writer(writer)
+        .with_filter(filter);
     layer
 }
 
 // Constructs an OpenTelemetryConfig which sends span data to an external collector.
 // OpenTelemetryConfig is currently empty, but more configuration will be added to it later.
 fn make_opentelemetry_layer<S>(
-    config: Option<OpenTelemetryConfig>,
+    config: &OpenTelemetryConfig,
 ) -> Filtered<OpenTelemetryLayer<S, Tracer>, LevelFilter, S>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
@@ -145,7 +150,7 @@ where
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
-    let filter = if let Some(_) = config { LevelFilter::DEBUG } else { LevelFilter::OFF };
+    let filter = if config.opentelemetry { LevelFilter::DEBUG } else { LevelFilter::OFF };
     let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
     layer
 }
@@ -166,7 +171,7 @@ where
 pub async fn default_subscriber(
     env_filter: EnvFilter,
     color_output: &ColorOutput,
-    opentelemetry_config: Option<OpenTelemetryConfig>,
+    opentelemetry_config: &OpenTelemetryConfig,
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
@@ -179,9 +184,7 @@ pub async fn default_subscriber(
         ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
     };
 
-    LOG_LAYER_DATA.set((writer, ansi)).unwrap();
-
-    let log_layer = make_log_layer(env_filter);
+    let log_layer = make_log_layer(env_filter, writer, ansi);
     let (log_layer, handle) = tracing_subscriber::reload::Layer::new(log_layer);
     LOG_LAYER_RELOAD_HANDLE.set(handle).unwrap();
 
@@ -228,8 +231,11 @@ pub fn reload_log_layer(
         }
         let env_filter = builder.finish().map_err(ReloadError::Parse)?;
 
-        let log_layer = make_log_layer(env_filter);
-        reload_handle.reload(log_layer).map_err(ReloadError::Reload)?;
+        reload_handle
+            .modify(|log_layer| {
+                *log_layer.filter_mut() = env_filter;
+            })
+            .map_err(ReloadError::Reload)?;
         Ok(())
     })
 }

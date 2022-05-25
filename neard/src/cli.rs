@@ -114,9 +114,8 @@ async fn init_logging(
     } else {
         env_filter
     };
-    let opentelemetry_config = if opts.opentelemetry { Some(OpenTelemetryConfig {}) } else { None };
     let subscriber =
-        default_subscriber(env_filter, &opts.color, opentelemetry_config).await.global();
+        default_subscriber(env_filter, &opts.color, &opts.opentelemetry).await.global();
     Ok(subscriber)
 }
 
@@ -160,13 +159,13 @@ struct NeardOpts {
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
-    pub unsafe_fast_startup: bool,
+    unsafe_fast_startup: bool,
     /// Whether the log needs to be colored.
     #[clap(long, arg_enum, default_value = "auto")]
-    pub color: ColorOutput,
+    color: ColorOutput,
     /// Enables export of span data using opentelemetry protocol.
-    #[clap(long)]
-    pub opentelemetry: bool,
+    #[clap(flatten)]
+    opentelemetry: OpenTelemetryConfig,
 }
 
 impl NeardOpts {
