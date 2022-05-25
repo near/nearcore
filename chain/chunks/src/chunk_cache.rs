@@ -115,7 +115,7 @@ impl EncodedChunksCache {
     pub fn mark_entry_complete(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.complete = true;
-            let previous_block_hash = entry.header.prev_block_hash();
+            let previous_block_hash = &entry.header.prev_block_hash().clone();
             self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
             warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
@@ -151,10 +151,10 @@ impl EncodedChunksCache {
     // Use `mark_entry_complete` instead for outside calls
     fn remove_chunk_from_incomplete_chunks(
         &mut self,
-        prev_block_hash: CryptoHash,
+        prev_block_hash: &CryptoHash,
         chunk_hash: &ChunkHash,
     ) {
-        if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash) {
+        if let Occupied(mut entry) = self.incomplete_chunks.entry(prev_block_hash.clone()) {
             entry.get_mut().remove(chunk_hash);
             if entry.get().is_empty() {
                 entry.remove();
@@ -180,7 +180,7 @@ impl EncodedChunksCache {
                 .or_default()
                 .insert(chunk_hash.clone());
             self.incomplete_chunks
-                .entry(chunk_header.prev_block_hash())
+                .entry(chunk_header.prev_block_hash().clone())
                 .or_default()
                 .insert(chunk_hash.clone());
             EncodedChunksCacheEntry::from_chunk_header(chunk_header.clone())
@@ -245,7 +245,7 @@ impl EncodedChunksCache {
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
-            let prev_block_hash = header.prev_block_hash();
+            let prev_block_hash = header.prev_block_hash().clone();
             let mut block_hash_to_chunk_headers = self
                 .block_hash_to_chunk_headers
                 .pop(&prev_block_hash)
