@@ -1469,7 +1469,7 @@ impl Chain {
         let block_hash = *block.hash();
         self.processing_blocks
             .add_preprocessed_block(block, block_preprocess_info)
-            .map_err(|_err| ErrorKind::TooManyProcessingBlocks)?;
+            .map_err(|_err| Error::TooManyProcessingBlocks)?;
 
         // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
         //    there still no change to ChainStore.
@@ -1482,7 +1482,7 @@ impl Chain {
     fn async_apply_chunks(
         &self,
         block_hash: CryptoHash,
-        work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send>>,
+        work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
         // TODO: uncomment this line when we are ready to move apply_chunks async
@@ -1563,11 +1563,11 @@ impl Chain {
         // is likely never hit, unless there are many forks in the chain.
         // In this case, we will simply drop the block.
         if self.processing_blocks.is_full() {
-            return Err(ErrorKind::TooManyProcessingBlocks.into());
+            return Err(Error::TooManyProcessingBlocks.into());
         }
 
         if self.processing_blocks.is_block_preprocessed(block.hash()) {
-            return Err(ErrorKind::BlockInProcessing.into());
+            return Err(Error::BlockInProcessing.into());
         }
 
         // We are still in the process of refactoring this code to move everything in
