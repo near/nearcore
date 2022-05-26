@@ -976,8 +976,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::SyncRoutingTable { .. }
                         | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo(_, _)
-                        | NetworkRequests::FetchPingPongInfo
+                        | NetworkRequests::PingTo { .. }
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
