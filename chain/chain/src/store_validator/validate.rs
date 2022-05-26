@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use borsh::BorshSerialize;
+use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -787,17 +788,18 @@ pub(crate) fn epoch_validity(
     Ok(())
 }
 
+/// Validates values in [`DBCol::GCCount`] and updates [`StoreValidator`]’s copy
+/// of it.  Returns an error if a non-zero value is encountered for a column
+/// which is not gc.
 pub(crate) fn gc_col_count(
     sv: &mut StoreValidator,
     col: &DBCol,
     count: &u64,
 ) -> Result<(), StoreValidatorError> {
     if col.is_gc() {
-        sv.inner.gc_col[*col] = *count;
-    } else {
-        if *count > 0 {
-            err!("DBCol is cleared by mistake")
-        }
+        sv.inner.gc_count[*col] = *count;
+    } else if *count > 0 {
+        err!("DBCol is cleared by mistake")
     }
     Ok(())
 }
@@ -904,22 +906,15 @@ pub(crate) fn block_height_cmp_tail_final(
     Ok(())
 }
 
+/// Performs final validation on values in [`DBCol::GCCount`] values.  Returns
+/// error if some but not all gc columns have been garbage collected.  That is,
+/// valid state is if either no columns are garbage collected or all gc columns
+/// are garbage collected.
 pub(crate) fn gc_col_count_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     // Number of columns which have had at least one garbage collection.
-    let mut gced_count = 0;
+    let gced_count = sv.inner.gc_count.values().filter(|n| **n != 0).count();
     // Number of GC columns.
-    let mut gc_colum_count = 0;
-    for (col, count) in sv.inner.gc_col.iter() {
-        if *count != 0 {
-            if !col.is_gc() {
-                err!("Column {} which is not GC has been GCed", col.variant_name());
-            }
-            gced_count += 1;
-        }
-        if col.is_gc() {
-            gc_colum_count += 1;
-        }
-    }
+    let gc_colum_count = DBCol::iter().filter(DBCol::is_gc).count();
     // Either no columns were GCed or all GC columns were GCed.
     if gced_count == 0 || gced_count == gc_colum_count {
         return Ok(());
