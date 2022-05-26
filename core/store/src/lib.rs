@@ -7,7 +7,6 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use lru::LruCache;
 
 pub use columns::DBCol;
 pub use db::{
@@ -315,25 +314,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
-    storage: &Store,
-    col: DBCol,
-    cache: &'a mut LruCache<Vec<u8>, T>,
-    key: &[u8],
-) -> io::Result<Option<&'a T>> {
-    // Note: Due to `&mut -> &` conversions, it's not possible to avoid double
-    // hash map lookups here.
-    if cache.contains(key) {
-        return Ok(cache.get(key));
-    }
-    if let Some(result) = storage.get_ser(col, key)? {
-        cache.put(key.to_vec(), result);
-        return Ok(cache.get(key));
-    }
-    Ok(None)
-}
-
-pub fn read_with_cell_cache<'a, T: BorshDeserialize + Clone + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
     storage: &Store,
     col: DBCol,
     cache: &'a CellLruCache<Vec<u8>, T>,

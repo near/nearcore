@@ -33,7 +33,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -2499,14 +2499,10 @@ impl Chain {
             })
             .expect("results should resolve to a final outcome");
         let receipts_outcome = outcomes.split_off(1);
-        let transaction: SignedTransactionView = self
-            .store
-            .get_transaction(transaction_hash)?
-            .ok_or_else(|| {
-                Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
-            })?
-            .clone()
-            .into();
+        let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+        })?;
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
