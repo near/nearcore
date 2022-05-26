@@ -1,12 +1,11 @@
-use std::time::Duration;
-
+use crate::genesis_helpers::genesis_block;
+use crate::tests::nearcore::node_cluster::NodeCluster;
 use actix::clock::sleep;
 use actix::{Actor, System};
+use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
-
-use crate::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
@@ -23,8 +22,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
-
-use crate::tests::nearcore::node_cluster::NodeCluster;
+use std::time::Duration;
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
@@ -304,7 +302,7 @@ fn test_query_rpc_account_view_must_succeed() {
                     query_response.kind
                 );
             };
-        assert!(matches!(account, near_primitives::views::AccountView { .. }));
+        assert_matches!(account, near_primitives::views::AccountView { .. });
         System::current().stop();
     });
 }

@@ -1,17 +1,10 @@
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::BlockHeightDelta;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RpcSandboxPatchStateRequest {
     pub records: Vec<StateRecord>,
-}
-
-impl RpcSandboxPatchStateRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxPatchStateRequest>(value)?)
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -48,12 +41,6 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
 #[derive(Deserialize, Serialize)]
 pub struct RpcSandboxFastForwardRequest {
     pub delta_height: BlockHeightDelta,
-}
-
-impl RpcSandboxFastForwardRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxFastForwardRequest>(value)?)
-    }
 }
 
 #[derive(Deserialize, Serialize)]

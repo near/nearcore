@@ -51,7 +51,7 @@ impl LogConfigWatcher {
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
                     if let UpdateBehavior::UpdateOrReset = update_behavior {
-                        info!(target: "neard", logging_config_path=%self.watched_path.display(), err=?err, "Reset the logging config because the logging config file doesn't exist.");
+                        info!(target: "neard", logging_config_path=%self.watched_path.display(), ?err, "Reset the logging config because the logging config file doesn't exist.");
                         return reload_env_filter(None, None).map_err(LogConfigError::Reload);
                     }
                     Ok(())
@@ -63,7 +63,7 @@ impl LogConfigWatcher {
 
     pub fn update(&self, update_behavior: UpdateBehavior) {
         if let Err(err) = self.do_update(update_behavior) {
-            error!(target: "neard", err=?err, "Failed to update the logging config.");
+            error!(target: "neard", ?err, "Failed to update the logging config.");
         }
     }
 }

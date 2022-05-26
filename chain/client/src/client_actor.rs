@@ -726,7 +726,7 @@ impl Handler<Status> for ClientActor {
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
-        let latest_state_root = (*head_header.prev_state_root()).into();
+        let latest_state_root = *head_header.prev_state_root();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -921,7 +921,7 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash.into(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 latest_state_root,
                 latest_block_time: from_timestamp(latest_block_time),
@@ -1100,6 +1100,7 @@ impl ClientActor {
     /// Retrieves latest height, and checks if must produce next block.
     /// Otherwise wait for block arrival or suggest to skip after timeout.
     fn handle_block_production(&mut self) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
             return Ok(());
@@ -1171,7 +1172,6 @@ impl ClientActor {
     }
 
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
-        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         // There is a bug in Actix library. While there are messages in mailbox, Actix
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
@@ -1257,11 +1257,8 @@ impl ClientActor {
     }
 
     fn try_handle_block_production(&mut self) {
-        match self.handle_block_production() {
-            Ok(()) => {}
-            Err(err) => {
-                error!(target: "client", "Handle block production failed: {:?}", err);
-            }
+        if let Err(err) = self.handle_block_production() {
+            tracing::error!(target: "client", ?err, "Handle block production failed")
         }
     }
 
@@ -1339,23 +1336,52 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
-            let block = self.client.chain.get_block(&accepted_block.hash).unwrap();
+            let block = self.client.chain.get_block(&accepted_block.hash).unwrap().clone();
             let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 
-            let last_final_hash = *block.header().last_final_block();
+            let last_final_hash = block.header().last_final_block();
+            let last_final_ds_hash = block.header().last_ds_final_block();
+            let last_final_block_height = self
+                .client
+                .chain
+                .get_block(&last_final_hash)
+                .map_or(0, |block| block.header().height());
+            let last_final_ds_block_height = self
+                .client
+                .chain
+                .get_block(&last_final_ds_hash)
+                .map_or(0, |block| block.header().height());
 
             let chunks = block.chunks();
             for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
                 if included {
-                    self.info_helper.chunk_processed(chunk.shard_id(), chunk.gas_used());
+                    self.info_helper.chunk_processed(
+                        chunk.shard_id(),
+                        chunk.gas_used(),
+                        chunk.balance_burnt(),
+                    );
                 } else {
                     self.info_helper.chunk_skipped(chunk.shard_id());
                 }
             }
 
-            self.info_helper.block_processed(gas_used, chunks_in_block as u64);
-            self.check_send_announce_account(last_final_hash);
+            let epoch_height = self
+                .client
+                .runtime_adapter
+                .get_epoch_height_from_prev_block(block.hash())
+                .unwrap_or(0);
+
+            self.info_helper.block_processed(
+                gas_used,
+                chunks_in_block as u64,
+                block.header().gas_price(),
+                block.header().total_supply(),
+                last_final_block_height,
+                last_final_ds_block_height,
+                epoch_height,
+            );
+            self.check_send_announce_account(*last_final_hash);
         }
     }
 
@@ -1663,7 +1689,7 @@ impl ClientActor {
         f(self, ctx);
         timer.observe_duration();
 
-        return now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap();
+        now.checked_add_signed(chrono::Duration::from_std(duration).unwrap()).unwrap()
     }
 
     /// Main syncing job responsible for syncing client with other peers.
@@ -1898,10 +1924,6 @@ impl ClientActor {
             &self.network_info,
             validator_info,
             validator_epoch_stats,
-            self.client
-                .runtime_adapter
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap_or(0),
             self.client
                 .runtime_adapter
                 .get_protocol_upgrade_block_height(head.last_block_hash)
