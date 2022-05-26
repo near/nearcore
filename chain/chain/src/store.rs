@@ -216,9 +216,9 @@ pub trait ChainStoreAccess {
 
     /// Returns encoded chunk if it's invalid otherwise None.
     fn is_invalid_chunk(
-        &mut self,
+        &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&EncodedShardChunk>, Error>;
+    ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
 
     /// Get destination shard id for receipt id.
     fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error>;
@@ -319,7 +319,7 @@ pub struct ChainStore {
     /// Cache with incoming receipts.
     incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
     /// Invalid chunks.
-    invalid_chunks: LruCache<Vec<u8>, EncodedShardChunk>,
+    invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
     /// Mapping from receipt id to destination shard id
     receipt_id_to_shard_id: LruCache<Vec<u8>, ShardId>,
     /// Transactions
@@ -370,7 +370,7 @@ impl ChainStore {
             last_approvals_per_account: CellLruCache::new(CACHE_SIZE),
             outgoing_receipts: CellLruCache::new(CACHE_SIZE),
             incoming_receipts: CellLruCache::new(CACHE_SIZE),
-            invalid_chunks: LruCache::new(CACHE_SIZE),
+            invalid_chunks: CellLruCache::new(CACHE_SIZE),
             receipt_id_to_shard_id: LruCache::new(CHUNK_CACHE_SIZE),
             transactions: LruCache::new(CHUNK_CACHE_SIZE),
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
@@ -1025,13 +1025,13 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn is_invalid_chunk(
-        &mut self,
+        &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&EncodedShardChunk>, Error> {
-        read_with_cache(
+    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
+        read_with_cell_cache(
             &self.store,
             DBCol::InvalidChunks,
-            &mut self.invalid_chunks,
+            &self.invalid_chunks,
             chunk_hash.as_ref(),
         )
         .map_err(|err| err.into())
@@ -1125,7 +1125,7 @@ struct ChainStoreCacheUpdate {
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<CryptoHash, Vec<ExecutionOutcomeWithIdAndProof>>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
-    invalid_chunks: HashMap<ChunkHash, EncodedShardChunk>,
+    invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
     transactions: HashSet<SignedTransaction>,
     receipts: HashMap<CryptoHash, Arc<Receipt>>,
@@ -1496,11 +1496,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     fn is_invalid_chunk(
-        &mut self,
+        &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<Option<&EncodedShardChunk>, Error> {
+    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
         if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
-            Ok(Some(chunk))
+            Ok(Some(Arc::clone(chunk)))
         } else {
             self.chain_store.is_invalid_chunk(chunk_hash)
         }
@@ -1900,7 +1900,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn save_invalid_chunk(&mut self, chunk: EncodedShardChunk) {
-        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), chunk);
+        self.chain_store_cache_update.invalid_chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }
 
     pub fn save_chunk_hash(
