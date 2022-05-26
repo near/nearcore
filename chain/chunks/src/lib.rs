@@ -1662,7 +1662,7 @@ impl ShardsManager {
             header.shard_id(),
             chunk_hash.clone(),
         );
-        store_update.commit()?;
+        store_update.into_diff().commit(chain_store)?;
 
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
@@ -1802,7 +1802,7 @@ impl ShardsManager {
             if !cares_about_shard {
                 let mut store_update = chain_store.store_update();
                 self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
-                store_update.commit()?;
+                store_update.into_diff().commit(chain_store)?;
 
                 self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
@@ -2071,7 +2071,7 @@ impl ShardsManager {
 
             // Decoded a valid chunk, store it in the permanent store
             store_update.save_chunk(shard_chunk);
-            store_update.commit()?;
+            store_update.into_diff().commit(chain_store)?;
 
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
 
@@ -2080,7 +2080,7 @@ impl ShardsManager {
             // Can't decode chunk or has invalid proofs, ignore it
             error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, self.me);
             store_update.save_invalid_chunk(encoded_chunk);
-            store_update.commit()?;
+            store_update.into_diff().commit(chain_store)?;
             self.encoded_chunks.remove(&chunk_hash);
             self.requested_partial_encoded_chunks.remove(&chunk_hash);
             return Err(Error::InvalidChunk);

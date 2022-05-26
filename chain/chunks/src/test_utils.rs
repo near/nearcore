@@ -93,7 +93,7 @@ impl SealsManagerTestFixture {
         let mut chain_store = ChainStore::new(store, header.height(), true);
         let mut update = chain_store.store_update();
         update.save_block_header(header).unwrap();
-        update.commit().unwrap();
+        update.into_diff().commit(&mut chain_store).unwrap();
     }
 
     pub fn create_seals_manager(&self) -> SealsManager {

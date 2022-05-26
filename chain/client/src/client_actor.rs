@@ -1273,7 +1273,7 @@ impl ClientActor {
         chain_store_update
             .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
-        match chain_store_update.commit() {
+        match chain_store_update.into_diff().commit(self.client.chain.mut_store()) {
             Ok(_) => {
                 let head = unwrap_or_return!(self.client.chain.head());
                 if self.client.is_validator(&head.epoch_id, &head.last_block_hash)

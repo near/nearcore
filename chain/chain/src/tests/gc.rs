@@ -113,7 +113,7 @@ fn do_fork(
         }
 
         let head = chain.head().unwrap();
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.store().store_update();
         if i == 0 {
             store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
         }
@@ -149,7 +149,7 @@ fn do_fork(
             prev_state_roots[shard_id as usize] = new_root;
             trie_changes_shards.push(trie_changes_data);
         }
-        store_update.commit().unwrap();
+        store_update.into_diff().commit(chain.mut_store()).unwrap();
         states.push((block.clone(), prev_state_roots.clone(), trie_changes_shards));
         prev_block = block.clone();
     }
@@ -238,7 +238,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
-            let mut store_update2 = chain2.mut_store().store_update();
+            let mut store_update2 = chain2.store().store_update();
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = trie2
@@ -257,7 +257,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 store_update2.merge(trie_store_update2);
             }
             state_roots2.push(state_root2);
-            store_update2.commit().unwrap();
+            store_update2.into_diff().commit(&mut chain2.mut_store()).unwrap();
         }
         start_index += simple_chain.length;
     }

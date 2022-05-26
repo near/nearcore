@@ -55,7 +55,7 @@ use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode, SavedStoreUpdate};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreDiff, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockHeaderInfo, BlockStatus,
@@ -603,7 +603,7 @@ impl Chain {
             }
             Err(err) => return Err(err),
         };
-        store_update.commit()?;
+        store_update.into_diff().commit(&mut store)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               block_head.height, block_head.last_block_hash,
@@ -701,13 +701,13 @@ impl Chain {
             return Err(e);
         }
 
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
+        let mut chain_store_update = ChainStoreUpdate::new(&self.store);
 
         chain_store_update.save_block(block.into_inner());
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
         Ok(())
     }
 
@@ -731,11 +731,11 @@ impl Chain {
     }
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
+        let mut chain_store_update = ChainStoreUpdate::new(&self.store);
         if !chain_store_update.is_height_processed(block_height)? {
             chain_store_update.save_block_height_processed(block_height);
         }
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
         Ok(())
     }
 
@@ -840,7 +840,7 @@ impl Chain {
             // heights that fork cleaning goes through so it doesn't slow down client either.
             let mut chain_store_update = self.store.store_update();
             chain_store_update.update_fork_tail(gc_stop_height);
-            chain_store_update.commit()?;
+            chain_store_update.into_diff().commit(&mut self.store)?;
             fork_tail = gc_stop_height;
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
@@ -855,7 +855,7 @@ impl Chain {
             }
             let mut chain_store_update = self.store.store_update();
             chain_store_update.update_fork_tail(height);
-            chain_store_update.commit()?;
+            chain_store_update.into_diff().commit(&mut self.store)?;
         }
 
         // Canonical Chain Clearing
@@ -864,14 +864,12 @@ impl Chain {
                 return Ok(());
             }
             let mut chain_store_update = self.store.store_update();
-            if let Ok(blocks_current_height) =
-                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
-            {
+            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 if let Some(block_hash) = blocks_current_height.first() {
-                    let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
-                    let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
+                    let prev_hash = *self.store.get_block_header(block_hash)?.prev_hash();
+                    let prev_block_refcount = self.store.get_block_refcount(&prev_hash)?;
                     if prev_block_refcount > 1 {
                         // Block of `prev_hash` starts a Fork, stopping
                         break;
@@ -891,7 +889,7 @@ impl Chain {
                 }
             }
             chain_store_update.update_tail(height)?;
-            chain_store_update.commit()?;
+            chain_store_update.into_diff().commit(&mut self.store)?;
         }
         Ok(())
     }
@@ -918,7 +916,7 @@ impl Chain {
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
         metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
-        chain_store_update.commit()
+        chain_store_update.into_diff().commit(&mut self.store)
     }
 
     pub fn clear_forks_data(
@@ -951,7 +949,7 @@ impl Chain {
                             current_hash,
                             GCMode::Fork(tries.clone()),
                         )?;
-                        chain_store_update.commit()?;
+                        chain_store_update.into_diff().commit(&mut self.store)?;
                         *gc_blocks_remaining -= 1;
 
                         current_hash = prev_hash;
@@ -1048,7 +1046,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let mut chain_update = self.chain_update();
         chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
-        chain_update.commit()?;
+        chain_update.into_diff().commit(self.mut_store())?;
         Ok(())
     }
 
@@ -1114,7 +1112,7 @@ impl Chain {
                 warn!(target: "chain", ?err, "Invalid challenge: {:#?}", challenge);
             }
         }
-        unwrap_or_return!(chain_update.commit());
+        unwrap_or_return!(chain_update.into_diff().commit(self.mut_store()));
     }
 
     /// Processes headers and adds them to store for syncing.
@@ -1158,7 +1156,7 @@ impl Chain {
                     .runtime_adapter
                     .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
                 chain_update.chain_store_update.merge(epoch_manager_update);
-                chain_update.commit()?;
+                chain_update.into_diff().commit(self.mut_store())?;
             }
         }
 
@@ -1169,7 +1167,7 @@ impl Chain {
             chain_update.update_header_head_if_not_challenged(header)?;
         }
 
-        chain_update.commit()
+        chain_update.into_diff().commit(self.mut_store())
     }
 
     /// Returns if given block header is on the current chain.
@@ -1255,7 +1253,7 @@ impl Chain {
                         block_hash,
                         GCMode::StateSync { clear_block_info: block_hash != prev_hash },
                     )?;
-                    chain_store_update.commit()?;
+                    chain_store_update.into_diff().commit(&mut self.store)?;
                 }
             }
         }
@@ -1265,7 +1263,7 @@ impl Chain {
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
 
         // clear all trie data
 
@@ -1277,7 +1275,7 @@ impl Chain {
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
         Ok(())
     }
 
@@ -1310,7 +1308,7 @@ impl Chain {
         chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
 
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
@@ -1488,7 +1486,7 @@ impl Chain {
         let new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
         chain_update.chain_store_update.save_block_height_processed(block_height);
-        chain_update.commit()?;
+        chain_update.into_diff().commit(self.mut_store())?;
 
         self.pending_states_to_patch = None;
 
@@ -2310,7 +2308,7 @@ impl Chain {
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        chain_update.commit()?;
+        chain_update.into_diff().commit(self.mut_store())?;
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
         // Now we should build a chain up to height of `sync_hash` block.
@@ -2320,7 +2318,7 @@ impl Chain {
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
-                chain_update.commit()?;
+                chain_update.into_diff().commit(self.mut_store())?;
             } else {
                 break;
             }
@@ -2371,7 +2369,7 @@ impl Chain {
             chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
             debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
-        chain_update.commit()
+        chain_update.into_diff().commit(&mut self.store)
     }
 
     pub fn clear_downloaded_parts(
@@ -2382,7 +2380,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
-        Ok(chain_store_update.commit()?)
+        Ok(chain_store_update.into_diff().commit(&mut self.store)?)
     }
 
     pub fn catchup_blocks_step(
@@ -2435,9 +2433,7 @@ impl Chain {
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
             )?;
-            blocks_catch_up_state
-                .scheduled_blocks
-                .insert(pending_block, chain_update.into_saved_store_update());
+            blocks_catch_up_state.scheduled_blocks.insert(pending_block, chain_update.into_diff());
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
                 block_hash: pending_block,
@@ -2452,13 +2448,13 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
         results: Vec<Result<ApplyChunkResult, Error>>,
-        saved_store_update: SavedStoreUpdate,
+        diff: ChainStoreDiff,
     ) -> Result<(), Error> {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
-        let mut chain_update = self.chain_update_from_save_store_update(saved_store_update);
+        let mut chain_update = self.chain_update_from_store_diff(diff);
         chain_update.apply_chunk_postprocessing(&block, &prev_block, results)?;
-        chain_update.commit()?;
+        chain_update.into_diff().commit(self.mut_store())?;
         Ok(())
     }
 
@@ -2495,7 +2491,7 @@ impl Chain {
         }
         chain_store_update.remove_state_dl_info(*epoch_first_block);
 
-        chain_store_update.commit()?;
+        chain_store_update.into_diff().commit(&mut self.store)?;
 
         for hash in affected_blocks.iter() {
             self.check_orphans(
@@ -2680,7 +2676,7 @@ impl Chain {
 
     fn chain_update(&mut self) -> ChainUpdate {
         ChainUpdate::new(
-            &mut self.store,
+            &self.store,
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
@@ -2692,13 +2688,10 @@ impl Chain {
         )
     }
 
-    fn chain_update_from_save_store_update(
-        &mut self,
-        saved_store_update: SavedStoreUpdate,
-    ) -> ChainUpdate {
+    fn chain_update_from_store_diff(&mut self, diff: ChainStoreDiff) -> ChainUpdate {
         ChainUpdate::new_from_save_store_update(
             &mut self.store,
-            saved_store_update,
+            diff,
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
@@ -3323,7 +3316,7 @@ pub enum ApplyChunkResult {
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        store: &'a mut ChainStore,
+        store: &'a ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
@@ -3334,7 +3327,7 @@ impl<'a> ChainUpdate<'a> {
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
-        <ChainUpdate<'a>>::new_impl(
+        ChainUpdate::new_impl(
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
@@ -3348,8 +3341,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     pub fn new_from_save_store_update(
-        store: &'a mut ChainStore,
-        saved_store_update: SavedStoreUpdate,
+        store: &'a ChainStore,
+        saved_store_update: ChainStoreDiff,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
@@ -3359,8 +3352,8 @@ impl<'a> ChainUpdate<'a> {
         transaction_validity_period: BlockHeightDelta,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
-        let chain_store_update = saved_store_update.restore(store);
-        <ChainUpdate<'a>>::new_impl(
+        let chain_store_update = saved_store_update.into_store_update(store);
+        ChainUpdate::new_impl(
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
@@ -3398,13 +3391,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Commit changes to the chain into the database.
-    pub fn commit(self) -> Result<(), Error> {
-        self.chain_store_update.commit()
-    }
-
-    /// Saves store update to preserve between passing work to other thread
-    pub fn into_saved_store_update(self) -> SavedStoreUpdate {
-        self.chain_store_update.into()
+    pub fn into_diff(self) -> ChainStoreDiff {
+        self.chain_store_update.into_diff()
     }
 
     /// Process block header as part of "header first" block propagation.
@@ -3568,7 +3556,6 @@ impl<'a> ChainUpdate<'a> {
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         let prev_chunk = self
             .chain_store_update
-            .get_chain_store()
             .get_chunk_clone_from_header(&prev_block.chunks()[chunk_shard_id as usize].clone())
             .unwrap();
 
@@ -3801,7 +3788,7 @@ impl<'a> ChainUpdate<'a> {
                     validate_chunk_with_chunk_extra(
                         // It's safe here to use ChainStore instead of ChainStoreUpdate
                         // because we're asking prev_chunk_header for already committed block
-                        self.chain_store_update.get_chain_store(),
+                        &self.chain_store_update,
                         &*self.runtime_adapter,
                         block.header().prev_hash(),
                         &prev_chunk_extra,
@@ -5227,10 +5214,10 @@ pub struct BlocksCatchUpState {
     pub pending_blocks: Vec<CryptoHash>,
     /// Map from block hashes that are scheduled for processing to saved store updates from their
     /// preprocessing
-    pub scheduled_blocks: HashMap<CryptoHash, SavedStoreUpdate>,
+    pub scheduled_blocks: HashMap<CryptoHash, ChainStoreDiff>,
     /// Map from block hashes that were processed to (saved store update, process results)
     pub processed_blocks:
-        HashMap<CryptoHash, (SavedStoreUpdate, Vec<Result<ApplyChunkResult, Error>>)>,
+        HashMap<CryptoHash, (ChainStoreDiff, Vec<Result<ApplyChunkResult, Error>>)>,
     /// Collection of block hashes that are fully processed
     pub done_blocks: Vec<CryptoHash>,
 }

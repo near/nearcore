@@ -16,8 +16,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
-use crate::{byzantine_assert, Chain};
-use crate::{ChainStore, Error, RuntimeAdapter};
+use crate::{byzantine_assert, Chain, ChainStoreAccess};
+use crate::{Error, RuntimeAdapter};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -119,7 +119,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
 
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra(
-    chain_store: &mut ChainStore,
+    chain_store: &dyn ChainStoreAccess,
     runtime_adapter: &dyn RuntimeAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
