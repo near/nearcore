@@ -87,7 +87,7 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<BlockHeader, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Tip, Error>;
-    /// Larget approval target height sent by us
+    /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error>;
@@ -209,7 +209,7 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
     /// Returns whether the block with the given hash was challenged
-    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
+    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
 
@@ -258,7 +258,7 @@ pub trait ChainStoreAccess {
 
     /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
-        &mut self,
+        &self,
         runtime_adapter: &dyn RuntimeAdapter,
         hash: &CryptoHash,
         shard_id: ShardId,
@@ -432,7 +432,7 @@ impl ChainStore {
     /// more often in the future
     /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
-        &mut self,
+        &self,
         runtime_adapter: &dyn RuntimeAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
@@ -475,7 +475,7 @@ impl ChainStore {
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
     /// ahead of the block that has `base_block_hash`.
     pub fn check_transaction_validity_period(
-        &mut self,
+        &self,
         prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
         validity_period: BlockHeight,
@@ -573,7 +573,7 @@ impl ChainStore {
 
     /// Returns a HashSet of Chunk Hashes for current Height
     pub fn get_all_chunk_hashes_by_height(
-        &mut self,
+        &self,
         height: BlockHeight,
     ) -> Result<HashSet<ChunkHash>, Error> {
         Ok(self
@@ -584,7 +584,7 @@ impl ChainStore {
 
     /// Returns a HashSet of Header Hashes for current Height
     pub fn get_all_header_hashes_by_height(
-        &mut self,
+        &self,
         height: BlockHeight,
     ) -> Result<HashSet<CryptoHash>, Error> {
         Ok(self
@@ -594,7 +594,7 @@ impl ChainStore {
     }
 
     pub fn get_state_header(
-        &mut self,
+        &self,
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
@@ -1017,11 +1017,8 @@ impl ChainStoreAccess for ChainStore {
         Ok(self.store.get_ser(DBCol::BlocksToCatchup, hash.as_ref())?.unwrap_or_else(|| vec![]))
     }
 
-    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        return Ok(self
-            .store
-            .get_ser(DBCol::ChallengedBlocks, hash.as_ref())?
-            .unwrap_or_else(|| false));
+    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
+        Ok(self.store.get_ser(DBCol::ChallengedBlocks, hash.as_ref())?.unwrap_or_else(|| false))
     }
 
     fn is_invalid_chunk(
@@ -1196,7 +1193,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// This is because the chunks for the shard are empty for the blocks in between,
     /// so the receipts from these blocks are propagated
     pub fn get_incoming_receipts_for_shard(
-        &mut self,
+        &self,
         shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
@@ -1488,7 +1485,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
+    fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error> {
         if self.challenged_blocks.contains(hash) {
             return Ok(true);
         }
@@ -2502,7 +2499,7 @@ impl<'a> ChainStoreUpdate<'a> {
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
         source_runtime: Arc<dyn RuntimeAdapter>,
-        source_store: &mut ChainStore,
+        source_store: &ChainStore,
     ) -> Result<ChainStoreUpdate<'a>, Error> {
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
         let block = source_store.get_block(block_hash)?;
