@@ -532,7 +532,7 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),

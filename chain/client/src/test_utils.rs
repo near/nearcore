@@ -115,7 +115,7 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
+    let chain =
         Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 

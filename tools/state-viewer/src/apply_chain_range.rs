@@ -190,7 +190,7 @@ fn apply_block_from_range(
             }
         };
 
-        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 shard_id,
