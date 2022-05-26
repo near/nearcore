@@ -66,8 +66,6 @@ pub enum Error {
     BlockKnown(#[from] BlockKnownError),
     #[error("Too many blocks being processed")]
     TooManyProcessingBlocks,
-    #[error("The block is in processing")]
-    BlockInProcessing,
     /// Orphan block.
     #[error("Orphan")]
     Orphan,
@@ -237,7 +235,6 @@ impl Error {
         match self {
             Error::BlockKnown(_)
             | Error::TooManyProcessingBlocks
-            | Error::BlockInProcessing
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
@@ -341,4 +338,6 @@ pub enum BlockKnownError {
     KnownInMissingChunks,
     #[error("already known in store")]
     KnownInStore,
+    #[error("already known in blocks in processing")]
+    KnownInProcessing,
 }

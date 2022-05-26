@@ -1,3 +1,4 @@
+use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
 use crate::Provenance;
 use near_primitives::block::Block;
 use near_primitives::challenge::ChallengesResult;
@@ -20,56 +21,68 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) provenance: Provenance,
 }
 
-/// BlockProcessingPool is used to keep track of blocks have been preprocessed but
-/// haven't been processed fully yet. It is needed because the applying of blocks
-/// (processing transactions and receipts) are done in a separate thread from the
-/// ClientActor thread, where blocks are preprocessed and changes from applying blocks
-/// are stored. This struct is thread-safe.
-/// The reason to use the BlockLike trait is to make testing easier.
-pub(crate) struct BlockProcessingPool {
+/// Blocks which finished pre-processing and are now being applied asynchronously
+pub(crate) struct BlocksInProcessing {
     preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
 }
 
 #[derive(Debug)]
-pub(crate) enum Error {
+pub enum AddError {
     ExceedingPoolSize,
-    BlockNotPreprocessed,
+    BlockAlreadyInPool,
 }
 
-impl BlockProcessingPool {
+impl From<AddError> for near_chain_primitives::Error {
+    fn from(err: AddError) -> Self {
+        match err {
+            AddError::ExceedingPoolSize => near_chain_primitives::Error::TooManyProcessingBlocks,
+            AddError::BlockAlreadyInPool => {
+                near_chain_primitives::Error::BlockKnown(KnownInProcessing)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BlockNotInPoolError;
+
+impl BlocksInProcessing {
     pub(crate) fn new() -> Self {
-        BlockProcessingPool { preprocessed_blocks: HashMap::new() }
+        BlocksInProcessing { preprocessed_blocks: HashMap::new() }
     }
 
     /// Add a preprocessed block to the pool. Return Error::ExceedingPoolSize if the pool already
     /// reaches its max size.
-    pub(crate) fn add_preprocessed_block(
+    pub(crate) fn add(
         &mut self,
         block: Block,
         preprocess_info: BlockPreprocessInfo,
-    ) -> Result<(), Error> {
-        if self.preprocessed_blocks.len() >= MAX_PROCESSING_BLOCKS {
-            return Err(Error::ExceedingPoolSize);
-        }
+    ) -> Result<(), AddError> {
+        self.add_dry_run(block.hash())?;
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())
     }
 
-    pub(crate) fn take_preprocess_block(
+    pub(crate) fn remove(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Result<(Block, BlockPreprocessInfo), Error> {
-        self.preprocessed_blocks.remove(block_hash).ok_or(Error::BlockNotPreprocessed)
+    ) -> Option<(Block, BlockPreprocessInfo)> {
+        self.preprocessed_blocks.remove(block_hash)
     }
 
-    /// Returns whether the block has been added as preprocessed
-    pub(crate) fn is_block_preprocessed(&self, block_hash: &CryptoHash) -> bool {
-        self.preprocessed_blocks.contains_key(block_hash)
-    }
-
-    /// Returns whether the pool is full
-    pub(crate) fn is_full(&self) -> bool {
-        self.preprocessed_blocks.len() >= MAX_PROCESSING_BLOCKS
+    /// This function does NOT add the block, it simply checks if the block can be added
+    pub(crate) fn add_dry_run(&self, block_hash: &CryptoHash) -> Result<(), AddError> {
+        // We set a limit to the max number of blocks that we will be processing at the same time.
+        // Since processing a block requires that the its previous block is processed, this limit
+        // is likely never hit, unless there are many forks in the chain.
+        // In this case, we will simply drop the block.
+        if self.preprocessed_blocks.len() >= MAX_PROCESSING_BLOCKS {
+            Err(AddError::ExceedingPoolSize)
+        } else if self.preprocessed_blocks.contains_key(block_hash) {
+            Err(AddError::BlockAlreadyInPool)
+        } else {
+            Ok(())
+        }
     }
 }

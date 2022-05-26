@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -51,7 +50,7 @@ use near_store::{DBCol, ShardTries, StoreUpdate};
 
 use near_primitives::state_record::StateRecord;
 
-use crate::block_processing_utils::{BlockPreprocessInfo, BlockProcessingPool};
+use crate::block_processing_utils::{BlockPreprocessInfo, BlocksInProcessing};
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
@@ -70,6 +69,7 @@ use crate::validate::{
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -429,7 +429,6 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
-    processing_blocks: BlockProcessingPool,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
@@ -438,7 +437,14 @@ pub struct Chain {
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     pending_states_to_patch: Option<Vec<StateRecord>>,
     pub blocks_delay_tracker: BlocksDelayTracker,
+    /// Processing a block is done in three stages: preprocess_block, async_apply_chunks and
+    /// postprocess_block. The async_apply_chunks is done asynchronously from the ClientActor thread.
+    /// `blocks_in_processing` keeps track of all the blocks that have been preprocessed but are
+    /// waiting for chunks being applied.
+    blocks_in_processing: BlocksInProcessing,
+    /// Used by async_apply_chunks to send apply chunks results back to chain
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
+    /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
 }
 
@@ -492,7 +498,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
-            processing_blocks: BlockProcessingPool::new(),
+            blocks_in_processing: BlocksInProcessing::new(),
             genesis: genesis,
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -617,13 +623,15 @@ impl Chain {
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
         metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
 
-        let (sc, rc) = channel();
+        // Even though the channel is unbounded, the channel size is practically bounded by the size
+        // of blocks_in_processing, which is set to 5 now.
+        let (sc, rc) = unbounded();
         Ok(Chain {
             store,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
-            processing_blocks: BlockProcessingPool::new(),
+            blocks_in_processing: BlocksInProcessing::new(),
             genesis: genesis.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
@@ -1467,16 +1475,14 @@ impl Chain {
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
         let block = block.into_inner();
         let block_hash = *block.hash();
-        self.processing_blocks
-            .add_preprocessed_block(block, block_preprocess_info)
-            .map_err(|_err| Error::TooManyProcessingBlocks)?;
+        self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
         //    there still no change to ChainStore.
         self.async_apply_chunks(block_hash, apply_chunk_work);
 
         // TODO: this will be moved out of process_block once we make do_apply_chunks async
-        self.try_postprocess_block(me, block_accepted)
+        self.postprocess_ready_blocks(me, block_accepted)
     }
 
     fn async_apply_chunks(
@@ -1494,15 +1500,18 @@ impl Chain {
         //});
     }
 
-    /// Check if there are any block that finishes applying chunks. Run postprocessing on the block.
-    fn try_postprocess_block(
+    /// Check if there are any block that finished applying chunks. Run postprocessing on the block.
+    fn postprocess_ready_blocks(
         &mut self,
         me: &Option<AccountId>,
         block_accepted: &mut dyn FnMut(AcceptedBlock),
     ) -> Result<Option<Tip>, Error> {
         if let Ok((block_hash, apply_results)) = self.apply_chunks_receiver.try_recv() {
             let (block, block_preprocess_info) =
-                self.processing_blocks.take_preprocess_block(&block_hash).unwrap();
+                self.blocks_in_processing.remove(&block_hash).expect(&format!(
+                    "block {:?} finished applying chunks but not in blocks_in_processing pool",
+                    block_hash
+                ));
             let prev_head = self.store.head()?;
             let mut chain_update = self.chain_update();
             let provenance = block_preprocess_info.provenance.clone();
@@ -1558,17 +1567,8 @@ impl Chain {
         ),
         Error,
     > {
-        // We set a limit to the max number of blocks that we will be processing at the same time.
-        // Since processing a block requires that the its previous block is processed, this limit
-        // is likely never hit, unless there are many forks in the chain.
-        // In this case, we will simply drop the block.
-        if self.processing_blocks.is_full() {
-            return Err(Error::TooManyProcessingBlocks.into());
-        }
-
-        if self.processing_blocks.is_block_preprocessed(block.hash()) {
-            return Err(Error::BlockInProcessing.into());
-        }
+        // see if the block is already in processing or if there are too many blocks being processed
+        self.blocks_in_processing.add_dry_run(block.hash())?;
 
         // We are still in the process of refactoring this code to move everything in
         // ChainUpdate::process_block to this function.
