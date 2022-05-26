@@ -174,15 +174,19 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the read_only parameter specified in the store_config.
-    pub fn open(path: impl AsRef<Path>, store_config: &StoreConfig) -> Result<RocksDB, DBError> {
+    pub fn open(
+        path: &Path,
+        store_config: &StoreConfig,
+        read_only: bool,
+    ) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
 
         ensure_max_open_files_limit(store_config.max_open_files)?;
 
-        let (db, db_opt) = if store_config.read_only {
-            Self::open_read_only(path.as_ref(), store_config)
+        let (db, db_opt) = if read_only {
+            Self::open_read_only(path, store_config)
         } else {
-            Self::open_read_write(path.as_ref(), store_config)
+            Self::open_read_write(path, store_config)
         }?;
 
         let mut cf_handles = enum_map::EnumMap::default();
@@ -613,7 +617,7 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let value = RocksDB::open(path, &StoreConfig::read_only())?
+        let value = RocksDB::open(path, &StoreConfig::default(), true)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
                 DBError(
@@ -777,7 +781,7 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 mod tests {
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{create_store, DBCol, StoreConfig, StoreStatistics};
+    use crate::{DBCol, StoreConfig, StoreOpener, StoreStatistics};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -803,14 +807,14 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::read_write()).unwrap();
+        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::default(), false).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -831,7 +835,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = create_store(tmp_dir.path());
+        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

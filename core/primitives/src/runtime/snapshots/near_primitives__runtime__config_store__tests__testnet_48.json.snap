@@ -153,7 +153,9 @@ expression: store.get_config(*version)
       "promise_and_per_promise": 5452176,
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
-      "validator_total_stake_base": 911834726400
+      "validator_total_stake_base": 911834726400,
+      "contract_compile_base": 0,
+      "contract_compile_bytes": 0
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 2207874,

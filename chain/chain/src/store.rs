@@ -104,7 +104,7 @@ pub trait ChainStoreAccess {
         let shard_chunk_result = self.get_chunk(&header.chunk_hash());
         match shard_chunk_result {
             Err(_) => {
-                return Err(Error::ChunksMissing(vec![header.clone()]).into());
+                return Err(Error::ChunksMissing(vec![header.clone()]));
             }
             Ok(shard_chunk) => {
                 byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
@@ -112,8 +112,7 @@ pub trait ChainStoreAccess {
                     return Err(Error::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
                         header, shard_chunk
-                    ))
-                    .into());
+                    )));
                 }
                 let mut shard_chunk_clone = shard_chunk.clone();
                 shard_chunk_clone.set_height_included(header.height_included());
@@ -198,7 +197,7 @@ pub trait ChainStoreAccess {
         }
         let header_height = header.height();
         if header_height < height {
-            return Err(Error::InvalidBlockHeight(header_height).into());
+            return Err(Error::InvalidBlockHeight(header_height));
         }
         self.get_block_header(&hash)
     }
@@ -348,7 +347,7 @@ pub struct ChainStore {
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
     match res {
         Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_owned()).into()),
+        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_owned())),
         Err(e) => Err(e.into()),
     }
 }
@@ -609,7 +608,7 @@ impl ChainStore {
         let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
-            _ => Err(Error::Other("Cannot get shard_state_header".into()).into()),
+            _ => Err(Error::Other("Cannot get shard_state_header".into())),
         }
     }
 
@@ -844,7 +843,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
         match read_with_cache(&self.store, DBCol::Chunks, &mut self.chunks, chunk_hash.as_ref()) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone()).into()),
+            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
     }
 
@@ -857,7 +856,7 @@ impl ChainStoreAccess for ChainStore {
             chunk_hash.as_ref(),
         ) {
             Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone()).into()),
+            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
         }
     }
 
@@ -1380,7 +1379,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
         match self.chain_store_cache_update.height_to_hashes.get(&height) {
             Some(Some(hash)) => Ok(*hash),
-            Some(None) => Err(Error::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height)).into()),
+            Some(None) => Err(Error::DBNotFoundErr(format!("BLOCK HEIGHT: {}", height))),
             None => self.chain_store.get_block_hash_by_height(height),
         }
     }
@@ -1637,7 +1636,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 _ => {
                     if self.is_block_challenged(&header_hash)? {
-                        return Err(Error::ChallengedBlockOnChain.into());
+                        return Err(Error::ChallengedBlockOnChain);
                     }
                     self.chain_store_cache_update
                         .height_to_hashes
@@ -1946,7 +1945,7 @@ impl<'a> ChainStoreUpdate<'a> {
             Ok(())
         } else {
             debug_assert!(false, "refcount can not be negative");
-            Err(Error::Other(format!("cannot decrease refcount for {:?}", block_hash)).into())
+            Err(Error::Other(format!("cannot decrease refcount for {:?}", block_hash)))
         }
     }
 
@@ -2697,7 +2696,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
         {
             let key = get_height_shard_id(*height, *shard_id);
-            store_update.set_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
+            store_update.insert_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
@@ -2744,13 +2743,13 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
             }
 
-            store_update.set_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
         }
         for (height, hash_set) in chunk_hashes_by_height {
             store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
-            store_update.set_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
+            store_update.insert_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
         }
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
@@ -2854,8 +2853,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
-                )
-                .into());
+                ));
             }
             affected_catchup_blocks.insert(prev_hash);
 
@@ -2883,8 +2881,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
-                )
-                .into());
+                ));
             }
             affected_catchup_blocks.insert(prev_hash);
 
@@ -2895,8 +2892,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(Error::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
-                )
-                .into());
+                ));
             }
             affected_catchup_blocks.insert(prev_hash);
 
@@ -2919,7 +2915,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::ChallengedBlocks, hash.as_ref(), &true)?;
         }
         for (chunk_hash, chunk) in self.chain_store_cache_update.invalid_chunks.iter() {
-            store_update.set_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
         }
         for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
             store_update.set_ser(

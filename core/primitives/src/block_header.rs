@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::time::Utc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -323,9 +325,9 @@ impl BlockHeaderV3 {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum BlockHeader {
-    BlockHeaderV1(Box<BlockHeaderV1>),
-    BlockHeaderV2(Box<BlockHeaderV2>),
-    BlockHeaderV3(Box<BlockHeaderV3>),
+    BlockHeaderV1(Arc<BlockHeaderV1>),
+    BlockHeaderV2(Arc<BlockHeaderV2>),
+    BlockHeaderV3(Arc<BlockHeaderV3>),
 }
 
 impl BlockHeader {
@@ -409,7 +411,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -438,7 +440,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -470,7 +472,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -530,7 +532,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,
@@ -559,7 +561,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,
@@ -591,7 +593,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,

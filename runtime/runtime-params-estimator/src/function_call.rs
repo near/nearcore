@@ -5,10 +5,9 @@ use crate::vm_estimator::create_context;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::{CompiledContractCache, Gas, ProtocolVersion};
-use near_store::{create_store, StoreCompiledContractCache};
+use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
-use nearcore::get_store_path;
 use num_rational::Ratio;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -68,7 +67,7 @@ pub fn compute_function_call_cost(
     contract: &ContractCode,
 ) -> Gas {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
+    let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let protocol_version = ProtocolVersion::MAX;

@@ -90,9 +90,9 @@ fn ping_simple() -> anyhow::Result<()> {
 
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
-    runner.push(Action::PingTo(0, 0, 1));
-    runner.push(Action::CheckPingPong(1, vec![(0, 0, None)], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 1, None)]));
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 1 });
+    runner.push(Action::CheckPingPong(1, vec![Ping { nonce: 0, source: 0 }], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 1 }]));
 
     start_test(runner)
 }
@@ -111,11 +111,11 @@ fn ping_jump() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(2, vec![(0, vec![1]), (1, vec![1])]));
 
     // Try Pinging from node 0 to 2
-    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
     // Check whenever Node 2 got message from 0
-    runner.push(Action::CheckPingPong(2, vec![(0, 0, None)], vec![]));
+    runner.push(Action::CheckPingPong(2, vec![Ping { nonce: 0, source: 0 }], vec![]));
     // Check whenever Node 0 got reply from 2.
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, None)]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 2 }]));
 
     start_test(runner)
 }
@@ -135,9 +135,9 @@ fn test_dont_drop_after_ttl() -> anyhow::Result<()> {
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::AddEdge { from: 1, to: 2, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::CheckPingPong(2, vec![(0, 0, None)], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, None)]));
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
+    runner.push(Action::CheckPingPong(2, vec![Ping { nonce: 0, source: 0 }], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 2 }]));
 
     start_test(runner)
 }
@@ -157,7 +157,7 @@ fn test_drop_after_ttl() -> anyhow::Result<()> {
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::AddEdge { from: 1, to: 2, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
-    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
     runner.push(Action::Wait(Duration::from_millis(100)));
     runner.push(Action::CheckPingPong(2, vec![], vec![]));
     runner.push(Action::CheckPingPong(0, vec![], vec![]));
@@ -304,27 +304,38 @@ fn test_dropping_routing_messages() -> anyhow::Result<()> {
     runner.push(Action::SetOptions { target: 2, max_num_peers: Some(1) });
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1])]));
-    // Wait for routing table calculation
-    runner.push(Action::Wait(Duration::from_millis(2000)));
+    runner.push(Action::CheckRoutingTable(2, vec![(0, vec![1]), (1, vec![1])]));
 
-    // Send two pings, one will be dropped, because the delay between them was less than 100ms.
-    runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::Wait(Duration::from_millis(100)));
-    runner.push(Action::CheckPingPong(2, vec![(0, 0, Some(1))], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, Some(1))]));
+    // Send two identical messages. One will be dropped, because the delay between them was less than 100ms.
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
+    runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
+    runner.push(Action::CheckPingPong(2, vec![Ping { nonce: 0, source: 0 }], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 2 }]));
 
-    // Send two pings, one will be dropped, the delay is 150ms, so they don't get dropped.
+    // Send two identical messages but in 300ms interval so they don't get dropped.
+    runner.push(Action::PingTo { source: 0, nonce: 1, target: 2 });
     runner.push(Action::Wait(Duration::from_millis(300)));
-    runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::Wait(Duration::from_millis(300)));
-    runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::Wait(Duration::from_millis(300)));
-    runner.push(Action::CheckPingPong(2, vec![(0, 0, Some(3))], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, Some(3))]));
+    runner.push(Action::PingTo { source: 0, nonce: 1, target: 2 });
+    runner.push(Action::CheckPingPong(
+        2,
+        vec![
+            Ping { nonce: 0, source: 0 },
+            Ping { nonce: 1, source: 0 },
+            Ping { nonce: 1, source: 0 },
+        ],
+        vec![],
+    ));
+    runner.push(Action::CheckPingPong(
+        0,
+        vec![],
+        vec![
+            Pong { nonce: 0, source: 2 },
+            Pong { nonce: 1, source: 2 },
+            Pong { nonce: 1, source: 2 },
+        ],
+    ));
 
     start_test(runner)
 }

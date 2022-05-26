@@ -6,8 +6,8 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::StateRoot;
-use near_store::{create_store_with_config, StoreConfig, TrieIterator};
-use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use near_store::TrieIterator;
+use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
@@ -28,8 +28,10 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store_config = StoreConfig::read_write().with_read_only(read_only);
-        let store = create_store_with_config(&get_store_path(&home_dir), &store_config);
+        let store = near_store::StoreOpener::with_default_config()
+            .read_only(read_only)
+            .home(&home_dir)
+            .open();
 
         let mut chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);

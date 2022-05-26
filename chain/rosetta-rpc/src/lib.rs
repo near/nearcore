@@ -92,7 +92,7 @@ async fn network_list(
 /// This endpoint returns the current status of the network requested. Any
 /// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
@@ -202,7 +202,7 @@ async fn network_options(
 /// given that a chain reorg event might cause the specific block at
 /// height `n` to be set to a different one.
 async fn block_details(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockRequest>,
@@ -278,7 +278,7 @@ async fn block_details(
 /// NOTE: The current implementation is suboptimal as it processes the whole
 /// block to only return a single transaction.
 async fn block_transaction_details(
-    genesis: web::Data<Arc<Genesis>>,
+    genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockTransactionRequest>,
