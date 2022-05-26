@@ -36,7 +36,7 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::Blacklist;
-pub use crate::config::NetworkConfig;
+pub use crate::config::{NetworkConfig,ValidatorConfig,ValidatorEndpoints};
 
 pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 

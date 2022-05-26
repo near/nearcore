@@ -22,7 +22,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::{NetworkConfig, ValidatorConfig, ValidatorEndpoints, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -275,10 +275,10 @@ pub struct Network {
     /// this validator node will natually observe the address of the validator and broadcast it.
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
-    pub public_addresses: Vec<String>,
+    pub public_addrs: Vec<String>,
     /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
     /// Used only if this node is a validator and public_ips is empty (see description of
-    /// public_ips field).
+    /// public_ips field). Format "<domain/ip>:<port>", for example "stun.l.google.com:19302".
     #[serde(default)] // TODO: add a default list.
     pub trusted_stun_servers: Vec<String>,
 }
@@ -304,7 +304,7 @@ impl Default for Network {
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
-            public_ips: vec![],
+            public_addrs: vec![],
             trusted_stun_servers: vec![],
         }
     }
@@ -733,13 +733,22 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
-                account_id: validator_signer.as_ref().map(|vs| vs.validator_id().clone()),
-                addr: if config.network.addr.is_empty() {
-                    None
-                } else {
-                    Some(config.network.addr.parse().unwrap())
+                node_key: network_key_pair.secret_key,
+                validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
+                    signer: signer.clone(),
+                    endpoints: if config.network.public_addrs.len()>0 {
+                        ValidatorEndpoints::PublicAddrs(
+                            config.network.public_addrs.into_iter().map(|addr|
+                                addr.parse().expect("Failed to parse SocketAddr")
+                            ).collect(),
+                        )
+                    } else {
+                       ValidatorEndpoints::TrustedStunServers(config.network.trusted_stun_servers)
+                    },
+                }),
+                node_addr: match config.network.addr.as_str() {
+                    "" => None,
+                    addr => Some(addr.parse().expect("Failed to parse SocketAddr"))
                 },
                 boot_nodes: if config.network.boot_nodes.is_empty() {
                     vec![]
@@ -828,7 +837,7 @@ impl NearConfig {
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
-            self.network_config.secret_key.clone(),
+            self.network_config.node_key.clone(),
         );
         network_signer
             .write_to_file(&dir.join(&self.config.node_key_file))

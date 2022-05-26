@@ -100,7 +100,7 @@ fn repeated_announce_accounts() {
             }
         })));
         let routing_table_addr =
-            start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+            start_routing_table_actor(config.node_id(), store.clone());
         let pm = PeerManagerActor::new(
             store,
             config,

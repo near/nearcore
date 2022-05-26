@@ -1,17 +1,48 @@
 use crate::network_protocol::PeerInfo;
 use crate::types::ROUTED_MESSAGE_TTL;
-use near_crypto::{KeyType, PublicKey, SecretKey};
-use near_primitives::types::AccountId;
-use std::net::SocketAddr;
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::types::{AccountId};
+use near_primitives::network::{PeerId};
+use near_primitives::validator_signer::{ValidatorSigner,InMemoryValidatorSigner};
+use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
 use std::time::Duration;
+use std::sync::Arc;
+
+/// ValidatorEndpoints are the endpoints that peers should connect to, to send messages to this
+/// validator. Validator will sign the endpoints and broadcast them to the network.
+/// For a static setup (a static IP, or a list of relay nodes with static IPs) use PublicAddrs.
+/// For a dynamic setup (with a single dynamic/ephemeral IP), use TrustedStunServers.
+#[derive(Clone)]
+pub enum ValidatorEndpoints {
+    /// Single public address of this validator, or a list of public addresses of trusted nodes
+    /// willing to route messages to this validator. Validator will connect to the listed relay
+    /// nodes on startup.
+    PublicAddrs(Vec<SocketAddr>),
+    /// Addresses of the format "<domain/ip>:<port>" of STUN servers.
+    /// The IP of the validator will be determined dynamically by querying all the STUN servers on
+    /// the list.
+    TrustedStunServers(Vec<String>),
+}
+
+#[derive(Clone)]
+pub struct ValidatorConfig {
+    pub signer : Arc<dyn ValidatorSigner>,
+    pub endpoints: ValidatorEndpoints,
+}
+
+impl ValidatorConfig {
+    pub fn account_id(&self) -> AccountId {
+        self.signer.validator_id().clone()
+    }
+}
 
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
-    pub account_id: Option<AccountId>,
-    pub addr: Option<SocketAddr>,
+    pub node_addr: Option<SocketAddr>,
+    pub node_key: SecretKey,
+    pub validator : Option<ValidatorConfig>,
+    
     pub boot_nodes: Vec<PeerInfo>,
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: Duration,
@@ -68,15 +99,23 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
+    pub fn node_id(&self) -> PeerId {
+        PeerId::new(self.node_key.public_key())
+    }
+
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let public_key = secret_key.public_key();
+        let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
+        let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST,port));
+        let account_id = seed.parse().unwrap();
+        let validator = ValidatorConfig{
+            signer: Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, seed)),
+            endpoints: ValidatorEndpoints::PublicAddrs(vec![node_addr]),
+        };
         NetworkConfig {
-            public_key,
-            secret_key,
-            account_id: Some(seed.parse().unwrap()),
-            addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
+            node_addr: Some(node_addr),
+            node_key,
+            validator: Some(validator),
             boot_nodes: vec![],
             whitelist_nodes: vec![],
             handshake_timeout: Duration::from_secs(60),
