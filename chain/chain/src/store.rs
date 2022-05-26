@@ -34,8 +34,8 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
-    WrappedTrieChanges, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    read_with_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
@@ -282,7 +282,7 @@ pub struct ChainStore {
     /// Genesis block height.
     genesis_height: BlockHeight,
     /// Latest known.
-    latest_known: Option<LatestKnown>,
+    latest_known: once_cell::unsync::OnceCell<LatestKnown>,
     /// Current head of the chain
     head: Option<Tip>,
     /// Tail height of the chain,
@@ -350,7 +350,7 @@ impl ChainStore {
         ChainStore {
             store,
             genesis_height,
-            latest_known: None,
+            latest_known: once_cell::unsync::OnceCell::new(),
             head: None,
             tail: None,
             blocks: CellLruCache::new(CACHE_SIZE),
@@ -606,21 +606,22 @@ impl ChainStore {
     }
 
     /// Returns latest known height and time it was seen.
-    pub fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
-        if self.latest_known.is_none() {
-            self.latest_known = Some(option_to_not_found(
-                self.store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
-                "LATEST_KNOWN_KEY",
-            )?);
-        }
-        Ok(self.latest_known.as_ref().unwrap().clone())
+    pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
+        self.latest_known
+            .get_or_try_init(|| {
+                option_to_not_found(
+                    self.store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
+                    "LATEST_KNOWN_KEY",
+                )
+            })
+            .cloned()
     }
 
     /// Save the latest known.
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        self.latest_known = Some(latest_known);
+        self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
     }
 
