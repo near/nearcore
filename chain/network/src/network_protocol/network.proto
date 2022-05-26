@@ -3,6 +3,8 @@
 syntax = "proto3";
 package network;
 
+import "google/protobuf/timestamp.proto";
+
 // Wrapper of borsh-encoded PublicKey.
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/crypto/src/signature.rs#L201
 message PublicKey {
@@ -138,6 +140,48 @@ message LastEdge {
   Edge edge = 1;
 }
 
+message SocketAddr {
+  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
+  bytes ip = 1;
+  // TCP port (actually uint16, however uint32 is smallest supported protobuf type).
+  uint32 port = 2;
+}
+
+message PeerAddr {
+  SocketAddr addr = 1; // required
+  PublicKey peer_id = 2; // optional
+}
+
+message Validator {
+  // account_id of the validator.
+  string account_id = 1; // required
+  // Either address of the validator node (if it has a public IP),
+  // or a list of peers known to be connected to the validator.
+  repeated PeerAddr peers = 2; // non-empty, at most 10 elements (this is an arbitrary limit, might be relaxed in the future).
+
+  // Epoch for which this ValidatorPeers message is valid.
+  CryptoHash epoch_id = 3;
+  // If there are multiple signed ValidatorPeers messages for the same
+  // account_id for the same epoch, the one with most recent timestamp is valid.
+  google.protobuf.Timestamp timestamp = 4; 
+}
+
+message SignedValidator {
+  // protobuf-serialized Validator, required.
+  // It is passed in serialized form, because the protobuf encoding is non-deterministic.
+  // In particular encode(decode(payload)) might not match the signature.
+  bytes payload = 1;
+  // signature of a key assigned to account_id at the epoch previous to epoch_id
+  // (TODO: verify, whether that's correct).
+  //
+  // If a node is connected directly to a validator (and therefore observes its IP),
+  // but validator hasn't provided a signed Validator message (a validator node might not know its own public IP),
+  // the node is allowed to broadcast an unsigned Validator message
+  // (i.e. with signature field empty). This is a fallback validator discovery
+  // method (not recommended), might be removed in the future.
+  bytes signature = 2;
+}
+
 // Message sent whenever the sender learns about new connections
 // between the peers in the network (I think).
 // It provides a view of the whole NEAR network to each peer.
@@ -153,6 +197,8 @@ message RoutingTableUpdate {
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
+  // Information about the validators to broadcast. 
+  repeated SignedValidator validators = 3;
 }
 
 // TODO: document it.

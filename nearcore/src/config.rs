@@ -198,7 +198,7 @@ fn default_peer_stats_period() -> Duration {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
-    /// Address to listen for incoming connections.
+    /// Local address to listen for incoming connections.
     pub addr: String,
     /// Address to advertise to peers for them to connect.
     /// If empty, will use the same port as the addr, and will introspect on the listener.
@@ -253,6 +253,34 @@ pub struct Network {
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
+
+    /// List of the public addresses (IP:port) of this node. Useful only if this node is a validator.
+    /// This list will be signed and broadcasted to the whole network, so that everyone
+    /// knows how to reach the validator.
+    ///
+    /// Recommended setup (requires static IP):
+    /// In the simplest case this list should contains just 1 public address of this validator.
+    /// In case the validator doesn't have a public IP (i.e. it is hidden in a private network),
+    /// this list should contain public addresses of the trusted nodes which will be routing messages to the
+    /// validator - validator will connect to these nodes immediately after startup.
+    ///
+    /// Less recommended setup (requires exactly one public dynamic/ephemeral or static IP):
+    /// If the list is empty, the validator node will query trusted_stun_servers to determine its own IP.
+    /// Only if the answer from the STUN servers is unambiguous (at least 1 server responds and
+    /// all received responses provide the same IP), the IP (together with the port deduced from
+    /// the addr field in this config) will be signed and broadcasted.
+    /// 
+    /// Discouraged setup (might be removed in the future)
+    /// If the list is empty and STUN servers' response is ambiguous, the peers which connect to
+    /// this validator node will natually observe the address of the validator and broadcast it.
+    /// This setup is not reliable in presence of byzantine peers.
+    #[serde(default)]
+    pub public_addresses: Vec<String>,
+    /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
+    /// Used only if this node is a validator and public_ips is empty (see description of
+    /// public_ips field).
+    #[serde(default)] // TODO: add a default list.
+    pub trusted_stun_servers: Vec<String>,
 }
 
 impl Default for Network {
@@ -276,6 +304,8 @@ impl Default for Network {
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
+            public_ips: vec![],
+            trusted_stun_servers: vec![],
         }
     }
 }
