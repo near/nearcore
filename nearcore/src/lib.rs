@@ -314,7 +314,6 @@ pub fn start_with_config_and_synchronization(
             client_actor1,
             view_client1,
             routing_table_addr,
-            Box::new(()),
         )
         .unwrap()
     });

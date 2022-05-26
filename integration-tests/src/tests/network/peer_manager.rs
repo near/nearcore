@@ -106,7 +106,6 @@ fn repeated_announce_accounts() {
             mock_client_addr.clone().recipient(),
             mock_client_addr.recipient(),
             routing_table_addr,
-            Box::new(()),
         )
         .unwrap()
         .start();

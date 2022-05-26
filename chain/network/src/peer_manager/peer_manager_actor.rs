@@ -215,10 +215,11 @@ pub struct PeerManagerActor {
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
-
+    /// test-only, defaults to () (a noop counter).
     ping_counter: Box<dyn PingCounter>,
 }
 
+// test-only
 pub trait PingCounter {
     fn add_ping(&self, _ping: &Ping) {}
     fn add_pong(&self, _pong: &Pong) {}
@@ -304,7 +305,6 @@ impl PeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
-        ping_counter: Box<dyn PingCounter>,
     ) -> anyhow::Result<Self> {
         let peer_store = PeerStore::new(
             store.clone(),
@@ -346,8 +346,14 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
             whitelist_nodes,
-            ping_counter,
+            ping_counter: Box::new(()),
         })
+    }
+
+    /// test-only, sets the ping_counter field.
+    pub fn with_ping_counter(mut self, ping_counter: Box<dyn PingCounter>) -> Self {
+        self.ping_counter = ping_counter;
+        self
     }
 
     fn update_routing_table_and_prune_edges(

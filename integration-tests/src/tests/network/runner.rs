@@ -122,9 +122,9 @@ fn setup_network_node(
             client_actor.recipient(),
             view_client_actor.recipient(),
             routing_table_addr,
-            Box::new(ping_counter),
         )
         .unwrap()
+        .with_ping_counter(Box::new(ping_counter))
     });
 
     peer_manager
