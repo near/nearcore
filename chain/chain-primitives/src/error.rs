@@ -236,8 +236,8 @@ impl Error {
     pub fn is_bad_data(&self) -> bool {
         match self {
             Error::BlockKnown(_)
-            | ErrorKind::TooManyProcessingBlocks
-            | ErrorKind::BlockInProcessing
+            | Error::TooManyProcessingBlocks
+            | Error::BlockInProcessing
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
