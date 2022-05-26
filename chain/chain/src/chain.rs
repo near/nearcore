@@ -2930,11 +2930,8 @@ impl Chain {
 
     /// Get destination shard id for a given receipt id.
     #[inline]
-    pub fn get_shard_id_for_receipt_id(
-        &mut self,
-        receipt_id: &CryptoHash,
-    ) -> Result<ShardId, Error> {
-        self.store.get_shard_id_for_receipt_id(receipt_id).cloned()
+    pub fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id)
     }
 
     /// Get next block hash for which there is a new chunk for the shard.

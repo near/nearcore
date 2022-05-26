@@ -221,7 +221,7 @@ pub trait ChainStoreAccess {
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
 
     /// Get destination shard id for receipt id.
-    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error>;
+    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error>;
 
     fn get_transaction(
         &mut self,
@@ -321,7 +321,7 @@ pub struct ChainStore {
     /// Invalid chunks.
     invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
     /// Mapping from receipt id to destination shard id
-    receipt_id_to_shard_id: LruCache<Vec<u8>, ShardId>,
+    receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
     /// Transactions
     transactions: LruCache<Vec<u8>, SignedTransaction>,
     /// Receipts
@@ -371,7 +371,7 @@ impl ChainStore {
             outgoing_receipts: CellLruCache::new(CACHE_SIZE),
             incoming_receipts: CellLruCache::new(CACHE_SIZE),
             invalid_chunks: CellLruCache::new(CACHE_SIZE),
-            receipt_id_to_shard_id: LruCache::new(CHUNK_CACHE_SIZE),
+            receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
             transactions: LruCache::new(CHUNK_CACHE_SIZE),
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_merkle_tree: CellLruCache::new(CACHE_SIZE),
@@ -1037,12 +1037,12 @@ impl ChainStoreAccess for ChainStore {
         .map_err(|err| err.into())
     }
 
-    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error> {
+    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::ReceiptIdToShardId,
-                &mut self.receipt_id_to_shard_id,
+                &self.receipt_id_to_shard_id,
                 receipt_id.as_ref(),
             ),
             &format!("RECEIPT ID: {}", receipt_id),
@@ -1506,10 +1506,10 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&u64, Error> {
+    fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<u64, Error> {
         if let Some(shard_id) = self.chain_store_cache_update.receipt_id_to_shard_id.get(receipt_id)
         {
-            Ok(shard_id)
+            Ok(*shard_id)
         } else {
             self.chain_store.get_shard_id_for_receipt_id(receipt_id)
         }
