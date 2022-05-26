@@ -1012,6 +1012,22 @@ impl Chain {
         block.check_validity().map_err(|e| e.into())
     }
 
+    /// Verify header signature when the epoch is known, but not the whole chain.
+    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
+    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let block_producer =
+            self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
+        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
+        // slashing info which we will ignore
+        let head = self.head()?;
+        let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
+            header.epoch_id(),
+            &head.last_block_hash,
+            &block_producer,
+        )?;
+        Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
+    }
+
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(
         &mut self,
@@ -1519,6 +1535,55 @@ impl Chain {
         ),
         Error,
     > {
+        debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
+
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if !self.runtime_adapter.epoch_exists(block.header().epoch_id()) {
+            return Err(Error::EpochOutOfBounds(block.header().epoch_id().clone()));
+        }
+
+        if block.chunks().len()
+            != self.runtime_adapter.num_shards(block.header().epoch_id())? as usize
+        {
+            return Err(Error::IncorrectNumberOfChunkHeaders);
+        }
+
+        // Check if we have already processed this block previously.
+        check_known(self, block.header().hash())?.map_err(|e| Error::BlockKnown(e))?;
+
+        // Delay hitting the db for current chain head until we know this block is not already known.
+        let head = self.head()?;
+        let is_next = block.header().prev_hash() == &head.last_block_hash;
+
+        // Sandbox allows fast-forwarding, so only enable when not within sandbox
+        if !cfg!(feature = "sandbox") {
+            // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+            // overflow-related problems
+            let block_height = block.header().height();
+            if block_height > head.height + self.epoch_length * 20 {
+                return Err(Error::InvalidBlockHeight(block_height));
+            }
+        }
+
+        // Block is an orphan if we do not know about the previous full block.
+        if !is_next && !self.block_exists(block.header().prev_hash())? {
+            // Before we add the block to the orphan pool, do some checks:
+            // 1. Block header is signed by the block producer for height.
+            // 2. Chunk headers in block body match block header.
+            // 3. Header has enough approvals from epoch block producers.
+            // Not checked:
+            // - Block producer could be slashed
+            // - Chunk header signatures could be wrong
+            if !self.partial_verify_orphan_header_signature(block.header())? {
+                return Err(Error::InvalidSignature);
+            }
+            block.check_validity()?;
+            // TODO: enable after #3729 and #3863
+            // self.verify_orphan_header_approvals(&block.header())?;
+            return Err(Error::Orphan);
+        }
+
         // We are still in the process of refactoring this code to move everything in
         // ChainUpdate::process_block to this function.
         let mut chain_update = self.chain_update();
@@ -2623,7 +2688,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
             &self.genesis,
@@ -2642,7 +2706,6 @@ impl Chain {
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
-            self.epoch_length,
             &self.block_economics_config,
             self.doomslug_threshold_mode,
             &self.genesis,
@@ -3219,7 +3282,6 @@ pub struct ChainUpdate<'a> {
     chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
-    epoch_length: BlockHeightDelta,
     block_economics_config: &'a BlockEconomicsConfig,
     doomslug_threshold_mode: DoomslugThresholdMode,
     genesis: &'a Block,
@@ -3273,7 +3335,6 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
-        epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
@@ -3285,7 +3346,6 @@ impl<'a> ChainUpdate<'a> {
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
-            epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
             genesis,
@@ -3301,7 +3361,6 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
-        epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
@@ -3313,7 +3372,6 @@ impl<'a> ChainUpdate<'a> {
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
-            epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
             genesis,
@@ -3327,7 +3385,6 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
-        epoch_length: BlockHeightDelta,
         block_economics_config: &'a BlockEconomicsConfig,
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
@@ -3340,7 +3397,6 @@ impl<'a> ChainUpdate<'a> {
             chain_store_update,
             orphans,
             blocks_with_missing_chunks,
-            epoch_length,
             block_economics_config,
             doomslug_threshold_mode,
             genesis,
@@ -4328,54 +4384,7 @@ impl<'a> ChainUpdate<'a> {
         ),
         Error,
     > {
-        debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
-
-        // Check that we know the epoch of the block before we try to get the header
-        // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if !self.runtime_adapter.epoch_exists(block.header().epoch_id()) {
-            return Err(Error::EpochOutOfBounds(block.header().epoch_id().clone()));
-        }
-
-        if block.chunks().len()
-            != self.runtime_adapter.num_shards(block.header().epoch_id())? as usize
-        {
-            return Err(Error::IncorrectNumberOfChunkHeaders);
-        }
-
-        // Check if we have already processed this block previously.
-        check_known(self, block.header().hash())?.map_err(|e| Error::BlockKnown(e))?;
-
-        // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
-        let is_next = block.header().prev_hash() == &head.last_block_hash;
-
-        // Sandbox allows fast-forwarding, so only enable when not within sandbox
-        if !cfg!(feature = "sandbox") {
-            // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-            // overflow-related problems
-            let block_height = block.header().height();
-            if block_height > head.height + self.epoch_length * 20 {
-                return Err(Error::InvalidBlockHeight(block_height));
-            }
-        }
-
-        // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.chain_store_update.block_exists(block.header().prev_hash())? {
-            // Before we add the block to the orphan pool, do some checks:
-            // 1. Block header is signed by the block producer for height.
-            // 2. Chunk headers in block body match block header.
-            // 3. Header has enough approvals from epoch block producers.
-            // Not checked:
-            // - Block producer could be slashed
-            // - Chunk header signatures could be wrong
-            if !self.partial_verify_orphan_header_signature(block.header())? {
-                return Err(Error::InvalidSignature);
-            }
-            block.check_validity()?;
-            // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&block.header())?;
-            return Err(Error::Orphan);
-        }
 
         // First real I/O expense.
         let prev = self.get_previous_header(block.header())?;
@@ -5115,22 +5124,6 @@ impl<'a> ChainUpdate<'a> {
             }
         }
         Ok((result, challenged_blocks))
-    }
-
-    /// Verify header signature when the epoch is known, but not the whole chain.
-    /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
-    fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let block_producer =
-            self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
-        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
-        // slashing info which we will ignore
-        let head = self.chain_store_update.head()?;
-        let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
-            header.epoch_id(),
-            &head.last_block_hash,
-            &block_producer,
-        )?;
-        Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 }
 
