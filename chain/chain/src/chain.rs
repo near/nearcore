@@ -492,7 +492,7 @@ impl Chain {
                 &CryptoHash::default(),
             )?,
         );
-        let (sc, rc) = channel();
+        let (sc, rc) = unbounded();
         Ok(Chain {
             store,
             runtime_adapter,
