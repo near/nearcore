@@ -1614,7 +1614,7 @@ pub fn create_chunk(
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            header.prev_block_hash(),
+            header.prev_block_hash().clone(),
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),

@@ -766,6 +766,7 @@ def update_config_file(config_filename_in, config_filename_out, all_node_pks,
     config_json['archive'] = True
     config_json['archival_peer_connections_lower_bound'] = 1
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
+    config_json['rpc']['addr'] = '0.0.0.0:3030'
 
     with open(config_filename_out, 'w') as f:
         json.dump(config_json, f, indent=2)

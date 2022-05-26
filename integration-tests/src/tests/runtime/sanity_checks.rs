@@ -101,19 +101,26 @@ fn test_cost_sanity() {
         near_test_contracts::rs_contract()
     };
     let node = setup_runtime_node_with_contract(test_contract);
-    let data = serde_json::json!({
-        "contract_code": to_base64(near_test_contracts::trivial_contract()),
-        "method_name": "main",
-        "method_args": to_base64(&[]),
-        "validator_id": bob_account().as_str(),
-    });
+
+    let args = format!(
+        r#"{{
+            "contract_code": {:?},
+            "method_name": "main",
+            "method_args": "",
+            "validator_id": {:?}
+        }}"#,
+        to_base64(near_test_contracts::trivial_contract()),
+        bob_account().as_str()
+    );
+    eprintln!("{args}");
+
     let res = node
         .user()
         .function_call(
             alice_account(),
             test_contract_account(),
             "sanity_check",
-            serde_json::to_vec(&data).unwrap(),
+            args.into_bytes(),
             MAX_GAS,
             0,
         )
