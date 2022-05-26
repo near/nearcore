@@ -50,12 +50,12 @@ fn test_prepare_partial_encoded_chunk_response() {
 
     // And finally, once more make the same request but this time construct the
     // response from ShardChunk object.
-    let chunk = env.clients[0].chain.mut_store().get_chunk(&chunk_hash).unwrap().clone();
+    let chunk = env.clients[0].chain.mut_store().get_chunk(&chunk_hash).unwrap();
     let client = &mut env.clients[0];
     let res_from_chunk = client.shards_mgr.prepare_partial_encoded_chunk_response_from_chunk(
         request.clone(),
         &mut client.rs,
-        chunk,
+        &chunk,
     );
 
     assert_eq!(res, res_from_partial);

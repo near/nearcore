@@ -312,7 +312,7 @@ pub(crate) fn replay_chain(
     near_config: NearConfig,
     store: Store,
 ) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
