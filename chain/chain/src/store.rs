@@ -173,7 +173,7 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
     ) -> Result<Arc<LightClientBlockView>, Error>;
     /// Returns a number of references for Block with `block_hash`
-    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error>;
+    fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error>;
     /// Check if we saw chunk hash at given height and shard id.
     fn get_any_chunk_hash_by_height_shard(
         &self,
@@ -247,9 +247,9 @@ pub trait ChainStoreAccess {
         self.get_block_merkle_tree(&block_hash)
     }
 
-    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error>;
+    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
 
-    fn get_block_height(&mut self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
+    fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
             Ok(self.get_genesis_height())
         } else {
@@ -327,13 +327,13 @@ pub struct ChainStore {
     /// Receipts
     receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
     /// Cache with Block Refcounts
-    block_refcounts: LruCache<Vec<u8>, u64>,
+    block_refcounts: CellLruCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
     block_merkle_tree: CellLruCache<Vec<u8>, Arc<PartialMerkleTree>>,
     /// Cache of block ordinal to block hash.
     block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
-    processed_block_heights: LruCache<Vec<u8>, ()>,
+    processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// Is this a non-archival node that needs to store to DBCol::TrieChanges?
     save_trie_changes: bool,
 }
@@ -362,7 +362,7 @@ impl ChainStore {
             chunk_extras: CellLruCache::new(CACHE_SIZE),
             height: CellLruCache::new(CACHE_SIZE),
             block_hash_per_height: CellLruCache::new(CACHE_SIZE),
-            block_refcounts: LruCache::new(CACHE_SIZE),
+            block_refcounts: CellLruCache::new(CACHE_SIZE),
             chunk_hash_per_height_shard: CellLruCache::new(CACHE_SIZE),
             next_block_hashes: CellLruCache::new(CACHE_SIZE),
             epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),
@@ -376,7 +376,7 @@ impl ChainStore {
             receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
             block_merkle_tree: CellLruCache::new(CACHE_SIZE),
             block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
-            processed_block_heights: LruCache::new(CACHE_SIZE),
+            processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
     }
@@ -951,12 +951,12 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error> {
+    fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
         option_to_not_found(
-            read_with_cache(
+            read_with_cell_cache(
                 &self.store,
                 DBCol::BlockRefCount,
-                &mut self.block_refcounts,
+                &self.block_refcounts,
                 block_hash.as_ref(),
             ),
             &format!("BLOCK REFCOUNT: {}", block_hash),
@@ -1093,11 +1093,11 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error> {
-        read_with_cache(
+    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+        read_with_cell_cache(
             &self.store,
             DBCol::ProcessedBlockHeights,
-            &mut self.processed_block_heights,
+            &self.processed_block_heights,
             &index_to_bytes(height),
         )
         .map(|r| r.is_some())
@@ -1375,14 +1375,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<&u64, Error> {
+    fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
         if let Some(refcount) = self.chain_store_cache_update.block_refcounts.get(block_hash) {
-            Ok(refcount)
+            Ok(*refcount)
         } else {
             let refcount = match self.chain_store.get_block_refcount(block_hash) {
                 Ok(refcount) => refcount,
                 Err(e) => match e {
-                    Error::DBNotFoundErr(_) => &0,
+                    Error::DBNotFoundErr(_) => 0,
                     _ => return Err(e),
                 },
             };
@@ -1559,7 +1559,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn is_height_processed(&mut self, height: BlockHeight) -> Result<bool, Error> {
+    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
         if self.chain_store_cache_update.processed_block_heights.contains(&height) {
             Ok(true)
         } else {
@@ -1920,7 +1920,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
-            Ok(refcount) => *refcount,
+            Ok(refcount) => refcount,
             Err(e) => match e {
                 Error::DBNotFoundErr(_) => 0,
                 _ => return Err(e),
@@ -1931,7 +1931,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn dec_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let refcount = *self.get_block_refcount(block_hash)?;
+        let refcount = self.get_block_refcount(block_hash)?;
         if refcount > 0 {
             self.chain_store_cache_update.block_refcounts.insert(*block_hash, refcount - 1);
             Ok(())

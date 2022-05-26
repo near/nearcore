@@ -871,7 +871,7 @@ impl Chain {
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 if let Some(block_hash) = blocks_current_height.first() {
                     let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
-                    let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                    let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
                     if prev_block_refcount > 1 {
                         // Block of `prev_hash` starts a Fork, stopping
                         break;
@@ -941,7 +941,7 @@ impl Chain {
                     // and it may be safely deleted
                     // and all its ancestors while there are no other sibling blocks rely on it.
                     let mut chain_store_update = self.store.store_update();
-                    if *chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                    if chain_store_update.get_block_refcount(&current_hash)? == 0 {
                         let prev_hash =
                             *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
