@@ -346,8 +346,7 @@ pub mod test_features {
 
         let net_config = NetworkConfig::from_seed(seed, port);
         let store = create_test_store();
-        let routing_table_addr =
-            start_routing_table_actor(net_config.node_id(), store.clone());
+        let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
         let peer_manager_addr = make_peer_manager(
             store,
             net_config,

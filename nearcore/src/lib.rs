@@ -284,8 +284,7 @@ pub fn start_with_config_and_synchronization(
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(network_config.node_id(), store.clone());
+    let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {

@@ -797,8 +797,7 @@ impl PeerManagerActor {
 
         if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
-                let edge_update =
-                    edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
+                let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
                 Self::broadcast_message(
                     self.network_metrics.clone(),
@@ -871,7 +870,7 @@ impl PeerManagerActor {
         partial_edge_info: Option<PartialEdgeInfo>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
-        let account_id = self.config.validator.as_ref().map(|v|v.account_id());
+        let account_id = self.config.validator.as_ref().map(|v| v.account_id());
         let server_addr = self.config.node_addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();

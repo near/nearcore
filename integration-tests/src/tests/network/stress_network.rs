@@ -49,8 +49,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     }))
     .start();
     let net_config = NetworkConfig::from_seed(seed, port);
-    let routing_table_addr =
-        start_routing_table_actor(net_config.node_id(), store.clone());
+    let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
 
     PeerManagerActor::new(
         store,

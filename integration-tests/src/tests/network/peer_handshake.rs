@@ -59,8 +59,7 @@ fn make_peer_manager(
         }
     }))
     .start();
-    let routing_table_addr =
-        start_routing_table_actor(config.node_id(), store.clone());
+    let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
 
     PeerManagerActor::new(
         store,
