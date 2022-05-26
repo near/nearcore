@@ -24,7 +24,7 @@ use near_primitives::types::BlockId;
 fn test_block_unknown_block_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("block_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -82,7 +82,7 @@ fn test_block_unknown_block_error() {
 fn test_chunk_unknown_chunk_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("chunk_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -149,7 +149,7 @@ fn test_chunk_unknown_chunk_error() {
 fn test_protocol_config_unknown_block_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("protocol_config_block_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -211,7 +211,7 @@ fn test_protocol_config_unknown_block_error() {
 fn test_gas_price_unknown_block_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("gas_price_block_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -269,7 +269,7 @@ fn test_gas_price_unknown_block_error() {
 fn test_receipt_id_unknown_receipt_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("receipt_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -340,7 +340,7 @@ fn test_receipt_id_unknown_receipt_error() {
 fn test_tx_invalid_tx_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("tx_invalid{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(2)
@@ -413,7 +413,7 @@ fn test_tx_invalid_tx_error() {
 fn test_query_rpc_account_view_unknown_block_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("invalid_account{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
