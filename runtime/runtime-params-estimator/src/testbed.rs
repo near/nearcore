@@ -28,7 +28,7 @@ impl RuntimeTestbed {
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let tries = ShardTries::new(store, 0, 1);
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");

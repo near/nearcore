@@ -337,10 +337,10 @@ mod test {
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
@@ -384,10 +384,10 @@ mod test {
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
         let new_near_config =
             state_dump(runtime, &state_roots, last_block.header().clone(), &near_config, None);
         let new_genesis = new_near_config.genesis;
@@ -416,10 +416,10 @@ mod test {
         }
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
 
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
@@ -459,11 +459,11 @@ mod test {
             env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
             ShardLayout::v1_test()
         );
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
 
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,
@@ -500,7 +500,7 @@ mod test {
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
             .runtime_adapters(vec![
-                Arc::new(create_runtime(store1.clone())),
+                Arc::new(create_runtime(store1)),
                 Arc::new(create_runtime(store2.clone())),
             ])
             .build();
@@ -609,10 +609,10 @@ mod test {
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
-        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             runtime,

@@ -51,7 +51,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     start_http(
         RpcConfig::new(&addr),
         TEST_GENESIS_CONFIG.clone(),
-        client_addr.clone(),
+        client_addr,
         view_client_addr.clone(),
         #[cfg(feature = "test_features")]
         peer_manager_addr,

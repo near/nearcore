@@ -137,7 +137,7 @@ fn apply_block_from_range(
             return;
         }
     };
-    let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let block = chain_store.get_block(&block_hash).unwrap();
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
@@ -164,12 +164,11 @@ fn apply_block_from_range(
             "Can't get existing chunk extra for block #{}",
             height
         );
-        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
-        let chunk =
-            chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
+        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
+        let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
 
         let prev_block = match chain_store.get_block(block.header().prev_hash()) {
-            Ok(prev_block) => prev_block.clone(),
+            Ok(prev_block) => prev_block,
             Err(_) => {
                 if verbose_output {
                     println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
@@ -250,7 +249,7 @@ fn apply_block_from_range(
     } else {
         chunk_present = false;
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
 
         runtime_adapter
