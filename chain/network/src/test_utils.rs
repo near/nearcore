@@ -1,4 +1,3 @@
-use crate::stats::metrics::NetworkMetrics;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
@@ -188,16 +187,20 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-/// `GetMetrics` gets `NetworkMetrics` from `PeerManager`.
+/// `GetBroadcastMessageCount` gets `NetworkMetrics` from `PeerManager`.
+#[cfg(feature = "test_features")]
 #[derive(Message)]
-#[rtype(result = "Arc<NetworkMetrics>")]
-pub struct GetMetrics {}
+#[rtype(result = "u64")]
+pub struct GetBroadcastMessageCount {
+    pub msg_type: &'static str,
+}
 
-impl Handler<GetMetrics> for PeerManagerActor {
-    type Result = Arc<NetworkMetrics>;
+#[cfg(feature = "test_features")]
+impl Handler<GetBroadcastMessageCount> for PeerManagerActor {
+    type Result = u64;
 
-    fn handle(&mut self, _msg: GetMetrics, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network_metrics.clone()
+    fn handle(&mut self, msg: GetBroadcastMessageCount, _ctx: &mut Context<Self>) -> Self::Result {
+        self.network_metrics.get_broadcast_count(msg.msg_type)
     }
 }
 
