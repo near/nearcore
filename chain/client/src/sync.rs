@@ -1446,7 +1446,7 @@ mod test {
             1000,
             100,
         );
-        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];

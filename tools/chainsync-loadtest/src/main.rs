@@ -103,7 +103,7 @@ impl Cmd {
         // To avoid that, we create a runtime within the synchronous code and pass just an Arc
         // inside of it.
         let rt_ = Arc::new(tokio::runtime::Runtime::new()?);
-        let rt = rt_.clone();
+        let rt = rt_;
         return actix::System::new().block_on(async move {
             let network =
                 start_with_config(near_config, cmd.qps_limit).context("start_with_config")?;

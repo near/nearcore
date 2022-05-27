@@ -45,7 +45,7 @@ fn get_incoming_receipts(
     }
 
     let mut chunks =
-        chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap().clone()).collect::<Vec<_>>();
+        chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap()).collect::<Vec<_>>();
     chunks.sort_by(|left, right| left.shard_id().cmp(&right.shard_id()));
 
     for chunk in chunks {

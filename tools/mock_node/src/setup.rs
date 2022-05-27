@@ -296,7 +296,7 @@ pub fn setup_mock_node(
     let view_client = start_view_client(
         None,
         chain_genesis.clone(),
-        client_runtime.clone(),
+        client_runtime,
         network_adapter.clone(),
         config.client_config.clone(),
         adv,
@@ -384,7 +384,7 @@ mod test {
             let nearcore::NearNode { view_client, client, .. } =
                 start_with_config(path1, near_config).expect("start_with_config");
 
-            let view_client1 = view_client.clone();
+            let view_client1 = view_client;
             let nonce = Arc::new(RwLock::new(10));
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {

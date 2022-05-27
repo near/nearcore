@@ -219,17 +219,15 @@ impl ViewClientActor {
                 }
             }
         };
-        let header = header
-            .map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                    QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
-                }
-                near_chain::near_chain_primitives::Error::IOErr(error) => {
-                    QueryError::InternalError { error_message: error.to_string() }
-                }
-                _ => QueryError::Unreachable { error_message: err.to_string() },
-            })?
-            .clone();
+        let header = header.map_err(|err| match err {
+            near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
+                QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
+            }
+            near_chain::near_chain_primitives::Error::IOErr(error) => {
+                QueryError::InternalError { error_message: error.to_string() }
+            }
+            _ => QueryError::Unreachable { error_message: err.to_string() },
+        })?;
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -676,12 +674,12 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
             }
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
-                    BlockId::Hash(h) => self.chain.get_block_header(&h)?.clone(),
-                    BlockId::Height(h) => self.chain.get_header_by_height(h)?.clone(),
+                    BlockId::Hash(h) => self.chain.get_block_header(&h)?,
+                    BlockId::Height(h) => self.chain.get_header_by_height(h)?,
                 };
                 let next_block_hash =
                     self.chain.mut_store().get_next_block_hash(block_header.hash())?;
-                let next_block_header = self.chain.get_block_header(&next_block_hash)?.clone();
+                let next_block_header = self.chain.get_block_header(&next_block_hash)?;
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
                 {
@@ -708,7 +706,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .maybe_block_id_to_block_hash(msg.block_id)
-            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
+            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h))
             .and_then(|header| {
                 get_epoch_block_producers_view(
                     header.epoch_id(),
@@ -829,7 +827,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
             let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
-                &head_header.clone(),
+                &head_header,
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
             )?;
@@ -869,7 +867,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
         };
         match self.chain.get_execution_outcome(&id) {
             Ok(outcome) => {
-                let mut outcome_proof = outcome.clone();
+                let mut outcome_proof = outcome;
                 let epoch_id =
                     self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
                 let target_shard_id =
@@ -972,7 +970,7 @@ impl Handler<GetBlockProof> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         self.chain.check_block_final_and_canonical(&msg.block_hash)?;
         self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
-        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.clone().into();
+        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.into();
         let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
@@ -1072,9 +1070,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id) => {
                 if let Ok(outcome_with_proof) = self.chain.get_execution_outcome(&receipt_id) {
-                    NetworkViewClientResponses::ReceiptOutcomeResponse(Box::new(
-                        outcome_with_proof.clone(),
-                    ))
+                    NetworkViewClientResponses::ReceiptOutcomeResponse(Box::new(outcome_with_proof))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -1119,7 +1115,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::BlockRequest(hash) => {
                 if let Ok(block) = self.chain.get_block(&hash) {
-                    NetworkViewClientResponses::Block(Box::new(block.clone()))
+                    NetworkViewClientResponses::Block(Box::new(block))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }

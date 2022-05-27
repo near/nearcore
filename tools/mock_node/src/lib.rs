@@ -217,11 +217,11 @@ impl ChainHistoryAccess {
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
-        self.chain.get_block_by_height(block_height).map(|b| b.clone())
+        self.chain.get_block_by_height(block_height).map(|b| b)
     }
 
     fn retrieve_block(&mut self, block_hash: &CryptoHash) -> Result<Block, Error> {
-        self.chain.get_block(block_hash).map(|b| b.clone())
+        self.chain.get_block(block_hash).map(|b| b)
     }
 
     fn retrieve_partial_encoded_chunk(
@@ -311,7 +311,7 @@ mod test {
         init_test_logger();
         let (mut chain_history_access, env) = setup_mock();
         let blocks: Vec<_> =
-            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap().clone()).collect();
+            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap()).collect();
 
         for block in blocks.iter() {
             assert_eq!(&chain_history_access.retrieve_block(block.hash()).unwrap(), block);

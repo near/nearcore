@@ -126,7 +126,7 @@ fn validate(
         .iter()
         .filter_map(|hash| {
             if epoch_manager.is_next_block_epoch_start(hash).unwrap() {
-                Some(epoch_manager.get_epoch_info(&EpochId(*hash)).unwrap().clone())
+                Some(epoch_manager.get_epoch_info(&EpochId(*hash)).unwrap())
             } else {
                 None
             }

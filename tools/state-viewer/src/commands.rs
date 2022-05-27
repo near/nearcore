@@ -359,13 +359,12 @@ pub(crate) fn apply_block(
     runtime_adapter: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
 ) -> (Block, ApplyTransactionResult) {
-    let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
-        let chunk =
-            chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
-        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap().clone();
+        let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
+        let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
@@ -407,7 +406,7 @@ pub(crate) fn apply_block(
             .unwrap()
     } else {
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
 
         runtime_adapter
             .apply_transactions(
@@ -508,17 +507,16 @@ pub(crate) fn view_chain(
             Some(h) => {
                 let block_hash =
                     chain_store.get_block_hash_by_height(h).expect("Block does not exist");
-                chain_store.get_block(&block_hash).unwrap().clone()
+                chain_store.get_block(&block_hash).unwrap()
             }
             None => {
                 let head = chain_store.head().unwrap();
-                chain_store.get_block(&head.last_block_hash).unwrap().clone()
+                chain_store.get_block(&head.last_block_hash).unwrap()
             }
         }
     };
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
+    let epoch_manager = EpochManager::new_from_genesis_config(store, &near_config.genesis.config)
+        .expect("Failed to start Epoch Manager");
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
     let mut chunk_extras = vec![];
@@ -538,7 +536,7 @@ pub(crate) fn view_chain(
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
                 let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
-                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()))
+                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap()))
             } else {
                 None
             }
@@ -567,10 +565,9 @@ pub(crate) fn view_chain(
 
 pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
     let genesis_height = near_config.genesis.config.genesis_height;
-    let chain_store =
-        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+    let chain_store = ChainStore::new(store, genesis_height, !near_config.client_config.archive);
     let head = chain_store.head().unwrap();
-    let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
         for chunk_header in cur_block.chunks().iter() {
             if chunk_header.height_included() == cur_block.header().height() {
@@ -625,7 +622,7 @@ pub(crate) fn print_epoch_info(
 
 pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Store) {
     let chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
@@ -635,7 +632,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 
 pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
     let chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
@@ -714,7 +711,7 @@ fn load_trie_stop_at_height(
                     *chain_store.get_block_header(&cur_block_hash).unwrap().last_final_block();
                 let last_final_block = chain_store.get_block(&last_final_block_hash).unwrap();
                 if last_final_block.header().height() >= height {
-                    break last_final_block.clone();
+                    break last_final_block;
                 } else {
                     cur_height += 1;
                     continue;
@@ -723,9 +720,9 @@ fn load_trie_stop_at_height(
         }
         LoadTrieMode::Height(height) => {
             let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-            chain_store.get_block(&block_hash).unwrap().clone()
+            chain_store.get_block(&block_hash).unwrap()
         }
-        LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap().clone(),
+        LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap(),
     };
     let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
     (runtime, state_roots, last_block.header().clone())

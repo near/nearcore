@@ -174,7 +174,7 @@ impl TestShardUpgradeEnv {
     /// check that all accounts in `accounts` exist in the current state
     fn check_accounts(&mut self, accounts: Vec<&AccountId>) {
         let head = self.env.clients[0].chain.head().unwrap();
-        let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         for account_id in accounts {
             check_account(&mut self.env, account_id, &block)
         }
@@ -193,7 +193,7 @@ impl TestShardUpgradeEnv {
     ///    - all blocks after the block at `height` in the current canonical chain do not have
     ///      new chunks for the corresponding shards
     fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
-        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
         for shard_id in 0..num_shards {
@@ -257,7 +257,7 @@ impl TestShardUpgradeEnv {
     ) -> Vec<CryptoHash> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
-        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         // check execution outcomes
         let shard_layout = env.clients[0]
             .runtime_adapter
@@ -320,7 +320,7 @@ impl TestShardUpgradeEnv {
             .runtime_adapter
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
-        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_included() == block.header().height() {
                 let outgoing_receipts = env.clients[0]

@@ -52,7 +52,7 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);
 
     // Add two more blocks
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap(), &*signer);
     let _ = chain.process_block_test(&None, b3.clone()).unwrap().unwrap();
 
     let b4 = Block::empty(&b3, &*signer);
@@ -61,7 +61,7 @@ fn challenges_new_head_prev() {
     assert_eq!(chain.head_header().unwrap().hash(), &new_head);
 
     // Add two more blocks on an alternative chain
-    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap().clone(), &*signer);
+    let b3 = Block::empty(&chain.get_block(&hashes[2]).unwrap(), &*signer);
     let _ = chain.process_block_test(&None, b3.clone()).unwrap();
 
     let b4 = Block::empty(&b3, &*signer);
