@@ -375,8 +375,9 @@ fn test_verify_chunk_invalid_state_challenge() {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }
-    let mut block_merkle_tree =
+    let block_merkle_tree =
         client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,

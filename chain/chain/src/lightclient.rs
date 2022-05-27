@@ -50,14 +50,14 @@ pub fn create_light_client_block_view(
     };
     let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
-    let next_block_hash = *chain_store.get_next_block_hash(block_header.hash())?;
+    let next_block_hash = chain_store.get_next_block_hash(block_header.hash())?;
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
     let next_block_inner_hash = BlockHeader::compute_inner_hash(
         &next_block_header.inner_lite_bytes(),
         &next_block_header.inner_rest_bytes(),
     );
 
-    let after_next_block_hash = *chain_store.get_next_block_hash(&next_block_hash)?;
+    let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?;
     let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
     let approvals_after_next = after_next_block_header.approvals().to_vec();
 

@@ -33,7 +33,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
             .home(&home_dir)
             .open();
 
-        let mut chain_store =
+        let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
         let runtime = NightshadeRuntime::with_config(
