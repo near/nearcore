@@ -406,7 +406,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         use near_chain::chain::{ChainUpdate, OrphanBlockPool};
         let chain = &mut client.chain;
         let adapter = chain.runtime_adapter.clone();
-        let epoch_length = chain.epoch_length;
         let empty_block_pool = OrphanBlockPool::new();
         let empty_chunks_pool = MissingChunksPool::new();
         let chain_genesis = ChainGenesis::from(&genesis);
@@ -417,7 +416,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             adapter,
             &empty_block_pool,
             &empty_chunks_pool,
-            epoch_length,
             &economics_config,
             DoomslugThresholdMode::NoApprovals,
             &genesis_block,
