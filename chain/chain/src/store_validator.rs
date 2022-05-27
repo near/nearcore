@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
-use strum::{EnumCount, IntoEnumIterator};
+use enum_map::Enum;
+use strum::IntoEnumIterator;
 use tracing::warn;
 
 use near_chain_configs::GenesisConfig;
@@ -39,7 +40,13 @@ pub struct StoreValidatorCache {
     tail: BlockHeight,
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
-    gc_col: Vec<u64>,
+
+    /// For each database column, count of how many times that colum was garbage
+    /// collected.  The map is updated by [`validate::gc_col_count`] function
+    /// called from [`StoreValidator::validate_col`] method and final validation
+    /// on it is performed by [`validate::gc_col_count_final`] function.
+    gc_count: enum_map::EnumMap<DBCol, u64>,
+
     tx_refcount: HashMap<CryptoHash, u64>,
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
@@ -54,7 +61,7 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
-            gc_col: vec![0; DBCol::COUNT],
+            gc_count: Default::default(),
             tx_refcount: HashMap::new(),
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
@@ -114,14 +121,14 @@ impl StoreValidator {
     pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
         let mut res = vec![];
         for col in DBCol::iter() {
-            if col.is_gc() && self.inner.gc_col[col as usize] == 0 {
+            if col.is_gc() && self.inner.gc_count[col] == 0 {
                 if col.is_gc_optional() {
                     res.push((
                         to_string(&col) + " (skipping is acceptable)",
-                        self.inner.gc_col[col as usize],
+                        self.inner.gc_count[col],
                     ))
                 } else {
-                    res.push((to_string(&col), self.inner.gc_col[col as usize]))
+                    res.push((to_string(&col), self.inner.gc_count[col]))
                 }
             }
         }
@@ -357,7 +364,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {:?} ({:?}/{:?})", col, col as usize, DBCol::COUNT);
+                    warn!(target: "adversary", "Store validator hit timeout at {} ({}/{})", col.variant_name(), col.into_usize(), DBCol::LENGTH);
                     return;
                 }
             }
