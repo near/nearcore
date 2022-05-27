@@ -37,7 +37,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::verify_hash;
+use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -346,13 +346,14 @@ fn receive_network_block() {
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+            block_merkle_tree.insert(last_block.header.hash);
             let signer = InMemoryValidatorSigner::from_seed(
                 "test1".parse().unwrap(),
                 KeyType::ED25519,
                 "test1",
             );
-            block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -423,13 +424,14 @@ fn produce_block_with_approvals() {
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+            block_merkle_tree.insert(last_block.header.hash);
             let signer1 = InMemoryValidatorSigner::from_seed(
                 "test2".parse().unwrap(),
                 KeyType::ED25519,
                 "test2",
             );
-            block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -613,13 +615,14 @@ fn invalid_blocks_common(is_requested: bool) {
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (last_block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+            block_merkle_tree.insert(last_block.header.hash);
             let signer = InMemoryValidatorSigner::from_seed(
                 "test".parse().unwrap(),
                 KeyType::ED25519,
                 "test",
             );
-            block_merkle_tree.insert(last_block.header.hash);
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
@@ -1073,7 +1076,7 @@ fn test_time_attack() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
     b1.mut_header().resign(&signer);
@@ -1106,7 +1109,7 @@ fn test_invalid_approvals() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
@@ -1161,7 +1164,7 @@ fn test_invalid_gas_price() {
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
     b1.mut_header().resign(&signer);
 
@@ -1975,11 +1978,11 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     let root = head.header().block_merkle_root();
     // verify that the mapping from block ordinal to block hash is correct
     for h in 0..head.header().height() {
-        if let Ok(block) = env.clients[0].chain.get_block_by_height(h).map(Clone::clone) {
+        if let Ok(block) = env.clients[0].chain.get_block_by_height(h) {
             let block_hash = *block.hash();
             let block_ordinal =
                 env.clients[0].chain.mut_store().get_block_merkle_tree(&block_hash).unwrap().size();
-            let block_hash1 = *env.clients[0]
+            let block_hash1 = env.clients[0]
                 .chain
                 .mut_store()
                 .get_block_hash_from_ordinal(block_ordinal)
@@ -3241,7 +3244,7 @@ fn test_block_ordinal() {
 
     // make sure that the old ordinal maps to what is on the canonical chain
     let fork_ordinal_block_hash =
-        *env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
+        env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
     assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 

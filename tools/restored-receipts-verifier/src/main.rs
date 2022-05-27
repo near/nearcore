@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
     let store = near_store::StoreOpener::new(&near_config.config.store).home(home_dir).open();
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,

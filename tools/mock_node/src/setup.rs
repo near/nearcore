@@ -223,7 +223,7 @@ pub fn setup_mock_node(
         info!(target:"mock_node", "Done preparing epoch info");
 
         // copy state for all shards
-        let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
+        let next_hash = network_chain_store.get_next_block_hash(&hash).unwrap();
         let next_block = network_chain_store.get_block(&next_hash).unwrap();
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
             info!(target:"mock_node", "Preparing state for shard {}", shard_id);

@@ -329,7 +329,7 @@ impl TestShardUpgradeEnv {
                     .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
                     .unwrap()
                     .clone();
-                for receipt in outgoing_receipts {
+                for receipt in outgoing_receipts.iter() {
                     let target_shard_id = env.clients[0]
                         .chain
                         .get_shard_id_for_receipt_id(&receipt.receipt_id)

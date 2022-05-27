@@ -309,7 +309,7 @@ mod test {
     #[test]
     fn test_chain_history_access() {
         init_test_logger();
-        let (mut chain_history_access, mut env) = setup_mock();
+        let (mut chain_history_access, env) = setup_mock();
         let blocks: Vec<_> =
             (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap().clone()).collect();
 

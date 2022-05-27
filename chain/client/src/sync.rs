@@ -510,7 +510,6 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = *hash;
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
                         } else {
@@ -532,7 +531,7 @@ impl BlockSync {
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
             match chain.mut_store().get_next_block_hash(&next_hash) {
-                Ok(hash) => next_hash = *hash,
+                Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,
                     _ => return Err(e),
@@ -1028,8 +1027,8 @@ impl StateSync {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
 
-        let prev_block_hash = chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
+        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         Ok(runtime_adapter
             .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
@@ -1038,7 +1037,7 @@ impl StateSync {
                 let account_id = validator_stake.account_id();
                 if runtime_adapter.cares_about_shard(
                     Some(account_id),
-                    prev_block_hash,
+                    &prev_block_hash,
                     shard_id,
                     false,
                 ) {
@@ -1340,7 +1339,7 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer);
+            let block = Block::empty(&prev, &*signer);
             chain
                 .process_block(
                     &None,
@@ -1356,7 +1355,7 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer2);
+            let block = Block::empty(&prev, &*signer2);
             chain2
                 .process_block(
                     &None,

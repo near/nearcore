@@ -31,6 +31,7 @@ near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-cache = { path = "../../utils/near-cache" }
 
 [dev-dependencies]
 insta = "1"

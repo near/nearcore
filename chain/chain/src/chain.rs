@@ -21,19 +21,19 @@ use near_primitives::challenge::{
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem,
+    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
 };
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
-    ShardProof, StateSyncInfo,
+    ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
+    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -827,8 +827,8 @@ impl Chain {
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
-        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id();
-        let epoch_change = prev_epoch_id != &head.epoch_id;
+        let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id().clone();
+        let epoch_change = prev_epoch_id != head.epoch_id;
         let mut fork_tail = self.store.fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
@@ -871,7 +871,7 @@ impl Chain {
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 if let Some(block_hash) = blocks_current_height.first() {
                     let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
-                    let prev_block_refcount = *chain_store_update.get_block_refcount(&prev_hash)?;
+                    let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
                     if prev_block_refcount > 1 {
                         // Block of `prev_hash` starts a Fork, stopping
                         break;
@@ -941,7 +941,7 @@ impl Chain {
                     // and it may be safely deleted
                     // and all its ancestors while there are no other sibling blocks rely on it.
                     let mut chain_store_update = self.store.store_update();
-                    if *chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                    if chain_store_update.get_block_refcount(&current_hash)? == 0 {
                         let prev_hash =
                             *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
@@ -1183,12 +1183,12 @@ impl Chain {
     }
 
     /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&mut self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
+    pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
-            if let Ok(header) = self.get_block_header(hash).map(|h| h.clone()) {
+            if let Ok(header) = self.get_block_header(hash) {
                 if let Ok(header_at_height) = self.get_header_by_height(header.height()) {
                     if header.hash() == header_at_height.hash() {
-                        return Some(header);
+                        return Some(header.clone());
                     }
                 }
             }
@@ -1959,7 +1959,7 @@ impl Chain {
 
             let mut root_proofs_cur = vec![];
             assert_eq!(receipt_proofs.len(), block_header.chunks_included() as usize);
-            for receipt_proof in receipt_proofs {
+            for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
@@ -2564,14 +2564,10 @@ impl Chain {
             })
             .expect("results should resolve to a final outcome");
         let receipts_outcome = outcomes.split_off(1);
-        let transaction: SignedTransactionView = self
-            .store
-            .get_transaction(transaction_hash)?
-            .ok_or_else(|| {
-                Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
-            })?
-            .clone()
-            .into();
+        let transaction = self.store.get_transaction(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+        })?;
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -2593,7 +2589,7 @@ impl Chain {
                     None
                 } else {
                     Some(self.store.get_receipt(&outcome.id).and_then(|r| {
-                        r.cloned().map(Into::into).ok_or_else(|| {
+                        r.map(|r| Receipt::clone(&r).into()).ok_or_else(|| {
                             Error::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
                         })
                     }))
@@ -2730,7 +2726,7 @@ impl Chain {
                 let maybe_hash = if index >= tree_size {
                     None
                 } else {
-                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                    Some(self.store().get_block_hash_from_ordinal(index)?)
                 };
                 tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
@@ -2788,7 +2784,7 @@ impl Chain {
                 let maybe_hash = if index >= tree_size {
                     None
                 } else {
-                    Some(*self.mut_store().get_block_hash_from_ordinal(index)?)
+                    Some(self.store().get_block_hash_from_ordinal(index)?)
                 };
                 tree_nodes.insert((index, level), maybe_hash);
                 Ok(maybe_hash)
@@ -2892,7 +2888,7 @@ impl Chain {
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     #[inline]
-    pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    pub fn head_header(&self) -> Result<BlockHeader, Error> {
         self.store.head_header()
     }
 
@@ -2904,13 +2900,13 @@ impl Chain {
 
     /// Gets a block by hash.
     #[inline]
-    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<&Block, Error> {
+    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<Block, Error> {
         self.store.get_block(hash)
     }
 
     /// Gets a chunk from hash.
     #[inline]
-    pub fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
+    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error> {
         self.store.get_chunk(chunk_hash)
     }
 
@@ -2925,7 +2921,7 @@ impl Chain {
 
     /// Gets a block from the current chain by height.
     #[inline]
-    pub fn get_block_by_height(&mut self, height: BlockHeight) -> Result<&Block, Error> {
+    pub fn get_block_by_height(&self, height: BlockHeight) -> Result<Block, Error> {
         let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block(&hash)
     }
@@ -2938,29 +2934,29 @@ impl Chain {
 
     /// Gets a block header by hash.
     #[inline]
-    pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
+    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
         self.store.get_block_header(hash)
     }
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_header_by_height(&mut self, height: BlockHeight) -> Result<&BlockHeader, Error> {
+    pub fn get_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
         self.store.get_header_by_height(height)
     }
 
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     #[inline]
     pub fn get_header_on_chain_by_height(
-        &mut self,
+        &self,
         sync_hash: &CryptoHash,
         height: BlockHeight,
-    ) -> Result<&BlockHeader, Error> {
+    ) -> Result<BlockHeader, Error> {
         self.store.get_header_on_chain_by_height(sync_hash, height)
     }
 
     /// Get previous block header.
     #[inline]
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.store.get_previous_header(header)
     }
 
@@ -2977,27 +2973,24 @@ impl Chain {
 
     /// Get block extra that was computer after applying previous block.
     #[inline]
-    pub fn get_block_extra(&mut self, block_hash: &CryptoHash) -> Result<&BlockExtra, Error> {
+    pub fn get_block_extra(&self, block_hash: &CryptoHash) -> Result<Arc<BlockExtra>, Error> {
         self.store.get_block_extra(block_hash)
     }
 
     /// Get chunk extra that was computed after applying chunk with given hash.
     #[inline]
     pub fn get_chunk_extra(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-    ) -> Result<&ChunkExtra, Error> {
+    ) -> Result<Arc<ChunkExtra>, Error> {
         self.store.get_chunk_extra(block_hash, shard_uid)
     }
 
     /// Get destination shard id for a given receipt id.
     #[inline]
-    pub fn get_shard_id_for_receipt_id(
-        &mut self,
-        receipt_id: &CryptoHash,
-    ) -> Result<ShardId, Error> {
-        self.store.get_shard_id_for_receipt_id(receipt_id).cloned()
+    pub fn get_shard_id_for_receipt_id(&self, receipt_id: &CryptoHash) -> Result<ShardId, Error> {
+        self.store.get_shard_id_for_receipt_id(receipt_id)
     }
 
     /// Get next block hash for which there is a new chunk for the shard.
@@ -3016,7 +3009,6 @@ impl Chain {
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
-            let next_block_hash = *next_block_hash;
             let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
             if next_epoch_id != epoch_id {
                 let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
@@ -3432,7 +3424,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Find previous header or return Orphan error if not found.
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.chain_store_update.get_previous_header(header).map_err(|e| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,
@@ -3485,7 +3477,9 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_proof = ChunkProofs {
                     block_header: block.header().try_to_vec().expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: MaybeEncodedShardChunk::Encoded(encoded_chunk.clone()),
+                    chunk: MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
+                        &encoded_chunk,
+                    )),
                 };
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
@@ -3664,7 +3658,7 @@ impl<'a> ChainUpdate<'a> {
                         let shard_layout =
                             self.runtime_adapter.get_shard_layout_from_prev_block(hash)?;
                         outgoing_receipts
-                            .into_iter()
+                            .iter()
                             .map(|receipt| {
                                 (
                                     receipt.receipt_id,
@@ -4242,9 +4236,10 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let mut new_extra =
-                    self.chain_store_update.get_chunk_extra(&prev_block_hash, &shard_uid)?.clone();
+                let old_extra =
+                    self.chain_store_update.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
+                let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 self.chain_store_update.save_chunk_extra(&block_hash, &shard_uid, new_extra);
@@ -4528,7 +4523,11 @@ impl<'a> ChainUpdate<'a> {
         }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
-            self.chain_store_update.save_incoming_receipt(block.hash(), shard_id, receipt_proofs);
+            self.chain_store_update.save_incoming_receipt(
+                block.hash(),
+                shard_id,
+                Arc::new(receipt_proofs),
+            );
         }
         if let Some(state_dl_info) = state_dl_info {
             self.chain_store_update.add_state_dl_info(state_dl_info);
@@ -4644,7 +4643,6 @@ impl<'a> ChainUpdate<'a> {
             .chain_store_update
             .get_chain_store()
             .get_all_block_hashes_by_height(header.height())
-            .map(Clone::clone)
         {
             // Check if there is already known block of the same height that has the same epoch id
             if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
@@ -4762,8 +4760,9 @@ impl<'a> ChainUpdate<'a> {
                 return Err(Error::InvalidFinalityInfo);
             }
 
-            let mut block_merkle_tree =
-                self.chain_store_update.get_block_merkle_tree(header.prev_hash())?.clone();
+            let block_merkle_tree =
+                self.chain_store_update.get_block_merkle_tree(header.prev_hash())?;
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(*header.prev_hash());
             if &block_merkle_tree.root() != header.block_merkle_root() {
                 return Err(Error::InvalidBlockMerkleRoot);
@@ -4832,7 +4831,7 @@ impl<'a> ChainUpdate<'a> {
                 },
             };
         if last_final_block_header.height() > final_head.height {
-            let tip = Tip::from_header(last_final_block_header);
+            let tip = Tip::from_header(&last_final_block_header);
             self.chain_store_update.save_final_head(&tip)?;
             Ok(Some(tip))
         } else {
@@ -4896,22 +4895,21 @@ impl<'a> ChainUpdate<'a> {
             // It could be that there is a better chain known. However, it is extremely unlikely,
             //   and even if there's such chain available, the very next block built on it will
             //   bring this node's head to that chain.
-            let prev_header =
-                self.chain_store_update.get_block_header(block_header.prev_hash())?.clone();
+            let prev_header = self.chain_store_update.get_block_header(block_header.prev_hash())?;
             let prev_height = prev_header.height();
             let new_head_header = if let Some(hash) = challenger_hash {
                 let challenger_header = self.chain_store_update.get_block_header(hash)?;
                 if challenger_header.height() > prev_height {
                     challenger_header
                 } else {
-                    &prev_header
+                    prev_header
                 }
             } else {
-                &prev_header
+                prev_header
             };
             let last_final_block = *new_head_header.last_final_block();
 
-            let tip = Tip::from_header(new_head_header);
+            let tip = Tip::from_header(&new_head_header);
             self.chain_store_update.save_head(&tip)?;
             let new_final_header =
                 self.chain_store_update.get_block_header(&last_final_block)?.clone();
@@ -5051,7 +5049,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(block_header.prev_hash())?.clone();
 
         let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let mut chunk_extra =
+        let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?.clone();
 
         let apply_result = self.runtime_adapter.apply_transactions(
@@ -5074,9 +5072,11 @@ impl<'a> ChainUpdate<'a> {
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        *chunk_extra.state_root_mut() = apply_result.new_root;
 
-        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
+        let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
+        *new_chunk_extra.state_root_mut() = apply_result.new_root;
+
+        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)
     }
 
@@ -5151,7 +5151,7 @@ pub fn collect_receipts_from_response(
     receipt_proof_response: &[ReceiptProofResponse],
 ) -> Vec<Receipt> {
     collect_receipts(
-        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
+        receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs.iter()),
     )
 }
 
