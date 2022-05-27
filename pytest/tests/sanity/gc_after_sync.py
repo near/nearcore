@@ -68,12 +68,15 @@ node1_height, _ = utils.wait_for_blocks(nodes[1],
                                         target=node0_height,
                                         verbose=True)
 
-epoch_id = nodes[1].json_rpc('block', [node1_height], timeout=15)['result']['header']['epoch_id']
-epoch_start_height = nodes[1].get_validators(epoch_id=epoch_id)['result']['epoch_start_height']
+epoch_id = nodes[1].json_rpc('block', [node1_height],
+                             timeout=15)['result']['header']['epoch_id']
+epoch_start_height = nodes[1].get_validators(
+    epoch_id=epoch_id)['result']['epoch_start_height']
 
 # all fresh data should be synced
 blocks_count = 0
-for height in range(max(node1_height - 10, epoch_start_height), node1_height+1):
+for height in range(max(node1_height - 10, epoch_start_height),
+                    node1_height + 1):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1, (block0, block1)
