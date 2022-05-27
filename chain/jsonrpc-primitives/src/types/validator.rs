@@ -57,12 +57,6 @@ impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidator
     }
 }
 
-impl From<actix::MailboxError> for RpcValidatorError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcValidatorError> for crate::errors::RpcError {
     fn from(error: RpcValidatorError) -> Self {
         let error_data = match &error {

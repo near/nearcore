@@ -109,9 +109,3 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
         Self::new_internal_or_handler_error(Some(error_data), error_data_value)
     }
 }
-
-impl From<actix::MailboxError> for RpcTransactionError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { debug_info: error.to_string() }
-    }
-}

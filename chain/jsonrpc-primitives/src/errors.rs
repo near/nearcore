@@ -151,12 +151,6 @@ impl fmt::Display for RpcError {
     }
 }
 
-impl From<actix::MailboxError> for RpcError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::new(-32_000, "Server error".to_string(), Some(Value::String(error.to_string())))
-    }
-}
-
 impl From<crate::errors::RpcParseError> for RpcError {
     fn from(parse_error: crate::errors::RpcParseError) -> Self {
         Self::parse_error(parse_error.0)
@@ -176,15 +170,6 @@ impl fmt::Display for ServerError {
 impl From<InvalidTxError> for ServerError {
     fn from(e: InvalidTxError) -> ServerError {
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(e))
-    }
-}
-
-impl From<actix::MailboxError> for ServerError {
-    fn from(e: actix::MailboxError) -> Self {
-        match e {
-            actix::MailboxError::Closed => ServerError::Closed,
-            actix::MailboxError::Timeout => ServerError::Timeout,
-        }
     }
 }
 

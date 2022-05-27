@@ -98,9 +98,3 @@ impl From<RpcStateChangesError> for crate::errors::RpcError {
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }
-
-impl From<actix::MailboxError> for RpcStateChangesError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}

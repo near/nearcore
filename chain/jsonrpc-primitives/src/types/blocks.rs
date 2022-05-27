@@ -51,12 +51,6 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
     }
 }
 
-impl From<actix::MailboxError> for RpcBlockError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
         let error_data = match &error {

@@ -81,12 +81,6 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
     }
 }
 
-impl From<actix::MailboxError> for RpcChunkError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
         let error_data = match &error {

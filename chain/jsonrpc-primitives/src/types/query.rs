@@ -193,9 +193,3 @@ impl From<RpcQueryError> for crate::errors::RpcError {
         Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
-
-impl From<actix::MailboxError> for RpcQueryError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}

@@ -58,12 +58,6 @@ impl From<near_client_primitives::types::StatusError> for RpcStatusError {
     }
 }
 
-impl From<actix::MailboxError> for RpcStatusError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcStatusError> for crate::errors::RpcError {
     fn from(error: RpcStatusError) -> Self {
         let error_data = match serde_json::to_value(error) {

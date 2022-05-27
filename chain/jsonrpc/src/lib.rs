@@ -32,9 +32,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
+mod errors;
 mod metrics;
 mod parser;
 
+use errors::{rpc_try, RpcFrom};
 use parser::RpcRequest;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -282,17 +284,19 @@ impl JsonRpcHandler {
                     let params = parse_params::<
                         near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest,
                     >(params)?;
-                    self.peer_manager_addr
-                        .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
-                            near_network::test_utils::SetAdvOptions {
-                                disable_edge_signature_verification: params
-                                    .disable_edge_signature_verification,
-                                disable_edge_propagation: params.disable_edge_propagation,
-                                disable_edge_pruning: params.disable_edge_pruning,
-                                set_max_peers: None,
-                            },
-                        ))
-                        .await?;
+                    rpc_try! {
+                        self.peer_manager_addr
+                            .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
+                                near_network::test_utils::SetAdvOptions {
+                                    disable_edge_signature_verification: params
+                                        .disable_edge_signature_verification,
+                                    disable_edge_propagation: params.disable_edge_propagation,
+                                    disable_edge_pruning: params.disable_edge_pruning,
+                                    set_max_peers: None,
+                                },
+                            ))
+                            .await
+                    };
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -302,15 +306,17 @@ impl JsonRpcHandler {
                 "adv_set_routing_table" => {
                     let request =
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
-                    self.peer_manager_addr
-                        .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
-                            near_network::test_utils::SetRoutingTable {
-                                add_edges: request.add_edges,
-                                remove_edges: request.remove_edges,
-                                prune_edges: request.prune_edges,
-                            },
-                        ))
-                        .await?;
+                    rpc_try! {
+                        self.peer_manager_addr
+                            .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
+                                near_network::test_utils::SetRoutingTable {
+                                    add_edges: request.add_edges,
+                                    remove_edges: request.remove_edges,
+                                    prune_edges: request.prune_edges,
+                                },
+                            ))
+                            .await
+                    };
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -322,37 +328,43 @@ impl JsonRpcHandler {
                         near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
                     >(params)?;
 
-                    self.peer_manager_addr
-                        .send(
-                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::private_actix::StartRoutingTableSync {
-                                    peer_id: params.peer_id,
-                                },
-                            ),
-                        )
-                        .await?;
+                    rpc_try! {
+                        self.peer_manager_addr
+                            .send(
+                                near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
+                                    near_network::private_actix::StartRoutingTableSync {
+                                        peer_id: params.peer_id,
+                                    },
+                                ),
+                            )
+                        .await
+                    };
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_peer_id" => {
-                    let response = self
-                        .peer_manager_addr
-                        .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
-                            near_network::private_actix::GetPeerId {},
-                        ))
-                        .await?;
+                    let response = rpc_try! {
+                        self
+                            .peer_manager_addr
+                            .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
+                                near_network::private_actix::GetPeerId {},
+                            ))
+                            .await
+                    };
                     Some(
                         serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_routing_table" => {
-                    let result = self
-                        .routing_table_addr
-                        .send(near_network::RoutingTableMessages::RequestRoutingTable)
-                        .await?;
+                    let result = rpc_try! {
+                            self
+                            .routing_table_addr
+                            .send(near_network::RoutingTableMessages::RequestRoutingTable)
+                            .await
+                    };
 
                     match result {
                         near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
@@ -754,14 +766,16 @@ impl JsonRpcHandler {
     > {
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id.clone();
-        let response = self
-            .client_addr
-            .send(NetworkClientMessages::Transaction {
-                transaction: tx,
-                is_forwarded: false,
-                check_only,
-            })
-            .await?;
+        let response = rpc_try! {
+            self
+                .client_addr
+                .send(NetworkClientMessages::Transaction {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only,
+                })
+                .await
+        };
 
         // If we receive InvalidNonce error, it might be the case that the transaction was
         // resubmitted, and we should check if that is the case and return ValidTx response to
@@ -877,7 +891,10 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: true, detailed: false }).await??.into())
+        let status = rpc_try! {
+            self.client_addr.send(Status { is_health_check: true, detailed: false }).await
+        }?;
+        Ok(status.into())
     }
 
     pub async fn status(
@@ -886,7 +903,10 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
+        let status = rpc_try! {
+            self.client_addr.send(Status { is_health_check: false, detailed: false }).await
+        }?;
+        Ok(status.into())
     }
 
     pub async fn debug(
@@ -896,12 +916,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            Ok(Some(
+            let status = rpc_try! {
                 self.client_addr
                     .send(Status { is_health_check: false, detailed: true })
-                    .await??
-                    .into(),
-            ))
+                    .await
+            }?;
+            Ok(Some(status.into()))
         } else {
             return Ok(None);
         }
@@ -922,8 +942,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse,
         near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
     > {
-        let config_view =
-            self.view_client_addr.send(GetProtocolConfig(request_data.block_reference)).await??;
+        let config_view = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetProtocolConfig(request_data.block_reference))
+                .await
+        }?;
         Ok(RpcProtocolConfigResponse { config_view })
     }
 
@@ -934,8 +958,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
         near_jsonrpc_primitives::types::query::RpcQueryError,
     > {
-        let query = Query::new(request_data.block_reference, request_data.request);
-        Ok(self.view_client_addr.send(query).await??.into())
+        let query_response = rpc_try! {
+            self.view_client_addr
+                .send(Query::new(request_data.block_reference, request_data.request))
+                .await
+        }?;
+        Ok(query_response.into())
     }
 
     async fn tx_status_common(
@@ -956,8 +984,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
-        let block_view =
-            self.view_client_addr.send(GetBlock(request_data.block_reference)).await??;
+        let block_view = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetBlock(request_data.block_reference))
+                .await
+        }?;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
@@ -968,8 +1000,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::chunks::RpcChunkResponse,
         near_jsonrpc_primitives::types::chunks::RpcChunkError,
     > {
-        let chunk_view =
-            self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??;
+        let chunk_view = rpc_try! {
+            self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await
+        }?;
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
@@ -980,11 +1013,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::receipts::RpcReceiptResponse,
         near_jsonrpc_primitives::types::receipts::RpcReceiptError,
     > {
-        match self
+        match rpc_try! {
+        self
             .view_client_addr
             .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
-            .await??
-        {
+            .await
+        }? {
             Some(receipt_view) => {
                 Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
             }
@@ -1003,10 +1037,14 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
+        let block = rpc_try! {
+             self.view_client_addr.send(GetBlock(request.block_reference)).await
+        }?;
 
         let block_hash = block.header.hash.clone();
-        let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
+        let changes = rpc_try! {
+            self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await
+        }?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
             block_hash: block.header.hash,
@@ -1021,16 +1059,20 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
+        let block = rpc_try! {
+            self.view_client_addr.send(GetBlock(request.block_reference)).await
+        }?;
 
         let block_hash = block.header.hash.clone();
-        let changes = self
-            .view_client_addr
-            .send(GetStateChanges {
-                block_hash,
-                state_changes_request: request.state_changes_request,
-            })
-            .await??;
+        let changes = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetStateChanges {
+                    block_hash,
+                    state_changes_request: request.state_changes_request,
+                })
+                .await
+        }?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
             block_hash: block.header.hash,
@@ -1045,11 +1087,13 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockResponse,
         near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockError,
     > {
-        Ok(self
-            .view_client_addr
-            .send(GetNextLightClientBlock { last_block_hash: request.last_block_hash })
-            .await??
-            .into())
+        let response = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetNextLightClientBlock { last_block_hash: request.last_block_hash })
+                .await
+        }?;
+        Ok(response.into())
     }
 
     async fn light_client_execution_outcome_proof(
@@ -1064,16 +1108,19 @@ impl JsonRpcHandler {
             light_client_head,
         } = request;
 
-        let execution_outcome_proof =
-            self.view_client_addr.send(GetExecutionOutcome { id }).await??;
+        let execution_outcome_proof = rpc_try! {
+            self.view_client_addr.send(GetExecutionOutcome { id }).await
+        }?;
 
-        let block_proof = self
-            .view_client_addr
-            .send(GetBlockProof {
-                block_hash: execution_outcome_proof.outcome_proof.block_hash,
-                head_block_hash: light_client_head,
-            })
-            .await??;
+        let block_proof = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetBlockProof {
+                    block_hash: execution_outcome_proof.outcome_proof.block_hash,
+                    head_block_hash: light_client_head,
+                })
+                .await
+        }?;
 
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse {
             outcome_proof: execution_outcome_proof.outcome_proof,
@@ -1089,7 +1136,10 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
     > {
-        Ok(self.client_addr.send(GetNetworkInfo {}).await??.into())
+        let network_info = rpc_try! {
+            self.client_addr.send(GetNetworkInfo {}).await
+        }?;
+        Ok(network_info.into())
     }
 
     async fn gas_price(
@@ -1099,8 +1149,9 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::gas_price::RpcGasPriceResponse,
         near_jsonrpc_primitives::types::gas_price::RpcGasPriceError,
     > {
-        let gas_price_view =
-            self.view_client_addr.send(GetGasPrice { block_id: request_data.block_id }).await??;
+        let gas_price_view = rpc_try! {
+            self.view_client_addr.send(GetGasPrice { block_id: request_data.block_id }).await
+        }?;
         Ok(near_jsonrpc_primitives::types::gas_price::RpcGasPriceResponse { gas_price_view })
     }
 
@@ -1111,10 +1162,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::validator::RpcValidatorResponse,
         near_jsonrpc_primitives::types::validator::RpcValidatorError,
     > {
-        let validator_info = self
-            .view_client_addr
-            .send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
-            .await??;
+        let validator_info = rpc_try! {
+            self
+                .view_client_addr
+                .send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
+                .await
+        }?;
         Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
@@ -1130,7 +1183,10 @@ impl JsonRpcHandler {
     > {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
-        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??)
+        let validators = rpc_try! {
+            self.view_client_addr.send(GetValidatorOrdered { block_id }).await
+        }?;
+        Ok(validators)
     }
 }
 
@@ -1143,13 +1199,15 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
-        self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(
-                    patch_state_request.records,
-                ),
-            ))
-            .await?;
+        rpc_try! {
+            self.client_addr
+                .send(NetworkClientMessages::Sandbox(
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(
+                        patch_state_request.records,
+                    ),
+                ))
+                .await
+        };
 
         timeout(self.polling_config.polling_timeout, async {
             loop {
@@ -1183,13 +1241,15 @@ impl JsonRpcHandler {
     > {
         use near_network_primitives::types::SandboxResponse;
 
-        self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
-                    fast_forward_request.delta_height,
-                ),
-            ))
-            .await?;
+        rpc_try! {
+            self.client_addr
+                .send(NetworkClientMessages::Sandbox(
+                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
+                        fast_forward_request.delta_height,
+                    ),
+                ))
+                .await
+        };
 
         // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
         // where we can leave it to the rpc clients to set their own timeouts if necessary.

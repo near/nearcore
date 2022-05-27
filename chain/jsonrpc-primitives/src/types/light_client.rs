@@ -158,18 +158,6 @@ impl From<near_client_primitives::types::GetNextLightClientBlockError>
     }
 }
 
-impl From<actix::MailboxError> for RpcLightClientProofError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
-impl From<actix::MailboxError> for RpcLightClientNextBlockError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
         let error_data = match &error {

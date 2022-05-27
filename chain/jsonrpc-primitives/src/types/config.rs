@@ -47,12 +47,6 @@ impl From<near_client_primitives::types::GetProtocolConfigError> for RpcProtocol
     }
 }
 
-impl From<actix::MailboxError> for RpcProtocolConfigError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcProtocolConfigError> for crate::errors::RpcError {
     fn from(error: RpcProtocolConfigError) -> Self {
         let error_data = match &error {

@@ -46,12 +46,6 @@ impl From<near_client_primitives::types::GetGasPriceError> for RpcGasPriceError 
     }
 }
 
-impl From<actix::MailboxError> for RpcGasPriceError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcGasPriceError> for crate::errors::RpcError {
     fn from(error: RpcGasPriceError) -> Self {
         let error_data = match &error {

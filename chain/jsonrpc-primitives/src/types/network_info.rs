@@ -73,12 +73,6 @@ impl From<near_client_primitives::types::NetworkInfoResponse> for RpcNetworkInfo
     }
 }
 
-impl From<actix::MailboxError> for RpcNetworkInfoError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<String> for RpcNetworkInfoError {
     fn from(error_message: String) -> Self {
         Self::InternalError { error_message }
