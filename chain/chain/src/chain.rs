@@ -865,7 +865,7 @@ impl Chain {
             }
             let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
-                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
+                chain_store_update.chain_store_mut().get_all_block_hashes_by_height(height)
             {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -1586,7 +1586,7 @@ impl Chain {
 
         // We are still in the process of refactoring this code to move everything in
         // ChainUpdate::process_block to this function.
-        let mut chain_update = self.chain_update();
+        let chain_update = self.chain_update();
         chain_update.preprocess_block(me, block, provenance, on_challenge)
     }
 
@@ -1630,7 +1630,7 @@ impl Chain {
                 {
                     // 5) The next block of `ancestor` has the same epoch_id as the orphan block
                     if &epoch_id == orphan.header().epoch_id() {
-                        let mut chain_update = self.chain_update();
+                        let chain_update = self.chain_update();
                         // 6) The orphan has missing chunks
                         if let Err(e) = chain_update.ping_missing_chunks(me, block_hash, orphan) {
                             return match e {
@@ -2425,7 +2425,7 @@ impl Chain {
             let block = self.store.get_block(&pending_block)?.clone();
             let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
-            let mut chain_update = self.chain_update();
+            let chain_update = self.chain_update();
             let receipts_by_shard =
                 chain_update.collect_incoming_receipts_from_block(me, &block)?;
             let work = chain_update.apply_chunks_preprocessing(
@@ -3432,7 +3432,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn care_about_any_shard_or_part(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
@@ -3458,7 +3458,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     pub fn ping_missing_chunks(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
         block: &Block,
@@ -3522,7 +3522,7 @@ impl<'a> ChainUpdate<'a> {
     /// generated in previous blocks too, if some shards in the previous blocks did not produce
     /// new chunks.
     pub fn collect_incoming_receipts_from_block(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
@@ -3558,7 +3558,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     pub fn create_chunk_state_challenge(
-        &mut self,
+        &self,
         prev_block: &Block,
         block: &Block,
         chunk_header: &ShardChunkHeader,
@@ -3568,7 +3568,7 @@ impl<'a> ChainUpdate<'a> {
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         let prev_chunk = self
             .chain_store_update
-            .get_chain_store()
+            .chain_store()
             .get_chunk_clone_from_header(&prev_block.chunks()[chunk_shard_id as usize].clone())
             .unwrap();
 
@@ -3692,7 +3692,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn get_split_state_roots(
-        &mut self,
+        &self,
         block: &Block,
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
@@ -3713,7 +3713,7 @@ impl<'a> ChainUpdate<'a> {
 
     /// Creates jobs that would apply chunks
     fn apply_chunks_preprocessing(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
@@ -3801,7 +3801,7 @@ impl<'a> ChainUpdate<'a> {
                     validate_chunk_with_chunk_extra(
                         // It's safe here to use ChainStore instead of ChainStoreUpdate
                         // because we're asking prev_chunk_header for already committed block
-                        self.chain_store_update.get_chain_store(),
+                        self.chain_store_update.chain_store(),
                         &*self.runtime_adapter,
                         block.header().prev_hash(),
                         &prev_chunk_extra,
@@ -3858,7 +3858,7 @@ impl<'a> ChainUpdate<'a> {
                         let transaction_validity_period = self.transaction_validity_period;
                         for transaction in transactions {
                             self.chain_store_update
-                                .get_chain_store()
+                                .chain_store()
                                 .check_transaction_validity_period(
                                     prev_block.header(),
                                     &transaction.transaction.block_hash,
@@ -3877,7 +3877,7 @@ impl<'a> ChainUpdate<'a> {
                     // RestoreReceiptsAfterFixApplyChunks was enabled, and put the restored receipts there.
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
-                            &mut self.chain_store_update,
+                            &self.chain_store_update,
                             self.runtime_adapter.as_ref(),
                             prev_block.hash(),
                             shard_id,
@@ -4273,7 +4273,7 @@ impl<'a> ChainUpdate<'a> {
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
     /// in the next epoch.
     fn get_state_dl_info(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
@@ -4320,7 +4320,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
-    fn validate_chunk_headers(&mut self, block: &Block, prev_block: &Block) -> Result<(), Error> {
+    fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
         let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_chunk_headers.iter())
@@ -4367,7 +4367,7 @@ impl<'a> ChainUpdate<'a> {
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
@@ -4622,7 +4622,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn validate_header(
-        &mut self,
+        &self,
         header: &BlockHeader,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
@@ -4639,10 +4639,8 @@ impl<'a> ChainUpdate<'a> {
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        if let Ok(epoch_id_to_blocks) = self
-            .chain_store_update
-            .get_chain_store()
-            .get_all_block_hashes_by_height(header.height())
+        if let Ok(epoch_id_to_blocks) =
+            self.chain_store_update.chain_store().get_all_block_hashes_by_height(header.height())
         {
             // Check if there is already known block of the same height that has the same epoch id
             if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
@@ -5088,7 +5086,7 @@ impl<'a> ChainUpdate<'a> {
     /// That's because ChallengesResult is part of BlockHeader, to modify that struct requires protocol
     /// upgrade.
     pub fn verify_challenges(
-        &mut self,
+        &self,
         challenges: &Vec<Challenge>,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,

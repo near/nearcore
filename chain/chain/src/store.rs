@@ -1230,8 +1230,17 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Usually ChainStoreUpdate has some uncommitted changes
     /// and chain_store don't have access to them until they become committed.
     /// Make sure you're doing it right.
-    pub fn get_chain_store(&mut self) -> &mut ChainStore {
+    pub fn chain_store_mut(&mut self) -> &mut ChainStore {
         self.chain_store
+    }
+
+    /// WARNING
+    ///
+    /// Usually ChainStoreUpdate has some uncommitted changes
+    /// and chain_store don't have access to them until they become committed.
+    /// Make sure you're doing it right.
+    pub fn chain_store(&self) -> &ChainStore {
+        &*self.chain_store
     }
 }
 
