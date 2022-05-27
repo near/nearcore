@@ -309,7 +309,7 @@ impl PeerManagerActor {
         let peer_store = PeerStore::new(
             store.clone(),
             &config.boot_nodes,
-            Blacklist::from_iter(config.blacklist.iter()),
+            config.blacklist.iter().map(|e| e.parse()).collect::<Result<Blacklist, _>>()?,
         )
         .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");

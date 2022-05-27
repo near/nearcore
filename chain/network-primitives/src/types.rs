@@ -35,7 +35,7 @@ pub use crate::network_protocol::{
     RoutedMessageBody, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
-pub use crate::blacklist::Blacklist;
+pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
 pub use crate::config::{NetworkConfig, ValidatorConfig, ValidatorEndpoints};
 pub use crate::config_json::Config as ConfigJSON;
 pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
