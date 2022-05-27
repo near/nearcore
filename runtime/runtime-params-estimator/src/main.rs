@@ -226,7 +226,7 @@ fn main() -> anyhow::Result<()> {
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
-        state_dump_path: state_dump_path.clone(),
+        state_dump_path: state_dump_path,
         metric,
         vm_kind,
         costs_to_measure,

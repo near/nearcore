@@ -150,7 +150,7 @@ mod nodes_counter_tests {
         let trie = Rc::new(trie);
         let state_root = Trie::empty_root();
         let trie_changes = simplify_changes(&items);
-        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes);
         (trie, state_root)
     }
 

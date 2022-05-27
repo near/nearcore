@@ -149,7 +149,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
@@ -157,7 +157,7 @@ pub struct Ping {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,

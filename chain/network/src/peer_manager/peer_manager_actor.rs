@@ -215,7 +215,17 @@ pub struct PeerManagerActor {
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
+    /// test-only, defaults to () (a noop counter).
+    ping_counter: Box<dyn PingCounter>,
 }
+
+// test-only
+pub trait PingCounter {
+    fn add_ping(&self, _ping: &Ping) {}
+    fn add_pong(&self, _pong: &Pong) {}
+}
+
+impl PingCounter for () {}
 
 impl Actor for PeerManagerActor {
     type Context = Context<Self>;
@@ -336,7 +346,14 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
             whitelist_nodes,
+            ping_counter: Box::new(()),
         })
+    }
+
+    /// test-only, sets the ping_counter field.
+    pub fn with_ping_counter(mut self, ping_counter: Box<dyn PingCounter>) -> Self {
+        self.ping_counter = ping_counter;
+        self
     }
 
     fn update_routing_table_and_prune_edges(
@@ -1508,13 +1525,8 @@ impl PeerManagerActor {
         PartialEdgeInfo::new(&self.my_peer_id, peer1, nonce, &self.config.secret_key)
     }
 
-    // Ping pong useful functions.
-
-    // for unit tests
-    fn send_ping(&mut self, nonce: usize, target: PeerId) {
-        let body =
-            RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.my_peer_id.clone() });
-        self.routing_table_view.sending_ping(nonce, target.clone());
+    fn send_ping(&mut self, nonce: u64, target: PeerId) {
+        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(msg);
     }
@@ -1524,16 +1536,6 @@ impl PeerManagerActor {
             RoutedMessageBody::Pong(Pong { nonce: nonce as u64, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(msg);
-    }
-
-    fn handle_ping(&mut self, ping: Ping, hash: CryptoHash) {
-        self.send_pong(ping.nonce as usize, hash);
-        self.routing_table_view.add_ping(ping);
-    }
-
-    /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
-    fn handle_pong(&mut self, pong: Pong) {
-        self.routing_table_view.add_pong(pong);
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -1936,17 +1938,9 @@ impl PeerManagerActor {
                 }
             }
             // For unit tests
-            NetworkRequests::PingTo(nonce, target) => {
+            NetworkRequests::PingTo { nonce, target } => {
                 self.send_ping(nonce, target);
                 NetworkResponses::NoResponse
-            }
-            // For unit tests
-            NetworkRequests::FetchPingPongInfo => {
-                let (pings, pongs) = self.routing_table_view.fetch_ping_pong();
-                NetworkResponses::PingPongInfo {
-                    pings: pings.map(|(k, v)| (*k, v.clone())).collect(),
-                    pongs: pongs.map(|(k, v)| (*k, v.clone())).collect(),
-                }
             }
         }
     }
@@ -2300,12 +2294,17 @@ impl PeerManagerActor {
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match &msg.body {
-                RoutedMessageBody::Ping(ping) => self.handle_ping(ping.clone(), msg.hash()),
-                RoutedMessageBody::Pong(pong) => self.handle_pong(pong.clone()),
-                _ => return true,
+                RoutedMessageBody::Ping(ping) => {
+                    self.send_pong(ping.nonce as usize, msg.hash());
+                    self.ping_counter.add_ping(ping);
+                    false
+                }
+                RoutedMessageBody::Pong(pong) => {
+                    self.ping_counter.add_pong(pong);
+                    false
+                }
+                _ => true,
             }
-
-            false
         } else {
             if msg.decrease_ttl() {
                 self.send_signed_message_to_peer(msg);

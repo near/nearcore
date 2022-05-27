@@ -1152,7 +1152,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: signer.account_id.clone(),
+                protocol_treasury_account: signer.account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
