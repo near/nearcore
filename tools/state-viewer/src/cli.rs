@@ -115,6 +115,9 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
+    /// List of account IDs to dump.
+    /// Note: validators will always be dumped.
+    /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
 }
