@@ -1,5 +1,5 @@
 use crate::network_protocol::PeerInfo;
-use crate::types::ROUTED_MESSAGE_TTL;
+use crate::types::{Blacklist, ROUTED_MESSAGE_TTL};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -92,9 +92,8 @@ pub struct NetworkConfig {
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
-    /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Vec<String>,
+    pub blacklist: Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -172,7 +171,11 @@ impl NetworkConfig {
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             highest_peer_horizon: HIGHEST_PEER_HORIZON,
             push_info_period: Duration::from_millis(100),
-            blacklist: cfg.blacklist,
+            blacklist: cfg
+                .blacklist
+                .iter()
+                .map(|e| e.parse().expect("failed to parse blacklist"))
+                .collect(),
             outbound_disabled: false,
             archive,
         }
@@ -220,7 +223,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
-            blacklist: vec![],
+            blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
         }

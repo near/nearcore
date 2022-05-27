@@ -30,7 +30,7 @@ use near_network_primitives::types::{
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong, RawRoutedMessage,
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -306,12 +306,9 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
-        let peer_store = PeerStore::new(
-            store.clone(),
-            &config.boot_nodes,
-            config.blacklist.iter().map(|e| e.parse()).collect::<Result<Blacklist, _>>()?,
-        )
-        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store =
+            PeerStore::new(store.clone(), &config.boot_nodes, config.blacklist.clone())
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 

@@ -100,7 +100,7 @@ mod test {
     fn test_blacklist() {
         use std::net::*;
 
-        let ip = net::IpAddr::V4(net::Ipv4Addr::new(192, 0, 2, 4));
+        let ip: net::IpAddr = net::Ipv4Addr::new(192, 0, 2, 4).into();
 
         let mapped_ip = IpAddr::V6("::ffff:192.0.2.4".parse().unwrap());
         let mapped_lo4 = IpAddr::V6("::ffff:127.0.0.1".parse().unwrap());

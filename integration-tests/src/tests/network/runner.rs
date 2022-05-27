@@ -17,6 +17,7 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
     ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -551,15 +552,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist = config
+        let blacklist: Blacklist = config
             .blacklist
             .iter()
-            .map(|x| {
-                if let Some(x) = x {
-                    self.test_config[*x].addr().to_string()
-                } else {
-                    "127.0.0.1".to_string()
-                }
+            .map(|x| match x {
+                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
+                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =
