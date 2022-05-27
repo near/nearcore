@@ -2060,8 +2060,7 @@ impl<'a> ChainStoreUpdate<'a> {
         runtime_adapter: &dyn RuntimeAdapter,
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {
-        let block_header =
-            self.get_block_header(block_hash).expect("block header must exist").clone();
+        let block_header = self.get_block_header(block_hash).expect("block header must exist");
         let shard_layout = runtime_adapter
             .get_shard_layout(block_header.epoch_id())
             .expect("epoch info must exist");
@@ -2143,10 +2142,8 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        let block = self
-            .get_block(&block_hash)
-            .expect("block data is not expected to be already cleaned")
-            .clone();
+        let block =
+            self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
         let height = block.header().height();
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
@@ -2508,7 +2505,7 @@ impl<'a> ChainStoreUpdate<'a> {
         source_store: &mut ChainStore,
     ) -> Result<ChainStoreUpdate<'a>, Error> {
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
-        let block = source_store.get_block(block_hash)?.clone();
+        let block = source_store.get_block(block_hash)?;
         let header = block.header().clone();
         let height = header.height();
         let tip = Tip {
@@ -2546,7 +2543,7 @@ impl<'a> ChainStoreUpdate<'a> {
         chain_store_update
             .chain_store_cache_update
             .block_extras
-            .insert(*block_hash, source_store.get_block_extra(block_hash)?.clone());
+            .insert(*block_hash, source_store.get_block_extra(block_hash)?);
         let shard_layout = source_runtime.get_shard_layout(&header.epoch_id())?;
         for shard_uid in shard_layout.get_shard_uids() {
             chain_store_update.chain_store_cache_update.chunk_extras.insert(
@@ -3166,7 +3163,7 @@ mod tests {
     fn test_tx_validity_long_fork() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3224,7 +3221,7 @@ mod tests {
     fn test_tx_validity_normal_case() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3278,7 +3275,7 @@ mod tests {
     fn test_tx_validity_off_by_one() {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3328,7 +3325,7 @@ mod tests {
     #[test]
     fn test_cache_invalidation() {
         let mut chain = get_chain();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3373,7 +3370,7 @@ mod tests {
     fn test_clear_old_data() {
         let mut chain = get_chain_with_epoch_length(1);
         let runtime_adapter = chain.runtime_adapter.clone();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3512,7 +3509,7 @@ mod tests {
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
         let runtime_adapter = chain.runtime_adapter.clone();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3584,7 +3581,7 @@ mod tests {
 
     fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,
@@ -3669,7 +3666,7 @@ mod tests {
     fn test_fork_chunk_tail_updates() {
         let mut chain = get_chain();
         let runtime_adapter = chain.runtime_adapter.clone();
-        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
             KeyType::ED25519,

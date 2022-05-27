@@ -1532,8 +1532,7 @@ impl ShardsManager {
                     // we are not sure if we are using the correct epoch id for validation, so
                     // we can't be sure if the chunk header is actually invalid. Let's return
                     // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
-                        .into())
+                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
                 };
             }
             Ok(true) => (),
@@ -1548,8 +1547,7 @@ impl ShardsManager {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
-                    .into())
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
             };
         }
         Ok(())
@@ -2286,7 +2284,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
-            network_adapter.clone(),
+            network_adapter,
             TEST_SEED,
         );
         let signer =

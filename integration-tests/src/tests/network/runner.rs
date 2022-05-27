@@ -688,7 +688,7 @@ impl RunningInfo {
         Ok(())
     }
     fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
-        self.runner.test_config[node_id].account_id = account_id.clone();
+        self.runner.test_config[node_id].account_id = account_id;
     }
 }
 

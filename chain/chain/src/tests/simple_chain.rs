@@ -78,7 +78,7 @@ fn build_chain() {
 fn build_chain_with_orhpans() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()];
+    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], &*signer);
         blocks.push(block);
