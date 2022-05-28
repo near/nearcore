@@ -25,8 +25,8 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    DebugStatus, DebugStatusResponse, Error, GetNetworkInfo, NetworkInfoResponse,
+    ShardSyncDownload, ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
@@ -40,7 +40,9 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::StatePartKey;
+use near_primitives::syncing::{
+    get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+};
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
@@ -656,7 +658,7 @@ impl ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
 
-        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
+        let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
         let epoch_id = block.header().epoch_id();
         let validators: Vec<ValidatorInfo> = self
             .client
@@ -667,6 +669,56 @@ impl ClientActor {
                 account_id: validator_stake.take_account_id(),
                 is_slashed,
             })
+            .collect();
+
+        let shards_size_and_parts: Vec<(u64, u64)> = block
+            .chunks()
+            .iter()
+            .enumerate()
+            .map(|(shard_id, chunk)| {
+                let state_root_node = self.client.runtime_adapter.get_state_root_node(
+                    shard_id as u64,
+                    block.hash(),
+                    &chunk.prev_state_root(),
+                );
+                if let Ok(state_root_node) = state_root_node {
+                    (
+                        state_root_node.memory_usage,
+                        get_num_state_parts(state_root_node.memory_usage),
+                    )
+                } else {
+                    (0, 0)
+                }
+            })
+            .collect();
+
+        let state_header_exists: Vec<bool> = (0..block.chunks().len())
+            .map(|shard_id| {
+                warn!("state header looking for {:?}", block.hash());
+                let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
+                match key {
+                    Ok(key) => {
+                        if let Ok(Some(_)) =
+                            self.client
+                                .chain
+                                .store()
+                                .store()
+                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
+                        {
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Err(_) => false,
+                }
+            })
+            .collect();
+
+        let shards_size_and_parts = shards_size_and_parts
+            .iter()
+            .zip(state_header_exists.iter())
+            .map(|((a, b), c)| (a.clone(), b.clone(), c.clone()))
             .collect();
 
         return Ok((
@@ -680,6 +732,7 @@ impl ClientActor {
                     .runtime_adapter
                     .get_epoch_protocol_version(epoch_id)
                     .unwrap_or(0),
+                shards_size_and_parts,
             },
             // Last block of the previous epoch.
             *block.header().prev_hash(),
@@ -710,7 +763,17 @@ impl ClientActor {
                 .client
                 .runtime_adapter
                 .get_epoch_protocol_version(&head.next_epoch_id)?,
+            shards_size_and_parts: vec![],
         })
+    }
+}
+
+impl Handler<DebugStatus> for ClientActor {
+    type Result = Result<DebugStatusResponse, StatusError>;
+
+    #[perf]
+    fn handle(&mut self, msg: DebugStatus, ctx: &mut Context<Self>) -> Self::Result {
+        Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
     }
 }
 
@@ -1508,7 +1571,7 @@ impl ClientActor {
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
-        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
+        warn!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
         if headers.len() == 0 {
             return true;
         }
@@ -1519,7 +1582,7 @@ impl ClientActor {
                     error!(target: "client", "Error processing sync blocks: {}", err);
                     false
                 } else {
-                    debug!(target: "client", "Block headers refused by chain: {}", err);
+                    warn!(target: "client", "Block headers refused by chain: {}", err);
                     true
                 }
             }

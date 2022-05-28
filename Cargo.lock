@@ -2835,6 +2835,8 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "serde",
+ "serde_json",
  "strum",
  "thiserror",
 ]
@@ -5262,6 +5264,23 @@ checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "speedy_sync"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-chain-primitives",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

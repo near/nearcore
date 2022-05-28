@@ -50,6 +50,7 @@ members = [
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "tools/state-viewer",
+    "tools/speedy_sync",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
     "tools/chainsync-loadtest",

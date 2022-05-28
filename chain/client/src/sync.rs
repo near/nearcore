@@ -309,7 +309,7 @@ impl HeaderSync {
     /// Request headers from a given peer to advance the chain.
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
-            debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
+            warn!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BlockHeadersRequest {
                     hashes: locator,
@@ -345,7 +345,7 @@ impl HeaderSync {
             }
         }
         locator.dedup_by(|a, b| a.0 == b.0);
-        debug!(target: "sync", "Sync: locator: {:?}", locator);
+        warn!(target: "sync", "Sync: locator: {:?}", locator);
         self.history_locator = locator.clone();
         Ok(locator.iter().map(|x| x.1).collect())
     }
@@ -896,7 +896,7 @@ impl StateSync {
 
             if download_timeout {
                 warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, self.timeout.num_seconds());
-                info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
+                warn!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
                       me,
                       sync_hash,
                       match shard_sync_download.status {
@@ -1043,7 +1043,8 @@ impl StateSync {
                     false,
                 ) {
                     if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
-                        Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
+                        //Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
+                        None
                     } else {
                         None
                     }

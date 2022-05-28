@@ -405,6 +405,7 @@ pub struct EpochInfoView {
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
     pub protocol_version: u32,
+    pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
