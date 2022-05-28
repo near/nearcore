@@ -36,7 +36,8 @@ mod errors;
 mod metrics;
 mod parser;
 
-use errors::{rpc_try, IntoRpcResult, RpcFrom, RpcInto};
+use errors::{rpc_try, IntoRpcResult};
+pub use errors::{RpcFrom, RpcInto};
 use parser::RpcRequest;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
