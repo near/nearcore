@@ -3003,13 +3003,10 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-primitives",
- "near-primitives-core",
  "near-rpc-error-macro",
- "once_cell",
  "serde",
  "serde_json",
  "thiserror",
- "tracing",
  "uuid",
 ]
 
