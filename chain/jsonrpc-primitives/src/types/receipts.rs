@@ -26,32 +26,6 @@ pub enum RpcReceiptError {
     UnknownReceipt { receipt_id: near_primitives::hash::CryptoHash },
 }
 
-impl From<ReceiptReference> for near_client_primitives::types::GetReceipt {
-    fn from(receipt_reference: ReceiptReference) -> Self {
-        Self { receipt_id: receipt_reference.receipt_id }
-    }
-}
-
-impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
-    fn from(error: near_client_primitives::types::GetReceiptError) -> Self {
-        match error {
-            near_client_primitives::types::GetReceiptError::IOError(error_message) => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetReceiptError::UnknownReceipt(hash) => {
-                Self::UnknownReceipt { receipt_id: hash }
-            }
-            near_client_primitives::types::GetReceiptError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcReceiptError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
 impl From<RpcReceiptError> for crate::errors::RpcError {
     fn from(error: RpcReceiptError) -> Self {
         let error_data = match serde_json::to_value(error) {
