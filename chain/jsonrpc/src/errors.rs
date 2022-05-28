@@ -1,40 +1,49 @@
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
 
+pub trait RpcFrom<T> {
+    fn rpc_from(_: T) -> Self;
+}
+
+pub trait RpcInto<T> {
+    fn rpc_into(self) -> T;
+}
+
+impl<T, X> RpcInto<X> for T
+where
+    X: RpcFrom<T>,
+{
+    fn rpc_into(self) -> X {
+        X::rpc_from(self)
+    }
+}
+
 macro_rules! _rpc_try {
     ($val:expr) => {
-        match $val.into_rpc_result() {
-            Ok(val) => val,
-            Err(err) => return Err(err),
+        match $val {
+            Ok(val) => match val {
+                Ok(val) => val,
+                Err(err) => return Err(err.rpc_into()),
+            },
+            Err(err) => return Err(err.rpc_into()),
         }
     };
 }
 
 pub(crate) use _rpc_try as rpc_try;
 
-pub trait RpcFrom<T> {
-    fn rpc_from(_: T) -> Self;
-}
-
 pub trait IntoRpcResult<T, E> {
-    fn into_rpc_result(self) -> Result<T, E>;
+    fn into_rpc_result(self) -> Result<Result<T, E>, std::convert::Infallible>;
 }
 
-impl<T, E, F> IntoRpcResult<T, F> for Result<T, E>
-where
-    F: RpcFrom<E>,
-{
-    fn into_rpc_result(self) -> Result<T, F> {
-        self.map_err(RpcFrom::rpc_from)
+impl<T, E> IntoRpcResult<T, E> for Result<T, E> {
+    fn into_rpc_result(self) -> Result<Result<T, E>, std::convert::Infallible> {
+        Ok(self)
     }
 }
 
-impl<B, E, T, A> IntoRpcResult<T, E> for Result<Result<T, B>, A>
-where
-    E: RpcFrom<A>,
-    E: RpcFrom<B>,
-{
-    fn into_rpc_result(self) -> Result<T, E> {
-        self.map_err(RpcFrom::rpc_from).and_then(|res| res.map_err(RpcFrom::rpc_from))
+impl<T> RpcFrom<std::convert::Infallible> for T {
+    fn rpc_from(_: std::convert::Infallible) -> Self {
+        unreachable!()
     }
 }
 
@@ -427,7 +436,7 @@ impl RpcFrom<near_client_primitives::types::NetworkInfoResponse>
             active_peers: network_info_response
                 .connected_peers
                 .iter()
-                .map(|pi| RpcFrom::rpc_from(pi.clone()))
+                .map(|pi| pi.clone().rpc_into())
                 .collect(),
             num_active_peers: network_info_response.num_connected_peers,
             peer_max_count: network_info_response.peer_max_count,
@@ -436,7 +445,7 @@ impl RpcFrom<near_client_primitives::types::NetworkInfoResponse>
             known_producers: network_info_response
                 .known_producers
                 .iter()
-                .map(|kp| RpcFrom::rpc_from(kp.clone()))
+                .map(|kp| kp.clone().rpc_into())
                 .collect(),
         }
     }
