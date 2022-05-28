@@ -12,7 +12,7 @@ macro_rules! _rpc_try {
 pub(crate) use _rpc_try as rpc_try;
 
 pub trait RpcFrom<T> {
-    fn from(error: T) -> Self;
+    fn from(_: T) -> Self;
 }
 
 // --
@@ -28,8 +28,8 @@ impl RpcFrom<actix::MailboxError> for RpcError {
 }
 
 impl RpcFrom<actix::MailboxError> for ServerError {
-    fn from(e: actix::MailboxError) -> Self {
-        match e {
+    fn from(error: actix::MailboxError) -> Self {
+        match error {
             actix::MailboxError::Closed => ServerError::Closed,
             actix::MailboxError::Timeout => ServerError::Timeout,
         }
