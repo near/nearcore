@@ -215,7 +215,6 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-        gc_num_epochs_to_keep: Option<u64>,
     ) -> Self {
         Self::new(
             home_dir,
@@ -225,7 +224,7 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            gc_num_epochs_to_keep.unwrap_or(DEFAULT_GC_NUM_EPOCHS_TO_KEEP),
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         )
     }
 
@@ -236,7 +235,6 @@ impl NightshadeRuntime {
             genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
-            None,
         )
     }
 

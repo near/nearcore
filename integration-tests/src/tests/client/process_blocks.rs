@@ -3350,7 +3350,6 @@ fn verify_contract_limits_upgrade(
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
-                None,
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
@@ -3517,7 +3516,6 @@ fn test_deploy_cost_increased() {
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
-                None,
             ))];
         TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
     };
@@ -3881,7 +3879,6 @@ mod access_key_nonce_range_tests {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                    None,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect();
@@ -4028,7 +4025,6 @@ mod access_key_nonce_range_tests {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                    None,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect();
@@ -4758,7 +4754,6 @@ mod chunk_nodes_cache_test {
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
-                None,
             ))];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
@@ -4852,7 +4847,6 @@ mod lower_storage_key_limit_test {
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::new(None),
-                    None,
                 )) as Arc<dyn RuntimeAdapter>];
             let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
