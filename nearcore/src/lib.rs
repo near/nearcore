@@ -87,7 +87,14 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
     Ok(checkpoint_path)
 }
 
-/// Function checks current version of the database and applies migrations to the database.
+/// Checks current version of the database and applies migrations if needed.
+///
+/// Returns whether the database exists in the first place.  If it doesn’t,
+/// returns false and does nothing.  If it does, performs any necessary
+/// migrations and returns true.
+///
+/// Other than regular database errors, returns an error if the database has
+/// unsupported version: either too far in the past or a future version.
 fn apply_store_migrations_if_exists(
     store_opener: &near_store::StoreOpener,
     near_config: &NearConfig,
