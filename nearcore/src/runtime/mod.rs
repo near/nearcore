@@ -144,20 +144,14 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn from_config(
-        home_dir: &Path,
-        store: Store,
-        config: &NearConfig,
-        trie_viewer_state_size_limit: Option<u64>,
-        max_gas_burnt_view: Option<Gas>,
-    ) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
         Self::new(
             home_dir,
             store,
             &config.genesis,
             TrackedConfig::from_config(&config.client_config),
-            trie_viewer_state_size_limit,
-            max_gas_burnt_view,
+            config.client_config.trie_viewer_state_size_limit,
+            config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
         )

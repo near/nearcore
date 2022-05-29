@@ -40,8 +40,6 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
             &home_dir,
             store,
             &near_config,
-            None,
-            near_config.client_config.max_gas_burnt_view,
         );
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
