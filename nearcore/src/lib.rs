@@ -88,11 +88,15 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
-    let db_version = get_store_version(&path)?;
-    if db_version == near_primitives::version::DB_VERSION {
-        return Ok(());
-    }
+fn apply_store_migrations_if_exists(
+    store_opener: &near_store::StoreOpener,
+    near_config: &NearConfig,
+) -> anyhow::Result<bool> {
+    let db_version = match store_opener.get_version_if_exists()? {
+        None => return Ok(false),
+        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        Some(db_version) => db_version,
+    };
 
     anyhow::ensure!(
         db_version < near_primitives::version::DB_VERSION,
@@ -117,7 +121,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(path, near_config).context(
+        let checkpoint_path = create_db_checkpoint(&store_opener.get_path(), near_config).context(
             "Failed to create a database migration snapshot.\n\
              You can change the location of the snapshot by adjusting `config.json`:\n\
              \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
@@ -146,27 +150,28 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(path, &near_config.config.store);
+        migrate_28_to_29(store_opener);
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(path, &near_config.config.store);
+        migrate_29_to_30(store_opener);
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(path, &near_config);
+        migrate_30_to_31(store_opener, &near_config);
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
-        // TODO(#6857): Don’t use .path().
-        let store = StoreOpener::new(&near_config.config.store).path(path).open();
+        let store = store_opener.open();
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
     } else {
-        let db_version = get_store_version(path)?;
-        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+        debug_assert_eq!(
+            Some(near_primitives::version::DB_VERSION),
+            store_opener.get_version_if_exists()?
+        );
     }
 
     // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
@@ -189,18 +194,14 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let path = near_store::get_store_path(home_dir);
-    let store_exists = near_store::store_path_exists(&path);
-    if store_exists {
-        apply_store_migrations(&path, near_config)?;
-    }
-    // TODO(#6857): Don’t use .path().
-    let store = StoreOpener::new(&near_config.config.store).path(&path).open();
-    if !store_exists {
+    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    let store = opener.open();
+    if !exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
 
