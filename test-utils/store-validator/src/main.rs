@@ -32,16 +32,8 @@ fn main() {
 
     let store = near_store::StoreOpener::with_default_config().home(home_dir).open();
 
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
-        home_dir,
-        store.clone(),
-        &near_config.genesis,
-        TrackedConfig::from_config(&near_config.client_config),
-        None,
-        None,
-        None,
-        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    ));
+    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+        Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
