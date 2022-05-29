@@ -199,22 +199,16 @@ impl<'a> StoreOpener<'a> {
     /// Does not check whether the database actually exists.  It merely
     /// constructs the path where the database would be if it existed.
     pub fn get_path(&self) -> std::path::PathBuf {
-        self.get_path_impl().into_owned()
+        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
+        self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
     }
 
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
-        std::fs::canonicalize(self.get_path_impl())
+        std::fs::canonicalize(self.get_path())
             .ok()
             .map(|path| crate::RocksDB::get_version(&path))
             .transpose()
-    }
-
-    fn get_path_impl(&self) -> std::borrow::Cow<'a, std::path::Path> {
-        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
-        self.home.map_or(std::borrow::Cow::Borrowed(path), |home| {
-            std::borrow::Cow::Owned(home.join(path))
-        })
     }
 
     /// Opens the RocksDB database.
@@ -222,7 +216,7 @@ impl<'a> StoreOpener<'a> {
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
     pub fn open(&self) -> crate::Store {
-        let path = self.get_path_impl();
+        let path = self.get_path();
         if std::fs::canonicalize(&path).is_ok() {
             tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
         } else if self.read_only {
