@@ -114,7 +114,7 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
@@ -223,7 +223,7 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store,
         &near_config,
@@ -323,7 +323,7 @@ pub(crate) fn replay_chain(
         !near_config.client_config.archive,
     );
     let new_store = create_test_store();
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         new_store,
         &near_config,
@@ -476,7 +476,7 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::from_config(
         home_dir,
         store,
         &near_config,
@@ -607,7 +607,7 @@ pub(crate) fn print_epoch_info(
     let mut epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::from_config(
         &home_dir,
         store.clone(),
         &near_config,
@@ -689,7 +689,7 @@ fn load_trie_stop_at_height(
         !near_config.client_config.archive,
     );
 
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store,
         near_config,
@@ -752,7 +752,7 @@ pub(crate) fn apply_chunk(
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
 ) -> anyhow::Result<()> {
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
@@ -776,7 +776,7 @@ pub(crate) fn apply_tx(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,
@@ -793,7 +793,7 @@ pub(crate) fn apply_receipt(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
-    let runtime = NightshadeRuntime::with_config(
+    let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &near_config,

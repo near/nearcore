@@ -249,7 +249,7 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
+    let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
         &config,

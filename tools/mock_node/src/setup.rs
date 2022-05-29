@@ -37,7 +37,7 @@ fn setup_runtime(
         near_store::StoreOpener::new(&config.config.store).home(home_dir).open()
     };
 
-    Arc::new(NightshadeRuntime::with_config(
+    Arc::new(NightshadeRuntime::from_config(
         home_dir,
         store,
         config,

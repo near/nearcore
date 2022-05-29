@@ -144,7 +144,7 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn with_config(
+    pub fn from_config(
         home_dir: &Path,
         store: Store,
         config: &NearConfig,
