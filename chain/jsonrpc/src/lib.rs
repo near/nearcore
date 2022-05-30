@@ -1399,6 +1399,7 @@ async fn debug_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> Result<HttpResponse, HttpError> {
     if req.path() == "/debug/api/status" {
+        // This is a temporary workaround - as we migrate the debug information to the separate class below.
         return match handler.old_debug().await {
             Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
             Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
