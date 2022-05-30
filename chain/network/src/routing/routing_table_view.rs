@@ -1,24 +1,19 @@
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::schema;
 use itertools::Itertools;
 use lru::LruCache;
+use near_network_primitives::time;
 use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
-use near_store::{DBCol, Store};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
-/// Routing table will clean edges if there is at least one node that is not reachable
-/// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
-/// seconds will be removed from cache and persisted in disk.
-pub(crate) const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
-pub(crate) const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 
 pub struct RoutingTableView {
     /// PeerId associated for every known account id.
@@ -30,7 +25,7 @@ pub struct RoutingTableView {
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
-    store: Store,
+    store: schema::Store,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -46,7 +41,7 @@ pub(crate) enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: schema::Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
         Self {
@@ -99,11 +94,15 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
+    pub(crate) fn find_route(
+        &mut self,
+        clock: &time::Clock,
+        target: &PeerIdOrHash,
+    ) -> Result<PeerId, FindRouteError> {
         match target {
             PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
+                self.fetch_route_back(clock, *hash).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
     }
@@ -129,11 +128,9 @@ impl RoutingTableView {
         self.account_peers.put(account_id.clone(), announce_account.clone());
 
         // Add account to store
-        let mut update = self.store.store_update();
-        if let Err(e) = update
-            .set_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
-            .and_then(|_| update.commit())
-        {
+        let mut update = self.store.new_update();
+        update.set::<schema::AccountAnnouncements>(&account_id, &announce_account);
+        if let Err(e) = update.commit() {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
         }
     }
@@ -151,13 +148,18 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.insert(hash, peer_id);
+    pub(crate) fn add_route_back(
+        &mut self,
+        clock: &time::Clock,
+        hash: CryptoHash,
+        peer_id: PeerId,
+    ) {
+        self.route_back.insert(clock, hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
-    fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.remove(&hash)
+    fn fetch_route_back(&mut self, clock: &time::Clock, hash: CryptoHash) -> Option<PeerId> {
+        self.route_back.remove(clock, &hash)
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
@@ -190,22 +192,18 @@ impl RoutingTableView {
     /// Get account announce from
     pub(crate) fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.get(account_id) {
-            Some(announce_account.clone())
-        } else {
-            self.store
-                .get_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes())
-                .map(|res: Option<AnnounceAccount>| {
-                    if let Some(announce_account) = res {
-                        self.account_peers.put(account_id.clone(), announce_account.clone());
-                        Some(announce_account)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|e| {
-                    warn!(target: "network", "Error loading announce account from store: {:?}", e);
-                    None
-                })
+            return Some(announce_account.clone());
+        }
+        match self.store.get::<schema::AccountAnnouncements>(&account_id) {
+            Err(e) => {
+                warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                None
+            }
+            Ok(None) => None,
+            Ok(Some(a)) => {
+                self.account_peers.put(account_id.clone(), a.clone());
+                Some(a)
+            }
         }
     }
 

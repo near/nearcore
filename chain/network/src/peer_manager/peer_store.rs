@@ -1,16 +1,14 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::schema;
+use anyhow::bail;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     Blacklist, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
 };
 use near_primitives::network::PeerId;
-use near_primitives::time::{Clock, Utc};
-use near_primitives::utils::to_timestamp;
-use near_store::{DBCol, Store};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
-use std::error::Error;
 use std::net::SocketAddr;
 use std::ops::Not;
 use tracing::{debug, error, info};
@@ -18,6 +16,16 @@ use tracing::{debug, error, info};
 #[cfg(test)]
 #[path = "peer_store_test.rs"]
 mod test;
+
+fn save_peer_state(
+    store: &mut schema::Store,
+    peer_id: &PeerId,
+    peer_state: &KnownPeerState,
+) -> anyhow::Result<()> {
+    let mut update = store.new_update();
+    update.set::<schema::Peers>(peer_id, peer_state);
+    Ok(update.commit()?)
+}
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -47,7 +55,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: Store,
+    store: schema::Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -58,7 +66,8 @@ pub struct PeerStore {
 
 impl PeerStore {
     pub(crate) fn new(
-        store: Store,
+        clock: &time::Clock,
+        store: schema::Store,
         boot_nodes: &[PeerInfo],
         blacklist: Blacklist,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -69,7 +78,7 @@ impl PeerStore {
         // In case of collision, we will choose the first one.
         let mut addr_2_peer = HashMap::default();
 
-        let now = Clock::utc();
+        let now = clock.now_utc();
         for peer_info in boot_nodes {
             if peerid_2_state.contains_key(&peer_info.id) {
                 error!(id = ?peer_info.id, "There is a duplicated peer in boot_nodes");
@@ -95,9 +104,8 @@ impl PeerStore {
 
         let mut peers_to_keep = vec![];
         let mut peers_to_delete = vec![];
-        for (key, value) in store.iter(DBCol::Peers) {
-            let peer_id: PeerId = PeerId::try_from_slice(key.as_ref())?;
-            let peer_state: KnownPeerState = KnownPeerState::try_from_slice(value.as_ref())?;
+        for x in store.iter::<schema::Peers>() {
+            let (peer_id, peer_state) = x?;
 
             // If it’s already banned, keep it banned.  Otherwise, it’s not connected.
             let status = if peer_state.status.is_banned() {
@@ -169,76 +177,66 @@ impl PeerStore {
 
     pub(crate) fn peer_connected(
         &mut self,
+        clock: &time::Clock,
         peer_info: &PeerInfo,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.add_signed_peer(peer_info.clone())?;
+    ) -> anyhow::Result<()> {
+        self.add_signed_peer(clock, peer_info.clone())?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
-        entry.last_seen = to_timestamp(Utc::now());
+        entry.last_seen = clock.now_utc();
         entry.status = KnownPeerStatus::Connected;
-        Self::save_to_db(&self.store, peer_info.id.try_to_vec()?.as_slice(), entry)
+        save_peer_state(&mut self.store, &peer_info.id, entry)
     }
 
     pub(crate) fn peer_disconnected(
         &mut self,
+        clock: &time::Clock,
         peer_id: &PeerId,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.last_seen = clock.now_utc();
             peer_state.status = KnownPeerStatus::NotConnected;
-            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
+            save_peer_state(&mut self.store, peer_id, peer_state)
         } else {
-            Err(format!("Peer {} is missing in the peer store", peer_id).into())
+            bail!("Peer {} is missing in the peer store", peer_id);
         }
     }
 
     pub(crate) fn peer_ban(
         &mut self,
+        clock: &time::Clock,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
-            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
+            let now = clock.now_utc();
+            peer_state.last_seen = now;
+            peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
+            save_peer_state(&mut self.store, peer_id, peer_state)
         } else {
-            Err(format!("Peer {} is missing in the peer store", peer_id).into())
+            bail!("Peer {} is missing in the peer store", peer_id);
         }
     }
 
-    fn save_to_db(
-        store: &Store,
-        peer_id: &[u8],
-        peer_state: &KnownPeerState,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Peers, peer_id, peer_state)?;
-        store_update.commit().map_err(|err| err.into())
-    }
-
     /// Deletes peers from the internal cache and the persistent store.
-    fn delete_peers(&mut self, peer_ids: &[PeerId]) -> Result<(), Box<dyn std::error::Error>> {
-        let mut store_update = self.store.store_update();
+    fn delete_peers(&mut self, peer_ids: &[PeerId]) -> anyhow::Result<()> {
+        let mut update = self.store.new_update();
         for peer_id in peer_ids {
             if let Some(peer_state) = self.peer_states.remove(peer_id) {
                 if let Some(addr) = peer_state.peer_info.addr {
                     self.addr_peers.remove(&addr);
                 }
             }
-
-            store_update.delete(DBCol::Peers, &peer_id.try_to_vec()?);
+            update.delete::<schema::Peers>(&peer_id);
         }
-        store_update.commit().map_err(Into::into)
+        Ok(update.commit()?)
     }
 
-    pub(crate) fn peer_unban(
-        &mut self,
-        peer_id: &PeerId,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) fn peer_unban(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
-            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
+            save_peer_state(&mut self.store, &peer_id, peer_state)
         } else {
-            Err(format!("Peer {} is missing in the peer store", peer_id).into())
+            bail!("Peer {} is missing in the peer store", peer_id);
         }
     }
 
@@ -286,12 +284,13 @@ impl PeerStore {
     /// Removes peers that are not responding for expiration period.
     pub(crate) fn remove_expired(
         &mut self,
+        clock: &time::Clock,
         config: &NetworkConfig,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let now = Utc::now();
+    ) -> anyhow::Result<()> {
+        let now = clock.now_utc();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen()).to_std()?;
+            let diff = now - peer_status.last_seen;
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {
@@ -302,11 +301,10 @@ impl PeerStore {
         self.delete_peers(&to_remove)
     }
 
-    fn touch(&self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(peer_state) = self.peer_states.get(peer_id) {
-            Self::save_to_db(&self.store, peer_id.try_to_vec()?.as_slice(), peer_state)
-        } else {
-            Ok(())
+    fn touch(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
+        match self.peer_states.get(peer_id) {
+            Some(peer_state) => save_peer_state(&mut self.store, &peer_id, peer_state),
+            None => Ok(()),
         }
     }
 
@@ -314,10 +312,11 @@ impl PeerStore {
     /// old pairs if necessary.
     fn update_peer_info(
         &mut self,
+        clock: &time::Clock,
         peer_info: PeerInfo,
         peer_addr: SocketAddr,
         trust_level: TrustLevel,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         let mut touch_other = None;
 
         // If there is a peer associated with current address remove the address from it.
@@ -339,11 +338,13 @@ impl PeerStore {
         self.addr_peers
             .insert(peer_addr, VerifiedPeer { peer_id: peer_info.id.clone(), trust_level });
 
+        let now = clock.now_utc();
+
         // Update peer_id addr
         self.peer_states
             .entry(peer_info.id.clone())
             .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
-            .or_insert_with(|| KnownPeerState::new(peer_info.clone(), Clock::utc()));
+            .or_insert_with(|| KnownPeerState::new(peer_info.clone(), now));
 
         self.touch(&peer_info.id)?;
         if let Some(touch_other) = touch_other {
@@ -356,13 +357,14 @@ impl PeerStore {
     #[inline(always)]
     fn add_peer(
         &mut self,
+        clock: &time::Clock,
         peer_info: PeerInfo,
         trust_level: TrustLevel,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         if let Some(peer_addr) = peer_info.addr {
             match trust_level {
                 TrustLevel::Signed => {
-                    self.update_peer_info(peer_info, peer_addr, TrustLevel::Signed)?;
+                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Signed)?;
                 }
                 TrustLevel::Direct => {
                     // If this peer already exists with a signed connection ignore this update.
@@ -380,7 +382,7 @@ impl PeerStore {
                         return Ok(());
                     }
 
-                    self.update_peer_info(peer_info, peer_addr, TrustLevel::Direct)?;
+                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct)?;
                 }
                 TrustLevel::Indirect => {
                     // We should only update an Indirect connection if we don't know anything about the peer
@@ -388,7 +390,7 @@ impl PeerStore {
                     if !self.peer_states.contains_key(&peer_info.id)
                         && !self.addr_peers.contains_key(&peer_addr)
                     {
-                        self.update_peer_info(peer_info, peer_addr, TrustLevel::Indirect)?;
+                        self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Indirect)?;
                     }
                 }
             }
@@ -397,7 +399,7 @@ impl PeerStore {
             // only if it is unknown to us.
             if !self.peer_states.contains_key(&peer_info.id) {
                 self.peer_states
-                    .insert(peer_info.id.clone(), KnownPeerState::new(peer_info, Clock::utc()));
+                    .insert(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()));
             }
         }
         Ok(())
@@ -412,6 +414,7 @@ impl PeerStore {
     /// See also [`Self::add_direct_peer`] and [`Self::add_signed_peer`].
     pub(crate) fn add_indirect_peers(
         &mut self,
+        clock: &time::Clock,
         peers: impl Iterator<Item = PeerInfo>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut total: usize = 0;
@@ -422,7 +425,7 @@ impl PeerStore {
             if is_blacklisted {
                 blacklisted += 1;
             } else {
-                self.add_peer(peer_info, TrustLevel::Indirect)?;
+                self.add_peer(clock, peer_info, TrustLevel::Indirect)?;
             }
         }
         if blacklisted != 0 {
@@ -441,9 +444,10 @@ impl PeerStore {
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
     pub(crate) fn add_direct_peer(
         &mut self,
+        clock: &time::Clock,
         peer_info: PeerInfo,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.add_peer(peer_info, TrustLevel::Direct)
+    ) -> anyhow::Result<()> {
+        self.add_peer(clock, peer_info, TrustLevel::Direct)
     }
 
     /// Adds a peer which proved to have secret key associated with the ID.
@@ -454,17 +458,17 @@ impl PeerStore {
     /// See also [`Self::add_indirect_peers`] and [`Self::add_direct_peer`].
     pub(crate) fn add_signed_peer(
         &mut self,
+        clock: &time::Clock,
         peer_info: PeerInfo,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.add_peer(peer_info, TrustLevel::Signed)
+    ) -> anyhow::Result<()> {
+        self.add_peer(clock, peer_info, TrustLevel::Signed)
     }
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: Store, f: F)
+pub fn iter_peers_from_store<F>(store: near_store::Store, f: F)
 where
-    F: Fn((&PeerId, &KnownPeerState)),
+    F: Fn((PeerId, KnownPeerState)),
 {
-    let peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
-    peer_store.iter().for_each(f);
+    schema::Store::new(store).iter::<schema::Peers>().for_each(|x| f(x.unwrap()));
 }

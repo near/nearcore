@@ -16,12 +16,12 @@ use actix::{
 };
 use lru::LruCache;
 use near_crypto::Signature;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
     PeerInfo, PeerManagerRequest, PeerType, ReasonForBan, RoutedMessage, RoutedMessageBody,
     RoutedMessageFrom, StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
-
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -29,7 +29,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
-use near_primitives::time::Clock;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -41,7 +40,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
@@ -58,9 +56,10 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
+const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
 pub(crate) struct PeerActor {
+    clock: time::Clock,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
     /// Peer address from connection.
@@ -76,7 +75,7 @@ pub(crate) struct PeerActor {
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
     /// Handshake timeout.
-    handshake_timeout: Duration,
+    handshake_timeout: time::Duration,
     /// Peer manager recipient to break the dependency loop.
     /// PeerManager is a recipient of 2 types of messages, therefore
     /// to inject a fake PeerManager in tests, we need a separate
@@ -96,14 +95,14 @@ pub(crate) struct PeerActor {
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
-    last_time_received_message_update: Instant,
+    last_time_received_message_update: time::Instant,
     /// How many transactions we have received since the last block message
     /// Note: Shared between multiple Peers.
     txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
     /// A helper data structure for limiting reading
     throttle_controller: ThrottleController,
     /// Whether we detected support for protocol buffers during handshake.
@@ -131,12 +130,13 @@ pub enum IOError {
 impl PeerActor {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        clock: time::Clock,
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
         peer_info: Option<PeerInfo>,
         peer_type: PeerType,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-        handshake_timeout: Duration,
+        handshake_timeout: time::Duration,
         peer_manager_addr: Recipient<PeerManagerMessageRequest>,
         peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerManagerMessageRequest>>,
         client_addr: Recipient<NetworkClientMessages>,
@@ -147,7 +147,9 @@ impl PeerActor {
         throttle_controller: ThrottleController,
         force_encoding: Option<Encoding>,
     ) -> Self {
+        let now = clock.now();
         PeerActor {
+            clock,
             my_node_info,
             peer_addr,
             peer_info: peer_info.into(),
@@ -164,7 +166,7 @@ impl PeerActor {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             partial_edge_info,
-            last_time_received_message_update: Clock::instant(),
+            last_time_received_message_update: now,
             txns_since_last_block,
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
@@ -499,7 +501,7 @@ impl PeerActor {
                     RoutedMessageBody::PartialEncodedChunkResponse(response) => {
                         NetworkClientMessages::PartialEncodedChunkResponse(
                             response,
-                            Clock::instant(),
+                            self.clock.now().into(),
                         )
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -547,8 +549,7 @@ impl PeerActor {
             | PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::RoutingTableSyncV2(_) => {
+            | PeerMessage::EpochSyncFinalizationRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
@@ -585,10 +586,11 @@ impl PeerActor {
     /// Hook called on every valid message received from this peer from the network.
     fn on_receive_message(&mut self) {
         if let Some(peer_id) = self.other_peer_id().cloned() {
-            if self.last_time_received_message_update.elapsed()
-                > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
+            let now = self.clock.now();
+            if now - self.last_time_received_message_update
+                > time::Duration::try_from(UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE).unwrap()
             {
-                self.last_time_received_message_update = Clock::instant();
+                self.last_time_received_message_update = now;
                 let _ = self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                     PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));
@@ -632,12 +634,16 @@ impl Actor for PeerActor {
         debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
 
-        near_performance_metrics::actix::run_later(ctx, self.handshake_timeout, move |act, ctx| {
-            if act.peer_status != PeerStatus::Ready {
-                info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
-                ctx.stop();
-            }
-        });
+        near_performance_metrics::actix::run_later(
+            ctx,
+            self.handshake_timeout.try_into().unwrap(),
+            move |act, ctx| {
+                if act.peer_status != PeerStatus::Ready {
+                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                    ctx.stop();
+                }
+            },
+        );
 
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {
@@ -711,9 +717,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-            let now = Clock::instant();
-            if let Some(time) = self.routed_message_cache.get(&key) {
-                if now.saturating_duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+            let now = self.clock.now();
+            if let Some(&t) = self.routed_message_cache.get(&key) {
+                if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
@@ -1011,22 +1017,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         Some(self.throttle_controller.clone()),
                     ));
             }
-            (PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message))
-                if cfg!(feature = "protocol_feature_routing_exchange_algorithm") =>
-            {
-                // TODO(#5155) Add wrapper to be something like this for all messages.
-                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
-                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
-                //         ...
-
-                self.peer_manager_wrapper_addr.do_send(ActixMessageWrapper::new_without_size(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::IbfMessage {
-                        peer_id: self.other_peer_id().unwrap().clone(),
-                        ibf_msg: ibf_message,
-                    }),
-                    Some(self.throttle_controller.clone()),
-                ));
-            }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
@@ -1094,9 +1084,9 @@ impl Handler<QueryPeerStats> for PeerActor {
         let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
-        let now = Instant::now();
-        let sent = self.tracker.sent_bytes.minute_stats(now);
-        let received = self.tracker.received_bytes.minute_stats(now);
+        let now = self.clock.now();
+        let sent = self.tracker.sent_bytes.minute_stats(now.into());
+        let received = self.tracker.received_bytes.minute_stats(now.into());
 
         // Whether the peer is considered abusive due to sending too many messages.
         // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will

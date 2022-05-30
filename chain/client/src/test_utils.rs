@@ -984,7 +984,6 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
-                        | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
                 Box::new(Some(resp))

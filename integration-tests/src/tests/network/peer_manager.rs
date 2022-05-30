@@ -52,7 +52,6 @@ fn repeated_announce_accounts() {
     use near_actix_test_utils::run_actix;
     use near_crypto::Signature;
     use near_logger_utils::init_test_logger;
-    use near_network::routing::start_routing_table_actor;
     use near_network::test_utils::GetBroadcastMessageCount;
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
     use near_network::types::{NetworkRequests, PeerManagerMessageRequest, RoutingTableUpdate};
@@ -99,13 +98,11 @@ fn repeated_announce_accounts() {
                 _ => NetworkViewClientResponses::NoResponse,
             }
         })));
-        let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
         let pm = PeerManagerActor::new(
             store,
             config,
             mock_client_addr.clone().recipient(),
             mock_client_addr.recipient(),
-            routing_table_addr,
         )
         .unwrap()
         .start();
