@@ -10,12 +10,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Setup loadtest')
 
     parser.add_argument('--home', type=str, required=True)
-    # File in home directory that contains the key for the account that should be used to send all the requests.
-    parser.add_argument('--sender_key_file',
-                        type=str,
-                        default="validator_key.json")
-    # Accounts that contain the contract to run (either set the --num_accounts or comma separated list in --account_ids)
-    parser.add_argument('--num_accounts', type=int, default=5)
+    parser.add_argument(
+        '--sender_key_file',
+        type=str,
+        default="validator_key.json",
+        help=
+        "File in home directory that contains the key for the account that should be used to send all the requests."
+    )
+    parser.add_argument(
+        '--num_accounts',
+        type=int,
+        default=5,
+        help=
+        "Accounts that contain the contract to run (either set the --num_accounts or comma separated list in --account_ids)"
+    )
     parser.add_argument('--account_ids', type=str, default=None)
 
     parser.add_argument('--num_requests', type=int, default=50)
@@ -23,7 +31,13 @@ if __name__ == '__main__':
     # Contract types:
     #  - storage - tries to do maximum amount of reads & writes (increments a large vector)
     #  - compute - tries to do maximum amount of compute (infinite loop)
-    parser.add_argument('--contract_type', type=str, default='storage')
+    parser.add_argument('--contract_type',
+                        type=str,
+                        default='storage',
+                        help="""# Contract types:
+    #  - storage - tries to do maximum amount of reads & writes (increments a large vector)
+    #  - compute - tries to do maximum amount of compute (infinite loop)
+    #  - write - tries to write a lot of data to the contract state.""")
     args = parser.parse_args()
 
     accounts = [args.account_ids.split(",")] if args.account_ids else [
