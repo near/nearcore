@@ -3,7 +3,8 @@ use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{
-    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubcriberGuard, EnvFilterBuilder,
+    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubscriberGuard, EnvFilterBuilder,
+    OpenTelemetryConfig,
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
@@ -101,7 +102,7 @@ impl NeardCmd {
 
 async fn init_logging(
     opts: &NeardOpts,
-) -> Result<DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
+) -> Result<DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
     let verbose = opts.verbose_target();
     let env_filter =
         EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
@@ -112,7 +113,8 @@ async fn init_logging(
     } else {
         env_filter
     };
-    let subscriber = default_subscriber(env_filter, &opts.color).await.global();
+    let subscriber =
+        default_subscriber(env_filter, &opts.color, &opts.opentelemetry).await.global();
     Ok(subscriber)
 }
 
@@ -156,10 +158,13 @@ struct NeardOpts {
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
-    pub unsafe_fast_startup: bool,
+    unsafe_fast_startup: bool,
     /// Whether the log needs to be colored.
     #[clap(long, arg_enum, default_value = "auto")]
-    pub color: ColorOutput,
+    color: ColorOutput,
+    /// Enables export of span data using opentelemetry protocol.
+    #[clap(flatten)]
+    opentelemetry: OpenTelemetryConfig,
 }
 
 impl NeardOpts {
