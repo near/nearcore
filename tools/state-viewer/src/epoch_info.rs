@@ -208,7 +208,6 @@ fn display_validator_info(
 
         let shard_ids = 0..runtime_adapter.num_shards(epoch_id).unwrap();
         let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
-            .clone()
             .into_iter()
             .map(|block_height| {
                 shard_ids

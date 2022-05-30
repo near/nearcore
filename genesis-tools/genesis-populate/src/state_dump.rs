@@ -37,7 +37,7 @@ impl StateDump {
         dump_path.push(STATE_DUMP_FILE);
         self.store.save_to_file(DBCol::State, dump_path.as_path())?;
         {
-            let mut roots_files = dir.clone();
+            let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
             let data = self.roots.try_to_vec()?;

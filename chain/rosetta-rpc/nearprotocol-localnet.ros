@@ -1,0 +1,58 @@
+create_account(1){
+  create{
+    network = {"network":"test-chain-I4wNe", "blockchain":"nearprotocol"};
+    key = generate_key({"curve_type": "edwards25519"});
+    account = derive({
+      "network_identifier": {{network}},
+      "public_key": {{key.public_key}}
+    });
+    // If the account is not saved, the key will be lost!
+    save_account({
+      "account_identifier": {{account.account_identifier}},
+      "keypair": {{key}}
+    });
+  }
+}
+transfer(1){
+  transfer{
+    transfer.network = {"network":"test-chain-I4wNe", "blockchain":"nearprotocol"};
+    currency = {"symbol":"NEAR", "decimals":24};
+    sender = find_balance({
+      "minimum_balance":{
+        "value": "100000000000000",
+        "currency": {{currency}}
+      }
+    });
+    // Set the recipient_amount as some value <= sender.balance-max_fee
+    max_fee = "84000000000000";
+    available_amount = {{sender.balance.value}} - {{max_fee}};
+    recipient_amount = random_number({"minimum": "1820000000000000000000", "maximum": "2000000000000000000000"});
+    print_message({"recipient_amount":{{recipient_amount}}});
+    // Find recipient and construct operations
+    sender_amount = 0 - {{recipient_amount}};
+
+    // Provide a static address as the recipient and construct operations
+    faucet = {"address":"test.near"};
+    transfer.confirmation_depth = "5";
+    transfer.operations = [
+      {
+        "operation_identifier":{"index":0},
+        "type":"TRANSFER",
+        "account":{{sender.account_identifier}},
+        "amount":{
+          "value":{{sender_amount}},
+          "currency":{{currency}}
+        }
+      },
+      {
+        "operation_identifier":{"index":1},
+        "type":"TRANSFER",
+        "account":{{faucet}},
+        "amount":{
+          "value":{{recipient_amount}},
+          "currency":{{currency}}
+        }
+      }
+    ];
+  }
+}
