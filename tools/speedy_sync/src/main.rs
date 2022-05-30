@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use clap::Parser;
-use near_chain::types::{BlockHeaderInfo, Tip};
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain::types::Tip;
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_primitives::block::Block;
@@ -13,43 +13,39 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use near_store::{db::RocksDB, DBCol, Store, StoreConfig, TrieChanges, HEAD_KEY};
+use near_store::{DBCol, Store, StoreUpdate};
 use near_store::{StoreOpener, HEADER_HEAD_KEY};
 
 use nearcore::{init_and_migrate_store, NightshadeRuntime};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+
+#[derive(Serialize, BorshSerialize, BorshDeserialize)]
+pub struct BlockCheckpoint {
+    pub header: BlockHeader,
+    pub info: BlockInfo,
+    pub merkle_tree: PartialMerkleTree,
+}
+
+#[derive(Serialize, BorshSerialize, BorshDeserialize)]
+pub struct EpochCheckpoint {
+    pub id: EpochId,
+    pub info: EpochInfo,
+}
 
 #[derive(Serialize, BorshSerialize, BorshDeserialize)]
 pub struct SpeedyCheckpoint {
-    pub current_epoch_info: EpochInfo,
-    pub current_epoch_id: EpochId,
-    pub last_block_header_prev_epoch: BlockHeader,
-    pub block_info: BlockInfo,
+    pub prev_epoch: EpochCheckpoint,
+    pub current_epoch: EpochCheckpoint,
+    pub next_epoch: EpochCheckpoint,
 
-    pub block_merkle_tree: PartialMerkleTree,
-
-    // probably not needed
-    pub prev_last_block_header_prev_epoch: BlockHeader,
-    pub prev_last_block_header_prev_epoch_block_info: BlockInfo,
-    pub prev_last_block_header_prev_epoch_block_merkle_tree: PartialMerkleTree,
-
-    // probably not needed
-    pub final_last_block_header_prev_epoch: BlockHeader,
-    pub final_last_block_header_prev_epoch_block_info: BlockInfo,
-    pub final_last_block_header_prev_epoch_block_merkle_tree: PartialMerkleTree,
-
-    // maybe not needed
-    pub next_epoch_info: EpochInfo,
-    // maybe not needed
-    pub next_epoch_id: EpochId,
-
-    pub prev_epoch_info: EpochInfo,
-    pub prev_epoch_id: EpochId,
-    pub first_block_header_prev_epoch: BlockHeader,
-    pub first_block_prev_epoch_block_info: BlockInfo,
+    pub block: BlockCheckpoint,
+    pub prev_block: BlockCheckpoint,
+    pub final_block: BlockCheckpoint,
+    pub first_block: BlockCheckpoint,
 }
 
 #[derive(Parser)]
@@ -83,10 +79,55 @@ struct Cli {
     subcmd: CliSubcmd,
 }
 
-fn create_snapshot(create_cmd: CreateCmd) {
-    println!("Starting");
-    let path = Path::new(&create_cmd.home);
+fn read_block_checkpoint(store: &Store, block_hash: &CryptoHash) -> BlockCheckpoint {
+    let block: Block = store
+        .get_ser(DBCol::Block, block_hash.as_ref())
+        .expect(format!("DB error Block {:?}", block_hash).as_str())
+        .expect(format!("Key missing Block {}", block_hash).as_str());
 
+    let info: BlockInfo = store
+        .get_ser(DBCol::BlockInfo, block_hash.as_ref())
+        .expect(format!("DB error BlockInfo {:?}", block_hash).as_str())
+        .expect(format!("Key missing BlockInfo {}", block_hash).as_str());
+
+    let merkle_tree: PartialMerkleTree = store
+        .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
+        .expect(format!("DB error BlockMerkleTree {:?}", block_hash).as_str())
+        .expect(format!("Key missing BlockMerkleTree {}", block_hash).as_str());
+
+    BlockCheckpoint { header: block.header().clone(), info, merkle_tree }
+}
+
+fn write_block_checkpoint(store_update: &mut StoreUpdate, block_checkpoint: &BlockCheckpoint) {
+    let hash = block_checkpoint.header.hash();
+    store_update
+        .set_ser(DBCol::BlockHeader, hash.as_ref(), &block_checkpoint.header)
+        .expect("Failed writing a header");
+
+    store_update
+        .insert_ser(DBCol::BlockInfo, hash.as_ref(), &block_checkpoint.info)
+        .expect("Failed writing a block info");
+
+    store_update
+        .set_ser(DBCol::BlockMerkleTree, hash.as_ref(), &block_checkpoint.merkle_tree)
+        .expect("Failed writing merkle tree");
+    store_update
+        .set_ser(
+            DBCol::BlockHeight,
+            &index_to_bytes(block_checkpoint.header.height()),
+            block_checkpoint.header.hash(),
+        )
+        .unwrap();
+}
+
+fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &EpochCheckpoint) {
+    store_update
+        .set_ser(DBCol::EpochInfo, epoch_checkpoint.id.as_ref(), &epoch_checkpoint.info)
+        .expect("Failed to write epoch info");
+}
+
+fn create_snapshot(create_cmd: CreateCmd) {
+    let path = Path::new(&create_cmd.home);
     let store = StoreOpener::with_default_config().read_only(true).home(path).open();
 
     // Get epoch information:
@@ -96,82 +137,47 @@ fn create_snapshot(create_cmd: CreateCmd) {
             if key.as_ref() == AGGREGATOR_KEY {
                 None
             } else {
-                let epoch_info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                let epoch_id = EpochId::try_from_slice(key.as_ref()).unwrap();
-                Some((epoch_id, epoch_info))
+                let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                let id = EpochId::try_from_slice(key.as_ref()).unwrap();
+                Some(EpochCheckpoint { id, info })
             }
         })
-        .collect::<Vec<(EpochId, EpochInfo)>>();
+        .collect::<Vec<EpochCheckpoint>>();
 
-    epochs.sort_by(|a, b| a.1.epoch_height().partial_cmp(&b.1.epoch_height()).unwrap());
-    ///print!("{:?}", epochs);
+    assert!(epochs.len() > 4, "Number of epochs must be greater than 4.");
+
+    epochs.sort_by(|a, b| a.info.epoch_height().partial_cmp(&b.info.epoch_height()).unwrap());
     // Take last two epochs
-    let next_epoch = &epochs[epochs.len() - 1];
-    let current_epoch = &epochs[epochs.len() - 2];
-    let prev_epoch = &epochs[epochs.len() - 3];
-    println!("{:?}", current_epoch);
+    let next_epoch = epochs.pop().unwrap();
+    let current_epoch = epochs.pop().unwrap();
+    let prev_epoch = epochs.pop().unwrap();
 
-    // Now let's fetch the last block of the prev_epoch (it's hash is exactly the 'next_epoch' id).
+    // We need information about 4 blocks to start the chain:
+    //
+    // 'block' - we'll always pick the last block of a given epoch.
+    // 'prev_block' - its predecessor
+    // 'final_block' - the block with finality (usually 2 blocks behind)
+    // 'first_block' - the first block of this epoch (usualy epoch_length behind).
 
-    let block: Block = store.get_ser(DBCol::Block, next_epoch.0.as_ref()).unwrap().unwrap();
-    let prev_block: Block =
-        store.get_ser(DBCol::Block, block.header().prev_hash().as_ref()).unwrap().unwrap();
-
-    let prev_last_block_header_prev_epoch_block_info =
-        store.get_ser(DBCol::BlockInfo, block.header().prev_hash().as_ref()).unwrap().unwrap();
-    let final_last_block_header_prev_epoch_block_info = store
-        .get_ser(DBCol::BlockInfo, block.header().last_final_block().as_ref())
-        .unwrap()
-        .unwrap();
-
-    let final_block: Block =
-        store.get_ser(DBCol::Block, block.header().last_final_block().as_ref()).unwrap().unwrap();
-
-    let block_info: BlockInfo =
-        store.get_ser(DBCol::BlockInfo, next_epoch.0.as_ref()).unwrap().unwrap();
-
-    let first_block_prev_epoch: Block =
-        store.get_ser(DBCol::Block, block_info.epoch_first_block().as_ref()).unwrap().unwrap();
-    let first_block_prev_epoch_block_info: BlockInfo =
-        store.get_ser(DBCol::BlockInfo, block_info.epoch_first_block().as_ref()).unwrap().unwrap();
-
-    let block_merkle_tree: PartialMerkleTree =
-        store.get_ser(DBCol::BlockMerkleTree, next_epoch.0.as_ref()).unwrap().unwrap();
-    let prev_last_block_header_prev_epoch_block_merkle_tree = store
-        .get_ser(DBCol::BlockMerkleTree, block.header().prev_hash().as_ref())
-        .unwrap()
-        .unwrap();
-
-    let final_last_block_header_prev_epoch_block_merkle_tree = store
-        .get_ser(DBCol::BlockMerkleTree, block.header().last_final_block().as_ref())
-        .unwrap()
-        .unwrap();
+    let block_hash = next_epoch.id.0;
+    let block = read_block_checkpoint(&store, &block_hash);
+    let block_header = block.header.clone();
+    let prev_block = read_block_checkpoint(&store, block_header.prev_hash());
+    let final_block = read_block_checkpoint(&store, block_header.last_final_block());
+    let first_block = read_block_checkpoint(&store, block.info.epoch_first_block());
 
     let checkpoint = SpeedyCheckpoint {
-        current_epoch_info: current_epoch.1.clone(),
-        current_epoch_id: current_epoch.0.clone(),
-        last_block_header_prev_epoch: block.header().clone(),
-        final_last_block_header_prev_epoch: final_block.header().clone(),
-        prev_last_block_header_prev_epoch: prev_block.header().clone(),
-        block_info,
-        next_epoch_info: next_epoch.1.clone(),
-        next_epoch_id: next_epoch.0.clone(),
-        prev_epoch_info: prev_epoch.1.clone(),
-        prev_epoch_id: prev_epoch.0.clone(),
-        first_block_header_prev_epoch: first_block_prev_epoch.header().clone(),
-        first_block_prev_epoch_block_info,
-        block_merkle_tree,
-        prev_last_block_header_prev_epoch_block_info,
-        final_last_block_header_prev_epoch_block_info,
-        prev_last_block_header_prev_epoch_block_merkle_tree,
-        final_last_block_header_prev_epoch_block_merkle_tree,
+        prev_epoch,
+        current_epoch,
+        next_epoch,
+        block,
+        prev_block,
+        final_block,
+        first_block,
     };
-
-    println!("{:?}", block);
 
     let serialized = serde_json::to_string(&checkpoint).unwrap();
 
-    println!("{}", serialized);
     fs::write(Path::new(&create_cmd.destination_dir).join("snapshot.json"), serialized)
         .expect("Failed writing to destination file");
 
@@ -211,7 +217,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     )
     .unwrap();*/
 
-    let mut config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
+    let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
     let store = init_and_migrate_store(home_dir, &config).unwrap();
     let chain_genesis = ChainGenesis::from(&config.genesis);
@@ -223,7 +229,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         config.client_config.max_gas_burnt_view,
     ));
     // This will initialize the database (add genesis block etc)
-    let chain = Chain::new(
+    let _chain = Chain::new(
         runtime.clone(),
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
@@ -233,150 +239,27 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let mut store_update = store.store_update();
     // Store epoch information.
+    write_epoch_checkpoint(&mut store_update, &snapshot.current_epoch);
+    write_epoch_checkpoint(&mut store_update, &snapshot.prev_epoch);
+    write_epoch_checkpoint(&mut store_update, &snapshot.next_epoch);
+
+    // Store blocks.
+    write_block_checkpoint(&mut store_update, &snapshot.block);
+    write_block_checkpoint(&mut store_update, &snapshot.prev_block);
+    write_block_checkpoint(&mut store_update, &snapshot.final_block);
+    write_block_checkpoint(&mut store_update, &snapshot.first_block);
+
+    // Store the HEADER_KEY (used in header sync).
     store_update
-        .set_ser(DBCol::EpochInfo, snapshot.current_epoch_id.as_ref(), &snapshot.current_epoch_info)
+        .set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, &Tip::from_header(&snapshot.block.header))
         .unwrap();
 
-    store_update
-        .set_ser(DBCol::EpochInfo, snapshot.next_epoch_id.as_ref(), &snapshot.next_epoch_info)
-        .unwrap();
-    store_update
-        .set_ser(DBCol::EpochInfo, snapshot.prev_epoch_id.as_ref(), &snapshot.prev_epoch_info)
-        .unwrap();
-    // Now let's insert our blocks.
-
-    println!("Adding header: {:?}", snapshot.last_block_header_prev_epoch.hash());
-    store_update
-        .set_ser(
-            DBCol::BlockHeader,
-            snapshot.last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.last_block_header_prev_epoch,
-        )
-        .unwrap();
-    println!("Adding header: {:?}", snapshot.prev_last_block_header_prev_epoch.hash());
-    store_update
-        .set_ser(
-            DBCol::BlockHeader,
-            snapshot.prev_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.prev_last_block_header_prev_epoch,
-        )
-        .unwrap();
-    println!("Adding header: {:?}", snapshot.final_last_block_header_prev_epoch.hash());
-    store_update
-        .set_ser(
-            DBCol::BlockHeader,
-            snapshot.final_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.final_last_block_header_prev_epoch,
-        )
-        .unwrap();
-
-    println!(
-        "Adding header (first block prev epoch): {:?}",
-        snapshot.first_block_header_prev_epoch.hash()
-    );
-    store_update
-        .set_ser(
-            DBCol::BlockHeader,
-            snapshot.first_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.first_block_header_prev_epoch,
-        )
-        .unwrap();
-
-    store_update
-        .insert_ser(
-            DBCol::BlockInfo,
-            snapshot.last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.block_info,
-        )
-        .unwrap();
-    store_update
-        .insert_ser(
-            DBCol::BlockInfo,
-            snapshot.first_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.first_block_prev_epoch_block_info,
-        )
-        .unwrap();
-
-    store_update
-        .insert_ser(
-            DBCol::BlockInfo,
-            snapshot.prev_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.prev_last_block_header_prev_epoch_block_info,
-        )
-        .unwrap();
-
-    store_update
-        .insert_ser(
-            DBCol::BlockInfo,
-            snapshot.final_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.final_last_block_header_prev_epoch_block_info,
-        )
-        .unwrap();
-    store_update
-        .set_ser(
-            DBCol::BlockMisc,
-            HEADER_HEAD_KEY,
-            &Tip::from_header(&snapshot.last_block_header_prev_epoch),
-        )
-        .unwrap();
-
-    store_update
-        .set_ser(
-            DBCol::BlockMerkleTree,
-            snapshot.last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.block_merkle_tree,
-        )
-        .unwrap();
-
-    store_update
-        .set_ser(
-            DBCol::BlockMerkleTree,
-            snapshot.prev_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.prev_last_block_header_prev_epoch_block_merkle_tree,
-        )
-        .unwrap();
-
-    store_update
-        .set_ser(
-            DBCol::BlockMerkleTree,
-            snapshot.final_last_block_header_prev_epoch.hash().as_ref(),
-            &snapshot.final_last_block_header_prev_epoch_block_merkle_tree,
-        )
-        .unwrap();
-
-    // Maybe broken -- sending empty aggregator.
-    let foo = EpochInfoAggregator::new(
-        snapshot.prev_epoch_id,
-        *snapshot.final_last_block_header_prev_epoch.hash(),
-    );
-    store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &foo).unwrap();
-
-    store_update
-        .set_ser(
-            DBCol::BlockHeight,
-            &index_to_bytes(snapshot.last_block_header_prev_epoch.height()),
-            snapshot.last_block_header_prev_epoch.hash(),
-        )
-        .unwrap();
-
+    // TODO: confirm if this aggregator can be empty.
+    // If not - we'll have to compute one and put it in the checkpoint.
+    let aggregator =
+        EpochInfoAggregator::new(snapshot.prev_epoch.id, *snapshot.final_block.header.hash());
+    store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &aggregator).unwrap();
     store_update.commit().unwrap();
-    /*
-    let another_store_update = runtime
-        .add_validator_proposals(BlockHeaderInfo::new(
-            &snapshot.last_block_header_prev_epoch,
-            snapshot.final_last_block_header_prev_epoch.height(),
-        ))
-        .unwrap();
-
-    another_store_update.commit().unwrap();*/
-
-    /*
-    let last_finalized_height =
-        chain_update.chain_store_update.get_block_height(header.last_final_block())?;
-    let epoch_manager_update = chain_update
-        .runtime_adapter
-        .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
-    */
 }
 
 fn main() {
