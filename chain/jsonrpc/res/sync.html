@@ -65,58 +65,66 @@
             $('.js-state-sync').text("State sync - not started.")
             $('.js-block-sync').text("Block sync - not started.")
 
-            if ('StateSync' in sync_status) {
-                $('.div-progress').show();
-                $('.js-header-sync').text("Header sync - DONE.")
-                let state_sync = sync_status.StateSync;
-                let sync_hash = state_sync[0];
-                $('.js-state-sync').text("State sync @" + sync_hash);
-                for (const [shard_id, shard_info] of Object.entries(state_sync[1])) {
-                    let canvas = $('<canvas>');
-                    // 45k
-                    let canvas_slots = 300 * 150;
-                    let slot_size = Math.max(1, Math.floor(canvas_slots / shard_info.downloads.length))
-
-                    console.log(slot_size);
-
-                    let parts_done = 0;
-
-                    shard_info.downloads.forEach((element, index) => {
-                        if (element.done == true) {
-                            parts_done += 1;
-                            drawSlot(canvas[0].getContext('2d'), index, slot_size, 'green');
-                        } else if (element.error == true) {
-                            drawSlot(canvas[0].getContext('2d'), index, slot_size, 'red');
-                        } else {
-                            drawSlot(canvas[0].getContext('2d'), index, slot_size, 'grey');
-                        }
-                    });
-
-                    let progress_percent = 0;
-                    if (shard_info.downloads.length > 0) {
-                        progress_percent = parts_done / shard_info.downloads.length * 100;
-
-                    }
-
-                    $('.js-tbody-progress').append($('<tr>')
-                        .append($('<td>').append(shard_id))
-                        .append($('<td>').append(progress_percent.toFixed(1) + "% " + parts_done + " / " + shard_info.downloads.length))
-                        .append($('<td>').append(shard_info.status))
-                        .append($('<td>').append(canvas))
-                    );
+            if (typeof (sync_status) === 'string') {
+                if (sync_status == 'NoSync') {
+                    $('.js-header-sync').text("Header sync - ✅.");
+                    $('.js-state-sync').text("State sync - ✅.");
+                    $('.js-block-sync').text("Block sync - ✅.");
                 }
-            }
-            if ('HeaderSync' in sync_status) {
-                let from = sync_status.HeaderSync.current_height;
-                let to = sync_status.HeaderSync.highest_height;
-                $('.js-header-sync').text("Header sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
-            }
-            if ('BodySync' in sync_status) {
-                $('.js-header-sync').text("Header sync - DONE.");
-                $('.js-state-sync').text("State sync - DONE.");
-                let from = sync_status.BodySync.current_height;
-                let to = sync_status.BodySync.highest_height;
-                $('.js-block-sync').text("Block sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
+            } else {
+                if ('StateSync' in sync_status) {
+                    $('.div-progress').show();
+                    $('.js-header-sync').text("Header sync - ✅.")
+                    let state_sync = sync_status.StateSync;
+                    let sync_hash = state_sync[0];
+                    $('.js-state-sync').text("State sync @" + sync_hash);
+                    for (const [shard_id, shard_info] of Object.entries(state_sync[1])) {
+                        let canvas = $('<canvas>');
+                        // 45k
+                        let canvas_slots = 300 * 150;
+                        let slot_size = Math.max(1, Math.floor(canvas_slots / shard_info.downloads.length))
+
+                        console.log(slot_size);
+
+                        let parts_done = 0;
+
+                        shard_info.downloads.forEach((element, index) => {
+                            if (element.done == true) {
+                                parts_done += 1;
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'green');
+                            } else if (element.error == true) {
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'red');
+                            } else {
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'grey');
+                            }
+                        });
+
+                        let progress_percent = 0;
+                        if (shard_info.downloads.length > 0) {
+                            progress_percent = parts_done / shard_info.downloads.length * 100;
+
+                        }
+
+                        $('.js-tbody-progress').append($('<tr>')
+                            .append($('<td>').append(shard_id))
+                            .append($('<td>').append(progress_percent.toFixed(1) + "% " + parts_done + " / " + shard_info.downloads.length))
+                            .append($('<td>').append(shard_info.status))
+                            .append($('<td>').append(canvas))
+                        );
+                    }
+                }
+                if ('HeaderSync' in sync_status) {
+                    let from = sync_status.HeaderSync.current_height;
+                    let to = sync_status.HeaderSync.highest_height;
+                    $('.js-header-sync').text("Header sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
+                }
+                if ('BodySync' in sync_status) {
+                    $('.js-header-sync').text("Header sync - ✅.");
+                    $('.js-state-sync').text("State sync - ✅.");
+                    let from = sync_status.BodySync.current_height;
+                    let to = sync_status.BodySync.highest_height;
+                    $('.js-block-sync').text("Block sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
+                }
             }
         }
 

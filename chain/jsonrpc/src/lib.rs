@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
+use actix_web::http::header;
 use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
@@ -1488,13 +1489,21 @@ async fn display_debug_html(
     path: web::Path<(String,)>,
 ) -> actix_web::Result<impl actix_web::Responder> {
     let page_name = path.into_inner().0;
-    match page_name.as_str() {
-        "last_blocks" => Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML)),
-        "network_info" => Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML)),
-        "epoch_info" => Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML)),
-        "chain_n_chunk_info" => Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML)),
-        "sync" => Ok(HttpResponse::Ok().body(*SYNC_HTML)),
-        _ => Ok(HttpResponse::NotFound().finish()),
+
+    let content = match page_name.as_str() {
+        "last_blocks" => Some(*LAST_BLOCKS_HTML),
+        "network_info" => Some(*NETWORK_INFO_HTML),
+        "epoch_info" => Some(*EPOCH_INFO_HTML),
+        "chain_n_chunk_info" => Some(*CHAIN_N_CHUNK_INFO_HTML),
+        "sync" => Some(*SYNC_HTML),
+        _ => None,
+    };
+
+    match content {
+        Some(content) => {
+            Ok(HttpResponse::Ok().insert_header(header::ContentType::html()).body(content))
+        }
+        None => Ok(HttpResponse::NotFound().finish()),
     }
 }
 
