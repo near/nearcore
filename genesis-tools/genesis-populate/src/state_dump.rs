@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use near_primitives::types::StateRoot;
 use near_store::DBCol;
-use near_store::{create_store, Store};
+use near_store::Store;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -17,7 +17,8 @@ pub struct StateDump {
 
 impl StateDump {
     pub fn from_dir(dir: &Path, target_store_path: &Path) -> Self {
-        let store = create_store(target_store_path);
+        // TODO(#6857): Don’t use .path().
+        let store = near_store::StoreOpener::with_default_config().path(target_store_path).open();
         let state_file = dir.join(STATE_DUMP_FILE);
         store
             .load_from_file(DBCol::State, state_file.as_path())
@@ -36,7 +37,7 @@ impl StateDump {
         dump_path.push(STATE_DUMP_FILE);
         self.store.save_to_file(DBCol::State, dump_path.as_path())?;
         {
-            let mut roots_files = dir.clone();
+            let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
             let data = self.roots.try_to_vec()?;

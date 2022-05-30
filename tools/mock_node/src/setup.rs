@@ -14,10 +14,9 @@ use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
-use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
-use nearcore::{get_store_path, NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use std::cmp::min;
@@ -37,8 +36,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        let path = get_store_path(home_dir);
-        create_store(&path)
+        near_store::StoreOpener::new(&config.config.store).home(home_dir).open()
     };
 
     Arc::new(NightshadeRuntime::with_config(
@@ -150,7 +148,7 @@ pub fn setup_mock_node(
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
+    let node_id = PeerId::new(config.network_config.public_key.clone());
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::default();
 
@@ -225,7 +223,7 @@ pub fn setup_mock_node(
         info!(target:"mock_node", "Done preparing epoch info");
 
         // copy state for all shards
-        let next_hash = *network_chain_store.get_next_block_hash(&hash).unwrap();
+        let next_hash = network_chain_store.get_next_block_hash(&hash).unwrap();
         let next_block = network_chain_store.get_block(&next_hash).unwrap();
         for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
             info!(target:"mock_node", "Preparing state for shard {}", shard_id);
@@ -298,7 +296,7 @@ pub fn setup_mock_node(
     let view_client = start_view_client(
         None,
         chain_genesis.clone(),
-        client_runtime.clone(),
+        client_runtime,
         network_adapter.clone(),
         config.client_config.clone(),
         adv,
@@ -386,7 +384,7 @@ mod test {
             let nearcore::NearNode { view_client, client, .. } =
                 start_with_config(path1, near_config).expect("start_with_config");
 
-            let view_client1 = view_client.clone();
+            let view_client1 = view_client;
             let nonce = Arc::new(RwLock::new(10));
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {

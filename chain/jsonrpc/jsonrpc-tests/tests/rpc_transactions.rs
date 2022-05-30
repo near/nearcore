@@ -25,11 +25,11 @@ fn test_send_tx_async() {
     run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
-        let client = new_client(&format!("http://{}", addr.clone()));
+        let client = new_client(&format!("http://{}", addr));
 
         let tx_hash2 = Arc::new(Mutex::new(None));
         let tx_hash2_1 = tx_hash2.clone();
-        let tx_hash2_2 = tx_hash2.clone();
+        let tx_hash2_2 = tx_hash2;
         let signer_account_id = "test1".to_string();
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {

@@ -1,3 +1,4 @@
+use near_cache::CellLruCache;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -6,7 +7,6 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use lru::LruCache;
 
 pub use columns::DBCol;
 pub use db::{
@@ -46,7 +46,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
-pub use crate::config::StoreConfig;
+pub use crate::config::{get_store_path, store_path_exists, StoreConfig, StoreOpener, STORE_PATH};
 
 #[derive(Clone)]
 pub struct Store {
@@ -314,31 +314,20 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
     storage: &Store,
     col: DBCol,
-    cache: &'a mut LruCache<Vec<u8>, T>,
+    cache: &'a CellLruCache<Vec<u8>, T>,
     key: &[u8],
-) -> io::Result<Option<&'a T>> {
-    // Note: Due to `&mut -> &` conversions, it's not possible to avoid double
-    // hash map lookups here.
-    if cache.contains(key) {
-        return Ok(cache.get(key));
+) -> io::Result<Option<T>> {
+    if let Some(value) = cache.get(key) {
+        return Ok(Some(value));
     }
-    if let Some(result) = storage.get_ser(col, key)? {
-        cache.put(key.to_vec(), result);
-        return Ok(cache.get(key));
+    if let Some(result) = storage.get_ser::<T>(col, key)? {
+        cache.put(key.to_vec(), result.clone());
+        return Ok(Some(result));
     }
     Ok(None)
-}
-
-pub fn create_store(path: &Path) -> Store {
-    create_store_with_config(path, &StoreConfig::read_write())
-}
-
-pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let db = RocksDB::open(path, &store_config).expect("Failed to open the database");
-    Store::new(Arc::new(db))
 }
 
 /// Reads an object from Trie.

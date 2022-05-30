@@ -1,9 +1,9 @@
+// TODO(mina86): This is pub only because recompress-storage needs this value.
+// Refactor code so that this can be private.
+pub const STORE_PATH: &str = "data";
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
-    /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
-    #[serde(skip)]
-    pub read_only: bool,
-
     /// Collect internal storage layer statistics.
     /// Minor performance impact is expected.
     #[serde(default)]
@@ -77,7 +77,6 @@ impl StoreConfig {
 
     const fn const_default() -> Self {
         Self {
-            read_only: false,
             enable_statistics: false,
             enable_statistics_export: true,
             max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
@@ -86,24 +85,132 @@ impl StoreConfig {
         }
     }
 
-    pub const fn read_only() -> StoreConfig {
-        StoreConfig::const_default().with_read_only(true)
-    }
-
-    pub const fn read_write() -> StoreConfig {
-        Self::const_default()
-    }
-
-    pub const fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
-        self
-    }
-
     /// Returns cache size for given column.
     pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
         match col {
             crate::DBCol::State => self.col_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
+    }
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self::const_default()
+    }
+}
+
+// TODO(#6857): Make this method in StoreOpener.  This way caller won’t need to
+// resolve path to the storage.
+pub fn store_path_exists<P: AsRef<std::path::Path>>(path: P) -> bool {
+    std::fs::canonicalize(path).is_ok()
+}
+
+// TODO(#6857): Get rid of this function.  Clients of this method should not
+// care about path of the storage instead letting StoreOpener figure that one
+// out.
+pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
+    base_path.join(STORE_PATH)
+}
+
+/// Builder for opening a RocksDB database.
+///
+/// Typical usage:
+///
+/// ```ignore
+/// let store = StoreOpener::new(&near_config.config.store)
+///     .home(neard_home_dir)
+///     .open();
+/// ```
+pub struct StoreOpener<'a> {
+    /// Near home directory.
+    ///
+    /// If `path` is relative, it is resolved relative to this home directory.
+    /// On the other hand, if `path` is absolute, `home` is effecively ignored.
+    ///
+    /// If home directory is not given (i.e. this field is `None`), current
+    /// working directory is assumed.
+    home: Option<&'a std::path::Path>,
+
+    /// The path relative to home directory where the storage resides.
+    ///
+    /// It is `STORE_PATH` by default but can be overwriten with arbitrary
+    /// absolute path for the cases where code needs to point at the storage
+    /// directory directly without relation to tho home directory
+    // TODO(#6857): Remove cases where this field is needed.
+    path: Option<&'a std::path::Path>,
+
+    /// Configuration as provided by the user.
+    config: &'a StoreConfig,
+
+    /// Whether to open the storeg in read-only mode.
+    read_only: bool,
+}
+
+impl<'a> StoreOpener<'a> {
+    /// Initialises a new opener with given store configuration.
+    pub fn new(config: &'a StoreConfig) -> Self {
+        Self { path: None, home: None, config: config, read_only: false }
+    }
+
+    /// Initialises a new opener using default store configuration.
+    ///
+    /// This is meant for tests only.  Production code should always read store
+    /// configuration from a config file and use [`Self::new`] instead.
+    pub fn with_default_config() -> Self {
+        static CONFIG: StoreConfig = StoreConfig::const_default();
+        Self::new(&CONFIG)
+    }
+
+    /// Configure whether the database should be opened in read-only mode.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    /// Specifies neard home directory.
+    ///
+    /// By default, the database lives in a `data` directory inside of the home
+    /// directory.
+    pub fn home(mut self, home: &'a std::path::Path) -> Self {
+        self.home = Some(home);
+        self
+    }
+
+    /// Specifies path to the database.
+    ///
+    /// You should avoid using this method instead setting [`Self::home`] on
+    /// relying on the opener resolving path to the storage relative to the near
+    /// home direcotry.
+    ///
+    /// If the path is absolute, it points at the database.  Otherwise, it is
+    /// resolved relative to home dir (which is set via [`Self::home`] method.
+    ///
+    /// TODO(#6857): Get rid of this method.
+    pub fn path(mut self, path: &'a std::path::Path) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    /// Opens the RocksDB database.
+    ///
+    /// Panics on failure.
+    // TODO(mina86): Change it to return Result.
+    pub fn open(&self) -> crate::Store {
+        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
+        let path = self.home.map_or(std::borrow::Cow::Borrowed(path), |home| {
+            std::borrow::Cow::Owned(home.join(path))
+        });
+        if std::fs::canonicalize(&path).is_ok() {
+            tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
+        } else if self.read_only {
+            tracing::error!(target: "near", path=%path.display(), "Database does not exist");
+            panic!("Failed to open non-existent the database");
+        } else {
+            tracing::info!(target: "near", path=%path.display(), "Creating new RocksDB database");
+        }
+        let db = crate::RocksDB::open(&path, &self.config, self.read_only)
+            .expect("Failed to open the database");
+        crate::Store::new(std::sync::Arc::new(db))
     }
 }

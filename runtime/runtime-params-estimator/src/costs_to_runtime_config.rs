@@ -146,6 +146,8 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         // TODO: accurately price host functions that expose validator information.
         validator_stake_base: 303944908800,
         validator_total_stake_base: 303944908800,
+        _unused1: 0,
+        _unused2: 0,
         #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_sum_base: get(Cost::AltBn128G1SumBase)?,
         #[cfg(feature = "protocol_feature_alt_bn128")]

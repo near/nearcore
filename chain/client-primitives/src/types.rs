@@ -27,45 +27,18 @@ use near_primitives::views::{
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Chain(near_chain_primitives::Error),
-    Chunk(near_chunks_primitives::Error),
+    #[error("Chain: {0}")]
+    Chain(#[from] near_chain_primitives::Error),
+    #[error("Chunk: {0}")]
+    Chunk(#[from] near_chunks_primitives::Error),
+    #[error("Block Producer: {0}")]
     BlockProducer(String),
+    #[error("Chunk Producer: {0}")]
     ChunkProducer(String),
+    #[error("Other: {0}")]
     Other(String),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Chunk(err) => write!(f, "Chunk: {}", err),
-            Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
-            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
-            Error::Other(err) => write!(f, "Other: {}", err),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<near_chain_primitives::Error> for Error {
-    fn from(e: near_chain_primitives::Error) -> Self {
-        Error::Chain(e)
-    }
-}
-
-impl From<near_chunks_primitives::Error> for Error {
-    fn from(err: near_chunks_primitives::Error) -> Self {
-        Error::Chunk(err)
-    }
-}
-
-impl From<String> for Error {
-    fn from(e: String) -> Self {
-        Error::Other(e)
-    }
 }
 
 #[derive(Debug)]
@@ -221,7 +194,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -440,7 +413,7 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
 }
 
 impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 }
 
 pub struct GetNetworkInfo {}

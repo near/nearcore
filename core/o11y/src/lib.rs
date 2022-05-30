@@ -292,10 +292,7 @@ impl<'a> EnvFilterBuilder<'a> {
                 env_filter.add_directive(tracing::Level::DEBUG.into())
             } else {
                 let directive = format!("{}=debug", module).parse().map_err(|err| {
-                    BuildEnvFilterError::CreateEnvFilter(
-                        err,
-                        format!("{}=debug", module).to_string(),
-                    )
+                    BuildEnvFilterError::CreateEnvFilter(err, format!("{}=debug", module))
                 })?;
                 env_filter.add_directive(directive)
             };
