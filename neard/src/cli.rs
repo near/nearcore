@@ -3,8 +3,7 @@ use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{
-    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubscriberGuard, EnvFilterBuilder,
-    OpenTelemetryConfig,
+    default_subscriber, BuildEnvFilterError, DefaultSubscriberGuard, EnvFilterBuilder,
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
@@ -113,8 +112,7 @@ async fn init_logging(
     } else {
         env_filter
     };
-    let subscriber =
-        default_subscriber(env_filter, &opts.color, &opts.opentelemetry).await.global();
+    let subscriber = default_subscriber(env_filter, &opts.o11y).await.global();
     Ok(subscriber)
 }
 
@@ -159,12 +157,9 @@ struct NeardOpts {
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     unsafe_fast_startup: bool,
-    /// Whether the log needs to be colored.
-    #[clap(long, arg_enum, default_value = "auto")]
-    color: ColorOutput,
     /// Enables export of span data using opentelemetry protocol.
     #[clap(flatten)]
-    opentelemetry: OpenTelemetryConfig,
+    o11y: near_o11y::Options,
 }
 
 impl NeardOpts {
