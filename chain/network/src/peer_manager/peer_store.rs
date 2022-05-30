@@ -774,7 +774,7 @@ mod test {
         // Add three peers.
         {
             let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
-            let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
+            let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
             peer_store.add_indirect_peers(peer_infos.clone().into_iter()).unwrap();
         }
         assert_peers_in_store(tmp_dir.path(), &peer_ids);
@@ -784,7 +784,7 @@ mod test {
             let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
             let blacklist =
                 Blacklist::from_iter([format!("{}", peer_infos[2].addr.unwrap())].into_iter());
-            let _peer_store = PeerStore::new(store.clone(), &[], blacklist).unwrap();
+            let _peer_store = PeerStore::new(store, &[], blacklist).unwrap();
         }
         assert_peers_in_store(tmp_dir.path(), &peer_ids[0..2]);
     }
@@ -827,14 +827,14 @@ mod test {
 
         {
             let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
-            let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
-            peer_store.add_indirect_peers(peer_infos.clone().into_iter()).unwrap();
+            let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
+            peer_store.add_indirect_peers(peer_infos.into_iter()).unwrap();
         }
         assert_peers_in_store(tmp_dir.path(), &peer_ids);
 
         {
             let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
-            let mut peer_store = PeerStore::new(store.clone(), &[], Default::default()).unwrap();
+            let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
             assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
             peer_store.delete_peers(&peer_ids).unwrap();
             assert_peers_in_cache(&peer_store, &[], &[]);

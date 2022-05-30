@@ -1,5 +1,5 @@
 use near_chain_configs::{Genesis, GenesisValidationMode};
-use near_o11y::ColorOutput;
+use near_o11y::{ColorOutput, OpenTelemetryConfig};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -14,7 +14,13 @@ use tracing::debug;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global();
+    let _subscriber = near_o11y::default_subscriber(
+        env_filter,
+        &ColorOutput::Auto,
+        &OpenTelemetryConfig::default(),
+    )
+    .await
+    .global();
     debug!(target: "storage-calculator", "Start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);

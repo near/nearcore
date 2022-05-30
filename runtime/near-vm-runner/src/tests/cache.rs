@@ -88,7 +88,7 @@ fn make_cached_contract_call_vm(
         &code,
         method_name,
         &mut fake_external,
-        context.clone(),
+        context,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,

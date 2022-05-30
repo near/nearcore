@@ -26,7 +26,7 @@ use near_network::types::{
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
@@ -242,7 +242,7 @@ impl Client {
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
+                NetworkRequests::Block { block: block },
             ));
             self.last_time_head_progress_made = Clock::instant();
         }
@@ -391,7 +391,7 @@ impl Client {
         let next_block_proposer =
             self.runtime_adapter.get_block_producer(&epoch_id, next_height)?;
 
-        let prev = self.chain.get_block_header(&head.last_block_hash)?.clone();
+        let prev = self.chain.get_block_header(&head.last_block_hash)?;
         let prev_hash = head.last_block_hash;
         let prev_height = head.height;
         let prev_prev_hash = *prev.prev_hash();
@@ -491,16 +491,16 @@ impl Client {
         let timestamp_override = None;
 
         // Get block extra from previous block.
-        let mut block_merkle_tree =
-            self.chain.mut_store().get_block_merkle_tree(&prev_hash)?.clone();
+        let block_merkle_tree = self.chain.mut_store().get_block_merkle_tree(&prev_hash)?;
+        let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
         // The number of leaves in Block Merkle Tree is the amount of Blocks on the Canonical Chain by construction.
         // The ordinal of the next Block will be equal to this amount plus one.
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
-        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
+        let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
+        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -554,7 +554,7 @@ impl Client {
             min_gas_price,
             max_gas_price,
             minted_amount,
-            prev_block_extra.challenges_result,
+            prev_block_extra.challenges_result.clone(),
             vec![],
             &*validator_signer,
             next_bp_hash,
@@ -618,10 +618,9 @@ impl Client {
         let chunk_extra = self
             .chain
             .get_chunk_extra(&prev_block_hash, &shard_uid)
-            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
-            .clone();
+            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
+        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
         let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
@@ -1075,7 +1074,7 @@ impl Client {
         skip_produce_chunk: bool,
     ) {
         let block = match self.chain.get_block(&block_hash) {
-            Ok(block) => block.clone(),
+            Ok(block) => block,
             Err(err) => {
                 error!(target: "client", "Failed to find block {} that was just accepted: {}", block_hash, err);
                 return;
@@ -1160,8 +1159,7 @@ impl Client {
                 BlockStatus::Reorg(prev_head) => {
                     // If a reorg happened, reintroduce transactions from the previous chain and
                     //    remove transactions from the new chain
-                    let mut reintroduce_head =
-                        self.chain.get_block_header(&prev_head).unwrap().clone();
+                    let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
                     let mut remove_head = block.header().clone();
                     assert_ne!(remove_head.hash(), reintroduce_head.hash());
 
@@ -1605,7 +1603,7 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let cur_block_header = self.chain.head_header()?.clone();
+        let cur_block_header = self.chain.head_header()?;
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
