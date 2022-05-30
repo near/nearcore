@@ -285,20 +285,18 @@ impl JsonRpcHandler {
                     let params = parse_params::<
                         near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest,
                     >(params)?;
-                    rpc_try! {
-                        self.peer_manager_addr
-                            .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
-                                near_network::test_utils::SetAdvOptions {
-                                    disable_edge_signature_verification: params
-                                        .disable_edge_signature_verification,
-                                    disable_edge_propagation: params.disable_edge_propagation,
-                                    disable_edge_pruning: params.disable_edge_pruning,
-                                    set_max_peers: None,
-                                },
-                            ))
-                            .await
-                            .into_rpc_result()
-                    };
+                    self.peer_manager_addr
+                        .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
+                            near_network::test_utils::SetAdvOptions {
+                                disable_edge_signature_verification: params
+                                    .disable_edge_signature_verification,
+                                disable_edge_propagation: params.disable_edge_propagation,
+                                disable_edge_pruning: params.disable_edge_pruning,
+                                set_max_peers: None,
+                            },
+                        ))
+                        .await
+                        .map_err(|e| RpcError::rpc_from(e))?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -308,18 +306,16 @@ impl JsonRpcHandler {
                 "adv_set_routing_table" => {
                     let request =
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
-                    rpc_try! {
-                        self.peer_manager_addr
-                            .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
-                                near_network::test_utils::SetRoutingTable {
-                                    add_edges: request.add_edges,
-                                    remove_edges: request.remove_edges,
-                                    prune_edges: request.prune_edges,
-                                },
-                            ))
-                            .await
-                            .into_rpc_result()
-                    };
+                    self.peer_manager_addr
+                        .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
+                            near_network::test_utils::SetRoutingTable {
+                                add_edges: request.add_edges,
+                                remove_edges: request.remove_edges,
+                                prune_edges: request.prune_edges,
+                            },
+                        ))
+                        .await
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -331,46 +327,40 @@ impl JsonRpcHandler {
                         near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
                     >(params)?;
 
-                    rpc_try! {
-                        self.peer_manager_addr
-                            .send(
-                                near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                    near_network::private_actix::StartRoutingTableSync {
-                                        peer_id: params.peer_id,
-                                    },
-                                ),
-                            )
+                    self.peer_manager_addr
+                        .send(
+                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
+                                near_network::private_actix::StartRoutingTableSync {
+                                    peer_id: params.peer_id,
+                                },
+                            ),
+                        )
                         .await
-                        .into_rpc_result()
-                    };
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_peer_id" => {
-                    let response = rpc_try! {
-                        self
-                            .peer_manager_addr
-                            .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
-                                near_network::private_actix::GetPeerId {},
-                            ))
-                            .await
-                            .into_rpc_result()
-                    };
+                    let response = self
+                        .peer_manager_addr
+                        .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
+                            near_network::private_actix::GetPeerId {},
+                        ))
+                        .await
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_routing_table" => {
-                    let result = rpc_try! {
-                            self
-                            .routing_table_addr
-                            .send(near_network::RoutingTableMessages::RequestRoutingTable)
-                            .await
-                            .into_rpc_result()
-                    };
+                    let result = self
+                        .routing_table_addr
+                        .send(near_network::RoutingTableMessages::RequestRoutingTable)
+                        .await
+                        .map_err(RpcError::rpc_from)?;
 
                     match result {
                         near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
