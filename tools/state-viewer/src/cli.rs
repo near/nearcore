@@ -141,6 +141,8 @@ pub struct ChainCmd {
     start_index: BlockHeight,
     #[clap(long)]
     end_index: BlockHeight,
+    // If true, show the full hash (block hash and chunk hash) when printing.
+    // If false, show only first couple chars.
     #[clap(long)]
     show_full_hashes: bool,
 }
