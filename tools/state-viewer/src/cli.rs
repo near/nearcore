@@ -142,11 +142,22 @@ pub struct ChainCmd {
     start_index: BlockHeight,
     #[clap(long)]
     end_index: BlockHeight,
+    // If true, show the full hash (block hash and chunk hash) when printing.
+    // If false, show only first couple chars.
+    #[clap(long)]
+    show_full_hashes: bool,
 }
 
 impl ChainCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        print_chain(self.start_index, self.end_index, home_dir, near_config, store);
+        print_chain(
+            self.start_index,
+            self.end_index,
+            home_dir,
+            near_config,
+            store,
+            self.show_full_hashes,
+        );
     }
 }
 
