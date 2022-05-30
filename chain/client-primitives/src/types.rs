@@ -25,7 +25,6 @@ use near_primitives::views::{
     StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -42,7 +41,7 @@ pub enum Error {
     Other(String),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
@@ -68,7 +67,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -80,14 +79,14 @@ pub enum ShardSyncStatus {
     StateSyncDone,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr, Serialize)]
+#[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -334,19 +333,6 @@ pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
-}
-
-pub enum DebugStatus {
-    SyncStatus,
-}
-
-impl Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
-}
-
-#[derive(Serialize, Debug)]
-pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
 }
 
 #[derive(thiserror::Error, Debug)]
