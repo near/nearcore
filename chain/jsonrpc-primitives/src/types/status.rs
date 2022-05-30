@@ -1,9 +1,15 @@
+use near_client_primitives::types::DebugStatusResponse;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcStatusResponse {
     #[serde(flatten)]
     pub status_response: near_primitives::views::StatusResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RpcDebugStatusResponse {
+    pub status_response: DebugStatusResponse,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,6 +30,12 @@ pub enum RpcStatusError {
 
 impl From<near_primitives::views::StatusResponse> for RpcStatusResponse {
     fn from(status_response: near_primitives::views::StatusResponse) -> Self {
+        Self { status_response }
+    }
+}
+
+impl From<DebugStatusResponse> for RpcDebugStatusResponse {
+    fn from(status_response: DebugStatusResponse) -> Self {
         Self { status_response }
     }
 }

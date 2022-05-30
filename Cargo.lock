@@ -2838,6 +2838,8 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "serde",
+ "serde_json",
  "strum",
  "thiserror",
 ]
