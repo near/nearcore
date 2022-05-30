@@ -37,7 +37,6 @@ mod metrics;
 mod parser;
 
 use parser::RpcRequest;
-use tracing::warn;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -1469,6 +1468,7 @@ lazy_static_include::lazy_static_include_str! {
     NETWORK_INFO_HTML => "res/network_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
     CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
+    SYNC_HTML => "res/sync.html",
 }
 
 #[get("/debug")]
@@ -1494,6 +1494,11 @@ async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
 #[get("/debug/chain_n_chunk_info")]
 async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
+}
+
+#[get("/debug/sync")]
+async fn sync_html() -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(*SYNC_HTML))
 }
 
 /// Starts HTTP server(s) listening for RPC requests.

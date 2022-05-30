@@ -147,7 +147,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debug/api/sync_status",
+                url: "/debug/api/sync_status",
                 success: data => {
                     process_sync_status(data);
                 },
@@ -159,7 +159,7 @@
             });
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debug/api/status",
+                url: "/debug/api/status",
                 success: data => {
                     process_status(data);
                 },

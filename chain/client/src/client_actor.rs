@@ -773,8 +773,12 @@ impl Handler<DebugStatus> for ClientActor {
     type Result = Result<DebugStatusResponse, StatusError>;
 
     #[perf]
-    fn handle(&mut self, msg: DebugStatus, ctx: &mut Context<Self>) -> Self::Result {
-        Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+    fn handle(&mut self, msg: DebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
+        match msg {
+            DebugStatus::SyncStatus => {
+                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+            }
+        }
     }
 }
 
@@ -829,7 +833,7 @@ impl Handler<Status> for ClientActor {
 
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
-            
+
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
         let mut earliest_block_time = None;
