@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -1786,7 +1785,6 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        warn!("State header asking for {:?} {:?}", sync_hash, shard_id);
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
@@ -3094,13 +3092,11 @@ impl Chain {
         max_headers_returned: u64,
         max_height: Option<BlockHeight>,
     ) -> Result<Vec<BlockHeader>, Error> {
-        warn!("In retrieve header");
         let header = match self.find_common_header(&hashes) {
             Some(header) => header,
             None => return Ok(vec![]),
         };
 
-        warn!("Max height {:?} common header {:?}", max_height, header);
         let mut headers = vec![];
         let header_head_height = self.header_head()?.height;
         let max_height = max_height.unwrap_or(header_head_height);
@@ -3113,7 +3109,6 @@ impl Chain {
                 }
             }
         }
-        warn!("Returning {:?} headers", headers.len());
         Ok(headers)
     }
 
@@ -3373,7 +3368,7 @@ impl<'a> ChainUpdate<'a> {
         header: &BlockHeader,
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
-        error!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
+        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
         self.validate_header(header, &Provenance::NONE, on_challenge)?;
