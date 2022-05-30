@@ -474,15 +474,13 @@ pub mod validator_stake {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_crypto::PublicKey;
     use near_primitives_core::types::{AccountId, Balance};
-    use serde::{Deserialize, Serialize};
+    use serde::Serialize;
 
     pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Deserialize,
-    )]
+    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
@@ -692,7 +690,7 @@ pub mod validator_stake {
 
 /// Stores validator and its stake.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
     pub account_id: AccountId,

@@ -192,7 +192,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     Ok(())
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
+fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let path = near_store::get_store_path(home_dir);
     let store_exists = near_store::store_path_exists(&path);
     if store_exists {

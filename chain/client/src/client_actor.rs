@@ -826,8 +826,10 @@ impl Handler<Status> for ClientActor {
 
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
+
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
+            
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
         let mut earliest_block_time = None;
@@ -1598,7 +1600,7 @@ impl ClientActor {
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
-        warn!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
+        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
         if headers.len() == 0 {
             return true;
         }
@@ -1609,7 +1611,7 @@ impl ClientActor {
                     error!(target: "client", "Error processing sync blocks: {}", err);
                     false
                 } else {
-                    warn!(target: "client", "Block headers refused by chain: {}", err);
+                    debug!(target: "client", "Block headers refused by chain: {}", err);
                     true
                 }
             }

@@ -41,7 +41,7 @@ mod shard_assignment;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod types;
+mod types;
 mod validator_selection;
 
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
