@@ -189,8 +189,15 @@ impl HeaderSync {
         };
 
         if enable_header_sync {
-            *sync_status =
-                SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
+            let start_height = match sync_status.start_height() {
+                Some(height) => height,
+                None => chain.head()?.height,
+            };
+            *sync_status = SyncStatus::HeaderSync {
+                start_height,
+                current_height: header_head.height,
+                highest_height,
+            };
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
@@ -437,7 +444,12 @@ impl BlockSync {
         }
 
         let head = chain.head()?;
-        *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
+        let start_height = match sync_status.start_height() {
+            Some(height) => height,
+            None => head.height,
+        };
+        *sync_status =
+            SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
         Ok(false)
     }
 
@@ -1519,7 +1531,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );
@@ -1537,7 +1553,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );

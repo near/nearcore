@@ -1853,8 +1853,11 @@ impl ClientActor {
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
-                        self.client.sync_status =
-                            SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+                        self.client.sync_status = SyncStatus::BodySync {
+                            start_height: 0,
+                            current_height: 0,
+                            highest_height: 0,
+                        };
                     }
                 }
             }

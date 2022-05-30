@@ -262,7 +262,7 @@ impl InfoHelper {
 pub fn display_sync_status(
     sync_status: &SyncStatus,
     head: &Tip,
-    genesis_height: BlockHeight,
+    _genesis_height: BlockHeight,
 ) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
@@ -271,12 +271,12 @@ pub fn display_sync_status(
         SyncStatus::EpochSync { epoch_ord } => {
             format!("[EPOCH: {:>5}] Getting to a recent epoch", epoch_ord)
         }
-        SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent = if *highest_height <= genesis_height {
+        SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
+            let percent = if highest_height <= start_height {
                 0.0
             } else {
-                (((min(current_height, highest_height) - genesis_height) * 100) as f64)
-                    / ((highest_height - genesis_height) as f64)
+                (((min(current_height, highest_height) - start_height) * 100) as f64)
+                    / ((highest_height - start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading headers {:.2}% ({} left; at {})",
@@ -286,12 +286,12 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::BodySync { current_height, highest_height } => {
-            let percent = if *highest_height <= genesis_height {
+        SyncStatus::BodySync { start_height, current_height, highest_height } => {
+            let percent = if highest_height <= start_height {
                 0.0
             } else {
-                ((current_height - genesis_height) * 100) as f64
-                    / ((highest_height - genesis_height) as f64)
+                ((current_height - start_height) * 100) as f64
+                    / ((highest_height - start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading blocks {:.2}% ({} left; at {})",
