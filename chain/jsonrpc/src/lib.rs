@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
-use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
@@ -16,7 +15,7 @@ use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
+    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
@@ -37,7 +36,6 @@ mod metrics;
 mod parser;
 
 use parser::RpcRequest;
-use tracing::warn;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -891,7 +889,7 @@ impl JsonRpcHandler {
         Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
     }
 
-    pub async fn old_debug(
+    pub async fn debug(
         &self,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
@@ -904,28 +902,6 @@ impl JsonRpcHandler {
                     .await??
                     .into(),
             ))
-        } else {
-            return Ok(None);
-        }
-    }
-
-    pub async fn debug(
-        &self,
-        path: &str,
-    ) -> Result<
-        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
-        near_jsonrpc_primitives::types::status::RpcStatusError,
-    > {
-        if self.enable_debug_rpc {
-            match path {
-                "/debug/api/status" => {
-                    Ok(Some(self.client_addr.send(DebugStatus::SyncStatus).await??.into()))
-                }
-                "/debug/api/sync_status" => {
-                    Ok(Some(self.client_addr.send(DebugStatus::SyncStatus).await??.into()))
-                }
-                _ => return Ok(None),
-            }
         } else {
             return Ok(None);
         }
@@ -1395,18 +1371,8 @@ fn status_handler(
     response.boxed()
 }
 
-async fn debug_handler(
-    req: HttpRequest,
-    handler: web::Data<JsonRpcHandler>,
-) -> Result<HttpResponse, HttpError> {
-    if req.path() == "/debug/api/status" {
-        return match handler.old_debug().await {
-            Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
-            Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        };
-    }
-    match handler.debug(req.path()).await {
+async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
+    match handler.debug().await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
@@ -1557,7 +1523,6 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
-            .service(web::resource("/debug/api/sync_status").route(web::get().to(debug_handler)))
             .service(debug_html)
             .service(last_blocks_html)
             .service(network_info_html)

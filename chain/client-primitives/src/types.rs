@@ -25,7 +25,7 @@ use near_primitives::views::{
     StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]

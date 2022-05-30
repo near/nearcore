@@ -412,9 +412,7 @@ impl BlockInfoV1 {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 pub mod epoch_info {
@@ -427,7 +425,7 @@ pub mod epoch_info {
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
-    use serde::{Deserialize, Serialize};
+    use serde::Serialize;
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -441,9 +439,7 @@ pub mod epoch_info {
 
     /// Information per epoch.
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(
-        BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize, Deserialize,
-    )]
+    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize)]
     pub enum EpochInfo {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
@@ -459,15 +455,7 @@ pub mod epoch_info {
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
-        SmartDefault,
-        BorshSerialize,
-        BorshDeserialize,
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        Serialize,
-        Deserialize,
+        SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
     )]
     pub struct EpochInfoV2 {
         /// Ordinal of given epoch from genesis.
@@ -506,15 +494,7 @@ pub mod epoch_info {
     // block producer and chunk producer selection algorithm.
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
-        SmartDefault,
-        BorshSerialize,
-        BorshDeserialize,
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        Serialize,
-        Deserialize,
+        SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
     )]
     pub struct EpochInfoV3 {
         pub epoch_height: EpochHeight,
@@ -901,15 +881,7 @@ pub mod epoch_info {
 /// Information per epoch.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    SmartDefault,
-    BorshSerialize,
-    BorshDeserialize,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
+    SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
 )]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
