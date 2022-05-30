@@ -182,7 +182,7 @@ impl Network {
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
                         hashes: vec![hash.clone()],
-                        peer_id: peer.peer_info.id.clone(),
+                        peer_id: peer.peer_info.id,
                     })
                 });
                 let res = ctx.wrap(recv.wait()).await;
@@ -208,7 +208,7 @@ impl Network {
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
                         hash: hash.clone(),
-                        peer_id: peer.peer_info.id.clone(),
+                        peer_id: peer.peer_info.id,
                     })
                 });
                 let res = ctx.wrap(recv.wait()).await;

@@ -33,7 +33,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
             .home(&home_dir)
             .open();
 
-        let mut chain_store =
+        let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
         let runtime = NightshadeRuntime::with_config(
@@ -44,7 +44,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
             near_config.client_config.max_gas_burnt_view,
         );
         let head = chain_store.head().unwrap();
-        let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();

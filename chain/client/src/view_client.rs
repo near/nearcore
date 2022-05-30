@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
@@ -163,7 +164,7 @@ impl ViewClientActor {
     }
 
     fn get_block_hash_by_finality(
-        &mut self,
+        &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
         let head_header = self.chain.head_header()?;
@@ -218,17 +219,15 @@ impl ViewClientActor {
                 }
             }
         };
-        let header = header
-            .map_err(|err| match err {
-                near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                    QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
-                }
-                near_chain::near_chain_primitives::Error::IOErr(error) => {
-                    QueryError::InternalError { error_message: error.to_string() }
-                }
-                _ => QueryError::Unreachable { error_message: err.to_string() },
-            })?
-            .clone();
+        let header = header.map_err(|err| match err {
+            near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
+                QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
+            }
+            near_chain::near_chain_primitives::Error::IOErr(error) => {
+                QueryError::InternalError { error_message: error.to_string() }
+            }
+            _ => QueryError::Unreachable { error_message: err.to_string() },
+        })?;
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -530,19 +529,17 @@ impl Handler<GetBlock> for ViewClientActor {
         let block = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block(&block_hash).map(Clone::clone)
+                self.chain.get_block(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_by_height(height).map(Clone::clone)
+                self.chain.get_block_by_height(height)
             }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block(&hash).map(Clone::clone)
-            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
                 if let Some(block_hash) =
                     self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
                 {
-                    self.chain.get_block(&block_hash).map(Clone::clone)
+                    self.chain.get_block(&block_hash)
                 } else {
                     return Err(GetBlockError::NotSyncedYet);
                 }
@@ -583,7 +580,7 @@ impl Handler<GetBlockHash> for ViewClientActor {
 }
 
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
@@ -591,7 +588,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
         self.chain
             .mut_store()
             .get_block_merkle_tree(&block_view.header.hash)
-            .map(|merkle_tree| (block_view, merkle_tree.clone()))
+            .map(|merkle_tree| (block_view, merkle_tree))
             .map_err(|e| e.into())
     }
 }
@@ -603,7 +600,7 @@ impl Handler<GetChunk> for ViewClientActor {
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         let get_chunk_from_block = |block: Block,
                                     shard_id: ShardId,
-                                    chain: &mut Chain|
+                                    chain: &Chain|
          -> Result<ShardChunk, near_chain::Error> {
             let chunk_header = block
                 .chunks()
@@ -611,25 +608,28 @@ impl Handler<GetChunk> for ViewClientActor {
                 .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
                 .clone();
             let chunk_hash = chunk_header.chunk_hash();
-            chain.get_chunk(&chunk_hash).and_then(|chunk| {
-                ShardChunk::with_header(chunk.clone(), chunk_header).ok_or(
-                    near_chain::Error::Other(format!(
-                        "Mismatched versions for chunk with hash {}",
-                        chunk_hash.0
-                    )),
-                )
-            })
+            let chunk = chain.get_chunk(&chunk_hash)?;
+            let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
+                near_chain::Error::Other(format!(
+                    "Mismatched versions for chunk with hash {}",
+                    chunk_hash.0
+                )),
+            )?;
+            Ok(res)
         };
 
         let chunk = match msg {
-            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash)?.clone(),
+            GetChunk::ChunkHash(chunk_hash) => {
+                let chunk = self.chain.get_chunk(&chunk_hash)?;
+                ShardChunk::clone(&chunk)
+            }
             GetChunk::BlockHash(block_hash, shard_id) => {
-                let block = self.chain.get_block(&block_hash)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                let block = self.chain.get_block(&block_hash)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
             }
             GetChunk::Height(height, shard_id) => {
-                let block = self.chain.get_block_by_height(height)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                let block = self.chain.get_block_by_height(height)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
             }
         };
 
@@ -674,12 +674,12 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
             }
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
-                    BlockId::Hash(h) => self.chain.get_block_header(&h)?.clone(),
-                    BlockId::Height(h) => self.chain.get_header_by_height(h)?.clone(),
+                    BlockId::Hash(h) => self.chain.get_block_header(&h)?,
+                    BlockId::Height(h) => self.chain.get_header_by_height(h)?,
                 };
                 let next_block_hash =
-                    *self.chain.mut_store().get_next_block_hash(block_header.hash())?;
-                let next_block_header = self.chain.get_block_header(&next_block_hash)?.clone();
+                    self.chain.mut_store().get_next_block_hash(block_header.hash())?;
+                let next_block_header = self.chain.get_block_header(&next_block_hash)?;
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
                 {
@@ -706,7 +706,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .maybe_block_id_to_block_hash(msg.block_id)
-            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
+            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h))
             .and_then(|header| {
                 get_epoch_block_producers_view(
                     header.epoch_id(),
@@ -814,7 +814,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
@@ -827,7 +827,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
             let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
-                &head_header.clone(),
+                &head_header,
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
             )?;
@@ -835,11 +835,11 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             if ret.inner_lite.height <= last_height {
                 Ok(None)
             } else {
-                Ok(Some(ret))
+                Ok(Some(Arc::new(ret)))
             }
         } else {
             match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
-                Ok(light_block) => Ok(Some(light_block.clone())),
+                Ok(light_block) => Ok(Some(light_block)),
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
                         Ok(None)
@@ -867,10 +867,11 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
         };
         match self.chain.get_execution_outcome(&id) {
             Ok(outcome) => {
-                let mut outcome_proof = outcome.clone();
-                let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
+                let mut outcome_proof = outcome;
+                let epoch_id =
+                    self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
                 let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
+                    self.runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -958,7 +959,7 @@ impl Handler<GetReceipt> for ViewClientActor {
             .chain
             .mut_store()
             .get_receipt(&msg.receipt_id)?
-            .map(|receipt| receipt.clone().into()))
+            .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }
 
@@ -969,7 +970,7 @@ impl Handler<GetBlockProof> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         self.chain.check_block_final_and_canonical(&msg.block_hash)?;
         self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
-        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.clone().into();
+        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.into();
         let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
@@ -983,19 +984,17 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
         let block_header = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block_header(&block_hash).map(Clone::clone)
+                self.chain.get_block_header(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height).map(Clone::clone)
+                self.chain.get_header_by_height(height)
             }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                self.chain.get_block_header(&hash).map(Clone::clone)
-            }
+            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
                 if let Some(block_hash) =
                     self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
                 {
-                    self.chain.get_block_header(&block_hash).map(Clone::clone)
+                    self.chain.get_block_header(&block_hash)
                 } else {
                     return Err(GetProtocolConfigError::UnknownBlock(format!(
                         "{:?}",
@@ -1071,9 +1070,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id) => {
                 if let Ok(outcome_with_proof) = self.chain.get_execution_outcome(&receipt_id) {
-                    NetworkViewClientResponses::ReceiptOutcomeResponse(Box::new(
-                        outcome_with_proof.clone(),
-                    ))
+                    NetworkViewClientResponses::ReceiptOutcomeResponse(Box::new(outcome_with_proof))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -1118,7 +1115,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::BlockRequest(hash) => {
                 if let Ok(block) = self.chain.get_block(&hash) {
-                    NetworkViewClientResponses::Block(Box::new(block.clone()))
+                    NetworkViewClientResponses::Block(Box::new(block))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
