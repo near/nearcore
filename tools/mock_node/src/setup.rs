@@ -305,7 +305,7 @@ pub fn setup_mock_node(
 }
 
 #[cfg(test)]
-mod tests  {
+mod tests {
     use crate::setup::setup_mock_node;
     use actix::{Actor, System};
     use futures::{future, FutureExt};
