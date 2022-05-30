@@ -5888,9 +5888,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b836e89dcfdc39c6ff7b26c5f2c7ae27b9bd92a74aed940f09c24ba9d4e32973"
+checksum = "ca854546406be13c8811a42955cf6e31abc46e6ecef60553dc529b54b361bbd0"
 dependencies = [
  "enumset",
  "loupe",
@@ -5907,9 +5907,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb2995c6705f7ab2ef83888b41c4ffba9a4b9ceea790b2982d667d9dd43846f"
+checksum = "a3fab90e9d5b294aad2eaf40ad06935d4212d55aab7f15a61969058f09034ded"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -5927,9 +5927,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15cc33ca0168a79244345834c73c408cf1151cfcbe40b42dfa5409aa1d42f13c"
+checksum = "b71a66f19806483952afe0b009eebb408f41b1e3a9714909d713265c406e5083"
 dependencies = [
  "backtrace",
  "enumset",
@@ -5949,9 +5949,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fbf42534f4c05800dcb07686321ea33dcf815af82c3d57150a6d13a25bec55d"
+checksum = "f6a6d4b9ce4c5aaffa71cd71f0f304ee1660fc68899e142b38249c538336c71a"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
@@ -6032,9 +6032,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a34b18bef672dd578b18ec10b157edbda31123f20a6cbf0d160cbd341fe8de"
+checksum = "d412e011c6139d325aa3d1cec8e3338a8193b4307a8898afc106318ffd444fc6"
 dependencies = [
  "indexmap",
  "loupe",
@@ -6045,9 +6045,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm-near"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bd58bc505063fe59c224c6263afc4e64e72dff29636ca9fcb912bfbf742a995"
+checksum = "e4e9ce9a69cc250485d6223933a4413b3ae613ce19b57e3c69fe015cc5092cc9"
 dependencies = [
  "backtrace",
  "cc",
