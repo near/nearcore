@@ -52,7 +52,7 @@ impl LogConfigWatcher {
                 ErrorKind::NotFound => {
                     if let UpdateBehavior::UpdateOrReset = update_behavior {
                         info!(target: "neard", logging_config_path=%self.watched_path.display(), ?err, "Reset the logging config because the logging config file doesn't exist.");
-                        return reload_env_filter(None, None).map_err(LogConfigError::Reload);
+                        return reload_log_layer(None, None).map_err(LogConfigError::Reload);
                     }
                     Ok(())
                 }
