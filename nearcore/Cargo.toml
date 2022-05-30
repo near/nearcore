@@ -8,7 +8,6 @@ rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
-stun = "0.4.2"
 anyhow = "1.0.51"
 awc = "3.0.0"
 actix = "0.13.0"

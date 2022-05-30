@@ -159,9 +159,9 @@ message Validator {
   // or a list of peers known to be connected to the validator.
   repeated PeerAddr peers = 2; // non-empty, at most 10 elements (this is an arbitrary limit, might be relaxed in the future).
 
-  // Epoch for which this ValidatorPeers message is valid.
+  // Epoch for which this Validator message is valid.
   CryptoHash epoch_id = 3;
-  // If there are multiple signed ValidatorPeers messages for the same
+  // If there are multiple signed Validator messages for the same
   // account_id for the same epoch, the one with most recent timestamp is valid.
   google.protobuf.Timestamp timestamp = 4; 
 }

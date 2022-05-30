@@ -15,9 +15,8 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
-    ROUTED_MESSAGE_TTL,
-    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
+    Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
