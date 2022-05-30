@@ -166,7 +166,7 @@ where
 /// ```rust
 /// let runtime = tokio::runtime::Runtime::new().unwrap();
 /// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = runtime.block_on(async { near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto, None).await.global() });
+/// let _subscriber = runtime.block_on(async {near_o11y::default_subscriber(filter, &near_o11y::ColorOutput::Auto, &near_o11y::OpenTelemetryConfig::default()).await.global() });
 /// ```
 pub async fn default_subscriber(
     env_filter: EnvFilter,
