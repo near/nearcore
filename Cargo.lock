@@ -6124,14 +6124,12 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c60244fe7afb343ada73aff39452852c70e295031eab762b9f8ec77a5f3425cd"
+checksum = "34d09dc0ba83ddaceb9b0846ed11a6c26a449b69fa2709e0335d268f44491921"
 dependencies = [
  "enumset",
  "rkyv",
- "serde",
- "serde_bytes",
  "smallvec",
  "target-lexicon 0.12.3",
  "thiserror",
@@ -6142,9 +6140,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84137bc13dfb61a4bd55a47852107caadd3b2025329d6678f6108995b5e866d"
+checksum = "86f34bf0625219766759851c1f92e0797787b8b10b424c0a273ee4e0328a2ff7"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -6161,9 +6159,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fef11b966113dee907a8f5d38c01293a966e8dc1dd54bc27dcc0f3dd4638459c"
+checksum = "fa8353167be3099f3bd033cb9c8479a02d69917777cf4c2e52a09946d5582457"
 dependencies = [
  "backtrace",
  "enumset",
@@ -6171,8 +6169,6 @@ dependencies = [
  "memmap2",
  "more-asserts",
  "rustc-demangle",
- "serde",
- "serde_bytes",
  "target-lexicon 0.12.3",
  "thiserror",
  "wasmer-compiler-near",
@@ -6182,9 +6178,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e5c98c64fa124bd62f811405ec86ab85fa619c86f68ca3ba9c658720b73f9e"
+checksum = "c34fb4f6af2209a36c5e6ed407c9e057fdd2e722e762f702dbd8575896349c62"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
@@ -6265,21 +6261,20 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de9f6d7755e259a5575b9739cd226c40730726d72a84ed5573f71b8932fed246"
+checksum = "d1131dfac4d92947acef554a75b433122ca635414c23934f53434ec0efc5994d"
 dependencies = [
  "indexmap",
  "rkyv",
- "serde",
  "thiserror",
 ]
 
 [[package]]
 name = "wasmer-vm-near"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "597d871efa338883fb1d415e0c7163749042a3637e43cfe7204146e93a29d88f"
+checksum = "4a47f13d5c412974a38bba01a8b009e1e49bffbee45387198403b269a74d7374"
 dependencies = [
  "backtrace",
  "cc",
@@ -6290,7 +6285,6 @@ dependencies = [
  "more-asserts",
  "region 3.0.0",
  "rkyv",
- "serde",
  "thiserror",
  "wasmer-types-near",
  "winapi",
