@@ -740,7 +740,7 @@ impl ClientActor {
         ));
     }
 
-    fn get_next_epoch_view(&mut self) -> Result<EpochInfoView, Error> {
+    fn get_next_epoch_view(&self) -> Result<EpochInfoView, Error> {
         let head = self.client.chain.head()?;
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
@@ -797,6 +797,29 @@ impl ClientActor {
             shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
         })
     }
+
+    fn get_recent_epoch_info(
+        &mut self,
+    ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
+        // Next epoch id
+        let mut epochs_info: Vec<EpochInfoView> = Vec::new();
+
+        if let Ok(next_epoch) = self.get_next_epoch_view() {
+            epochs_info.push(next_epoch);
+        }
+        let head = self.client.chain.head()?;
+        let mut current_block = head.last_block_hash;
+        for _ in 0..5 {
+            if let Ok((epoch_view, block_previous_epoch)) = self.get_epoch_info_view(current_block)
+            {
+                current_block = block_previous_epoch;
+                epochs_info.push(epoch_view);
+            } else {
+                break;
+            }
+        }
+        Ok(epochs_info)
+    }
 }
 
 impl Handler<DebugStatus> for ClientActor {
@@ -810,6 +833,9 @@ impl Handler<DebugStatus> for ClientActor {
             }
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
+            }
+            DebugStatus::EpochInfo => {
+                Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info()?))
             }
         }
     }
@@ -964,25 +990,6 @@ impl Handler<Status> for ClientActor {
                 last_block_height = block.header().height();
             }
 
-            // Next epoch id
-            let mut epochs_info: Vec<EpochInfoView> = Vec::new();
-
-            if let Ok(next_epoch) = self.get_next_epoch_view() {
-                epochs_info.push(next_epoch);
-            }
-
-            let mut current_block = head.last_block_hash;
-            for _ in 0..5 {
-                if let Ok((epoch_view, block_previous_epoch)) =
-                    self.get_epoch_info_view(current_block)
-                {
-                    current_block = block_previous_epoch;
-                    epochs_info.push(epoch_view);
-                } else {
-                    break;
-                }
-            }
-
             Some(DetailedDebugStatus {
                 last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
@@ -1003,7 +1010,6 @@ impl Handler<Status> for ClientActor {
                     .chain
                     .blocks_with_missing_chunks
                     .list_blocks_by_height(),
-                epochs_info,
                 block_production_delay_millis: self
                     .client
                     .config

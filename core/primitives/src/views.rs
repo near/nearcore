@@ -443,8 +443,6 @@ pub struct DetailedDebugStatus {
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
     pub blocks_with_missing_chunks: Vec<BlockStatusView>,
-    // List of epochs - in descending order (next epoch is first).
-    pub epochs_info: Vec<EpochInfoView>,
     pub block_production_delay_millis: u64,
     pub chunk_info: ChunkInfoView,
 }

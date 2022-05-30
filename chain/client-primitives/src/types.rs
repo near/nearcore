@@ -19,7 +19,7 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockView, ChunkView, EpochInfoView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
     StateChangesView, TrackedShardsView,
@@ -336,9 +336,14 @@ pub struct Status {
     pub detailed: bool,
 }
 
+// Different debug requests that can be sent by HTML pages, via GET.
 pub enum DebugStatus {
+    // Request for the current sync status
     SyncStatus,
+    // Request currently tracked shards
     TrackedShards,
+    // Detailed information about last couple epochs.
+    EpochInfo,
 }
 
 impl Message for DebugStatus {
@@ -349,6 +354,8 @@ impl Message for DebugStatus {
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatus),
     TrackedShards(TrackedShardsView),
+    // List of epochs - in descending order (next epoch is first).
+    EpochInfo(Vec<EpochInfoView>),
 }
 
 #[derive(thiserror::Error, Debug)]

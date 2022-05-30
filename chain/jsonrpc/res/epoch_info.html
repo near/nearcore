@@ -71,83 +71,88 @@
             return bytes.toFixed(dp) + ' ' + units[u];
         }
 
-        $(document).ready(() => {
+        function process_responses(data, epoch_data) {
+            let validatorMap = new Map();
+            let maxShards = 0;
+            epoch_data.status_response.EpochInfo.forEach((epoch, index) => {
+                {
+                    let row = $('<tr>');
+                    row.append($('<td>').append(epoch.epoch_id));
+                    row.append($('<td>').append(epoch.height));
+                    row.append($('<td>').append(epoch.protocol_version));
+                    if (epoch.first_block === null) {
+                        if (index == 0) {
+                            let blocks_remaining = (epoch.height - data.sync_info.latest_block_height);
+                            let milliseconds_remaining = blocks_remaining * data.detailed_debug_status.block_production_delay_millis;
+                            row.append($('<td>').append("Next epoch - in " + blocks_remaining + " blocks "));
+                            $('.js-next-epoch').append("Next epoch in " + convertTime(milliseconds_remaining));
+                        } else {
+                            row.append($('<td>'));
+                        }
+                        row.append($('<td>'));
+                    } else {
+                        row.append($('<td>').append(epoch.first_block[0]));
+                        row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
+                    }
+                    $('.js-tbody-epochs').append(row);
+                }
+
+                $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
+                epoch.validators.forEach((validator, validator_index) => {
+                    let account_id = validator.account_id;
+                    if (validatorMap.has(account_id)) {
+                        validatorMap.set(account_id, validatorMap.get(account_id) + 2 ** index);
+                    } else {
+                        validatorMap.set(account_id, 2 ** index);
+                    }
+                });
+
+                {
+                    let row = $('<tr>');
+                    row.append($('<td>').append(epoch.epoch_id));
+
+                    epoch.shards_size_and_parts.forEach(element => {
+                        let cell = $('<td>').append(humanFileSize(element[0]));
+                        if (element[2] == true) {
+                            cell.css('background-color', 'orange');
+                        }
+                        row.append(cell);
+                        row.append($('<td>').append(element[1]));
+                    });
+                    $('.js-tbody-shard-sizes').append(row);
+                }
+                maxShards = Math.max(epoch.shards_size_and_parts.length, maxShards);
+            });
+
+
+            validatorMap.forEach((value, key) => {
+                let row = $('<tr>').append($('<td>').append(key));
+                for (i = 0; i < epoch_data.status_response.EpochInfo.length; i = i + 1) {
+                    let cell = $('<td>');
+                    if (value & 2 ** i) {
+                        cell.append('1');
+                    } else {
+                        cell.append('0');
+                    }
+                    row.append(cell);
+                }
+                $('.js-tbody-validators').append(row);
+            });
+            for (const x of Array(maxShards).keys()) {
+                $('.js-head-shard-sizes').append($('<th colspan="2">').append("Shard " + x));
+                $('.js-head-shard-sizes-line2').append($('<th>').append("Size"));
+                $('.js-head-shard-sizes-line2').append($('<th>').append("Parts"));
+
+            }
+        }
+
+
+        function request_epoch_info(status_data) {
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
-                success: data => {
-                    let validatorMap = new Map();
-                    let maxShards = 0;
-                    data.detailed_debug_status.epochs_info.forEach((epoch, index) => {
-                        {
-                            let row = $('<tr>');
-                            row.append($('<td>').append(epoch.epoch_id));
-                            row.append($('<td>').append(epoch.height));
-                            row.append($('<td>').append(epoch.protocol_version));
-                            if (epoch.first_block === null) {
-                                if (index == 0) {
-                                    let blocks_remaining = (epoch.height - data.sync_info.latest_block_height);
-                                    let milliseconds_remaining = blocks_remaining * data.detailed_debug_status.block_production_delay_millis;
-                                    row.append($('<td>').append("Next epoch - in " + blocks_remaining + " blocks "));
-                                    $('.js-next-epoch').append("Next epoch in " + convertTime(milliseconds_remaining));
-                                } else {
-                                    row.append($('<td>'));
-                                }
-                                row.append($('<td>'));
-                            } else {
-                                row.append($('<td>').append(epoch.first_block[0]));
-                                row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
-                            }
-                            $('.js-tbody-epochs').append(row);
-                        }
-
-                        $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
-                        epoch.validators.forEach((validator, validator_index) => {
-                            let account_id = validator.account_id;
-                            console.log(account_id);
-                            if (validatorMap.has(account_id)) {
-                                validatorMap.set(account_id, validatorMap.get(account_id) + 2 ** index);
-                            } else {
-                                validatorMap.set(account_id, 2 ** index);
-                            }
-                        });
-
-                        {
-                            let row = $('<tr>');
-                            row.append($('<td>').append(epoch.epoch_id));
-
-                            epoch.shards_size_and_parts.forEach(element => {
-                                let cell = $('<td>').append(humanFileSize(element[0]));
-                                if (element[2] == true) {
-                                    cell.css('background-color', 'orange');
-                                }
-                                row.append(cell);
-                                row.append($('<td>').append(element[1]));
-                            });
-                            $('.js-tbody-shard-sizes').append(row);
-                        }
-                        maxShards = Math.max(epoch.shards_size_and_parts.length, maxShards);
-                    });
-                    validatorMap.forEach((value, key) => {
-                        let row = $('<tr>').append($('<td>').append(key));
-                        for (i = 0; i < data.detailed_debug_status.epochs_info.length; i = i + 1) {
-                            let cell = $('<td>');
-                            if (value & 2 ** i) {
-                                cell.append('1');
-                            } else {
-                                cell.append('0');
-                            }
-                            row.append(cell);
-                        }
-                        $('.js-tbody-validators').append(row);
-                    });
-                    for (const x of Array(maxShards).keys()) {
-                        $('.js-head-shard-sizes').append($('<th colspan="2">').append("Shard " + x));
-                        $('.js-head-shard-sizes-line2').append($('<th>').append("Size"));
-                        $('.js-head-shard-sizes-line2').append($('<th>').append("Parts"));
-
-                    }
-
+                url: "/debug/api/epoch_info",
+                success: epoch_data => {
+                    process_responses(status_data, epoch_data);
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -155,7 +160,22 @@
                 },
                 contentType: "application/json; charset=utf-8",
             })
+        }
 
+
+        $(document).ready(() => {
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: data => {
+                    request_epoch_info(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
         });
     </script>
 </head>
