@@ -127,7 +127,7 @@
 
             validatorMap.forEach((value, key) => {
                 let row = $('<tr>').append($('<td>').append(key));
-                for (i = 0; i < epoch_data.status_response.EpochInfo.length; i = i + 1) {
+                for (i = 0; i < epoch_data.status_response.EpochInfo.length; i += 1) {
                     let cell = $('<td>');
                     if (value & 2 ** i) {
                         cell.append('1');

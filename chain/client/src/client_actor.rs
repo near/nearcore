@@ -72,6 +72,10 @@ const BLOCK_HORIZON: u64 = 500;
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
+// Constants for debug requests.
+const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
+const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
+
 pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
@@ -809,7 +813,7 @@ impl ClientActor {
         }
         let head = self.client.chain.head()?;
         let mut current_block = head.last_block_hash;
-        for _ in 0..5 {
+        for _ in 0..DEBUG_EPOCHS_TO_FETCH {
             if let Ok((epoch_view, block_previous_epoch)) = self.get_epoch_info_view(current_block)
             {
                 current_block = block_previous_epoch;
@@ -834,7 +838,7 @@ impl ClientActor {
         let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
 
         // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
-        for _ in 0..50 {
+        for _ in 0..DEBUG_BLOCKS_TO_FETCH {
             let block = match self.client.chain.get_block(&last_block_hash) {
                 Ok(block) => block,
                 Err(_) => break,
