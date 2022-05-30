@@ -211,11 +211,11 @@ fn load_snapshot(load_cmd: LoadCmd) {
         Path::new(&load_cmd.target_home).join("genesis.json"),
     )
     .unwrap();
-    /*     fs::copy(
+    fs::copy(
         Path::new(&load_cmd.source_dir).join("config.json"),
         Path::new(&load_cmd.target_home).join("config.json"),
     )
-    .unwrap();*/
+    .unwrap();
 
     let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));

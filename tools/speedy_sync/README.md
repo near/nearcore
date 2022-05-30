@@ -36,12 +36,18 @@ cargo build -p speedy_sync
 ```
 
 ## Loading a checkpoint
-To load a checkpoint, please run:
+If your new HOME dir doesn't have a node_key.json file, you can generate a random one using:
+```
+cargo run -p keypair-generator -- --home /tmp/bar --generate-config node-key
+```
 
+
+To load a checkpoint, please run:
 ```
 cargo build -p speedy_sync 
 ./speedy_sync load --source-dir $PATH_TO_CHECKPOINT_DIR --target-home $PATH_TO_HOME_DIR_OF_A_NEW_NODE
 ```
+
 
 ### After running speedy
 
