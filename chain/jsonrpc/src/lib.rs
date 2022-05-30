@@ -1476,29 +1476,19 @@ async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*DEBUG_HTML))
 }
 
-#[get("/debug/last_blocks")]
-async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
-}
-
-#[get("/debug/network_info")]
-async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
-}
-
-#[get("/debug/epoch_info")]
-async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
-}
-
-#[get("/debug/chain_n_chunk_info")]
-async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
-}
-
-#[get("/debug/sync")]
-async fn sync_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*SYNC_HTML))
+#[get("/debug/pages/{page}")]
+async fn display_debug_html(
+    path: web::Path<(String,)>,
+) -> actix_web::Result<impl actix_web::Responder> {
+    let page_name = path.into_inner().0;
+    match page_name.as_str() {
+        "last_blocks" => Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML)),
+        "network_info" => Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML)),
+        "epoch_info" => Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML)),
+        "chain_n_chunk_info" => Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML)),
+        "sync" => Ok(HttpResponse::Ok().body(*SYNC_HTML)),
+        _ => Ok(HttpResponse::NotFound().finish()),
+    }
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1561,13 +1551,9 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
-            .service(web::resource("/debug/api/sync_status").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(debug_html)
-            .service(last_blocks_html)
-            .service(network_info_html)
-            .service(epoch_info_html)
-            .service(chain_n_chunk_info_html)
+            .service(display_debug_html)
     })
     .bind(addr)
     .unwrap()
