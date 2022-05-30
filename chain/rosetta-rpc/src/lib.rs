@@ -125,7 +125,7 @@ async fn network_status(
         .map(|block| (&block.header).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
-    let final_block = get_final_block(&view_client_addr).await?;
+    let final_block = crate::utils::get_final_block(&view_client_addr).await?;
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
             index: final_block.header.height.try_into().unwrap(),
@@ -188,80 +188,6 @@ async fn network_options(
     }))
 }
 
-/// Get a block with `block_id`.
-/// Returns `Ok(Some(_))` if the block exists and is final.
-/// Returns `Ok(None)` if the block does not exist or is not final.
-async fn get_block_if_final(
-    block_id: &near_primitives::types::BlockReference,
-    view_client_addr: &Addr<ViewClientActor>,
-) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
-    let final_block = get_final_block(view_client_addr).await?;
-    let is_query_by_height = match block_id {
-        near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        ) => return Ok(Some(final_block)),
-        near_primitives::types::BlockReference::BlockId(
-            near_primitives::types::BlockId::Height(height),
-        ) => {
-            if height > &final_block.header.height {
-                return Ok(None);
-            }
-            if height == &final_block.header.height {
-                return Ok(Some(final_block));
-            }
-            true
-        }
-        _ => false,
-    };
-    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
-        Ok(block) => block,
-        Err(_) => return Ok(None),
-    };
-    // if block height is larger than the last final block height, then the block is not final
-    if block.header.height > final_block.header.height {
-        return Ok(None);
-    }
-    // check that this block is on the canonical chain
-    if is_query_by_height {
-        Ok(Some(block))
-    } else {
-        let block_on_canonical_chain = match view_client_addr
-            .send(near_client::GetBlock(
-                near_primitives::types::BlockId::Height(block.header.height).into(),
-            ))
-            .await?
-        {
-            Ok(block) => block,
-            Err(_) => {
-                return Err(errors::ErrorKind::InternalInvariantError(format!(
-                    "block {} not found",
-                    block.header.height
-                ))
-                .into())
-            }
-        };
-        if block.header.hash == block_on_canonical_chain.header.hash {
-            Ok(Some(block))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-async fn get_final_block(
-    view_client_addr: &Addr<ViewClientActor>,
-) -> Result<near_primitives::views::BlockView, models::Error> {
-    return match view_client_addr
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        )))
-        .await?
-    {
-        Ok(block) => Ok(block),
-        Err(_) => Err(errors::ErrorKind::InternalError("final block not found".to_string()).into()),
-    };
-}
-
 #[api_v2_operation]
 /// Get a Block
 ///
@@ -289,10 +215,9 @@ async fn block_details(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
-    let block = match get_block_if_final(&block_id, view_client_addr.get_ref()).await? {
-        Some(block) => block,
-        None => return Ok(Json(models::BlockResponse { block: None, other_transactions: None })),
-    };
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
+        .await?
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
     let block_identifier: models::BlockIdentifier = (&block.header).into();
 
@@ -369,10 +294,9 @@ async fn block_transaction_details(
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
-    let block = match get_block_if_final(&block_id, view_client_addr.get_ref()).await? {
-        Some(block) => block,
-        None => return Err(errors::ErrorKind::NotFound("Block not found".into()).into()),
-    };
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
+        .await?
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
     let transaction = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
@@ -425,10 +349,10 @@ async fn account_balance(
 
     // TODO: update error handling once we return structured errors from the
     // view_client handlers
-    let block = match get_block_if_final(&block_id, view_client_addr.get_ref()).await? {
-        Some(block) => block,
-        None => return Err(errors::ErrorKind::NotFound("Block not found".into()).into()),
-    };
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
+        .await?
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
+
     let runtime_config =
         crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
             .await?
