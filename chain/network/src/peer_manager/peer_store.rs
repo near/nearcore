@@ -508,14 +508,14 @@ mod test {
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let mut peer_store = PeerStore::new(store, &boot_nodes, Default::default()).unwrap();
             assert_eq!(peer_store.healthy_peers(3).len(), 2);
             peer_store.peer_ban(&peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
             assert_eq!(peer_store.healthy_peers(3).len(), 1);
         }
         {
-            let store_new = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store_new = StoreOpener::with_default_config(tmp_dir.path()).open();
             let peer_store_new =
                 PeerStore::new(store_new, &boot_nodes, Default::default()).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
@@ -529,7 +529,7 @@ mod test {
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a, peer_info_to_ban];
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let peer_store = PeerStore::new(store, &boot_nodes, Default::default()).unwrap();
             assert!(peer_store.unconnected_peer(|_| false).is_some());
             assert!(peer_store.unconnected_peer(|_| true).is_none());
@@ -773,7 +773,7 @@ mod test {
 
         // Add three peers.
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
             peer_store.add_indirect_peers(peer_infos.clone().into_iter()).unwrap();
         }
@@ -781,7 +781,7 @@ mod test {
 
         // Blacklisted peers are removed from the store.
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let blacklist =
                 Blacklist::from_iter([format!("{}", peer_infos[2].addr.unwrap())].into_iter());
             let _peer_store = PeerStore::new(store, &[], blacklist).unwrap();
@@ -790,7 +790,7 @@ mod test {
     }
 
     fn assert_peers_in_store(store_path: &std::path::Path, expected: &[PeerId]) {
-        let store = StoreOpener::with_default_config().home(store_path).open();
+        let store = StoreOpener::with_default_config(store_path).open();
         let stored_peers: HashSet<PeerId> = HashSet::from_iter(
             store.iter(DBCol::Peers).map(|(key, _)| PeerId::try_from_slice(key.as_ref()).unwrap()),
         );
@@ -826,14 +826,14 @@ mod test {
             peer_infos.iter().map(|info| info.addr.unwrap().clone()).collect::<Vec<_>>();
 
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
             peer_store.add_indirect_peers(peer_infos.into_iter()).unwrap();
         }
         assert_peers_in_store(tmp_dir.path(), &peer_ids);
 
         {
-            let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+            let store = StoreOpener::with_default_config(tmp_dir.path()).open();
             let mut peer_store = PeerStore::new(store, &[], Default::default()).unwrap();
             assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
             peer_store.delete_peers(&peer_ids).unwrap();

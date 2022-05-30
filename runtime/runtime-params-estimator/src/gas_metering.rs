@@ -129,7 +129,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let warmup_repeats = config.warmup_iters_per_block;
 
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
+    let store = near_store::StoreOpener::with_default_config(workdir.path()).open();
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let config_store = RuntimeConfigStore::new(None);
