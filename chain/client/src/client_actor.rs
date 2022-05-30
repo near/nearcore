@@ -820,6 +820,94 @@ impl ClientActor {
         }
         Ok(epochs_info)
     }
+
+    fn get_last_blocks_info(
+        &mut self,
+    ) -> Result<Vec<DebugBlockStatus>, near_chain_primitives::Error> {
+        let head = self.client.chain.head()?;
+
+        let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
+        let mut last_block_hash = head.last_block_hash;
+        let mut last_block_timestamp: u64 = 0;
+        let mut last_block_height = head.height + 1;
+
+        let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+
+        // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
+        for _ in 0..50 {
+            let block = match self.client.chain.get_block(&last_block_hash) {
+                Ok(block) => block,
+                Err(_) => break,
+            };
+            // If there is a gap - and some blocks were not produced - make sure to report this
+            // (and mention who was supposed to be a block producer).
+            for height in (block.header().height() + 1..last_block_height).rev() {
+                let block_producer = self
+                    .client
+                    .runtime_adapter
+                    .get_block_producer(block.header().epoch_id(), height)
+                    .map(|account| account.to_string())
+                    .unwrap_or_default();
+                blocks_debug.push(DebugBlockStatus {
+                    block_hash: CryptoHash::default(),
+                    block_height: height,
+                    block_producer,
+                    chunks: vec![],
+                    processing_time_ms: None,
+                    timestamp_delta: 0,
+                    gas_price_ratio: 1.0,
+                });
+            }
+
+            let block_producer = self
+                .client
+                .runtime_adapter
+                .get_block_producer(block.header().epoch_id(), block.header().height())
+                .map(|f| f.to_string())
+                .unwrap_or_default();
+
+            let chunks = block
+                .chunks()
+                .iter()
+                .map(|chunk| DebugChunkStatus {
+                    shard_id: chunk.shard_id(),
+                    chunk_hash: chunk.chunk_hash(),
+                    chunk_producer: self
+                        .client
+                        .runtime_adapter
+                        .get_chunk_producer(
+                            block.header().epoch_id(),
+                            block.header().height(),
+                            chunk.shard_id(),
+                        )
+                        .map(|f| f.to_string())
+                        .unwrap_or_default(),
+                    gas_used: chunk.gas_used(),
+                    processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
+                        .map(|s| s.as_millis() as u64),
+                })
+                .collect();
+
+            blocks_debug.push(DebugBlockStatus {
+                block_hash: last_block_hash,
+                block_height: block.header().height(),
+                block_producer: block_producer,
+                chunks,
+                processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
+                    .map(|s| s.as_millis() as u64),
+                timestamp_delta: if last_block_timestamp > 0 {
+                    last_block_timestamp.saturating_sub(block.header().raw_timestamp())
+                } else {
+                    0
+                },
+                gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
+            });
+            last_block_hash = block.header().prev_hash().clone();
+            last_block_timestamp = block.header().raw_timestamp();
+            last_block_height = block.header().height();
+        }
+        Ok(blocks_debug)
+    }
 }
 
 impl Handler<DebugStatus> for ClientActor {
@@ -836,6 +924,9 @@ impl Handler<DebugStatus> for ClientActor {
             }
             DebugStatus::EpochInfo => {
                 Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info()?))
+            }
+            DebugStatus::BlockStatus => {
+                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info()?))
             }
         }
     }
@@ -908,90 +999,7 @@ impl Handler<Status> for ClientActor {
         // Provide more detailed information about the current state of chain.
         // For now - provide info about last 50 blocks.
         let detailed_debug_status = if msg.detailed {
-            let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
-
-            let mut last_block_hash = head.last_block_hash;
-            let mut last_block_timestamp: u64 = 0;
-            let mut last_block_height = head.height + 1;
-
-            let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
-
-            // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
-            for _ in 0..50 {
-                let block = match self.client.chain.get_block(&last_block_hash) {
-                    Ok(block) => block,
-                    Err(_) => break,
-                };
-                // If there is a gap - and some blocks were not produced - make sure to report this
-                // (and mention who was supposed to be a block producer).
-                for height in (block.header().height() + 1..last_block_height).rev() {
-                    let block_producer = self
-                        .client
-                        .runtime_adapter
-                        .get_block_producer(block.header().epoch_id(), height)
-                        .map(|account| account.to_string())
-                        .unwrap_or_default();
-                    blocks_debug.push(DebugBlockStatus {
-                        block_hash: CryptoHash::default(),
-                        block_height: height,
-                        block_producer,
-                        chunks: vec![],
-                        processing_time_ms: None,
-                        timestamp_delta: 0,
-                        gas_price_ratio: 1.0,
-                    });
-                }
-
-                let block_producer = self
-                    .client
-                    .runtime_adapter
-                    .get_block_producer(block.header().epoch_id(), block.header().height())
-                    .map(|f| f.to_string())
-                    .unwrap_or_default();
-
-                let chunks = block
-                    .chunks()
-                    .iter()
-                    .map(|chunk| DebugChunkStatus {
-                        shard_id: chunk.shard_id(),
-                        chunk_hash: chunk.chunk_hash(),
-                        chunk_producer: self
-                            .client
-                            .runtime_adapter
-                            .get_chunk_producer(
-                                block.header().epoch_id(),
-                                block.header().height(),
-                                chunk.shard_id(),
-                            )
-                            .map(|f| f.to_string())
-                            .unwrap_or_default(),
-                        gas_used: chunk.gas_used(),
-                        processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
-                            .map(|s| s.as_millis() as u64),
-                    })
-                    .collect();
-
-                blocks_debug.push(DebugBlockStatus {
-                    block_hash: last_block_hash,
-                    block_height: block.header().height(),
-                    block_producer: block_producer,
-                    chunks,
-                    processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
-                        .map(|s| s.as_millis() as u64),
-                    timestamp_delta: if last_block_timestamp > 0 {
-                        last_block_timestamp.saturating_sub(block.header().raw_timestamp())
-                    } else {
-                        0
-                    },
-                    gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
-                });
-                last_block_hash = block.header().prev_hash().clone();
-                last_block_timestamp = block.header().raw_timestamp();
-                last_block_height = block.header().height();
-            }
-
             Some(DetailedDebugStatus {
-                last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
                 sync_status: format!(
                     "{} ({})",

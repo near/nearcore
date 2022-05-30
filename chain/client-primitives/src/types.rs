@@ -19,10 +19,10 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochInfoView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView, TrackedShardsView,
+    BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
+    ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
+    LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -344,6 +344,8 @@ pub enum DebugStatus {
     TrackedShards,
     // Detailed information about last couple epochs.
     EpochInfo,
+    // Detailed information about last couple blocks.
+    BlockStatus,
 }
 
 impl Message for DebugStatus {
@@ -356,6 +358,8 @@ pub enum DebugStatusResponse {
     TrackedShards(TrackedShardsView),
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
+    // Detailed information about blocks.
+    BlockStatus(Vec<DebugBlockStatus>),
 }
 
 #[derive(thiserror::Error, Debug)]

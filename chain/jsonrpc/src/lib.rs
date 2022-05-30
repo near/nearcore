@@ -926,6 +926,9 @@ impl JsonRpcHandler {
                 "/debug/api/epoch_info" => {
                     Ok(Some(self.client_addr.send(DebugStatus::EpochInfo).await??.into()))
                 }
+                "/debug/api/block_status" => {
+                    Ok(Some(self.client_addr.send(DebugStatus::BlockStatus).await??.into()))
+                }
                 _ => return Ok(None),
             }
         } else {

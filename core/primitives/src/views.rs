@@ -436,7 +436,6 @@ pub struct TrackedShardsView {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
-    pub last_blocks: Vec<DebugBlockStatus>,
     pub network_info: NetworkInfoView,
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
