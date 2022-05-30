@@ -917,8 +917,8 @@ impl JsonRpcHandler {
     > {
         if self.enable_debug_rpc {
             match path {
-                "/debug/api/status" => {
-                    Ok(Some(self.client_addr.send(DebugStatus::SyncStatus).await??.into()))
+                "/debug/api/tracked_shards" => {
+                    Ok(Some(self.client_addr.send(DebugStatus::TrackedShards).await??.into()))
                 }
                 "/debug/api/sync_status" => {
                     Ok(Some(self.client_addr.send(DebugStatus::SyncStatus).await??.into()))

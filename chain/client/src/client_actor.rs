@@ -767,6 +767,36 @@ impl ClientActor {
             shards_size_and_parts: vec![],
         })
     }
+
+    fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
+        let epoch_id = self.client.chain.header_head()?.epoch_id;
+        let fetch_hash = self.client.chain.header_head()?.last_block_hash;
+        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+
+        let tracked_shards: Vec<(bool, bool)> =
+            (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
+                .map(|x| {
+                    (
+                        self.client.runtime_adapter.cares_about_shard(
+                            me.as_ref(),
+                            &fetch_hash,
+                            x,
+                            true,
+                        ),
+                        self.client.runtime_adapter.will_care_about_shard(
+                            me.as_ref(),
+                            &fetch_hash,
+                            x,
+                            true,
+                        ),
+                    )
+                })
+                .collect();
+        Ok(TrackedShardsView {
+            shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
+            shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
+        })
+    }
 }
 
 impl Handler<DebugStatus> for ClientActor {
@@ -777,6 +807,9 @@ impl Handler<DebugStatus> for ClientActor {
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+            }
+            DebugStatus::TrackedShards => {
+                Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
         }
     }
@@ -950,30 +983,6 @@ impl Handler<Status> for ClientActor {
                 }
             }
 
-            let epoch_id = self.client.chain.header_head()?.epoch_id;
-            let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-            let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-
-            let tracked_shards: Vec<(bool, bool)> =
-                (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                    .map(|x| {
-                        (
-                            self.client.runtime_adapter.cares_about_shard(
-                                me.as_ref(),
-                                &fetch_hash,
-                                x,
-                                true,
-                            ),
-                            self.client.runtime_adapter.will_care_about_shard(
-                                me.as_ref(),
-                                &fetch_hash,
-                                x,
-                                true,
-                            ),
-                        )
-                    })
-                    .collect();
-
             Some(DetailedDebugStatus {
                 last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
@@ -1001,10 +1010,6 @@ impl Handler<Status> for ClientActor {
                     .min_block_production_delay
                     .as_millis() as u64,
                 chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
-                tracked_shards: TrackedShardsView {
-                    shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
-                    shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
-                },
             })
         } else {
             None

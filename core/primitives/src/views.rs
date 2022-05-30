@@ -447,7 +447,6 @@ pub struct DetailedDebugStatus {
     pub epochs_info: Vec<EpochInfoView>,
     pub block_production_delay_millis: u64,
     pub chunk_info: ChunkInfoView,
-    pub tracked_shards: TrackedShardsView,
 }
 
 // TODO: add more information to status.

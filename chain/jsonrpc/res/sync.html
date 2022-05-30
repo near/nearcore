@@ -120,8 +120,8 @@
             }
         }
 
-        function process_status(data) {
-            let tracked_shards = data.detailed_debug_status.tracked_shards;
+        function process_tracked_shards(data) {
+            let tracked_shards = data.status_response.TrackedShards;
             let max_shards = Math.max(tracked_shards.shards_tracked_this_epoch.length, tracked_shards.shards_tracked_next_epoch.length);
             for (let shard = 0; shard < max_shards; shard += 1) {
                 console.log(shard);
@@ -159,9 +159,9 @@
             });
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "/debug/api/tracked_shards",
                 success: data => {
-                    process_status(data);
+                    process_tracked_shards(data);
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {

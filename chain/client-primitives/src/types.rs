@@ -22,7 +22,7 @@ use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView,
+    StateChangesView, TrackedShardsView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -338,6 +338,7 @@ pub struct Status {
 
 pub enum DebugStatus {
     SyncStatus,
+    TrackedShards,
 }
 
 impl Message for DebugStatus {
@@ -347,6 +348,7 @@ impl Message for DebugStatus {
 #[derive(Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatus),
+    TrackedShards(TrackedShardsView),
 }
 
 #[derive(thiserror::Error, Debug)]
