@@ -428,6 +428,13 @@ pub struct ChunkInfoView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
+pub struct TrackedShardsView {
+    pub shards_tracked_this_epoch: Vec<bool>,
+    pub shards_tracked_next_epoch: Vec<bool>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub last_blocks: Vec<DebugBlockStatus>,
     pub network_info: NetworkInfoView,
@@ -440,6 +447,7 @@ pub struct DetailedDebugStatus {
     pub epochs_info: Vec<EpochInfoView>,
     pub block_production_delay_millis: u64,
     pub chunk_info: ChunkInfoView,
+    pub tracked_shards: TrackedShardsView,
 }
 
 // TODO: add more information to status.

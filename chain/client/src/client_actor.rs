@@ -50,7 +50,8 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, ValidatorInfo,
+    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, TrackedShardsView,
+    ValidatorInfo,
 };
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
@@ -821,14 +822,12 @@ impl Handler<Status> for ClientActor {
             .collect();
 
         let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash).ok();
 
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
-
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
-
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
         let mut earliest_block_time = None;
@@ -945,6 +944,30 @@ impl Handler<Status> for ClientActor {
                 }
             }
 
+            let epoch_id = self.client.chain.header_head()?.epoch_id;
+            let fetch_hash = self.client.chain.header_head()?.last_block_hash;
+            let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+
+            let tracked_shards: Vec<(bool, bool)> =
+                (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
+                    .map(|x| {
+                        (
+                            self.client.runtime_adapter.cares_about_shard(
+                                me.as_ref(),
+                                &fetch_hash,
+                                x,
+                                true,
+                            ),
+                            self.client.runtime_adapter.will_care_about_shard(
+                                me.as_ref(),
+                                &fetch_hash,
+                                x,
+                                true,
+                            ),
+                        )
+                    })
+                    .collect();
+
             Some(DetailedDebugStatus {
                 last_blocks: blocks_debug,
                 network_info: self.network_info.clone().into(),
@@ -972,6 +995,10 @@ impl Handler<Status> for ClientActor {
                     .min_block_production_delay
                     .as_millis() as u64,
                 chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
+                tracked_shards: TrackedShardsView {
+                    shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
+                    shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
+                },
             })
         } else {
             None
@@ -993,7 +1020,7 @@ impl Handler<Status> for ClientActor {
                 earliest_block_height,
                 earliest_block_time,
                 epoch_id: Some(head.epoch_id),
-                epoch_start_height: Some(epoch_start_height),
+                epoch_start_height,
             },
             validator_account_id,
             detailed_debug_status,
