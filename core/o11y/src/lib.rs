@@ -60,7 +60,7 @@ pub struct DefaultSubscriberGuard<S> {
 
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Parser)]
+#[derive(Debug, Default, Parser)]
 pub struct OpenTelemetryConfig {
     #[clap(long)]
     /// Enables export of span data using opentelemetry exporters.
