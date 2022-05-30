@@ -19,7 +19,9 @@ use wasmer_compiler_singlepass::Singlepass;
 use wasmer_engine::{DeserializeError, Engine};
 use wasmer_engine_universal::{Universal, UniversalEngine, UniversalExecutableRef};
 use wasmer_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
-use wasmer_vm::{Artifact, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory};
+use wasmer_vm::{
+    Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
+};
 
 const WASMER_FEATURES: Features = Features {
     threads: WASM_FEATURES.threads,
@@ -333,27 +335,16 @@ impl Wasmer2VM {
                             .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                     )
                     .map_err(|err| {
-                        use wasmer_engine::InstantiationError::{self, *};
-                        match err.downcast_ref::<InstantiationError>() {
-                            Some(Start(err)) => {
-                                translate_runtime_error(err.clone(), import.vmlogic)
-                            }
-                            Some(Link(e)) => {
-                                VMError::FunctionCallError(FunctionCallError::LinkError {
-                                    msg: e.to_string(),
-                                })
-                            }
-                            Some(CreateInstance(e)) => {
-                                VMError::FunctionCallError(FunctionCallError::LinkError {
-                                    msg: e.to_string(),
-                                })
-                            }
-                            Some(CpuFeature(e)) => panic!(
+                        use wasmer_engine::InstantiationError::*;
+                        match err {
+                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic),
+                            Link(e) => VMError::FunctionCallError(FunctionCallError::LinkError {
+                                msg: e.to_string(),
+                            }),
+                            CpuFeature(e) => panic!(
                                 "host doesn't support the CPU features needed to run contracts: {}",
                                 e
                             ),
-                            // TODO: make this a static invariant.
-                            None => panic!("this ought to be unreachable"),
                         }
                     })?;
                 // SAFETY: being called immediately after instantiation.
@@ -379,18 +370,19 @@ impl Wasmer2VM {
                     // SAFETY: we double-checked the signature, and all of the remaining arguments
                     // come from an exported function definition which must be valid since it comes
                     // from wasmer itself.
-                    wasmer_vm::wasmer_call_trampoline(
-                        function.vmctx,
-                        trampoline,
-                        function.address,
-                        [].as_mut_ptr() as *mut _,
-                    )
-                    .map_err(|e| {
-                        translate_runtime_error(
-                            wasmer_engine::RuntimeError::from_trap(e),
-                            import.vmlogic,
+                    instance
+                        .invoke_function(
+                            function.vmctx,
+                            trampoline,
+                            function.address,
+                            [].as_mut_ptr() as *mut _,
                         )
-                    })?;
+                        .map_err(|e| {
+                            translate_runtime_error(
+                                wasmer_engine::RuntimeError::from_trap(e),
+                                import.vmlogic,
+                            )
+                        })?;
                 } else {
                     panic!("signature should've already been checked by `get_entrypoint_index`")
                 }

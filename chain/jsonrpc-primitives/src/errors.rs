@@ -203,7 +203,7 @@ impl From<ServerError> for RpcError {
             ServerError::TxExecutionError(_) => {
                 RpcError::new_handler_error(Some(error_data.clone()), error_data)
             }
-            _ => RpcError::new_internal_error(Some(error_data.clone()), e.to_string()),
+            _ => RpcError::new_internal_error(Some(error_data), e.to_string()),
         }
     }
 }

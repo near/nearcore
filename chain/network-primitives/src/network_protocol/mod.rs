@@ -149,7 +149,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
@@ -157,7 +157,7 @@ pub struct Ping {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -380,7 +380,7 @@ impl PartialEncodedChunkForwardMsg {
             inner_header_hash: header.inner_header_hash(),
             merkle_root: header.encoded_merkle_root(),
             signature: header.signature().clone(),
-            prev_block_hash: header.prev_block_hash(),
+            prev_block_hash: header.prev_block_hash().clone(),
             height_created: header.height_created(),
             shard_id: header.shard_id(),
             parts,

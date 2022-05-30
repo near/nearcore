@@ -9,6 +9,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1.6", features = ["derive"] }
+tokio = { version = "1.16.1", features = ["rt-multi-thread"]}
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

@@ -269,8 +269,8 @@ mod test {
         graph.add_edge(&source, &node0);
 
         assert!(expected_routing_tables(
-            graph.calculate_distance(),
-            vec![(node0.clone(), vec![node0.clone()])],
+            &graph.calculate_distance(),
+            &vec![(node0.clone(), vec![node0.clone()])],
         ));
 
         assert_eq!(1, graph.total_active_edges() as usize);
@@ -288,7 +288,7 @@ mod test {
         graph.add_edge(&nodes[2], &nodes[1]);
         graph.add_edge(&nodes[1], &nodes[2]);
 
-        assert!(expected_routing_tables(graph.calculate_distance(), vec![]));
+        assert!(expected_routing_tables(&graph.calculate_distance(), &vec![]));
 
         assert_eq!(2, graph.total_active_edges() as usize);
         assert_eq!(2, graph.compute_total_active_edges() as usize);
@@ -307,8 +307,8 @@ mod test {
         graph.add_edge(&source, &nodes[0]);
 
         assert!(expected_routing_tables(
-            graph.calculate_distance(),
-            vec![
+            &graph.calculate_distance(),
+            &vec![
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[0].clone()]),
                 (nodes[2].clone(), vec![nodes[0].clone()]),
@@ -332,8 +332,8 @@ mod test {
         graph.add_edge(&source, &nodes[1]);
 
         assert!(expected_routing_tables(
-            graph.calculate_distance(),
-            vec![
+            &graph.calculate_distance(),
+            &vec![
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[1].clone()]),
                 (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),
@@ -384,7 +384,7 @@ mod test {
             next_hops.push((node.clone(), target.clone()));
         }
 
-        assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
+        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
 
         assert_eq!(22, graph.total_active_edges() as usize);
         assert_eq!(22, graph.compute_total_active_edges() as usize);

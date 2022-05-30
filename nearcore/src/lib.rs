@@ -7,8 +7,6 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
@@ -23,9 +21,8 @@ use near_store::db::RocksDB;
 use near_store::migrations::{
     get_store_version, migrate_28_to_29, migrate_29_to_30, set_store_version,
 };
-use near_store::{create_store, create_store_with_config, DBCol, Store};
+use near_store::{DBCol, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -38,23 +35,6 @@ mod metrics;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
-
-const STORE_PATH: &str = "data";
-
-pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
-    fs::canonicalize(path).is_ok()
-}
-
-pub fn get_store_path(base_path: &Path) -> PathBuf {
-    let mut store_path = base_path.to_owned();
-    store_path.push(STORE_PATH);
-    if store_path_exists(&store_path) {
-        info!(target: "near", "Opening store database at {:?}", store_path);
-    } else {
-        info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
-    }
-    store_path
-}
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -98,7 +78,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::open(path, &near_config.config.store)?;
+    let db = RocksDB::open(path, &near_config.config.store, false)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -158,21 +138,20 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     }
     if db_version <= 27 {
         // version 27 => 28: add DBCol::StateChangesForSplitStates
-        // Does not need to do anything since open db with option `create_missing_column_families`
-        // Nevertheless need to bump db version, because db_version 27 binary can't open db_version 28 db
-        info!(target: "near", "Migrate DB from version 27 to 28");
-        let store = create_store(path);
-        set_store_version(&store, 28);
+        // Does not need to do anything since open db with option
+        // `create_missing_column_families`.  Nevertheless need to bump db
+        // version, because db_version 27 binary can't open db_version 28 db.
+        // Combine it with migration from 28 to 29; don’t do anything here.
     }
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(path);
+        migrate_28_to_29(path, &near_config.config.store);
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(path);
+        migrate_29_to_30(path, &near_config.config.store);
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
@@ -180,17 +159,13 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         migrate_30_to_31(path, &near_config);
     }
 
-    #[cfg(feature = "nightly_protocol")]
-    {
-        let store = create_store(&path);
-
+    if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
+        // TODO(#6857): Don’t use .path().
+        let store = StoreOpener::new(&near_config.config.store).path(path).open();
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
-    }
-
-    #[cfg(not(feature = "nightly_protocol"))]
-    {
-        let db_version = get_store_version(&path)?;
+    } else {
+        let db_version = get_store_version(path)?;
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
 
@@ -218,13 +193,13 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let path = get_store_path(home_dir);
-    let store_exists = store_path_exists(&path);
+    let path = near_store::get_store_path(home_dir);
+    let store_exists = near_store::store_path_exists(&path);
     if store_exists {
         apply_store_migrations(&path, near_config)?;
     }
-    let store =
-        create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
+    // TODO(#6857): Don’t use .path().
+    let store = StoreOpener::new(&near_config.config.store).path(&path).open();
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -252,7 +227,7 @@ pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -279,11 +254,9 @@ pub fn start_with_config_and_synchronization(
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
+    let node_id = PeerId::new(config.network_config.public_key.clone());
     let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv =
-        Arc::new(std::sync::RwLock::new(AdversarialControls::new(config.client_config.archive)));
+    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -291,7 +264,6 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
@@ -303,8 +275,7 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer,
         telemetry,
         shutdown_signal,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     );
 
     #[allow(unused_mut)]
@@ -328,16 +299,17 @@ pub fn start_with_config_and_synchronization(
         )
         .unwrap()
     });
+    network_adapter.set_recipient(network_actor.clone().recipient());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
+        rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
             #[cfg(feature = "test_features")]
-            network_actor.clone(),
+            network_actor,
             #[cfg(feature = "test_features")]
             routing_table_addr2,
         ));
@@ -355,8 +327,6 @@ pub fn start_with_config_and_synchronization(
             ),
         ));
     }
-
-    network_adapter.set_recipient(network_actor.recipient());
 
     rpc_servers.shrink_to_fit();
 
@@ -411,9 +381,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_dir = home_dir.join(STORE_PATH);
+    let src_dir = home_dir.join(near_store::STORE_PATH);
     anyhow::ensure!(
-        store_path_exists(&src_dir),
+        near_store::store_path_exists(&src_dir),
         "{}: source storage doesn’t exist",
         src_dir.display()
     );
@@ -427,13 +397,14 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     );
 
     anyhow::ensure!(
-        !store_path_exists(&opts.dest_dir),
+        !near_store::store_path_exists(&opts.dest_dir),
         "{}: directory already exists",
         opts.dest_dir.display()
     );
 
     info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &config.store.clone().with_read_only(true));
+    // TODO(#6857): Don’t use .path().
+    let src_store = StoreOpener::new(&config.store).read_only(true).path(&src_dir).open();
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -449,7 +420,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = create_store_with_config(&opts.dest_dir, &config.store);
+    // TODO(#6857): Don’t use .path().
+    let dst_store = StoreOpener::new(&config.store).path(&opts.dest_dir).open();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

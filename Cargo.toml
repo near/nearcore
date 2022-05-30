@@ -59,16 +59,21 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.12.0"
+version = "0.13.0"
 exclude = [ "neard" ]
 
 [patch.crates-io]
 
+# Note that "bench" profile inherits from "release" profile and
+# "test" profile inherits from "dev" profile.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#test
+
 [profile.release]
 overflow-checks = true
+panic = 'abort'
 
-[profile.bench]
-overflow-checks = true
+[profile.dev]
+panic = 'abort'
 
 [profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug

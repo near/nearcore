@@ -29,7 +29,7 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
@@ -47,8 +47,6 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-#[cfg(feature = "test_features")]
-use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
@@ -117,9 +115,9 @@ pub fn setup(
     } else {
         DoomslugThresholdMode::NoApprovals
     };
-    let mut chain =
+    let chain =
         Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, !archive).unwrap();
-    let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
+    let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
@@ -136,8 +134,7 @@ pub fn setup(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+    let adv = crate::adversarial::Controls::default();
 
     let view_client_addr = start_view_client(
         Some(signer.validator_id().clone()),
@@ -145,7 +142,6 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -161,7 +157,6 @@ pub fn setup(
         TEST_SEED,
         ctx,
         None,
-        #[cfg(feature = "test_features")]
         adv,
     )
     .unwrap();
@@ -229,8 +224,7 @@ pub fn setup_only_view(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+    let adv = crate::adversarial::Controls::default();
 
     start_view_client(
         Some(signer.validator_id().clone()),
@@ -238,8 +232,7 @@ pub fn setup_only_view(
         runtime,
         network_adapter.clone(),
         config,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     )
 }
 
@@ -983,8 +976,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::SyncRoutingTable { .. }
                         | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo(_, _)
-                        | NetworkRequests::FetchPingPongInfo
+                        | NetworkRequests::PingTo { .. }
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
@@ -1458,7 +1450,7 @@ impl TestEnv {
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let head = self.clients[0].chain.head().unwrap();
-        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
             .runtime_adapter
@@ -1481,7 +1473,7 @@ impl TestEnv {
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
         let head = self.clients[0].chain.head().unwrap();
-        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
             .runtime_adapter
@@ -1557,7 +1549,7 @@ pub fn create_chunk_on_height_for_shard(
     shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
-    let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
+    let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
         .produce_chunk(
             last_block_hash,
@@ -1591,8 +1583,7 @@ pub fn create_chunk(
     replace_transactions: Option<Vec<SignedTransaction>>,
     replace_tx_root: Option<CryptoHash>,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
-    let last_block =
-        client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap().clone();
+    let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
@@ -1622,7 +1613,7 @@ pub fn create_chunk(
         let signer = client.validator_signer.as_ref().unwrap().clone();
         let header = chunk.cloned_header();
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
-            header.prev_block_hash(),
+            header.prev_block_hash().clone(),
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),
@@ -1651,8 +1642,9 @@ pub fn create_chunk(
             *chunk.header.height_included_mut() = next_height;
         }
     }
-    let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
+    let block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,

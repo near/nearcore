@@ -110,7 +110,7 @@ impl TransactionConfig {
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
-                receiver_id: receiver_account.id.clone(),
+                receiver_id: receiver_account.id,
                 signer: scope.full_access_signer(u, &signer_account)?,
                 actions: vec![Action::Transfer(TransferAction { deposit: amount })],
             })
@@ -189,10 +189,10 @@ impl TransactionConfig {
                 Ok(TransactionConfig {
                     nonce: scope.nonce(),
                     signer_id: signer_account.id.clone(),
-                    receiver_id: receiver_account.id.clone(),
+                    receiver_id: receiver_account.id,
                     signer,
                     actions: vec![Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: beneficiary_id.id.clone(),
+                        beneficiary_id: beneficiary_id.id,
                     })],
                 })
             });
@@ -613,7 +613,7 @@ impl Scope {
     ) -> Result<PublicKey> {
         let account_idx = self.usize_id(account);
         let (nonce, key) = self.accounts[account_idx].random_key(u)?;
-        let public_key = key.signer.public_key.clone();
+        let public_key = key.signer.public_key;
         self.accounts[account_idx].keys.remove(&nonce);
         Ok(public_key)
     }

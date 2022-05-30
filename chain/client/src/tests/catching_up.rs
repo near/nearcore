@@ -147,7 +147,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
         }
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             block_prod_time,
@@ -428,7 +428,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 
         let check_amount =
             move |amounts: Arc<RwLock<HashMap<_, _, _>>>, account_id: AccountId, amount: u128| {
-                match amounts.write().unwrap().entry(account_id.clone()) {
+                match amounts.write().unwrap().entry(account_id) {
                     Entry::Occupied(entry) => {
                         println!("OCCUPIED {:?}", entry);
                         assert_eq!(*entry.get(), amount);
@@ -448,7 +448,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
         let connectors1 = connectors.clone();
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             6000,
@@ -590,8 +590,9 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                             } = msg
                             {
                                 if partial_encoded_chunk.header.height_created() == 22 {
-                                    seen_heights_same_block
-                                        .insert(partial_encoded_chunk.header.prev_block_hash());
+                                    seen_heights_same_block.insert(
+                                        partial_encoded_chunk.header.prev_block_hash().clone(),
+                                    );
                                 }
                                 if skip_15 {
                                     if partial_encoded_chunk.header.height_created() == 14
@@ -628,7 +629,7 @@ fn test_catchup_sanity_blocks_produced() {
             Arc::new(RwLock::new(vec![]));
 
         let heights = Arc::new(RwLock::new(HashMap::new()));
-        let heights1 = heights.clone();
+        let heights1 = heights;
 
         let check_height =
             move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
@@ -644,7 +645,7 @@ fn test_catchup_sanity_blocks_produced() {
 
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             2000,
@@ -715,7 +716,7 @@ fn test_chunk_grieving() {
         let block_prod_time: u64 = 3500;
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             block_prod_time,
@@ -882,7 +883,7 @@ fn test_all_chunks_accepted_common(
 
         let (_, conn, _) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             block_prod_time,

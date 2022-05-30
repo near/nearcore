@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcLightClientExecutionProofRequest {
@@ -24,7 +25,7 @@ pub struct RpcLightClientExecutionProofResponse {
 #[derive(Debug, Serialize)]
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
-    pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
+    pub light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>,
 }
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
@@ -67,28 +68,10 @@ pub enum RpcLightClientNextBlockError {
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
 }
 
-impl RpcLightClientExecutionProofRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
-}
-
-impl RpcLightClientNextBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        if let Ok((last_block_hash,)) =
-            crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
-        {
-            Ok(Self { last_block_hash })
-        } else {
-            Ok(crate::utils::parse_params::<Self>(value)?)
-        }
-    }
-}
-
-impl From<Option<near_primitives::views::LightClientBlockView>>
+impl From<Option<Arc<near_primitives::views::LightClientBlockView>>>
     for RpcLightClientNextBlockResponse
 {
-    fn from(light_client_block: Option<near_primitives::views::LightClientBlockView>) -> Self {
+    fn from(light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>) -> Self {
         Self { light_client_block }
     }
 }
