@@ -18,10 +18,11 @@ serde_json = "1"
 thiserror = "1.0"
 uuid = { version = "~0.8", features = ["v4"] }
 
-near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
+near-chain-configs = { path = "../../core/chain-configs" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+near-client-primitives = { path = "../client-primitives" }
 
 [features]
 test_features = []

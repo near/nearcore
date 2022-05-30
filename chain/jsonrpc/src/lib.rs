@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
+use actix_web::http::header;
+use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
@@ -15,7 +17,7 @@ use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
+    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     ViewClientActor,
@@ -933,7 +935,7 @@ impl JsonRpcHandler {
         Ok(status.rpc_into())
     }
 
-    pub async fn debug(
+    pub async fn old_debug(
         &self,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
@@ -943,6 +945,27 @@ impl JsonRpcHandler {
             let status =
                 self.client_send(Status { is_health_check: false, detailed: true }).await?;
             Ok(Some(status.rpc_into()))
+        } else {
+            return Ok(None);
+        }
+    }
+
+    pub async fn debug(
+        &self,
+        path: &str,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status = match path {
+                "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
+                "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
+                "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
+                _ => return Ok(None),
+            };
+            return Ok(Some(debug_status.rpc_into()));
         } else {
             return Ok(None);
         }
@@ -1419,8 +1442,19 @@ fn status_handler(
     response.boxed()
 }
 
-async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
-    match handler.debug().await {
+async fn debug_handler(
+    req: HttpRequest,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    if req.path() == "/debug/api/status" {
+        // This is a temporary workaround - as we migrate the debug information to the separate class below.
+        return match handler.old_debug().await {
+            Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+            Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        };
+    }
+    match handler.debug(req.path()).await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
@@ -1483,6 +1517,7 @@ lazy_static_include::lazy_static_include_str! {
     NETWORK_INFO_HTML => "res/network_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
     CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
+    SYNC_HTML => "res/sync.html",
 }
 
 #[get("/debug")]
@@ -1490,24 +1525,27 @@ async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*DEBUG_HTML))
 }
 
-#[get("/debug/last_blocks")]
-async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
-}
+#[get("/debug/pages/{page}")]
+async fn display_debug_html(
+    path: web::Path<(String,)>,
+) -> actix_web::Result<impl actix_web::Responder> {
+    let page_name = path.into_inner().0;
 
-#[get("/debug/network_info")]
-async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
-}
+    let content = match page_name.as_str() {
+        "last_blocks" => Some(*LAST_BLOCKS_HTML),
+        "network_info" => Some(*NETWORK_INFO_HTML),
+        "epoch_info" => Some(*EPOCH_INFO_HTML),
+        "chain_n_chunk_info" => Some(*CHAIN_N_CHUNK_INFO_HTML),
+        "sync" => Some(*SYNC_HTML),
+        _ => None,
+    };
 
-#[get("/debug/epoch_info")]
-async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
-}
-
-#[get("/debug/chain_n_chunk_info")]
-async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
+    match content {
+        Some(content) => {
+            Ok(HttpResponse::Ok().insert_header(header::ContentType::html()).body(content))
+        }
+        None => Ok(HttpResponse::NotFound().finish()),
+    }
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1570,12 +1608,9 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(debug_html)
-            .service(last_blocks_html)
-            .service(network_info_html)
-            .service(epoch_info_html)
-            .service(chain_n_chunk_info_html)
+            .service(display_debug_html)
     })
     .bind(addr)
     .unwrap()

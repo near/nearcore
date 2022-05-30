@@ -6,6 +6,11 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RpcDebugStatusResponse {
+    pub status_response: near_client_primitives::types::DebugStatusResponse,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcHealthResponse;
 

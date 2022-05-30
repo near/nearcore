@@ -614,6 +614,14 @@ impl RpcFrom<near_primitives::views::StatusResponse>
     }
 }
 
+impl RpcFrom<near_client_primitives::types::DebugStatusResponse>
+    for near_jsonrpc_primitives::types::status::RpcDebugStatusResponse
+{
+    fn rpc_from(status_response: near_client_primitives::types::DebugStatusResponse) -> Self {
+        Self { status_response }
+    }
+}
+
 impl RpcFrom<near_primitives::views::StatusResponse>
     for near_jsonrpc_primitives::types::status::RpcHealthResponse
 {
