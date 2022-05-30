@@ -8,42 +8,18 @@ pub trait RpcInto<T> {
     fn rpc_into(self) -> T;
 }
 
+impl<T> RpcFrom<T> for T {
+    fn rpc_from(val: T) -> Self {
+        val
+    }
+}
+
 impl<T, X> RpcInto<X> for T
 where
     X: RpcFrom<T>,
 {
     fn rpc_into(self) -> X {
         X::rpc_from(self)
-    }
-}
-
-macro_rules! _rpc_try {
-    ($val:expr) => {
-        match $val {
-            Ok(val) => match val {
-                Ok(val) => val,
-                Err(err) => return Err(err.rpc_into()),
-            },
-            Err(err) => return Err(err.rpc_into()),
-        }
-    };
-}
-
-pub(crate) use _rpc_try as rpc_try;
-
-pub trait IntoRpcResult<T, E> {
-    fn into_rpc_result(self) -> Result<Result<T, E>, std::convert::Infallible>;
-}
-
-impl<T, E> IntoRpcResult<T, E> for Result<T, E> {
-    fn into_rpc_result(self) -> Result<Result<T, E>, std::convert::Infallible> {
-        Ok(self)
-    }
-}
-
-impl<T> RpcFrom<std::convert::Infallible> for T {
-    fn rpc_from(_: std::convert::Infallible) -> Self {
-        unreachable!()
     }
 }
 
