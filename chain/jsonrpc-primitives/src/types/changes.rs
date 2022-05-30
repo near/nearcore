@@ -40,50 +40,6 @@ pub enum RpcStateChangesError {
     InternalError { error_message: String },
 }
 
-impl From<near_client_primitives::types::GetBlockError> for RpcStateChangesError {
-    fn from(error: near_client_primitives::types::GetBlockError) -> Self {
-        match error {
-            near_client_primitives::types::GetBlockError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetBlockError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcStateChangesError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<near_client_primitives::types::GetStateChangesError> for RpcStateChangesError {
-    fn from(error: near_client_primitives::types::GetStateChangesError) -> Self {
-        match error {
-            near_client_primitives::types::GetStateChangesError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetStateChangesError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetStateChangesError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetStateChangesError::Unreachable {
-                ref error_message,
-            } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcStateChangesError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
 impl From<RpcStateChangesError> for crate::errors::RpcError {
     fn from(error: RpcStateChangesError) -> Self {
         let error_data = match serde_json::to_value(error) {

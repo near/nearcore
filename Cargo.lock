@@ -3001,18 +3001,12 @@ name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
  "near-chain-configs",
- "near-client-primitives",
  "near-crypto",
- "near-metrics",
- "near-network-primitives",
  "near-primitives",
- "near-primitives-core",
  "near-rpc-error-macro",
- "once_cell",
  "serde",
  "serde_json",
  "thiserror",
- "tracing",
  "uuid",
 ]
 

@@ -41,46 +41,6 @@ pub enum RpcChunkError {
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
 }
 
-impl From<ChunkReference> for near_client_primitives::types::GetChunk {
-    fn from(chunk_reference: ChunkReference) -> Self {
-        match chunk_reference {
-            ChunkReference::BlockShardId { block_id, shard_id } => match block_id {
-                near_primitives::types::BlockId::Height(height) => Self::Height(height, shard_id),
-                near_primitives::types::BlockId::Hash(block_hash) => {
-                    Self::BlockHash(block_hash, shard_id)
-                }
-            },
-            ChunkReference::ChunkHash { chunk_id } => Self::ChunkHash(chunk_id.into()),
-        }
-    }
-}
-
-impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
-    fn from(error: near_client_primitives::types::GetChunkError) -> Self {
-        match error {
-            near_client_primitives::types::GetChunkError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetChunkError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetChunkError::InvalidShardId { shard_id } => {
-                Self::InvalidShardId { shard_id }
-            }
-            near_client_primitives::types::GetChunkError::UnknownChunk { chunk_hash } => {
-                Self::UnknownChunk { chunk_hash }
-            }
-            near_client_primitives::types::GetChunkError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcChunkError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
         let error_data = match &error {
