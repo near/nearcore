@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use near_jsonrpc_primitives::errors::RpcParseError;
+use near_jsonrpc_primitives::errors::{RpcError, ServerError};
 use near_primitives::borsh::BorshDeserialize;
 
 #[cfg(feature = "test_features")]
@@ -22,6 +23,54 @@ mod validator;
 
 pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
+}
+
+pub trait RpcFrom<T> {
+    fn rpc_from(_: T) -> Self;
+}
+
+pub trait RpcInto<T> {
+    fn rpc_into(self) -> T;
+}
+
+impl<T> RpcFrom<T> for T {
+    fn rpc_from(val: T) -> Self {
+        val
+    }
+}
+
+impl<T, X> RpcInto<X> for T
+where
+    X: RpcFrom<T>,
+{
+    fn rpc_into(self) -> X {
+        X::rpc_from(self)
+    }
+}
+
+impl RpcFrom<actix::MailboxError> for RpcError {
+    fn rpc_from(error: actix::MailboxError) -> Self {
+        RpcError::new(
+            -32_000,
+            "Server error".to_string(),
+            Some(serde_json::Value::String(error.to_string())),
+        )
+    }
+}
+
+impl RpcFrom<actix::MailboxError> for ServerError {
+    fn rpc_from(error: actix::MailboxError) -> Self {
+        match error {
+            actix::MailboxError::Closed => ServerError::Closed,
+            actix::MailboxError::Timeout => ServerError::Timeout,
+        }
+    }
+}
+
+impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
+    fn rpc_from(e: near_primitives::errors::InvalidTxError) -> ServerError {
+        ServerError::TxExecutionError(near_primitives::errors::TxExecutionError::InvalidTxError(e))
+    }
 }
 
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
