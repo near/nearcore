@@ -1173,7 +1173,7 @@ impl Chain {
     }
 
     /// Returns if given block header is on the current chain.
-    pub fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn is_on_current_chain(&self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.height())?;
         if chain_header.hash() == header.hash() {
             Ok(())
@@ -2900,7 +2900,7 @@ impl Chain {
 
     /// Gets a block by hash.
     #[inline]
-    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<Block, Error> {
+    pub fn get_block(&self, hash: &CryptoHash) -> Result<Block, Error> {
         self.store.get_block(hash)
     }
 
@@ -2928,7 +2928,7 @@ impl Chain {
 
     /// Gets block hash from the current chain by height.
     #[inline]
-    pub fn get_block_hash_by_height(&mut self, height: BlockHeight) -> Result<CryptoHash, Error> {
+    pub fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         self.store.get_block_hash_by_height(height)
     }
 
@@ -2961,7 +2961,7 @@ impl Chain {
     }
 
     /// Returns hash of the first available block after genesis.
-    pub fn get_earliest_block_hash(&mut self) -> Result<Option<CryptoHash>, Error> {
+    pub fn get_earliest_block_hash(&self) -> Result<Option<CryptoHash>, Error> {
         self.store.get_earliest_block_hash()
     }
 
@@ -2998,7 +2998,7 @@ impl Chain {
     /// find the first block that contains a new chunk for any of the shards that split from the
     /// original shard
     pub fn get_next_block_hash_with_new_chunk(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
@@ -3101,7 +3101,7 @@ impl Chain {
     }
 
     /// Check if can sync with sync_hash
-    pub fn check_sync_hash_validity(&mut self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+    pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header`.
@@ -3120,7 +3120,7 @@ impl Chain {
 
     /// Get transaction result for given hash of transaction or receipt id on the canonical chain
     pub fn get_execution_outcome(
-        &mut self,
+        &self,
         id: &CryptoHash,
     ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
         let outcomes = self.store.get_outcomes_by_id(id)?;
@@ -3142,7 +3142,7 @@ impl Chain {
     ///           that is on the main chain and returns the blocks after this block. If none of the
     ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
     pub fn retrieve_headers(
-        &mut self,
+        &self,
         hashes: Vec<CryptoHash>,
         max_headers_returned: u64,
         max_height: Option<BlockHeight>,
