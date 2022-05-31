@@ -37,7 +37,7 @@ To replay mainnet or testnet history, in most use cases, we want to start replay
 of from genesis block. The following comment replays mainnet history from block height 60925880 to block height 60925900.
 
 ```console
-$ cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --client-height 60925880 --target-height 60925900
+$ cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --start_height 60925880 --target-height 60925900
 ```
 
 By providing a starting height,
@@ -50,7 +50,7 @@ so you can reuse it again without having to copy the state again.
 
 Note that the start height must be the last block of an epoch.
 
-Once you have the source dir already set up, you can run the command without `--`,
+Once you have the source dir already set up, you can run the command without `--start_height`,
 
 ```console
 $  cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --target-height 60926000
