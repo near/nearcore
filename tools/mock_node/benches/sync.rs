@@ -5,7 +5,7 @@ use actix::System;
 use anyhow::anyhow;
 use criterion::Criterion;
 use flate2::read::GzDecoder;
-use mock_node::setup::{setup_mock_node, MockNetworkMode};
+use mock_node::setup::setup_mock_node;
 use mock_node::GetChainTargetBlockHeight;
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_chain_configs::GenesisValidationMode;
@@ -106,8 +106,8 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
                     tempdir.path(),
                     home.as_path(),
                     near_config,
-                    MockNetworkMode::NoNewBlocks,
                     Duration::from_millis(100),
+                    0,
                     None,
                     target_height,
                     false,
