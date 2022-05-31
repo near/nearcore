@@ -81,10 +81,6 @@ struct Cli {
     /// If true, use in memory storage instead of rocksdb for the client
     #[clap(short = 'i', long)]
     in_memory_storage: bool,
-    /// Periodically send status requests to the client, warning if it takes too
-    /// long to respond. Use this for basic responsiveness checks.
-    #[clap(long)]
-    ping: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -124,20 +120,16 @@ fn main() -> anyhow::Result<()> {
             args.target_height,
             args.in_memory_storage,
         );
-        let ping_handle = if args.ping {
-            Some(actix::spawn(async move {
-                loop {
-                    let t = Instant::now();
-                    let _ = client.send(Status { is_health_check: false, detailed: false }).await;
-                    let latency = t.elapsed();
-                    if latency > Duration::from_millis(100) {
-                        tracing::warn!(target: "mock_node", ?latency, "took to long to respond to status request")
-                    }
+        let ping_handle = actix::spawn(async move {
+            loop {
+                let t = Instant::now();
+                let _ = client.send(Status { is_health_check: false, detailed: false }).await;
+                let latency = t.elapsed();
+                if latency > Duration::from_millis(100) {
+                    tracing::warn!(target: "mock_node", ?latency, "client is unresponsive, took to long to handle status request")
                 }
-            }))
-        } else {
-            None
-        };
+            }
+        });
 
         let target_height = mock_network.send(GetChainTargetBlockHeight).await.unwrap();
 
@@ -156,9 +148,7 @@ fn main() -> anyhow::Result<()> {
         .await
         .unwrap();
 
-        if let Some(handle) = ping_handle {
-            handle.abort()
-        }
+        ping_handle.abort();
         System::current().stop();
     });
     Ok(())
