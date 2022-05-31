@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::node::{Node, ThreadNode};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
+use near_jsonrpc::RpcInto;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
@@ -56,7 +57,7 @@ fn test_check_tx_error_log() {
             account_id: bob_account(),
             public_key: signer.public_key.clone()
         })
-        .into()
+        .rpc_into()
     );
 }
 
@@ -97,6 +98,6 @@ fn test_deliver_tx_error_log() {
             balance: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
             cost: TESTING_INIT_BALANCE + 1 + cost
         }
-        .into()
+        .rpc_into()
     );
 }

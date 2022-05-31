@@ -7,7 +7,6 @@ use tracing::info;
 
 use configs::{Opts, SubCommand};
 use near_indexer;
-use near_o11y::{ColorOutput, OpenTelemetryConfig};
 
 mod configs;
 
@@ -267,13 +266,7 @@ fn main() -> Result<()> {
     );
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(
-            env_filter,
-            &ColorOutput::Auto,
-            &OpenTelemetryConfig::default(),
-        )
-        .await
-        .global();
+        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
     });
     let opts: Opts = Opts::parse();
 

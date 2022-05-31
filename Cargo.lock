@@ -2592,7 +2592,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock_node"
+name = "mock-node"
 version = "0.0.0"
 dependencies = [
  "actix",
@@ -2620,7 +2620,6 @@ dependencies = [
  "nearcore",
  "rand 0.7.3",
  "rayon",
- "regex",
  "tar",
  "tempfile",
  "tracing",
@@ -2937,6 +2936,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
@@ -3002,20 +3002,14 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
- "actix",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
- "near-metrics",
- "near-network-primitives",
  "near-primitives",
- "near-primitives-core",
  "near-rpc-error-macro",
- "once_cell",
  "serde",
  "serde_json",
  "thiserror",
- "tracing",
  "uuid",
 ]
 
@@ -4740,20 +4734,6 @@ dependencies = [
  "near-primitives",
  "nearcore",
  "tokio",
-]
-
-[[package]]
-name = "restored-receipts-verifier"
-version = "0.0.0"
-dependencies = [
- "clap 3.1.18",
- "near-chain",
- "near-chain-configs",
- "near-jsonrpc",
- "near-primitives",
- "near-store",
- "nearcore",
- "serde_json",
 ]
 
 [[package]]

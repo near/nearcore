@@ -247,7 +247,7 @@ fn test_limit_locals() {
         let res = make_simple_contract_call_vm(&wasm_err, "main", vm_kind);
         gas_and_error_match(
             res,
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Deserialization),
             ))),
@@ -262,7 +262,7 @@ fn test_limit_locals() {
         let res = make_simple_contract_call_vm(&wasm_ok, "main", vm_kind);
         gas_and_error_match(
             res,
-            Some(43682463),
+            43682463,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     })
@@ -351,7 +351,7 @@ fn test_sandbox_only_function() {
         };
         gas_and_error_match(
             res,
-            Some(54519963),
+            54519963,
             Some(VMError::FunctionCallError(FunctionCallError::LinkError {
                 msg: error_msg.to_string(),
             })),
@@ -365,6 +365,6 @@ fn test_sandbox_only_function_when_sandbox_feature() {
     with_vm_variants(|vm_kind| {
         let wasm = call_sandbox_debug_log();
         let res = make_simple_contract_call_vm(&wasm, "main", vm_kind);
-        gas_and_error_match(res, Some(66089076), None);
+        gas_and_error_match(res, 66089076, None);
     })
 }
