@@ -416,9 +416,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             adapter,
             &empty_block_pool,
             &empty_chunks_pool,
-            &economics_config,
             DoomslugThresholdMode::NoApprovals,
-            &genesis_block,
             transaction_validity_period,
             None,
         );
