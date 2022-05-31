@@ -1,3 +1,6 @@
+//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
+//! components of the mock network.
+
 use actix::{Actor, Context, Handler, Recipient};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
@@ -47,7 +50,7 @@ impl MockPeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         genesis_config: &GenesisConfig,
         chain: Chain,
-        peers_start_height: BlockHeight,
+        network_start_height: BlockHeight,
         target_height: BlockHeight,
         block_production_delay: Duration,
         network_delay: Duration,
@@ -61,7 +64,7 @@ impl MockPeerManagerActor {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
                 },
-                height: peers_start_height,
+                height: network_start_height,
                 tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
                 archival: false,
             },

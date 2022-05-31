@@ -31,7 +31,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
     let runtime = Arc::new(NightshadeRuntime::test(dir.path(), store, genesis));
-    let mut chain =
+    let chain =
         Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, true).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()
 }
