@@ -216,6 +216,7 @@ pub(crate) fn print_chain(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
+    show_full_hashes: bool,
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
@@ -235,7 +236,11 @@ pub(crate) fn print_chain(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             if height == 0 {
-                println!("{: >3} {}", header.height(), format_hash(*header.hash()));
+                println!(
+                    "{: >3} {}",
+                    header.height(),
+                    format_hash(*header.hash(), show_full_hashes)
+                );
             } else {
                 let parent_header =
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
@@ -246,7 +251,7 @@ pub(crate) fn print_chain(
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
-                        format_hash(epoch_id.0),
+                        format_hash(epoch_id.0, show_full_hashes),
                         runtime
                             .get_epoch_block_producers_ordered(&epoch_id, header.hash())
                             .unwrap()
@@ -272,7 +277,7 @@ pub(crate) fn print_chain(
                         chunk_debug_str.push(format!(
                             "{}: {} {: >3} Tgas ",
                             shard_id,
-                            format_hash(chunk.chunk_hash().0),
+                            format_hash(chunk.chunk_hash().0, show_full_hashes),
                             chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024)
                         ));
                     }
@@ -281,10 +286,10 @@ pub(crate) fn print_chain(
                 println!(
                     "{: >3} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
-                    format_hash(*header.hash()),
+                    format_hash(*header.hash(), show_full_hashes),
                     block_producer,
                     parent_header.height(),
-                    format_hash(*parent_header.hash()),
+                    format_hash(*parent_header.hash(), show_full_hashes),
                     chunk_mask_to_str(header.chunk_mask()),
                     chunk_debug_str.join("|")
                 );
@@ -365,7 +370,7 @@ pub(crate) fn apply_block(
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
-        let mut chain_store_update = ChainStoreUpdate::new(chain_store);
+        let chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 shard_id,
@@ -728,8 +733,12 @@ fn load_trie_stop_at_height(
     (runtime, state_roots, last_block.header().clone())
 }
 
-pub fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..7].to_string()
+pub fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
+    if show_full_hashes {
+        to_base(&h).to_string()
+    } else {
+        to_base(&h)[..7].to_string()
+    }
 }
 
 pub fn chunk_mask_to_str(mask: &[bool]) -> String {

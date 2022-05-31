@@ -1436,7 +1436,7 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (mut chain, _, signers) = setup_with_validators(
+        let (chain, _, signers) = setup_with_validators(
             vec!["test0", "test1", "test2", "test3", "test4"]
                 .iter()
                 .map(|x| x.parse().unwrap())
