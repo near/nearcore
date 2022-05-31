@@ -29,7 +29,7 @@ fn test_infinite_initializer() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello", vm_kind),
-            Some(100000000000000),
+            100000000000000,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -40,7 +40,7 @@ fn test_infinite_initializer_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello2", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -65,7 +65,7 @@ fn test_simple_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "hello", vm_kind),
-            Some(43032213),
+            43032213,
             None,
         );
     });
@@ -114,7 +114,7 @@ fn test_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "hello2", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -127,7 +127,7 @@ fn test_empty_method() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
@@ -158,7 +158,7 @@ fn test_trap_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
-            Some(47105334),
+            47105334,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         )
     })
@@ -189,7 +189,7 @@ fn test_trap_initializer() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
-            Some(47755584),
+            47755584,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     });
@@ -223,7 +223,7 @@ fn test_div_by_zero_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
-            Some(59758197),
+            59758197,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IllegalArithmetic,
             ))),
@@ -261,7 +261,7 @@ fn test_float_to_int_contract() {
         for index in 0..=3 {
             gas_and_error_match(
                 make_simple_contract_call_vm(&float_to_int_contract(index), "hello", vm_kind),
-                Some(56985576),
+                56985576,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::IllegalArithmetic,
                 ))),
@@ -300,7 +300,7 @@ fn test_indirect_call_to_null_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&indirect_call_to_null_contract(), "hello", vm_kind),
-            Some(57202326),
+            57202326,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IndirectCallToNull,
             ))),
@@ -346,7 +346,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 "hello",
                 vm_kind,
             ),
-            Some(61970826),
+            61970826,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IncorrectCallIndirectSignature,
             ))),
@@ -371,7 +371,7 @@ fn test_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&wrong_signature_contract(), "hello", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             ))),
@@ -395,7 +395,7 @@ fn test_export_wrong_type() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&export_wrong_type(), "hello", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -421,7 +421,7 @@ fn test_guest_panic() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&guest_panic(), "hello", vm_kind),
-            Some(315341445),
+            315341445,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
                 panic_msg: "explicit guest panic".to_string(),
             }))),
@@ -449,7 +449,7 @@ fn test_stack_overflow() {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 => gas_and_error_match(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
-                Some(63226248177),
+                63226248177,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::Unreachable,
                 ))),
@@ -493,7 +493,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
         let res = make_simple_contract_call_with_protocol_version_vm(
@@ -504,7 +504,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
 
@@ -516,7 +516,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
         let res = make_simple_contract_call_with_protocol_version_vm(
@@ -527,7 +527,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(2745316869),
+            2745316869,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     });
@@ -557,7 +557,7 @@ fn test_memory_grow() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&memory_grow(), "hello", vm_kind),
-            Some(100000000000000),
+            100000000000000,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -599,7 +599,7 @@ fn test_bad_import_1() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("wtf"), "hello", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Instantiate),
             ))),
@@ -612,7 +612,7 @@ fn test_bad_import_2() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("wtf"), "hello", vm_kind),
-            None,
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Instantiate),
             ))),
@@ -630,7 +630,7 @@ fn test_bad_import_3() {
         }.to_string();
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
-            Some(46500213),
+            46500213,
             Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
@@ -647,7 +647,7 @@ fn test_bad_import_4() {
         .to_string();
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("env"), "hello", vm_kind),
-            Some(45849963),
+            45849963,
             Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
@@ -676,7 +676,7 @@ fn test_initializer_no_gas() {
                 0,
                 vm_kind,
             ),
-            Some(0),
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -738,7 +738,7 @@ fn test_external_call_ok() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&external_call_contract(), "hello", vm_kind),
-            Some(321582066),
+            321582066,
             None,
         );
     });
@@ -749,7 +749,7 @@ fn test_external_call_error() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind),
-            Some(100),
+            100,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -779,7 +779,7 @@ fn test_external_call_indirect() {
     with_vm_variants(|vm_kind: VMKind| {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
-        gas_and_error_match((outcome, err), Some(334541937), None);
+        gas_and_error_match((outcome, err), 334541937, None);
     });
 }
 
@@ -813,13 +813,13 @@ fn test_address_overflow() {
         match vm_kind {
             VMKind::Wasmer2 | VMKind::Wasmtime => gas_and_error_match(
                 actual,
-                Some(57635826),
+                57635826,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::MemoryOutOfBounds,
                 ))),
             ),
             // wasmer0 incorrectly doesn't catch overflow during address calculation
-            VMKind::Wasmer0 => gas_and_error_match(actual, Some(57635826), None),
+            VMKind::Wasmer0 => gas_and_error_match(actual, 57635826, None),
         };
     });
 }
@@ -862,10 +862,10 @@ fn test_nan_sign() {
 
         let actual = make_simple_contract_call_vm(&nan_sign(), "main", vm_kind);
         match vm_kind {
-            VMKind::Wasmer2 => gas_and_error_match(actual, Some(82291302), None),
+            VMKind::Wasmer2 => gas_and_error_match(actual, 82291302, None),
             VMKind::Wasmtime | VMKind::Wasmer0 => gas_and_error_match(
                 actual,
-                Some(82291302),
+                82291302,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::IllegalArithmetic,
                 ))),

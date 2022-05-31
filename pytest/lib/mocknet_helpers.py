@@ -22,8 +22,8 @@ def json_rpc(method, params, addr=LOCAL_ADDR, port=RPC_PORT):
     return r.json()
 
 
-def get_nonce_for_key(key: Key) -> int:
-    return get_nonce_for_pk(key.account_id, key.pk)
+def get_nonce_for_key(key: Key, **kwargs) -> int:
+    return get_nonce_for_pk(key.account_id, key.pk, **kwargs)
 
 
 def get_nonce_for_pk(account_id,
@@ -109,9 +109,10 @@ def get_amount_yoctonear(account_id, addr=LOCAL_ADDR, port=RPC_PORT):
 
 # Returns the transaction result for the given txn_id.
 # Might return None - if transaction is not present and wait_for_success is false.
-def tx_result(txn_id, account_id, wait_for_success=False):
+def tx_result(txn_id, account_id, wait_for_success=False, **kwargs):
     while True:
-        status = json_rpc("EXPERIMENTAL_tx_status", [txn_id, account_id])
+        status = json_rpc("EXPERIMENTAL_tx_status", [txn_id, account_id],
+                          **kwargs)
         if 'error' in status:
             print("tx error: tx not ready yet")
             if not wait_for_success:
