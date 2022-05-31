@@ -914,16 +914,14 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn almost_trivial_contract_and_exec_gas() -> (Vec<u8>, u64) {
         let code = wat::parse_str(
             r#"
-                        (module
-                          (type (;0;) (func))
-                          (func (;0;) (type 0)
-                            i32.const 1
-                            i32.const 1
-                            i32.div_s
-                            return
-                          )
-                          (export "main" (func 0))
-                        )"#,
+            (module
+                (func (export "main")
+                  i32.const 1
+                  i32.const 1
+                  i32.div_s
+                  return
+                )
+            )"#,
         )
         .unwrap();
         (code, 3_291_024)
