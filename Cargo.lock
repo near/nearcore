@@ -2936,6 +2936,7 @@ dependencies = [
  "lazy-static-include",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
@@ -3001,20 +3002,14 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
- "actix",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
- "near-metrics",
- "near-network-primitives",
  "near-primitives",
- "near-primitives-core",
  "near-rpc-error-macro",
- "once_cell",
  "serde",
  "serde_json",
  "thiserror",
- "tracing",
  "uuid",
 ]
 
