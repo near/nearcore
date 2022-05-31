@@ -46,7 +46,6 @@ members = [
     "tools/indexer/example",
     "tools/mock_node",
     "tools/restaked",
-    "tools/restored-receipts-verifier",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "tools/state-viewer",
