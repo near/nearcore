@@ -1,11 +1,11 @@
 mod metrics;
 
-use std::time::Duration;
 use actix::{Actor, Addr, Context, Handler, Message};
 use awc::{Client, Connector};
 use futures::FutureExt;
 use near_performance_metrics_macros::perf;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::info;
 
 /// Timeout for establishing connection.
