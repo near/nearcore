@@ -193,278 +193,54 @@ impl Metric {
 }
 
 #[cfg(test)]
-mod test {
-    use crate::db::{Db, EstimationRow};
-    use crate::Metric;
-    use chrono::NaiveDateTime;
-    use rusqlite::params;
+mod tests {
+    use super::Db;
+    use crate::import::ImportConfig;
+    use chrono::{NaiveDate, NaiveDateTime};
+    use rusqlite::{functions::FunctionFlags, Connection};
 
-    #[track_caller]
-    fn check_get_single(db: &Db, name: &str, commit: &str, metric: Metric, expected_gas: f64) {
-        let row = &EstimationRow::get(db, name, commit, metric).unwrap()[0];
-        assert_eq!(row.name, name);
-        assert_eq!(row.commit_hash, commit);
-        assert!(row.is_metric(metric));
-        assert_eq!(row.gas, expected_gas);
-    }
-
-    #[test]
-    fn test_get() {
-        let db = Db::test();
-        for metric in [Metric::Time, Metric::ICount] {
-            EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e6, metric, 3);
-            EstimationRow::insert_test_data_set(&db, "LogByte", 2e7, 5e4, metric, 3);
+    impl Db {
+        /// Create a new in-memory test database with a mocked `datetime()` function.
+        pub(crate) fn test() -> Self {
+            let conn = Connection::open_in_memory().unwrap();
+            let init_sql = include_str!("init.sql");
+            conn.execute_batch(init_sql).unwrap();
+            let db = Self::new(conn);
+            db.mock_time(NaiveDate::from_ymd(2015, 5, 15).and_hms(11, 22, 33));
+            db
         }
 
-        check_get_single(&db, "LogBase", "0001beef", Metric::ICount, 1_001e6);
-        check_get_single(&db, "LogBase", "0000beef", Metric::ICount, 1_000e6);
-        check_get_single(&db, "LogBase", "0002beef", Metric::ICount, 1_002e6);
-        check_get_single(&db, "LogBase", "0001beef", Metric::Time, 1_001e6);
-        check_get_single(&db, "LogBase", "0000beef", Metric::Time, 1_000e6);
-        check_get_single(&db, "LogBase", "0002beef", Metric::Time, 1_002e6);
-
-        check_get_single(&db, "LogByte", "0000beef", Metric::ICount, 20_000_000.0);
-        check_get_single(&db, "LogByte", "0001beef", Metric::ICount, 20_050_000.0);
-        check_get_single(&db, "LogByte", "0002beef", Metric::ICount, 20_100_000.0);
-        check_get_single(&db, "LogByte", "0000beef", Metric::Time, 20_000_000.0);
-        check_get_single(&db, "LogByte", "0001beef", Metric::Time, 20_050_000.0);
-        check_get_single(&db, "LogByte", "0002beef", Metric::Time, 20_100_000.0);
-    }
-
-    #[track_caller]
-    fn check_get_any_metric(
-        db: &Db,
-        name: &str,
-        commit: &str,
-        expected_metric_gas: &[(Metric, f64)],
-    ) {
-        let rows = &EstimationRow::get_any_metric(db, name, commit).unwrap();
-        assert_eq!(rows.len(), expected_metric_gas.len());
-
-        for row in rows {
-            assert_eq!(row.name, name);
-            assert_eq!(row.commit_hash, commit);
-            assert!(expected_metric_gas.contains(&(row.metric(), row.gas)))
-        }
-    }
-
-    #[test]
-    fn test_get_any_metric() {
-        let db = Db::test();
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e6, Metric::ICount, 2);
-        EstimationRow::insert_test_data_set(&db, "LogBase", 10e9, 1e6, Metric::Time, 2);
-        // extra data, not actually read
-        EstimationRow::insert_test_data_set(&db, "LogByte", 2e7, 5e4, Metric::ICount, 10);
-
-        check_get_any_metric(
-            &db,
-            "LogBase",
-            "0000beef",
-            &[(Metric::ICount, 1_000e6), (Metric::Time, 10_000e6)],
-        );
-        check_get_any_metric(
-            &db,
-            "LogBase",
-            "0001beef",
-            &[(Metric::ICount, 1_001e6), (Metric::Time, 10_001e6)],
-        );
-    }
-
-    #[track_caller]
-    fn check_select_by_commit_and_metric(
-        db: &Db,
-        commit: &str,
-        metric: Metric,
-        expected_name_gas: &[(&str, f64)],
-    ) {
-        let rows = &EstimationRow::select_by_commit_and_metric(db, commit, metric).unwrap();
-        assert_eq!(rows.len(), expected_name_gas.len());
-
-        for row in rows {
-            assert!(row.is_metric(metric));
-            assert_eq!(row.commit_hash, commit);
-            assert!(expected_name_gas.contains(&(&row.name, row.gas)))
-        }
-    }
-
-    #[test]
-    fn test_select_by_commit_and_metric() {
-        let db = Db::test();
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e6, Metric::ICount, 3);
-        EstimationRow::insert_test_data_set(&db, "LogByte", 2e7, 5e4, Metric::ICount, 3);
-        EstimationRow::insert_test_data_set(&db, "LogBase", 10e9, 1e6, Metric::Time, 1);
-
-        check_select_by_commit_and_metric(
-            &db,
-            "0000beef",
-            Metric::ICount,
-            &[("LogBase", 1_000_e6), ("LogByte", 20_e6)],
-        );
-        check_select_by_commit_and_metric(
-            &db,
-            "0002beef",
-            Metric::ICount,
-            &[("LogBase", 1_002_e6), ("LogByte", 20_100_e3)],
-        );
-        check_select_by_commit_and_metric(&db, "0000beef", Metric::Time, &[("LogBase", 10e9)]);
-        check_select_by_commit_and_metric(&db, "0001beef", Metric::Time, &[]);
-    }
-
-    #[track_caller]
-    fn check_commits_sorted_by_date(db: &Db, metric: Option<Metric>, expected: &[&str]) {
-        let rows = EstimationRow::commits_sorted_by_date(db, metric).unwrap();
-        assert_eq!(rows.len(), expected.len());
-
-        for i in 0..rows.len() {
-            assert_eq!(rows[i].0, expected[i]);
-        }
-    }
-
-    #[test]
-    fn test_commits_sorted_by_date() {
-        let db = Db::test();
-        EstimationRow::insert_test_data_set(&db, "LogBase", 10e9, 1e6, Metric::Time, 2);
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e6, Metric::ICount, 5);
-        EstimationRow::insert_test_data_set(&db, "LogByte", 2e7, 5e4, Metric::ICount, 3);
-
-        check_commits_sorted_by_date(&db, Some(Metric::Time), &["0000beef", "0001beef"]);
-        check_commits_sorted_by_date(
-            &db,
-            Some(Metric::ICount),
-            &["0000beef", "0001beef", "0002beef", "0003beef", "0004beef"],
-        );
-        check_commits_sorted_by_date(
-            &db,
-            None,
-            &["0000beef", "0001beef", "0002beef", "0003beef", "0004beef"],
-        );
-
-        // Add an extra estimation with a later timestamp than all previous estimations
-        EstimationRow::insert_test_data_set_ex(
-            &db,
-            "LogByte",
-            2e7,
-            5e4,
-            Metric::ICount,
-            1,
-            "cafe",
-            9,
-        );
-        check_commits_sorted_by_date(
-            &db,
-            None,
-            &["0000beef", "0001beef", "0002beef", "0003beef", "0004beef", "0000cafe"],
-        );
-    }
-
-    #[test]
-    fn test_count_by_metric() {
-        let db = Db::test();
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e6, Metric::ICount, 3);
-        EstimationRow::insert_test_data_set(&db, "LogByte", 2e7, 5e4, Metric::ICount, 3);
-
-        assert_eq!(6, EstimationRow::count_by_metric(&db, Metric::ICount).unwrap());
-        assert_eq!(0, EstimationRow::count_by_metric(&db, Metric::Time).unwrap());
-    }
-
-    impl EstimationRow {
-        pub(crate) fn metric(&self) -> Metric {
-            if self.is_metric(Metric::ICount) {
-                Metric::ICount
-            } else {
-                assert!(self.is_metric(Metric::Time));
-                Metric::Time
+        /// Create a new in-memory test database with data defined by the input.
+        ///
+        /// The test data is expected to come in blocks of JSON lines with a commit header.
+        /// WAIT statements can be used as barriers to make sure DB timestamps differ.
+        pub(crate) fn test_with_data(input: &str) -> Self {
+            let db = Self::test();
+            for block in input.split("\n\n") {
+                if block.trim() == "WAIT" {
+                    // Update mocked time to ensure the following data is considered to be later.
+                    let mocked_now: NaiveDateTime =
+                        db.conn.query_row("SELECT datetime('now')", [], |r| r.get(0)).unwrap();
+                    db.mock_time(mocked_now + chrono::Duration::seconds(1));
+                } else {
+                    let (commit_hash, input) = block.split_once("\n").unwrap();
+                    let conf = ImportConfig {
+                        commit_hash: Some(commit_hash.to_string()),
+                        protocol_version: None,
+                    };
+                    db.import_json_lines(&conf, input).unwrap();
+                }
             }
+            db
         }
 
-        /// Create estimation rows with differing gas values and commit hashes.
-        ///
-        /// Commit hashes are "0000beef", "0001beef" and so on. The timestamps
-        /// are one second apart from each other.
-        ///
-        /// Gas values go up by the defined step size.
-        pub(crate) fn insert_test_data_set(
-            db: &Db,
-            name: &str,
-            gas: f64,
-            gas_step_size: f64,
-            metric: Metric,
-            num: usize,
-        ) {
-            Self::insert_test_data_set_ex(db, name, gas, gas_step_size, metric, num, "beef", 0)
-        }
-
-        /// Exhaustive arguments for `insert_test_data_set`.
-        ///
-        /// `commit_suffix` allows to change the commit hashes that data is associated with.
-        /// `timestamp_offset_seconds` adds a constant to the generated timestamps.
-        pub(crate) fn insert_test_data_set_ex(
-            db: &Db,
-            name: &str,
-            gas: f64,
-            gas_step_size: f64,
-            metric: Metric,
-            num: usize,
-            commit_suffix: &str,
-            timestamp_offset_seconds: i64,
-        ) {
-            for i in 0..num {
-                let gas = gas + i as f64 * gas_step_size;
-                let timestamp =
-                    NaiveDateTime::from_timestamp(i as i64 + timestamp_offset_seconds, 0);
-
-                let mut wall_clock_time = None;
-                let mut icount = None;
-                let mut io_read = None;
-                let mut io_write = None;
-
-                match metric {
-                    Metric::ICount => {
-                        icount = Some(gas / 125_000.0);
-                        io_read = Some(0.0);
-                        io_write = Some(0.0);
-                    }
-                    Metric::Time => {
-                        wall_clock_time = Some(gas / 1e6);
-                    }
-                }
-                EstimationRow {
-                    name: name.to_owned(),
-                    gas,
-                    parameter: None,
-                    wall_clock_time,
-                    icount,
-                    io_read,
-                    io_write,
-                    uncertain_reason: None,
-                    commit_hash: format!("{i:04}{commit_suffix}"),
-                }
-                .insert_with_timestamp(db, timestamp)
+        pub(crate) fn mock_time(&self, dt: NaiveDateTime) {
+            let string_rep = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+            self.conn
+                .create_scalar_function("datetime", 1, FunctionFlags::SQLITE_UTF8, move |_ctx| {
+                    Ok(string_rep.clone())
+                })
                 .unwrap();
-            }
-        }
-
-        fn insert_with_timestamp(
-            &self,
-            db: &Db,
-            timestamp: chrono::NaiveDateTime,
-        ) -> anyhow::Result<()> {
-            db.conn.execute(
-                "INSERT INTO estimation(name,gas,parameter,wall_clock_time,icount,io_read,io_write,uncertain_reason,commit_hash,date) values (?1,?2,?3,?4,?,?6,?7,?8,?9,?10)",
-                params![
-                    self.name,
-                    self.gas,
-                    self.parameter,
-                    self.wall_clock_time,
-                    self.icount,
-                    self.io_read,
-                    self.io_write,
-                    self.uncertain_reason,
-                    self.commit_hash,
-                    timestamp,
-                ],
-            )?;
-            Ok(())
         }
     }
 }

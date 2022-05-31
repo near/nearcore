@@ -130,9 +130,3 @@ To execute commands in already running container first find its id with:
 and the use container ID for `docker exec` command, like:
 
     docker exec -it e9dcb52cc91b /host/qemu-linux/bin/qemu-x86_64 -d plugin -plugin file=/host/qemu-linux/plugins/libcounter.so /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/test_binary
-
-## Useful scripts
-
-The script `../estimate.sh` will handle all the setup mentioned above. It uses `wasmer` by default, but you can pass `wasmtime` and `lightbeam` as well.
-
-To just test the compile time costs use `../compile.sh`, which also takes an optional vm argument.  Its final output is (fee per byte, base fee)\

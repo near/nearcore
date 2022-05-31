@@ -181,7 +181,7 @@ included in `nightly/expensive.txt` file; for example:
 
 ```text
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
 ```
 
 For more details regarding nightly tests see `nightly/README.md`.

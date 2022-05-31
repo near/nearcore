@@ -44,9 +44,9 @@ protocol_feature_alt_bn128 = [
   "near-vm-logic/protocol_feature_alt_bn128",
   "near-vm-runner/protocol_feature_alt_bn128",
 ]
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
-  "near-primitives/nightly_protocol_features",
+  "near-primitives/nightly",
   "protocol_feature_alt_bn128",
 ]
 nightly_protocol = ["near-primitives/nightly_protocol"]

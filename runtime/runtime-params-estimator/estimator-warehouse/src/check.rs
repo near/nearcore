@@ -52,9 +52,11 @@ pub(crate) struct RelativeChange {
 }
 
 pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
-    let (commit_before, commit_after, warnings) = inner_check(config, db)?;
-    for warning in &warnings {
-        println!("{warning:?}");
+    let report = create_report(db, config)?;
+
+    // This is the check command output to observe directly in the terminal.
+    for change in report.changes() {
+        println!("{change:?}");
     }
 
     let zulip_receiver = {
@@ -68,17 +70,12 @@ pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     };
 
     if let Some(zulip) = zulip_receiver {
-        let mut report = ZulipReport::new(commit_before, commit_after);
-        warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
         zulip.post(&report)?;
     }
     Ok(())
 }
 
-fn inner_check(
-    config: &CheckConfig,
-    db: &Db,
-) -> Result<(String, String, Vec<Notice>), anyhow::Error> {
+pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<ZulipReport> {
     let (commit_after, commit_before) = match (&config.commit_after, &config.commit_before) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
         (None, None) => {
@@ -101,7 +98,10 @@ fn inner_check(
     };
     let warnings =
         estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
-    Ok((commit_before, commit_after, warnings))
+
+    let mut report = ZulipReport::new(commit_before, commit_after);
+    warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
+    Ok(report)
 }
 
 fn estimation_changes(
@@ -116,7 +116,7 @@ fn estimation_changes(
     for name in estimation_names {
         let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
         let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
-        let rel_change = if b.gas == 0.0 { 1.0 } else { (b.gas - a.gas).abs() / b.gas };
+        let rel_change = (b.gas - a.gas).abs() / b.gas;
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),
@@ -131,164 +131,79 @@ fn estimation_changes(
 
 #[cfg(test)]
 mod tests {
-    use super::{inner_check, CheckConfig, Notice, RelativeChange};
-    use crate::db::{Db, EstimationRow};
-    use crate::Metric;
+    use super::*;
 
     #[track_caller]
-    fn check_estimation_changes(
-        db: &Db,
-        estimation_names: impl Iterator<Item = &'static str>,
-        commit_before: &str,
-        commit_after: &str,
-        tolerance: f64,
-        metric: Metric,
-        expected: Vec<Notice>,
-    ) {
-        let output = super::estimation_changes(
-            &db,
-            &estimation_names.map(|s| s.to_owned()).collect::<Vec<_>>(),
-            commit_before,
-            commit_after,
-            tolerance,
-            metric,
-        )
-        .unwrap();
-        assert_eq!(expected, output);
-    }
-
-    #[test]
-    fn test_estimation_changes() {
-        let db = Db::test();
-        // Data with large difference between commits
-        EstimationRow::insert_test_data_set(&db, "LogBase", 1e9, 1e9, Metric::ICount, 3);
-        // Data with virtually no difference between commits
-        EstimationRow::insert_test_data_set(&db, "LogByte", 1e9, 1.0, Metric::ICount, 3);
-        EstimationRow::insert_test_data_set(&db, "LogBase", 2e9, 0.0, Metric::Time, 3);
-        EstimationRow::insert_test_data_set(&db, "LogByte", 2e9, 0.0, Metric::Time, 3);
-
-        let expected_icount_notice = Notice::RelativeChange(RelativeChange {
-            estimation: "LogBase".to_owned(),
-            before: 2e9,
-            after: 3e9,
-        });
-
-        // The difference is exactly 50%, therefore 49.9% is breached.
-        check_estimation_changes(
-            &db,
-            ["LogBase", "LogByte"].into_iter(),
-            "0001beef",
-            "0002beef",
-            0.499,
-            Metric::ICount,
-            vec![expected_icount_notice],
-        );
-
-        // Tolerate 50% and check there is no notice.
-        check_estimation_changes(
-            &db,
-            ["LogBase", "LogByte"].into_iter(),
-            "0001beef",
-            "0002beef",
-            0.5,
-            Metric::ICount,
-            vec![],
-        );
-
-        // Time based estimation has no gas difference, thus no notice.
-        check_estimation_changes(
-            &db,
-            ["LogBase", "LogByte"].into_iter(),
-            "0001beef",
-            "0002beef",
-            0.001,
-            Metric::Time,
-            vec![],
-        );
-    }
-
-    /// Checker function for tests involving the check command
-    #[track_caller]
-    fn check_check_command(
-        db: &Db,
-        metric: Metric,
-        checked_estimations: &[&str],
-        expected_notices: &[Notice],
-        expected_commit_before: &str,
-        expected_commit_after: &str,
-    ) {
+    fn generate_test_report(input: &str, metric: Metric, estimations: &[&str]) -> ZulipReport {
+        let db = Db::test_with_data(input);
         let config = CheckConfig {
             zulip_stream: None,
             zulip_user: None,
             metric,
             commit_before: None,
             commit_after: None,
-            estimations: checked_estimations.iter().map(|&s| s.to_owned()).collect(),
+            estimations: estimations.iter().map(|&s| s.to_owned()).collect(),
         };
-
-        let (commit_before, commit_after, notices) = inner_check(&config, db).unwrap();
-        assert_eq!(expected_commit_before, commit_before);
-        assert_eq!(expected_commit_after, commit_after);
-        assert_eq!(expected_notices, &notices);
+        create_report(&db, &config).unwrap()
     }
 
     #[test]
     fn test_check_command() {
-        let db = Db::test();
-        // Data with large difference between commits
-        EstimationRow::insert_test_data_set_ex(&db, "LogBase", 1e9, 1e9, Metric::ICount, 5, "a", 0);
-        // Data with insignificant difference between commits
-        EstimationRow::insert_test_data_set_ex(&db, "LogByte", 1e9, 2e6, Metric::ICount, 5, "a", 0);
+        let input_a = r#"
+        0000a
+        {"computed_in":{"nanos":800,"secs":44},"name":"LogBase","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":809,"secs":26},"name":"LogByte","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
 
-        check_check_command(
-            &db,
-            Metric::ICount,
-            &["LogBase", "LogByte"],
-            &[Notice::RelativeChange(RelativeChange {
-                estimation: "LogBase".to_owned(),
-                before: 4e9,
-                after: 5e9,
-            })],
-            "0003a",
-            "0004a",
-        );
+        0001a
+        {"computed_in":{"nanos":814,"secs":9},"name":"LogBase","result":{"gas":2000000000.0,"instructions":16000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":694,"secs":33},"name":"LogByte","result":{"gas":1002000000.0,"instructions":8016.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
 
-        // Add more data and verify the notifications are updated
-        EstimationRow::insert_test_data_set_ex(&db, "LogBase", 6e9, 0., Metric::ICount, 1, "b", 10);
-        EstimationRow::insert_test_data_set_ex(&db, "LogByte", 7e9, 0., Metric::ICount, 1, "b", 10);
+        0002a
+        {"computed_in":{"nanos":331,"secs":24},"name":"LogBase","result":{"gas":3000000000.0,"instructions":24000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":511,"secs":52},"name":"LogByte","result":{"gas":1004000000.0,"instructions":8032.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
 
-        check_check_command(
-            &db,
-            Metric::ICount,
-            &["LogBase", "LogByte"],
-            &[
-                Notice::RelativeChange(RelativeChange {
-                    estimation: "LogBase".to_owned(),
-                    before: 5e9,
-                    after: 6e9,
-                }),
-                Notice::RelativeChange(RelativeChange {
-                    estimation: "LogByte".to_owned(),
-                    before: 1.008e9,
-                    after: 7e9,
-                }),
-            ],
-            "0004a",
-            "0000b",
-        );
+        0003a
+        {"computed_in":{"nanos":633,"secs":7},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":655,"secs":56},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
 
-        // Verify that filter for specific estimations also works
-        check_check_command(
-            &db,
-            Metric::ICount,
-            &["LogBase"],
-            &[Notice::RelativeChange(RelativeChange {
-                estimation: "LogBase".to_owned(),
-                before: 5e9,
-                after: 6e9,
-            })],
-            "0004a",
-            "0000b",
-        );
+        0004a
+        {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        "#;
+
+        // Only "LogBase" changes enough to show up in report.
+        let report = generate_test_report(input_a, Metric::ICount, &[]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Add more data and verify the notifications are updated.
+        let input_b = input_a.to_owned()
+            + r#"
+
+        WAIT
+
+        0000b
+        {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":10.0,"time_ns":10,"metric":"time","uncertain_reason":null}}
+        "#;
+
+        // Now both estimations have changed.
+        let report = generate_test_report(&input_b, Metric::ICount, &[]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Verify that filter for specific estimations works.
+        let report = generate_test_report(&input_b, Metric::ICount, &["LogBase"]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Filter for metric.
+        let report = generate_test_report(&input_b, Metric::Time, &[]);
+        insta::assert_snapshot!(report.to_string());
     }
 }

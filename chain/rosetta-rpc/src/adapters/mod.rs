@@ -545,8 +545,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     if !receiver_transfer_operation.amount.value.is_positive() {
                         return Err(crate::errors::ErrorKind::InvalidInput(
                             "Receiver TRANSFER operations must have positive `amount`".to_string(),
-                        )
-                        .into());
+                        ));
                     }
 
                     let sender_transfer_operation =
@@ -634,8 +633,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                             return Err(crate::errors::ErrorKind::InvalidInput(
                                 "The sum of amounts of Sender TRANSFER and Receiver FUNCTION_CALL operations must be zero"
                                     .to_string(),
-                            )
-                            .into());
+                            ));
                         }
                         sender_account_id.try_set(&transfer_operation.account)?;
                     }
@@ -996,8 +994,8 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
-                operation_identifier: receiver_transfer_operation_id.clone(),
-                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                operation_identifier: receiver_transfer_operation_id,
+                related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
                 metadata: None,
             },
@@ -1029,8 +1027,8 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
-                operation_identifier: receiver_transfer_operation_id.clone(),
-                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                operation_identifier: receiver_transfer_operation_id,
+                related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
                 metadata: None,
             },
@@ -1062,8 +1060,8 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
-                operation_identifier: receiver_transfer_operation_id.clone(),
-                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                operation_identifier: receiver_transfer_operation_id,
+                related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
                 metadata: None,
             },
@@ -1095,8 +1093,8 @@ mod tests {
                 type_: crate::models::OperationType::Transfer,
                 account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(0)),
-                operation_identifier: receiver_transfer_operation_id.clone(),
-                related_operations: Some(vec![sender_transfer_operation_id.clone()]),
+                operation_identifier: receiver_transfer_operation_id,
+                related_operations: Some(vec![sender_transfer_operation_id]),
                 status: None,
                 metadata: None,
             },
@@ -1142,8 +1140,8 @@ mod tests {
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
-                    fund_transfer_function_call_operation_id.clone(),
-                    initiate_function_call_operation_id.clone(),
+                    fund_transfer_function_call_operation_id,
+                    initiate_function_call_operation_id,
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
@@ -1195,8 +1193,8 @@ mod tests {
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
-                    fund_transfer_function_call_operation_id.clone(),
-                    initiate_function_call_operation_id.clone(),
+                    fund_transfer_function_call_operation_id,
+                    initiate_function_call_operation_id,
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
@@ -1248,8 +1246,8 @@ mod tests {
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
-                    fund_transfer_function_call_operation_id.clone(),
-                    initiate_function_call_operation_id.clone(),
+                    fund_transfer_function_call_operation_id,
+                    initiate_function_call_operation_id,
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
@@ -1301,8 +1299,8 @@ mod tests {
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
-                    fund_transfer_function_call_operation_id.clone(),
-                    initiate_function_call_operation_id.clone(),
+                    fund_transfer_function_call_operation_id,
+                    initiate_function_call_operation_id,
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
@@ -1354,8 +1352,8 @@ mod tests {
                 amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
-                    fund_transfer_function_call_operation_id.clone(),
-                    initiate_function_call_operation_id.clone(),
+                    fund_transfer_function_call_operation_id,
+                    initiate_function_call_operation_id,
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {

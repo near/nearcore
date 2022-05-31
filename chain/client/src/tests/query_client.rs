@@ -1,5 +1,6 @@
 use actix::System;
 use futures::{future, FutureExt};
+use near_primitives::merkle::PartialMerkleTree;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -66,7 +67,8 @@ fn query_status_not_crash() {
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let (block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             let header: BlockHeader = block.header.clone().into();
             block_merkle_tree.insert(*header.hash());
             let mut next_block = Block::produce(
