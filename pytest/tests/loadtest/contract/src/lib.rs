@@ -62,4 +62,11 @@ impl Counter {
     pub fn infinite_loop(&self) {
         loop {}
     }
+
+    pub fn write_many(&mut self, how_many: u64) {
+        for i in self.val..self.val + how_many {
+            self.records.insert(&i.to_string(), &"a".to_string());
+        }
+        self.val += how_many;
+    }
 }
