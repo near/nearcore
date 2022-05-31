@@ -26,10 +26,7 @@ const MAX_GAS: u64 = 300_000_000_000_000;
 ///
 /// In particular, compiling our test contract with different versions of
 /// compiler can lead to slightly different WASM output.
-const NONDETERMINISTIC_COSTS: [&str; 2] = [
-    "CONTRACT_LOADING_BYTES",
-    "WASM_INSTRUCTION",
-];
+const NONDETERMINISTIC_COSTS: [&str; 2] = ["CONTRACT_LOADING_BYTES", "WASM_INSTRUCTION"];
 
 fn is_nondeterministic_cost(cost: &str) -> bool {
     NONDETERMINISTIC_COSTS.iter().find(|&&ndt_cost| ndt_cost == cost).is_some()
@@ -171,7 +168,10 @@ fn test_cost_sanity() {
 /// no such differences expected.
 #[test]
 fn test_cost_sanity_nondeterministic() {
-    let node = setup_runtime_node_with_contract(near_test_contracts::trivial_contract());
+    let contract = near_test_contracts::wat_contract(
+        r#"(module (func (export "main") (i32.const 92) (drop)))"#,
+    );
+    let node = setup_runtime_node_with_contract(&contract);
     let res = node
         .user()
         .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
