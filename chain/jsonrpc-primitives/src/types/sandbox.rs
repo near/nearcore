@@ -17,12 +17,6 @@ pub enum RpcSandboxPatchStateError {
     InternalError { error_message: String },
 }
 
-impl From<actix::MailboxError> for RpcSandboxPatchStateError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
     fn from(error: RpcSandboxPatchStateError) -> Self {
         let error_data = match serde_json::to_value(error) {
@@ -51,12 +45,6 @@ pub struct RpcSandboxFastForwardResponse {}
 pub enum RpcSandboxFastForwardError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl From<actix::MailboxError> for RpcSandboxFastForwardError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl From<RpcSandboxFastForwardError> for crate::errors::RpcError {
