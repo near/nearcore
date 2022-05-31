@@ -1017,7 +1017,7 @@ impl Chain {
 
     /// Do basic validation of a block upon receiving it. Check that block is
     /// well-formed (various roots match).
-    pub fn validate_block(&mut self, block: &MaybeValidated<Block>) -> Result<(), Error> {
+    pub fn validate_block(&self, block: &MaybeValidated<Block>) -> Result<(), Error> {
         block
             .validate_with(|block| {
                 Chain::validate_block_impl(
@@ -1078,7 +1078,7 @@ impl Chain {
     }
 
     fn validate_header(
-        &mut self,
+        &self,
         header: &BlockHeader,
         provenance: &Provenance,
         on_challenge: &mut dyn FnMut(ChallengeBody),
@@ -1233,7 +1233,7 @@ impl Chain {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(
-        &mut self,
+        &self,
         header: &BlockHeader,
         on_challenge: &mut dyn FnMut(ChallengeBody),
     ) -> Result<(), Error> {
