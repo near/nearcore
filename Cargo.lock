@@ -4734,20 +4734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "restored-receipts-verifier"
-version = "0.0.0"
-dependencies = [
- "clap 3.1.18",
- "near-chain",
- "near-chain-configs",
- "near-jsonrpc",
- "near-primitives",
- "near-store",
- "nearcore",
- "serde_json",
-]
-
-[[package]]
 name = "ripemd"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
