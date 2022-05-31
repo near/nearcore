@@ -1,7 +1,6 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use near_chain::missing_chunks::MissingChunksPool;
-use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance,
@@ -407,7 +406,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         let adapter = chain.runtime_adapter.clone();
         let empty_block_pool = OrphanBlockPool::new();
         let empty_chunks_pool = MissingChunksPool::new();
-        let chain_genesis = ChainGenesis::from(&genesis);
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
