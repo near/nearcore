@@ -30,33 +30,6 @@ pub struct RpcBlockResponse {
     pub block_view: near_primitives::views::BlockView,
 }
 
-impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
-    fn from(error: near_client_primitives::types::GetBlockError) -> Self {
-        match error {
-            near_client_primitives::types::GetBlockError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetBlockError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcBlockError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<actix::MailboxError> for RpcBlockError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
         let error_data = match &error {
