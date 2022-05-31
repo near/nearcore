@@ -1113,7 +1113,7 @@ impl Client {
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
             {
-                let _span = tracing::info_span!(
+                let _span = tracing::debug_span!(
                     target: "client",
                     "garbage_collection",
                     block_hash = ?block.hash(),
