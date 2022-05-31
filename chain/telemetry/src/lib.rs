@@ -1,5 +1,6 @@
-use std::time::Duration;
+mod metrics;
 
+use std::time::Duration;
 use actix::{Actor, Addr, Context, Handler, Message};
 use awc::{Client, Connector};
 use futures::FutureExt;
@@ -62,17 +63,21 @@ impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
     fn handle(&mut self, msg: TelemetryEvent, _ctx: &mut Context<Self>) {
         for endpoint in self.config.endpoints.iter() {
-            near_performance_metrics::actix::spawn("telemetry",
-                                           self.client
-                        .post(endpoint)
-                        .insert_header(("Content-Type", "application/json"))
-                        .send_json(&msg.content)
-                        .map(|response| {
-                            if let Err(error) = response {
-                                info!(target: "telemetry", "Telemetry data could not be sent due to: {}", error);
-                            }
-                        }),
-                );
+            near_performance_metrics::actix::spawn(
+                "telemetry",
+                self.client
+                    .post(endpoint)
+                    .insert_header(("Content-Type", "application/json"))
+                    .send_json(&msg.content)
+                    .map(|response| {
+                        if let Err(error) = response {
+                            info!(target: "telemetry", err=?error, "Failed to send telemetry data");
+                            metrics::TELEMETRY_RESULT.with_label_values(&["failed"]).inc();
+                        } else {
+                            metrics::TELEMETRY_RESULT.with_label_values(&["ok"]).inc();
+                        }
+                    }),
+            );
         }
     }
 }
