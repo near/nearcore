@@ -119,8 +119,7 @@ fn main() {
             args.target_height,
             args.in_memory_storage,
         );
-        let target_height =
-            async { mock_network.send(GetChainTargetBlockHeight).await }.await.unwrap();
+        let target_height = mock_network.send(GetChainTargetBlockHeight).await.unwrap();
         // wait until the client reach target_height
         WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
