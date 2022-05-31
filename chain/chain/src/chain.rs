@@ -969,7 +969,7 @@ impl Chain {
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
     /// in the next epoch.
     fn get_state_dl_info(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
