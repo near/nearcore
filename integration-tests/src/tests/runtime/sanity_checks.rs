@@ -187,14 +187,7 @@ fn test_cost_sanity_nondeterministic() {
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
         .collect::<Vec<_>>();
-    insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly") {
-            "receipts_gas_profile_nondeterministic_nightly"
-        } else {
-            "receipts_gas_profile_nondeterministic"
-        },
-        receipts_gas_profile
-    );
+    insta::assert_debug_snapshot!("receipts_gas_profile_nondeterministic", receipts_gas_profile);
 
     // Verify that all nondeterministic costs are covered.
     let all_costs = {
