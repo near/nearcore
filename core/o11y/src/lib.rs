@@ -139,8 +139,10 @@ where
     layer
 }
 
-// Constructs an OpenTelemetryConfig which sends span data to an external collector.
-// OpenTelemetryConfig is currently empty, but more configuration will be added to it later.
+/// Constructs an OpenTelemetryConfig which sends span data to an external collector.
+//
+// NB: this function is `async` because `install_batch(Tokio)` requires a tokio context to
+// register timers and channels and whatnot.
 async fn make_opentelemetry_layer<S>(
     config: &Options,
 ) -> Filtered<OpenTelemetryLayer<S, Tracer>, LevelFilter, S>
