@@ -4,6 +4,7 @@
 //! pre-generated chain history in storage.
 
 use actix::{Actor, System};
+use anyhow::Context;
 use clap::Parser;
 use futures::{future, FutureExt};
 use mock_node::setup::setup_mock_node;
@@ -82,12 +83,12 @@ struct Cli {
     in_memory_storage: bool,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     init_integration_logger();
     let args = Cli::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
     let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        .context("Error loading config")?;
     near_config.validator_signer = None;
     near_config.client_config.min_num_peers = 1;
     let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
@@ -138,5 +139,6 @@ fn main() {
             target_height * 5000,
         )
         .start();
-    })
+    });
+    Ok(())
 }
