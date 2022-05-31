@@ -121,12 +121,19 @@ fn main() -> anyhow::Result<()> {
             args.in_memory_storage,
         );
         let ping_handle = actix::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                let t = Instant::now();
-                let _ = client.send(Status { is_health_check: false, detailed: false }).await;
-                let latency = t.elapsed();
+                interval.tick().await;
+
+                let latency = {
+                    let t = Instant::now();
+                    let _ = client.send(Status { is_health_check: false, detailed: false }).await;
+                    t.elapsed()
+                };
+
                 if latency > Duration::from_millis(100) {
-                    tracing::warn!(target: "mock_node", ?latency, "client is unresponsive, took to long to handle status request")
+                    tracing::warn!(target: "mock_node", latency = %format_args!("{latency:0.2?}"), "client is unresponsive, took to long to handle status request")
                 }
             }
         });

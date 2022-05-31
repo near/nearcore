@@ -2622,6 +2622,7 @@ dependencies = [
  "rayon",
  "tar",
  "tempfile",
+ "tokio",
  "tracing",
 ]
 
