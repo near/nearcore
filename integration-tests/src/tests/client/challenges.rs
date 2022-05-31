@@ -311,7 +311,6 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let genesis_block = env.clients[0].chain.genesis_block().clone();
     env.produce_block(0, 1);
     env.clients[0].process_tx(
         SignedTransaction::send_money(
@@ -409,7 +408,6 @@ fn test_verify_chunk_invalid_state_challenge() {
         let empty_block_pool = OrphanBlockPool::new();
         let empty_chunks_pool = MissingChunksPool::new();
         let chain_genesis = ChainGenesis::from(&genesis);
-        let economics_config = BlockEconomicsConfig::from(&chain_genesis);
 
         let mut chain_update = ChainUpdate::new(
             chain.mut_store(),
