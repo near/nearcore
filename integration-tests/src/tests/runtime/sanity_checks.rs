@@ -23,10 +23,12 @@ const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 const MAX_GAS: u64 = 300_000_000_000_000;
 
 /// Costs whose amount of `gas_used` may depend on environmental factors.
-const NONDETERMINISTIC_COSTS: [&'static str; 1] = [
-    // Compiling a contract in different environments may yield bytecode of
-    // different sizes. In that case, the cost of loading the contract varies.
+///
+/// In particular, compiling our test contract with different versions of
+/// compiler can lead to slightly different WASM output.
+const NONDETERMINISTIC_COSTS: [&str; 2] = [
     "CONTRACT_LOADING_BYTES",
+    "WASM_INSTRUCTION",
 ];
 
 fn is_nondeterministic_cost(cost: &str) -> bool {
@@ -270,21 +272,21 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
             (type $t0 (func (result i64)))
             (type $t1 (func (param i64 i64)))
             (type $t2 (func))
-          
+
             (import "env" "used_gas" (func $env.used_gas (type $t0)))
             (import "env" "value_return" (func $env.value_return (type $t1)))
-          
+
             (memory 1)
-          
+
             (func $main (export "main") (type $t2)
               (local $used_0 i64) (local $used_1 i64) (local $used_2 i64) (local $used_3 i64)
-          
+
               ;; Call used_gas twice in metered block, without instructions in between.
               (local.set $used_0
                 (call $env.used_gas))
               (local.set $used_1
                 (call $env.used_gas))
-              
+
               ;; In the same metered block, call used_gas again after executing other
               ;; instructions.
               (i64.add
@@ -294,7 +296,7 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
               nop
               (local.set $used_2
                 (call $env.used_gas))
-          
+
               ;; Push a new metered block on the stack via br_if. The condition is false,
               ;; so we will _not_ branch out of the block.
               (block $b0
@@ -306,7 +308,7 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
                     call $env.used_gas)
                   nop ;; ensure there is more than used_gas to pay for in this block
               )
-          
+
               ;; Prepare bytes passed to value_return.
               (i64.store
                 (i32.const 0)
@@ -320,7 +322,7 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
               (i64.store
                 (i32.const 24)
                 (local.get $used_3))
-          
+
               (call $env.value_return
                 (i64.const 32)
                 (i64.extend_i32_u
