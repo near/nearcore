@@ -4,7 +4,7 @@ to a particular height in the chain defined by the sample home
 directory archives included here. To run all the benchmarks:
 
 ```shell
-$ cargo bench -p mock_node
+$ cargo bench -p mock-node
 ```
 
 This will take quite a while though, as each iteration of the
@@ -12,7 +12,7 @@ benchmark `mock_node_sync_full` takes several minutes, and it's run 10
 times. To run just the quicker one:
 
 ```shell
-$ cargo bench -p mock_node -- mock_node_sync_empty
+$ cargo bench -p mock-node -- mock_node_sync_empty
 ```
 
 You can pretty easily define and run your own benchmark based on some

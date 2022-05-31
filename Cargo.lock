@@ -2591,7 +2591,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock_node"
+name = "mock-node"
 version = "0.0.0"
 dependencies = [
  "actix",
@@ -2619,7 +2619,6 @@ dependencies = [
  "nearcore",
  "rand 0.7.3",
  "rayon",
- "regex",
  "tar",
  "tempfile",
  "tracing",
