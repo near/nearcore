@@ -223,6 +223,7 @@ impl Runtime {
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "process_transaction").entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+        tracing::trace!(target: "io_tracer", tx_hash = %signed_transaction.get_hash());
 
         match verify_and_charge_transaction(
             &apply_state.config,
@@ -1268,6 +1269,7 @@ impl Runtime {
                 receipt_id = %receipt.receipt_id,
                 node_counter = ?state_update.trie.get_trie_nodes_count())
             .entered();
+            tracing::trace!(target: "io_tracer", predecessor = %receipt.predecessor_id, receiver = %receipt.receiver_id, id = %receipt.receipt_id);
             let result = self.process_receipt(
                 state_update,
                 apply_state,

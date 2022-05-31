@@ -13,11 +13,13 @@ use runtime_params_estimator::{
 };
 use std::env;
 use std::fmt::Write;
-use std::fs;
+use std::fs::{self, File};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 use std::time;
+use tracing_subscriber::Layer;
 
 #[derive(Parser)]
 struct CliArgs {
@@ -79,6 +81,9 @@ struct CliArgs {
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
+    /// Records IO events in JSON format and stores it in a given file.
+    #[clap(long)]
+    record_io_trace: Option<PathBuf>,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -195,11 +200,18 @@ fn main() -> anyhow::Result<()> {
         tracing_span_tree::span_tree().enable();
     } else {
         use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-        use tracing_subscriber::util::SubscriberInitExt;
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::layer())
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
+        let log_layer = tracing_subscriber::fmt::layer()
+            .with_filter(tracing_subscriber::EnvFilter::from_default_env());
+        let io_layer = cli_args.record_io_trace.map(|path| {
+            let log_file = Mutex::new(
+                File::create(path).expect("unable to create or truncate IO trace output file"),
+            );
+            near_o11y::make_io_tracing_layer(log_file)
+        });
+        let subscriber = tracing_subscriber::registry().with(log_layer).with(io_layer);
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;

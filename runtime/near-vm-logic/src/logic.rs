@@ -2345,6 +2345,17 @@ impl<'a> VMLogic<'a> {
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        tracing::trace!(
+            target: "vm_logic",
+            storage_op = "write",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = value_len,
+            evicted_len = evicted.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
         self.gas_counter.add_trie_fees(nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
@@ -2424,8 +2435,19 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let tn_mem_reads = nodes_delta.mem_reads;
+        let tn_db_reads = nodes_delta.db_reads;
         self.gas_counter.add_trie_fees(nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+
+        tracing::trace!(
+            target: "vm_logic",
+            storage_op = "read",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = read.as_ref().map(Vec::len),
+            tn_db_reads,
+            tn_mem_reads,
+        );
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;
@@ -2478,6 +2500,16 @@ impl<'a> VMLogic<'a> {
 
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        tracing::trace!(
+            target: "vm_logic",
+            storage_op = "remove",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            evicted_len = removed.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
         self.gas_counter.add_trie_fees(nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
@@ -2525,6 +2557,15 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+
+        tracing::trace!(
+            target: "vm_logic",
+            storage_op = "exists",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
         self.gas_counter.add_trie_fees(nodes_delta)?;
         Ok(res? as u64)
     }
