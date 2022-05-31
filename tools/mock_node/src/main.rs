@@ -3,21 +3,21 @@
 //! network, responding to the client's network requests by reading from a
 //! pre-generated chain history in storage.
 
-use actix::{Actor, System};
+use actix::System;
 use anyhow::Context;
 use clap::Parser;
-use futures::{future, FutureExt};
 use mock_node::setup::setup_mock_node;
 use mock_node::GetChainTargetBlockHeight;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
-use near_client::GetBlock;
+use near_client::{GetBlock, Status};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 use near_primitives::types::BlockHeight;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Program to start a mock node, which runs a regular client in a mock network environment.
 /// The mock network simulates the entire network by replaying a pre-generated chain history
@@ -81,6 +81,10 @@ struct Cli {
     /// If true, use in memory storage instead of rocksdb for the client
     #[clap(short = 'i', long)]
     in_memory_storage: bool,
+    /// Periodically send status requests to the client, warning if it takes too
+    /// long to respond. Use this for basic responsiveness checks.
+    #[clap(long)]
+    ping: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -110,7 +114,7 @@ fn main() -> anyhow::Result<()> {
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
     run_actix(async move {
-        let (mock_network, _client, view_client, _) = setup_mock_node(
+        let (mock_network, client, view_client, _) = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
@@ -120,24 +124,42 @@ fn main() -> anyhow::Result<()> {
             args.target_height,
             args.in_memory_storage,
         );
-        let target_height = mock_network.send(GetChainTargetBlockHeight).await.unwrap();
-        // wait until the client reach target_height
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
-                actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height >= target_height {
-                            System::current().stop()
-                        }
+        let ping_handle = if args.ping {
+            Some(actix::spawn(async move {
+                loop {
+                    let t = Instant::now();
+                    let _ = client.send(Status { is_health_check: false, detailed: false }).await;
+                    let latency = t.elapsed();
+                    if latency > Duration::from_millis(100) {
+                        tracing::warn!(target: "mock_node", ?latency, "took to long to respond to status request")
                     }
-                    future::ready(())
-                }));
-            }),
+                }
+            }))
+        } else {
+            None
+        };
+
+        let target_height = mock_network.send(GetChainTargetBlockHeight).await.unwrap();
+
+        // Wait until the client reach target_height.
+        wait_or_timeout(
             100,
             // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
-            target_height * 5000,
+            target_height * 5_000,
+            || async {
+                match view_client.send(GetBlock::latest()).await {
+                    Ok(Ok(block)) if block.header.height >= target_height => ControlFlow::Break(()),
+                    _ => ControlFlow::Continue(()),
+                }
+            },
         )
-        .start();
+        .await
+        .unwrap();
+
+        if let Some(handle) = ping_handle {
+            handle.abort()
+        }
+        System::current().stop();
     });
     Ok(())
 }
