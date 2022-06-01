@@ -249,13 +249,7 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
