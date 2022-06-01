@@ -117,8 +117,7 @@ impl Script {
         }
 
         let config_store = RuntimeConfigStore::new(None);
-        let config = &config_store.get_config(self.protocol_version);
-        let runtime_fees_config = &config.transaction_costs;
+        let runtime_fees_config = &config_store.get_config(self.protocol_version).transaction_costs;
         let mut outcomes = Vec::new();
         if let Some(runtime) = self.vm_kind.runtime(self.vm_config.clone()) {
             for step in &self.steps {
