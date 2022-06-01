@@ -6,7 +6,6 @@ use futures::FutureExt;
 use near_performance_metrics_macros::perf;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tracing::info;
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -70,12 +69,13 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                     .insert_header(("Content-Type", "application/json"))
                     .send_json(&msg.content)
                     .map(|response| {
-                        if let Err(error) = response {
-                            info!(target: "telemetry", err=?error, "Failed to send telemetry data");
-                            metrics::TELEMETRY_RESULT.with_label_values(&["failed"]).inc();
+                        let result = if let Err(error) = response {
+                            tracing::warn!(target: "telemetry", err=?error, "Failed to send telemetry data");
+                            "failed"
                         } else {
-                            metrics::TELEMETRY_RESULT.with_label_values(&["ok"]).inc();
-                        }
+                            "ok"
+                        };
+                        metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
                     }),
             );
         }
