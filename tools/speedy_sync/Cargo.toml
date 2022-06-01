@@ -1,6 +1,9 @@
 [package]
 name = "speedy_sync"
-version = "0.1.0"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+repository = "https://github.com/near/nearcore"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
