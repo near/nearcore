@@ -36,7 +36,6 @@ pub fn run(
     cache: Option<&dyn CompiledContractCache>,
 ) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
-
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(
             code,
