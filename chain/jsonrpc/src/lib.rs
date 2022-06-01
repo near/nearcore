@@ -34,12 +34,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
-mod errors;
+mod api;
 mod metrics;
-mod parser;
 
-pub use errors::{RpcFrom, RpcInto};
-use parser::RpcRequest;
+use api::RpcRequest;
+pub use api::{RpcFrom, RpcInto};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {

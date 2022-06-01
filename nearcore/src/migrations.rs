@@ -5,7 +5,6 @@ use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::DBCol;
-use std::path::Path;
 
 lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
@@ -16,9 +15,8 @@ lazy_static_include::lazy_static_include_bytes! {
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
-    // TODO(#6857): Don’t use .path().
-    let store = near_store::StoreOpener::new(&near_config.config.store).path(path).open();
+pub fn migrate_30_to_31(store_opener: &near_store::StoreOpener, near_config: &crate::NearConfig) {
+    let store = store_opener.open();
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
