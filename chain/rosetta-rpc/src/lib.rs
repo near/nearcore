@@ -124,12 +124,15 @@ async fn network_status(
         .ok()
         .map(|block| (&block.header).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
+
+    let final_block = crate::utils::get_final_block(&view_client_addr).await?;
     Ok(Json(models::NetworkStatusResponse {
         current_block_identifier: models::BlockIdentifier {
-            index: status.sync_info.latest_block_height.try_into().unwrap(),
-            hash: status.sync_info.latest_block_hash.to_base(),
+            index: final_block.header.height.try_into().unwrap(),
+            hash: final_block.header.hash.to_base(),
         },
-        current_block_timestamp: status.sync_info.latest_block_time.timestamp_millis(),
+        current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec / 1_000_000)
+            .unwrap(),
         genesis_block_identifier,
         oldest_block_identifier,
         sync_status: if status.sync_info.syncing {
@@ -212,11 +215,9 @@ async fn block_details(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
-
-    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
-        Ok(block) => block,
-        Err(_) => return Ok(Json(models::BlockResponse { block: None, other_transactions: None })),
-    };
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
+        .await?
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
     let block_identifier: models::BlockIdentifier = (&block.header).into();
 
@@ -293,10 +294,9 @@ async fn block_transaction_details(
 
     let block_id: near_primitives::types::BlockReference = block_identifier.try_into()?;
 
-    let block = view_client_addr
-        .send(near_client::GetBlock(block_id.clone()))
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
         .await?
-        .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
     let transaction = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
@@ -349,10 +349,10 @@ async fn account_balance(
 
     // TODO: update error handling once we return structured errors from the
     // view_client handlers
-    let block = view_client_addr
-        .send(near_client::GetBlock(block_id.clone()))
+    let block = crate::utils::get_block_if_final(&block_id, view_client_addr.get_ref())
         .await?
-        .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
+        .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
+
     let runtime_config =
         crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
             .await?

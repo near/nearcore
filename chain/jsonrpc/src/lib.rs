@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 
 use actix::Addr;
 use actix_cors::Cors;
+use actix_web::http::header;
+use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
@@ -15,10 +17,10 @@ use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
+    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
-    TxStatusError, ViewClientActor,
+    ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -32,10 +34,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
+mod api;
 mod metrics;
-mod parser;
 
-use parser::RpcRequest;
+use api::RpcRequest;
+pub use api::{RpcFrom, RpcInto};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -292,7 +295,8 @@ impl JsonRpcHandler {
                                 set_max_peers: None,
                             },
                         ))
-                        .await?;
+                        .await
+                        .map_err(|e| RpcError::rpc_from(e))?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -310,7 +314,8 @@ impl JsonRpcHandler {
                                 prune_edges: request.prune_edges,
                             },
                         ))
-                        .await?;
+                        .await
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -330,7 +335,8 @@ impl JsonRpcHandler {
                                 },
                             ),
                         )
-                        .await?;
+                        .await
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -342,7 +348,8 @@ impl JsonRpcHandler {
                         .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
                             near_network::private_actix::GetPeerId {},
                         ))
-                        .await?;
+                        .await
+                        .map_err(RpcError::rpc_from)?;
                     Some(
                         serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
@@ -352,7 +359,8 @@ impl JsonRpcHandler {
                     let result = self
                         .routing_table_addr
                         .send(near_network::RoutingTableMessages::RequestRoutingTable)
-                        .await?;
+                        .await
+                        .map_err(RpcError::rpc_from)?;
 
                     match result {
                         near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
@@ -431,7 +439,8 @@ impl JsonRpcHandler {
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "light_client_proof" => {
-                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
+                let rpc_light_client_execution_proof_request =
+                    near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
                 let rpc_light_client_execution_proof_response = self
                     .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
                     .await?;
@@ -439,7 +448,8 @@ impl JsonRpcHandler {
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "next_light_client_block" => {
-                let rpc_light_client_next_block_request = near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest::parse(request.params)?;
+                let rpc_light_client_next_block_request =
+                    near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockRequest::parse(request.params)?;
                 let next_light_client_block =
                     self.next_light_client_block(rpc_light_client_next_block_request).await?;
                 serde_json::to_value(next_light_client_block)
@@ -521,7 +531,8 @@ impl JsonRpcHandler {
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "EXPERIMENTAL_light_client_proof" => {
-                let rpc_light_client_execution_proof_request = near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
+                let rpc_light_client_execution_proof_request =
+                    near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest::parse(request.params)?;
                 let rpc_light_client_execution_proof_response = self
                     .light_client_execution_outcome_proof(rpc_light_client_execution_proof_request)
                     .await?;
@@ -547,7 +558,8 @@ impl JsonRpcHandler {
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "EXPERIMENTAL_tx_status" => {
-                let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
+                let rpc_transaction_status_common_request =
+                    near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
                     self.tx_status_common(rpc_transaction_status_common_request, true).await?;
                 serde_json::to_value(rpc_transaction_response)
@@ -590,6 +602,28 @@ impl JsonRpcHandler {
         response
     }
 
+    async fn client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    where
+        ClientActor: actix::Handler<M>,
+        M: actix::Message<Result = Result<T, F>> + Send + 'static,
+        M::Result: Send,
+        E: RpcFrom<F>,
+        E: RpcFrom<actix::MailboxError>,
+    {
+        self.client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+    }
+
+    async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    where
+        ViewClientActor: actix::Handler<M>,
+        M: actix::Message<Result = Result<T, F>> + Send + 'static,
+        M::Result: Send,
+        E: RpcFrom<F>,
+        E: RpcFrom<actix::MailboxError>,
+    {
+        self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+    }
+
     async fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
@@ -613,24 +647,22 @@ impl JsonRpcHandler {
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
-                match self
-                    .view_client_addr
-                    .send(TxStatus {
+                match self.view_client_send(
+                    TxStatus {
                         tx_hash,
                         signer_account_id: signer_account_id.clone(),
                         fetch_receipt: false,
                     })
                     .await
                 {
-                    Ok(Ok(Some(_))) => {
+                    Ok(Some(_)) => {
                         return Ok(true);
                     }
-                    Ok(Err(TxStatusError::MissingTransaction(_))) => {
+                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
+                        ..
+                    }) => {
                         return Ok(false);
                     }
-                    Err(err) => return Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::InternalError {
-                        debug_info: format!("{:?}", err)
-                    }),
                     _ => {}
                 }
                 sleep(self.polling_config.polling_interval).await;
@@ -652,7 +684,10 @@ impl JsonRpcHandler {
         &self,
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
         fetch_receipt: bool,
-    ) -> Result<FinalExecutionOutcomeViewEnum, TxStatusError> {
+    ) -> Result<
+        FinalExecutionOutcomeViewEnum,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+    > {
         let (tx_hash, account_id) = match &tx_info {
             near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) => {
                 (tx.get_hash(), tx.transaction.signer_id.clone())
@@ -664,29 +699,32 @@ impl JsonRpcHandler {
         };
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let tx_status_result = self
-                    .view_client_addr
-                    .send(TxStatus {
+                let tx_status_result = self.view_client_send( TxStatus {
                         tx_hash,
                         signer_account_id: account_id.clone(),
                         fetch_receipt,
                     })
                     .await;
                 match tx_status_result {
-                    Ok(Ok(Some(outcome))) => break Ok(outcome),
-                    Ok(Ok(None)) => {} // No such transaction recorded on chain yet
-                    Ok(Err(err @ TxStatusError::MissingTransaction(_))) => {
+                    Ok(Some(outcome)) => break Ok(outcome),
+                    Ok(None) => {} // No such transaction recorded on chain yet
+                    Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
+                        ..
+                    }) => {
                         if let near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) = &tx_info {
-                            if let Ok(NetworkClientResponses::InvalidTx(e)) =
+                            if let Ok(NetworkClientResponses::InvalidTx(context)) =
                                 self.send_tx(tx.clone(), true).await
                             {
-                                break Err(TxStatusError::InvalidTx(e));
+                                break Err(
+                                    near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
+                                        context
+                                    }
+                                );
                             }
                         }
                         break Err(err);
                     }
-                    Ok(Err(err)) => break Err(err),
-                    Err(err) => break Err(TxStatusError::InternalError(err.to_string())),
+                    Err(err) => break Err(err),
                 }
                 let _ = sleep(self.polling_config.polling_interval).await;
             }
@@ -699,7 +737,7 @@ impl JsonRpcHandler {
                 tx_info,
                 fetch_receipt,
             );
-            TxStatusError::TimeoutError
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
     }
 
@@ -721,10 +759,12 @@ impl JsonRpcHandler {
                         )
                     }
                     // If transaction is missing, keep polling.
-                    Err(TxStatusError::MissingTransaction(_)) => {}
+                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
+                        ..
+                    }) => {}
                     // If we hit any other error, we return to the user.
                     Err(err) => {
-                        break Err(err.into());
+                        break Err(err.rpc_into());
                     }
                 }
                 let _ = sleep(self.polling_config.polling_interval).await;
@@ -761,7 +801,8 @@ impl JsonRpcHandler {
                 is_forwarded: false,
                 check_only,
             })
-            .await?;
+            .await
+            .map_err(RpcFrom::rpc_from)?;
 
         // If we receive InvalidNonce error, it might be the case that the transaction was
         // resubmitted, and we should check if that is the case and return ValidTx response to
@@ -823,7 +864,9 @@ impl JsonRpcHandler {
                 })
             }
             network_client_responses => Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(network_client_responses)
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
+                    network_client_responses
+                )
             )
         }
     }
@@ -850,10 +893,10 @@ impl JsonRpcHandler {
                     final_execution_outcome: outcome,
                 });
             }
-            Err(TxStatusError::InvalidTx(invalid_tx_error)) => {
-                return Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
-                    context: invalid_tx_error
-                });
+            Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
+                ..
+            }) => {
+                return Err(err);
             }
             _ => {}
         }
@@ -877,7 +920,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcHealthResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: true, detailed: false }).await??.into())
+        let status = self.client_send(Status { is_health_check: true, detailed: false }).await?;
+        Ok(status.rpc_into())
     }
 
     pub async fn status(
@@ -886,22 +930,41 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusResponse,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
-        Ok(self.client_addr.send(Status { is_health_check: false, detailed: false }).await??.into())
+        let status = self.client_send(Status { is_health_check: false, detailed: false }).await?;
+        Ok(status.rpc_into())
     }
 
-    pub async fn debug(
+    pub async fn old_debug(
         &self,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcStatusResponse>,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            Ok(Some(
-                self.client_addr
-                    .send(Status { is_health_check: false, detailed: true })
-                    .await??
-                    .into(),
-            ))
+            let status =
+                self.client_send(Status { is_health_check: false, detailed: true }).await?;
+            Ok(Some(status.rpc_into()))
+        } else {
+            return Ok(None);
+        }
+    }
+
+    pub async fn debug(
+        &self,
+        path: &str,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status = match path {
+                "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
+                "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
+                "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
+                _ => return Ok(None),
+            };
+            return Ok(Some(debug_status.rpc_into()));
         } else {
             return Ok(None);
         }
@@ -923,7 +986,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::config::RpcProtocolConfigError,
     > {
         let config_view =
-            self.view_client_addr.send(GetProtocolConfig(request_data.block_reference)).await??;
+            self.view_client_send(GetProtocolConfig(request_data.block_reference)).await?;
         Ok(RpcProtocolConfigResponse { config_view })
     }
 
@@ -934,8 +997,10 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
         near_jsonrpc_primitives::types::query::RpcQueryError,
     > {
-        let query = Query::new(request_data.block_reference, request_data.request);
-        Ok(self.view_client_addr.send(query).await??.into())
+        let query_response = self
+            .view_client_send(Query::new(request_data.block_reference, request_data.request))
+            .await?;
+        Ok(query_response.rpc_into())
     }
 
     async fn tx_status_common(
@@ -946,7 +1011,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        Ok(self.tx_status_fetch(request_data.transaction_info, fetch_receipt).await?.into())
+        let tx_status = self.tx_status_fetch(request_data.transaction_info, fetch_receipt).await?;
+        Ok(tx_status.rpc_into())
     }
 
     async fn block(
@@ -956,8 +1022,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::blocks::RpcBlockResponse,
         near_jsonrpc_primitives::types::blocks::RpcBlockError,
     > {
-        let block_view =
-            self.view_client_addr.send(GetBlock(request_data.block_reference)).await??;
+        let block_view = self.view_client_send(GetBlock(request_data.block_reference)).await?;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
     }
 
@@ -969,7 +1034,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::chunks::RpcChunkError,
     > {
         let chunk_view =
-            self.view_client_addr.send(GetChunk::from(request_data.chunk_reference)).await??;
+            self.view_client_send(GetChunk::rpc_from(request_data.chunk_reference)).await?;
         Ok(near_jsonrpc_primitives::types::chunks::RpcChunkResponse { chunk_view })
     }
 
@@ -981,9 +1046,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::receipts::RpcReceiptError,
     > {
         match self
-            .view_client_addr
-            .send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
-            .await??
+            .view_client_send(GetReceipt { receipt_id: request_data.receipt_reference.receipt_id })
+            .await?
         {
             Some(receipt_view) => {
                 Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
@@ -1003,10 +1067,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
+        let block: near_primitives::views::BlockView =
+            self.view_client_send(GetBlock(request.block_reference)).await?;
 
         let block_hash = block.header.hash.clone();
-        let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
+        let changes = self.view_client_send(GetStateChangesInBlock { block_hash }).await?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
             block_hash: block.header.hash,
@@ -1021,16 +1086,16 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
-        let block = self.view_client_addr.send(GetBlock(request.block_reference)).await??;
+        let block: near_primitives::views::BlockView =
+            self.view_client_send(GetBlock(request.block_reference)).await?;
 
         let block_hash = block.header.hash.clone();
         let changes = self
-            .view_client_addr
-            .send(GetStateChanges {
+            .view_client_send(GetStateChanges {
                 block_hash,
                 state_changes_request: request.state_changes_request,
             })
-            .await??;
+            .await?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
             block_hash: block.header.hash,
@@ -1045,11 +1110,10 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockResponse,
         near_jsonrpc_primitives::types::light_client::RpcLightClientNextBlockError,
     > {
-        Ok(self
-            .view_client_addr
-            .send(GetNextLightClientBlock { last_block_hash: request.last_block_hash })
-            .await??
-            .into())
+        let response = self
+            .view_client_send(GetNextLightClientBlock { last_block_hash: request.last_block_hash })
+            .await?;
+        Ok(response.rpc_into())
     }
 
     async fn light_client_execution_outcome_proof(
@@ -1064,16 +1128,15 @@ impl JsonRpcHandler {
             light_client_head,
         } = request;
 
-        let execution_outcome_proof =
-            self.view_client_addr.send(GetExecutionOutcome { id }).await??;
+        let execution_outcome_proof: near_client_primitives::types::GetExecutionOutcomeResponse =
+            self.view_client_send(GetExecutionOutcome { id }).await?;
 
-        let block_proof = self
-            .view_client_addr
-            .send(GetBlockProof {
+        let block_proof: near_client_primitives::types::GetBlockProofResponse = self
+            .view_client_send(GetBlockProof {
                 block_hash: execution_outcome_proof.outcome_proof.block_hash,
                 head_block_hash: light_client_head,
             })
-            .await??;
+            .await?;
 
         Ok(near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse {
             outcome_proof: execution_outcome_proof.outcome_proof,
@@ -1089,7 +1152,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
     > {
-        Ok(self.client_addr.send(GetNetworkInfo {}).await??.into())
+        let network_info = self.client_send(GetNetworkInfo {}).await?;
+        Ok(network_info.rpc_into())
     }
 
     async fn gas_price(
@@ -1100,7 +1164,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::gas_price::RpcGasPriceError,
     > {
         let gas_price_view =
-            self.view_client_addr.send(GetGasPrice { block_id: request_data.block_id }).await??;
+            self.view_client_send(GetGasPrice { block_id: request_data.block_id }).await?;
         Ok(near_jsonrpc_primitives::types::gas_price::RpcGasPriceResponse { gas_price_view })
     }
 
@@ -1112,9 +1176,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::validator::RpcValidatorError,
     > {
         let validator_info = self
-            .view_client_addr
-            .send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
-            .await??;
+            .view_client_send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
+            .await?;
         Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
     }
 
@@ -1130,7 +1193,8 @@ impl JsonRpcHandler {
     > {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
-        Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??)
+        let validators = self.view_client_send(GetValidatorOrdered { block_id }).await?;
+        Ok(validators)
     }
 }
 
@@ -1149,7 +1213,8 @@ impl JsonRpcHandler {
                     patch_state_request.records,
                 ),
             ))
-            .await?;
+            .await
+            .map_err(RpcFrom::rpc_from)?;
 
         timeout(self.polling_config.polling_timeout, async {
             loop {
@@ -1189,7 +1254,8 @@ impl JsonRpcHandler {
                     fast_forward_request.delta_height,
                 ),
             ))
-            .await?;
+            .await
+            .map_err(RpcFrom::rpc_from)?;
 
         // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
         // where we can leave it to the rpc clients to set their own timeouts if necessary.
@@ -1203,8 +1269,12 @@ impl JsonRpcHandler {
                     .await;
 
                 match fast_forward_finished {
-                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFinished(true))) => break,
-                    Ok(NetworkClientResponses::SandboxResult(SandboxResponse::SandboxFastForwardFailed(err))) => return Err(err),
+                    Ok(NetworkClientResponses::SandboxResult(
+                        SandboxResponse::SandboxFastForwardFinished(true)
+                    )) => break,
+                    Ok(NetworkClientResponses::SandboxResult(
+                        SandboxResponse::SandboxFastForwardFailed(err)
+                    )) => return Err(err),
                     _ => (),
                 }
 
@@ -1371,8 +1441,19 @@ fn status_handler(
     response.boxed()
 }
 
-async fn debug_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
-    match handler.debug().await {
+async fn debug_handler(
+    req: HttpRequest,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    if req.path() == "/debug/api/status" {
+        // This is a temporary workaround - as we migrate the debug information to the separate class below.
+        return match handler.old_debug().await {
+            Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+            Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        };
+    }
+    match handler.debug(req.path()).await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
@@ -1435,6 +1516,7 @@ lazy_static_include::lazy_static_include_str! {
     NETWORK_INFO_HTML => "res/network_info.html",
     EPOCH_INFO_HTML => "res/epoch_info.html",
     CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
+    SYNC_HTML => "res/sync.html",
 }
 
 #[get("/debug")]
@@ -1442,24 +1524,27 @@ async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
     Ok(HttpResponse::Ok().body(*DEBUG_HTML))
 }
 
-#[get("/debug/last_blocks")]
-async fn last_blocks_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*LAST_BLOCKS_HTML))
-}
+#[get("/debug/pages/{page}")]
+async fn display_debug_html(
+    path: web::Path<(String,)>,
+) -> actix_web::Result<impl actix_web::Responder> {
+    let page_name = path.into_inner().0;
 
-#[get("/debug/network_info")]
-async fn network_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*NETWORK_INFO_HTML))
-}
+    let content = match page_name.as_str() {
+        "last_blocks" => Some(*LAST_BLOCKS_HTML),
+        "network_info" => Some(*NETWORK_INFO_HTML),
+        "epoch_info" => Some(*EPOCH_INFO_HTML),
+        "chain_n_chunk_info" => Some(*CHAIN_N_CHUNK_INFO_HTML),
+        "sync" => Some(*SYNC_HTML),
+        _ => None,
+    };
 
-#[get("/debug/epoch_info")]
-async fn epoch_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*EPOCH_INFO_HTML))
-}
-
-#[get("/debug/chain_n_chunk_info")]
-async fn chain_n_chunk_info_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*CHAIN_N_CHUNK_INFO_HTML))
+    match content {
+        Some(content) => {
+            Ok(HttpResponse::Ok().insert_header(header::ContentType::html()).body(content))
+        }
+        None => Ok(HttpResponse::NotFound().finish()),
+    }
 }
 
 /// Starts HTTP server(s) listening for RPC requests.
@@ -1522,12 +1607,9 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-            .service(web::resource("/debug/api/status").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(debug_html)
-            .service(last_blocks_html)
-            .service(network_info_html)
-            .service(epoch_info_html)
-            .service(chain_n_chunk_info_html)
+            .service(display_debug_html)
     })
     .bind(addr)
     .unwrap()

@@ -1304,7 +1304,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Error,
     > {
         let epoch_manager = self.epoch_manager.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
+        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
         let prev_epoch_id = last_block_info.epoch_id().clone();
         Ok((
             epoch_manager.get_block_info(last_block_info.epoch_first_block())?,

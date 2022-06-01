@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::block_header::BlockHeader;
@@ -13,7 +15,7 @@ use crate::views::LightClientBlockView;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
+pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]

@@ -6,24 +6,25 @@ use rand::{Fill, SeedableRng};
 use std::path::Path;
 
 /// Trivial contact with a do-nothing main function.
+pub fn wat_contract(wat: &str) -> Vec<u8> {
+    wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
+}
+
+/// Trivial contact with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT
-        .get_or_init(|| wat::parse_str(r#"(module (func (export "main")))"#).unwrap())
-        .as_slice()
+    CONTRACT.get_or_init(|| wat_contract(r#"(module (func (export "main")))"#)).as_slice()
 }
 
 /// Contract with exact size in bytes.
 pub fn sized_contract(size: usize) -> Vec<u8> {
     let payload = "x".repeat(size);
     let base_size =
-        wat::parse_str(format!("(module (data \"{payload}\") (func (export \"main\")))"))
-            .unwrap()
-            .len();
+        wat_contract(&format!("(module (data \"{payload}\") (func (export \"main\")))")).len();
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
     let code = format!("(module (data \"{payload}\") (func (export \"main\")))");
-    let contract = wat::parse_str(code).unwrap();
+    let contract = wat_contract(&code);
     assert_eq!(contract.len(), size);
     contract
 }

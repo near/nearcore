@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcLightClientExecutionProofRequest {
@@ -24,7 +25,7 @@ pub struct RpcLightClientExecutionProofResponse {
 #[derive(Debug, Serialize)]
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
-    pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
+    pub light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>,
 }
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
@@ -65,108 +66,6 @@ pub enum RpcLightClientNextBlockError {
     },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
-}
-
-impl From<Option<near_primitives::views::LightClientBlockView>>
-    for RpcLightClientNextBlockResponse
-{
-    fn from(light_client_block: Option<near_primitives::views::LightClientBlockView>) -> Self {
-        Self { light_client_block }
-    }
-}
-
-impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightClientProofError {
-    fn from(error: near_client_primitives::types::GetExecutionOutcomeError) -> Self {
-        match error {
-            near_client_primitives::types::GetExecutionOutcomeError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            },
-            near_client_primitives::types::GetExecutionOutcomeError::InconsistentState {
-                number_or_shards, execution_outcome_shard_id
-            } => Self::InconsistentState { number_or_shards, execution_outcome_shard_id },
-            near_client_primitives::types::GetExecutionOutcomeError::NotConfirmed {
-                transaction_or_receipt_id
-            } => Self::NotConfirmed { transaction_or_receipt_id },
-            near_client_primitives::types::GetExecutionOutcomeError::UnknownTransactionOrReceipt {
-                transaction_or_receipt_id
-            } => Self::UnknownTransactionOrReceipt { transaction_or_receipt_id },
-            near_client_primitives::types::GetExecutionOutcomeError::UnavailableShard {
-                transaction_or_receipt_id,
-                shard_id
-            } => Self::UnavailableShard { transaction_or_receipt_id, shard_id },
-            near_client_primitives::types::GetExecutionOutcomeError::InternalError { error_message } => {
-                Self::InternalError { error_message }
-            },
-            near_client_primitives::types::GetExecutionOutcomeError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT.with_label_values(
-                    &["RpcLightClientProofError"],
-                ).inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<near_client_primitives::types::GetBlockProofError> for RpcLightClientProofError {
-    fn from(error: near_client_primitives::types::GetBlockProofError) -> Self {
-        match error {
-            near_client_primitives::types::GetBlockProofError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetBlockProofError::InternalError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetBlockProofError::Unreachable {
-                ref error_message,
-            } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcLightClientProofError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<near_client_primitives::types::GetNextLightClientBlockError>
-    for RpcLightClientNextBlockError
-{
-    fn from(error: near_client_primitives::types::GetNextLightClientBlockError) -> Self {
-        match error {
-            near_client_primitives::types::GetNextLightClientBlockError::InternalError {
-                error_message,
-            } => Self::InternalError { error_message },
-            near_client_primitives::types::GetNextLightClientBlockError::UnknownBlock {
-                error_message,
-            } => Self::UnknownBlock { error_message },
-            near_client_primitives::types::GetNextLightClientBlockError::EpochOutOfBounds {
-                epoch_id,
-            } => Self::EpochOutOfBounds { epoch_id },
-            near_client_primitives::types::GetNextLightClientBlockError::Unreachable {
-                ref error_message,
-            } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcLightClientNextBlockError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<actix::MailboxError> for RpcLightClientProofError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
-impl From<actix::MailboxError> for RpcLightClientNextBlockError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {

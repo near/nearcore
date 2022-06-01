@@ -1,11 +1,11 @@
-use std::time::Duration;
+mod metrics;
 
 use actix::{Actor, Addr, Context, Handler, Message};
 use awc::{Client, Connector};
 use futures::FutureExt;
 use near_performance_metrics_macros::perf;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use std::time::Duration;
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,17 +62,22 @@ impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
     fn handle(&mut self, msg: TelemetryEvent, _ctx: &mut Context<Self>) {
         for endpoint in self.config.endpoints.iter() {
-            near_performance_metrics::actix::spawn("telemetry",
-                                           self.client
-                        .post(endpoint)
-                        .insert_header(("Content-Type", "application/json"))
-                        .send_json(&msg.content)
-                        .map(|response| {
-                            if let Err(error) = response {
-                                info!(target: "telemetry", "Telemetry data could not be sent due to: {}", error);
-                            }
-                        }),
-                );
+            near_performance_metrics::actix::spawn(
+                "telemetry",
+                self.client
+                    .post(endpoint)
+                    .insert_header(("Content-Type", "application/json"))
+                    .send_json(&msg.content)
+                    .map(|response| {
+                        let result = if let Err(error) = response {
+                            tracing::warn!(target: "telemetry", err=?error, "Failed to send telemetry data");
+                            "failed"
+                        } else {
+                            "ok"
+                        };
+                        metrics::TELEMETRY_RESULT.with_label_values(&[result]).inc();
+                    }),
+            );
         }
     }
 }

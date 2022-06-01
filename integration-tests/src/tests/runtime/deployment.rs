@@ -46,7 +46,7 @@ fn test_deploy_max_size_contract() {
     // Create test account
     let transaction_result = node_user
         .create_account(
-            account_id.clone(),
+            account_id,
             test_contract_id.clone(),
             node.signer().public_key(),
             token_balance,

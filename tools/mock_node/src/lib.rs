@@ -1,3 +1,6 @@
+//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
+//! components of the mock network.
+
 use actix::{Actor, Context, Handler, Recipient};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
@@ -47,7 +50,7 @@ impl MockPeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         genesis_config: &GenesisConfig,
         chain: Chain,
-        peers_start_height: BlockHeight,
+        network_start_height: BlockHeight,
         target_height: BlockHeight,
         block_production_delay: Duration,
         network_delay: Duration,
@@ -61,7 +64,7 @@ impl MockPeerManagerActor {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
                 },
-                height: peers_start_height,
+                height: network_start_height,
                 tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
                 archival: false,
             },
@@ -217,11 +220,11 @@ impl ChainHistoryAccess {
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
-        self.chain.get_block_by_height(block_height).map(|b| b.clone())
+        self.chain.get_block_by_height(block_height).map(|b| b)
     }
 
     fn retrieve_block(&mut self, block_hash: &CryptoHash) -> Result<Block, Error> {
-        self.chain.get_block(block_hash).map(|b| b.clone())
+        self.chain.get_block(block_hash).map(|b| b)
     }
 
     fn retrieve_partial_encoded_chunk(
@@ -309,9 +312,9 @@ mod test {
     #[test]
     fn test_chain_history_access() {
         init_test_logger();
-        let (mut chain_history_access, mut env) = setup_mock();
+        let (mut chain_history_access, env) = setup_mock();
         let blocks: Vec<_> =
-            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap().clone()).collect();
+            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap()).collect();
 
         for block in blocks.iter() {
             assert_eq!(&chain_history_access.retrieve_block(block.hash()).unwrap(), block);

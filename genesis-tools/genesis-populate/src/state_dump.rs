@@ -16,9 +16,8 @@ pub struct StateDump {
 }
 
 impl StateDump {
-    pub fn from_dir(dir: &Path, target_store_path: &Path) -> Self {
-        // TODO(#6857): Don’t use .path().
-        let store = near_store::StoreOpener::with_default_config().path(target_store_path).open();
+    pub fn from_dir(dir: &Path, store_home_dir: &Path) -> Self {
+        let store = near_store::StoreOpener::with_default_config().home(store_home_dir).open();
         let state_file = dir.join(STATE_DUMP_FILE);
         store
             .load_from_file(DBCol::State, state_file.as_path())
@@ -37,7 +36,7 @@ impl StateDump {
         dump_path.push(STATE_DUMP_FILE);
         self.store.save_to_file(DBCol::State, dump_path.as_path())?;
         {
-            let mut roots_files = dir.clone();
+            let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
             let data = self.roots.try_to_vec()?;

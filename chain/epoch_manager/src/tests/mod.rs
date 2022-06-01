@@ -544,7 +544,7 @@ fn test_double_sign_slashing1() {
     // Epoch 3 -> defined by proposals/slashes in h[1].
     record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
     let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     assert_eq!(
         epoch_info
             .validators_iter()
@@ -1207,7 +1207,7 @@ fn test_epoch_info_aggregator() {
     record_block_with_final_block_hash(&mut em, h[1], h[3], h[0], 3, vec![]);
     assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[3]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
 
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..4, &[1, 3], &mut tracker);
@@ -1255,7 +1255,7 @@ fn test_epoch_info_aggregator_data_loss() {
     record_block(&mut em, h[3], h[5], 5, vec![stake("test1".parse().unwrap(), stake_amount - 1)]);
     assert_eq!(h[3], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..6, &[1, 3, 5], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
@@ -1305,7 +1305,7 @@ fn test_epoch_info_aggregator_reorg_past_final_block() {
     record_block_with_final_block_hash(&mut em, h[3], h[4], h[3], 4, vec![]);
     record_block_with_final_block_hash(&mut em, h[2], h[5], h[1], 5, vec![]);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..6, &[1, 2, 5], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
@@ -1347,7 +1347,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
     // reorg
     record_block(&mut em, h[4], h[7], 7, vec![]);
     let epoch_id = em.get_epoch_id(&h[7]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 5..8, &[7], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[7]).unwrap();
@@ -1752,8 +1752,8 @@ fn test_epoch_height_increase() {
     record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1".parse().unwrap(), 223)]);
     record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
 
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_ne!(epoch_info2.epoch_height(), epoch_info3.epoch_height());
 }
 
@@ -1787,10 +1787,10 @@ fn test_unstake_slash() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Unstaked)
@@ -1837,10 +1837,10 @@ fn test_no_unstake_slash() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Slashed)
@@ -1888,11 +1888,11 @@ fn test_slash_non_validator() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone(); // Unstaked
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone(); // -
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone(); // Slashed
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone(); // Slashed
-    let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone(); // Ok
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap(); // Unstaked
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(); // -
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap(); // Slashed
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap(); // Slashed
+    let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap(); // Ok
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Unstaked)
@@ -1945,9 +1945,9 @@ fn test_slash_restake() {
         4,
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     assert!(epoch_info2.stake_change().get("test1").is_none());
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert!(epoch_info4.stake_change().get("test1").is_some());
 }
 
@@ -2060,7 +2060,7 @@ fn test_fisherman_kickout() {
     // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
     record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
 
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
     check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
     check_fishermen(&epoch_info2, &[("test1", 148)]);
     check_stake_change(
@@ -2073,7 +2073,7 @@ fn test_fisherman_kickout() {
     );
     check_kickout(&epoch_info2, &[]);
 
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
     check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
     check_fishermen(&epoch_info3, &[]);
     check_stake_change(
@@ -2381,14 +2381,13 @@ fn test_epoch_validators_cache() {
     let epoch_validators =
         epoch_manager.get_all_block_producers_settlement(&epoch_id, &h[3]).unwrap().to_vec();
     assert_eq!(epoch_manager.epoch_validators_ordered.len(), 1);
-    let epoch_validators_in_cache =
-        epoch_manager.epoch_validators_ordered.get(&epoch_id).unwrap().clone();
+    let epoch_validators_in_cache = epoch_manager.epoch_validators_ordered.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators, *epoch_validators_in_cache);
 
     assert_eq!(epoch_manager.epoch_validators_ordered_unique.len(), 0);
     let epoch_validators_unique =
         epoch_manager.get_all_block_producers_ordered(&epoch_id, &h[3]).unwrap().to_vec();
     let epoch_validators_unique_in_cache =
-        epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap().clone();
+        epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators_unique, *epoch_validators_unique_in_cache);
 }

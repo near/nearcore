@@ -262,7 +262,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 28020601092,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -304,7 +304,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 822756,
+            gas_used: 0,
         },
     ],
     [],
@@ -347,7 +347,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 3291024,
+            gas_used: 0,
         },
     ],
     [],
@@ -442,7 +442,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 18923388,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

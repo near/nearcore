@@ -1053,7 +1053,7 @@ impl ShardsManager {
         let started = Instant::now();
         if let Ok(partial_chunk) = chain_store.get_partial_chunk(&request.chunk_hash) {
             let response =
-                Self::prepare_partial_encoded_chunk_response_from_partial(request, partial_chunk);
+                Self::prepare_partial_encoded_chunk_response_from_partial(request, &partial_chunk);
             return (started, "partial", response);
         }
 
@@ -1062,16 +1062,11 @@ impl ShardsManager {
         // partial chunk while we still keep the chunk itself.  We can get the
         // chunk, recalculate the parts and respond to the request.
         let started = Instant::now();
-        if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash).map(|ch| ch.clone()) {
-            // Note: we need to clone the chunk because otherwise we would be
-            // holding multiple references to chain_store.  One through the
-            // chunk and another through chain_store which we need to pass down
-            // to do further fetches.
-
+        if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash) {
             // TODO(#6242): This is currently not implemented and effectively
             // this is dead code.
             let response =
-                self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, chunk);
+                self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, &chunk);
             return (started, "chunk", response);
         }
 
@@ -1182,7 +1177,7 @@ impl ShardsManager {
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         rs: &mut ReedSolomonWrapper,
-        chunk: ShardChunk,
+        chunk: &ShardChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
         let total_parts = self.runtime_adapter.num_total_parts();
         // rs is created with self.runtime_adapter.num_total_parts() so this
@@ -1537,8 +1532,7 @@ impl ShardsManager {
                     // we are not sure if we are using the correct epoch id for validation, so
                     // we can't be sure if the chunk header is actually invalid. Let's return
                     // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
-                        .into())
+                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
                 };
             }
             Ok(true) => (),
@@ -1553,8 +1547,7 @@ impl ShardsManager {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash()).to_string())
-                    .into())
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
             };
         }
         Ok(())
@@ -1612,7 +1605,7 @@ impl ShardsManager {
             if let Ok(hash) = chain_store
                 .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
             {
-                if *hash != chunk_hash {
+                if hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight);
                 }
@@ -2291,7 +2284,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
-            network_adapter.clone(),
+            network_adapter,
             TEST_SEED,
         );
         let signer =
