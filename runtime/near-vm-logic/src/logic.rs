@@ -2724,7 +2724,6 @@ impl<'a> VMLogic<'a> {
                     VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
                         near_vm_errors::HostError::GasExceeded,
                     ));
-
                 return Err(error);
             }
         }

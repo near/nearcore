@@ -39,6 +39,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 
 [features]
 default = []
+protocol_feature_fix_contract_loading_cost = [
+    "near-primitives/protocol_feature_fix_contract_loading_cost",
+]
 protocol_feature_alt_bn128 = [
   "bn",
   "near-primitives-core/protocol_feature_alt_bn128",
