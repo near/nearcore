@@ -4,6 +4,12 @@ const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
+    /// Path to the database.  If relative, resolved relative to neard home
+    /// directory.  This is useful if node runs with a separate disk holding the
+    /// database.
+    #[serde(default)]
+    pub path: Option<std::path::PathBuf>,
+
     /// Collect internal storage layer statistics.
     /// Minor performance impact is expected.
     #[serde(default)]
@@ -39,19 +45,19 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 }
 
-const fn default_enable_statistics_export() -> bool {
+fn default_enable_statistics_export() -> bool {
     StoreConfig::const_default().enable_statistics_export
 }
 
-const fn default_max_open_files() -> u32 {
+fn default_max_open_files() -> u32 {
     StoreConfig::const_default().max_open_files
 }
 
-const fn default_col_state_cache_size() -> bytesize::ByteSize {
+fn default_col_state_cache_size() -> bytesize::ByteSize {
     StoreConfig::const_default().col_state_cache_size
 }
 
-const fn default_block_size() -> bytesize::ByteSize {
+fn default_block_size() -> bytesize::ByteSize {
     StoreConfig::const_default().block_size
 }
 
@@ -77,6 +83,7 @@ impl StoreConfig {
 
     const fn const_default() -> Self {
         Self {
+            path: None,
             enable_statistics: false,
             enable_statistics_export: true,
             max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
@@ -118,20 +125,9 @@ pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
 pub struct StoreOpener<'a> {
     /// Near home directory.
     ///
-    /// If `path` is relative, it is resolved relative to this home directory.
-    /// On the other hand, if `path` is absolute, `home` is effecively ignored.
-    ///
-    /// If home directory is not given (i.e. this field is `None`), current
-    /// working directory is assumed.
+    /// Path to the database is resolved relative to this directory.  If it’s
+    /// not given current working directory is assumed.
     home: Option<&'a std::path::Path>,
-
-    /// The path relative to home directory where the storage resides.
-    ///
-    /// It is `STORE_PATH` by default but can be overwriten with arbitrary
-    /// absolute path for the cases where code needs to point at the storage
-    /// directory directly without relation to tho home directory
-    // TODO(#6857): Remove cases where this field is needed.
-    path: Option<&'a std::path::Path>,
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
@@ -143,7 +139,7 @@ pub struct StoreOpener<'a> {
 impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given store configuration.
     pub fn new(config: &'a StoreConfig) -> Self {
-        Self { path: None, home: None, config: config, read_only: false }
+        Self { home: None, config: config, read_only: false }
     }
 
     /// Initialises a new opener using default store configuration.
@@ -170,21 +166,6 @@ impl<'a> StoreOpener<'a> {
         self
     }
 
-    /// Specifies path to the database.
-    ///
-    /// You should avoid using this method instead setting [`Self::home`] on
-    /// relying on the opener resolving path to the storage relative to the near
-    /// home direcotry.
-    ///
-    /// If the path is absolute, it points at the database.  Otherwise, it is
-    /// resolved relative to home dir (which is set via [`Self::home`] method.
-    ///
-    /// TODO(#6857): Get rid of this method.
-    pub fn path(mut self, path: &'a std::path::Path) -> Self {
-        self.path = Some(path);
-        self
-    }
-
     /// Returns whether database exists.
     ///
     /// It performs only basic file-system-level checks and may result in false
@@ -201,7 +182,10 @@ impl<'a> StoreOpener<'a> {
     /// Does not check whether the database actually exists.  It merely
     /// constructs the path where the database would be if it existed.
     pub fn get_path(&self) -> std::path::PathBuf {
-        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
+        let path = match self.config.path {
+            Some(ref path) => path,
+            None => std::path::Path::new(STORE_PATH)
+        };
         self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
     }
 
