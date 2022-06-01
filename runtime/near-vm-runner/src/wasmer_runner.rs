@@ -4,7 +4,6 @@ use crate::memory::WasmerMemory;
 use crate::prepare::WASM_FEATURES;
 use crate::runner::VMResult;
 use crate::{cache, imports};
-use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -332,9 +331,9 @@ impl crate::runner::VM for Wasmer0VM {
         );
 
         let result =
-            logic.before_code_loading(method_name, current_protocol_version, code.code().len());
-        if result.is_err() {
-            return VMResult::abort(logic, result.unwrap_err());
+            logic.before_loading_executable(method_name, current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
@@ -351,24 +350,20 @@ impl crate::runner::VM for Wasmer0VM {
             Err(err) => return VMResult::abort(logic, err),
         };
 
-        let result = logic.after_code_loading(current_protocol_version, code.code().len());
-        if result.is_err() {
-            return VMResult::abort(logic, result.unwrap_err());
+        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         let import_object =
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            if checked_feature!(
-                "protocol_feature_fix_contract_loading_cost",
-                FixContractLoadingCost,
-                current_protocol_version
-            ) {
-                return VMResult::abort(logic, e);
-            } else {
-                return VMResult::nop_outcome(e);
-            }
+            return VMResult::abort_but_nop_outcome_in_old_protocol(
+                logic,
+                e,
+                current_protocol_version,
+            );
         }
 
         match run_method(&module, &import_object, method_name) {

@@ -2698,10 +2698,12 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
 
-    /// Perform VM independent checks that happen after the instantiation of
-    /// VMLogic but before loading the code. This includes pre-charging gas
-    /// costs for loading the code.
-    pub fn before_code_loading(
+    /// VM independent setup before performing executable loading.
+    /// 
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
         &mut self,
         method_name: &str,
         current_protocol_version: u32,
@@ -2731,7 +2733,7 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
-    pub fn after_code_loading(
+    pub fn after_loading_executable(
         &mut self,
         current_protocol_version: u32,
         wasm_code_bytes: usize,

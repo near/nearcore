@@ -2,7 +2,6 @@ use crate::errors::IntoVMError;
 use crate::prepare::WASM_FEATURES;
 use crate::runner::VMResult;
 use crate::{imports, prepare};
-use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -218,9 +217,9 @@ impl crate::runner::VM for WasmtimeVM {
         );
 
         let result =
-            logic.before_code_loading(method_name, current_protocol_version, code.code().len());
-        if result.is_err() {
-            return VMResult::abort(logic, result.unwrap_err());
+            logic.before_loading_executable(method_name, current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
@@ -233,9 +232,9 @@ impl crate::runner::VM for WasmtimeVM {
         };
         let mut linker = Linker::new(&engine);
 
-        let result = logic.after_code_loading(current_protocol_version, code.code().len());
-        if result.is_err() {
-            return VMResult::abort(logic, result.unwrap_err());
+        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
@@ -250,45 +249,33 @@ impl crate::runner::VM for WasmtimeVM {
                             VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodInvalidSignature,
                             ));
-                        if checked_feature!(
-                            "protocol_feature_fix_contract_loading_cost",
-                            FixContractLoadingCost,
-                            current_protocol_version
-                        ) {
-                            return VMResult::abort(logic, err);
-                        } else {
-                            return VMResult::nop_outcome(err);
-                        }
+                        return VMResult::abort_but_nop_outcome_in_old_protocol(
+                            logic,
+                            err,
+                            current_protocol_version,
+                        );
                     }
                 }
                 _ => {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    if checked_feature!(
-                        "protocol_feature_fix_contract_loading_cost",
-                        FixContractLoadingCost,
-                        current_protocol_version
-                    ) {
-                        return VMResult::abort(logic, err);
-                    } else {
-                        return VMResult::nop_outcome(err);
-                    }
+                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        logic,
+                        err,
+                        current_protocol_version,
+                    );
                 }
             },
             None => {
                 let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodNotFound,
                 ));
-                if checked_feature!(
-                    "protocol_feature_fix_contract_loading_cost",
-                    FixContractLoadingCost,
-                    current_protocol_version
-                ) {
-                    return VMResult::abort(logic, err);
-                } else {
-                    return VMResult::nop_outcome(err);
-                }
+                return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    logic,
+                    err,
+                    current_protocol_version,
+                );
             }
         }
         match linker.instantiate(&mut store, &module) {
@@ -304,15 +291,11 @@ impl crate::runner::VM for WasmtimeVM {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    if checked_feature!(
-                        "protocol_feature_fix_contract_loading_cost",
-                        FixContractLoadingCost,
-                        current_protocol_version
-                    ) {
-                        return VMResult::abort(logic, err);
-                    } else {
-                        return VMResult::nop_outcome(err);
-                    }
+                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        logic,
+                        err,
+                        current_protocol_version,
+                    );
                 }
             },
             Err(err) => VMResult::abort(logic, err.into_vm_error()),
