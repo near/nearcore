@@ -217,11 +217,8 @@ impl crate::runner::VM for WasmtimeVM {
             current_protocol_version,
         );
 
-        let result = logic.checks_before_code_loading(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result =
+            logic.before_code_loading(method_name, current_protocol_version, code.code().len());
         if result.is_err() {
             return VMResult::abort(logic, result.unwrap_err());
         }
@@ -236,17 +233,9 @@ impl crate::runner::VM for WasmtimeVM {
         };
         let mut linker = Linker::new(&engine);
 
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
-            if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-                let err = VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ));
-                return VMResult::abort(logic, err);
-            }
+        let result = logic.after_code_loading(current_protocol_version, code.code().len());
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the

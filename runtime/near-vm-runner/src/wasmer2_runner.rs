@@ -536,11 +536,8 @@ impl crate::runner::VM for Wasmer2VM {
             current_protocol_version,
         );
 
-        let result = logic.checks_before_code_loading(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result =
+            logic.before_code_loading(method_name, current_protocol_version, code.code().len());
         if result.is_err() {
             return VMResult::abort(logic, result.unwrap_err());
         }
@@ -554,17 +551,9 @@ impl crate::runner::VM for Wasmer2VM {
             }
         };
 
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
-            if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-                let error = VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ));
-                return VMResult::abort(logic, error);
-            }
+        let result = logic.after_code_loading(current_protocol_version, code.code().len());
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
         }
         let import = imports::wasmer2::build(
             vmmemory,

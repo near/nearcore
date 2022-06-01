@@ -331,11 +331,8 @@ impl crate::runner::VM for Wasmer0VM {
             current_protocol_version,
         );
 
-        let result = logic.checks_before_code_loading(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result =
+            logic.before_code_loading(method_name, current_protocol_version, code.code().len());
         if result.is_err() {
             return VMResult::abort(logic, result.unwrap_err());
         }
@@ -354,17 +351,9 @@ impl crate::runner::VM for Wasmer0VM {
             Err(err) => return VMResult::abort(logic, err),
         };
 
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
-            if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-                let err = VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ));
-                return VMResult::abort(logic, err);
-            }
+        let result = logic.after_code_loading(current_protocol_version, code.code().len());
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
         }
 
         let import_object =

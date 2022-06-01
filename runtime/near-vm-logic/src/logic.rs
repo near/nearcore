@@ -128,7 +128,6 @@ impl<'a> VMLogic<'a> {
             context.prepaid_gas,
             context.is_view(),
         );
-
         Self {
             ext,
             context,
@@ -2699,7 +2698,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
 
-    pub fn checks_before_code_loading(
+    /// Perform VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the code. This includes pre-charging gas
+    /// costs for loading the code.
+    pub fn before_code_loading(
         &mut self,
         method_name: &str,
         current_protocol_version: u32,
@@ -2724,6 +2726,28 @@ impl<'a> VMLogic<'a> {
                     ));
 
                 return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_code_loading(
+        &mut self,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                return Err(VMError::FunctionCallError(
+                    near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ),
+                ));
             }
         }
         Ok(())
