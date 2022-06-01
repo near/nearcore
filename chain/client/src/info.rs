@@ -113,7 +113,6 @@ impl InfoHelper {
 
     pub fn info(
         &mut self,
-        genesis_height: BlockHeight,
         head: &Tip,
         sync_status: &SyncStatus,
         node_id: &PeerId,
@@ -132,7 +131,7 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
+        let sync_status_log = Some(display_sync_status(sync_status, head));
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -259,11 +258,7 @@ impl InfoHelper {
     }
 }
 
-pub fn display_sync_status(
-    sync_status: &SyncStatus,
-    head: &Tip,
-    _genesis_height: BlockHeight,
-) -> String {
+pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
