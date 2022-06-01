@@ -1008,11 +1008,7 @@ impl Handler<Status> for ClientActor {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
-                    display_sync_status(
-                        &self.client.sync_status,
-                        &self.client.chain.head()?,
-                        self.client.chain.genesis_block().header().height(),
-                    ),
+                    display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
                 ),
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
@@ -1972,8 +1968,11 @@ impl ClientActor {
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
-                        self.client.sync_status =
-                            SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+                        self.client.sync_status = SyncStatus::BodySync {
+                            start_height: 0,
+                            current_height: 0,
+                            highest_height: 0,
+                        };
                     }
                 }
             }
@@ -2038,7 +2037,6 @@ impl ClientActor {
             None
         };
         self.info_helper.info(
-            self.client.chain.store().get_genesis_height(),
             &head,
             &self.client.sync_status,
             &self.node_id,

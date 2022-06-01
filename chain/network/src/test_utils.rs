@@ -5,7 +5,7 @@ use crate::types::{
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
-use futures::{future, FutureExt};
+use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
@@ -16,6 +16,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::debug;
@@ -72,6 +73,8 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 
 /// Waits until condition or timeouts with panic.
 /// Use in tests to check for a condition and stop or fail otherwise.
+///
+/// Prefer using [`wait_or_timeout`], which is not specific to actix.
 ///
 /// # Example
 ///
@@ -133,6 +136,35 @@ impl Actor for WaitOrTimeoutActor {
     fn started(&mut self, ctx: &mut Context<Self>) {
         self.wait_or_timeout(ctx);
     }
+}
+
+/// Blocks until `cond` returns `ControlFlow::Break`, checking it every
+/// `check_interval_ms`.
+///
+/// If condition wasn't fulfilled within `max_wait_ms`, returns an error.
+pub async fn wait_or_timeout<C, F, T>(
+    check_interval_ms: u64,
+    max_wait_ms: u64,
+    mut cond: C,
+) -> Result<T, tokio::time::error::Elapsed>
+where
+    C: FnMut() -> F,
+    F: Future<Output = ControlFlow<T>>,
+{
+    assert!(
+        check_interval_ms < max_wait_ms,
+        "interval shorter than wait time, did you swap the argument order?"
+    );
+    let mut interval = tokio::time::interval(Duration::from_millis(check_interval_ms));
+    tokio::time::timeout(Duration::from_millis(max_wait_ms), async {
+        loop {
+            interval.tick().await;
+            if let ControlFlow::Break(res) = cond().await {
+                break res;
+            }
+        }
+    })
+    .await
 }
 
 // Gets random PeerId
