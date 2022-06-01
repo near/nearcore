@@ -932,7 +932,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn test_fn_loading_gas_protocol_upgrade() {
         with_vm_variants(|vm_kind: VMKind| {
             let (code, exec_gas) = almost_trivial_contract_and_exec_gas();
-            let loading_gas = prepaid_loading_gas(code.len()).unwrap();
+            let loading_gas = prepaid_loading_gas(code.len());
             let total_gas = exec_gas + loading_gas;
 
             let res = make_simple_contract_call_ex(
@@ -942,7 +942,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 Some(ProtocolFeature::FixContractLoadingCost.protocol_version() - 1),
                 total_gas + 1,
             );
-            gas_and_error_match(res, Some(total_gas), None);
+            gas_and_error_match(res, total_gas, None);
             let res = make_simple_contract_call_ex(
                 &code,
                 "main",
@@ -950,7 +950,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 Some(ProtocolFeature::FixContractLoadingCost.protocol_version()),
                 total_gas + 1,
             );
-            gas_and_error_match(res, Some(total_gas), None);
+            gas_and_error_match(res, total_gas, None);
         });
     }
 
@@ -960,7 +960,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn test_fn_loading_gas_protocol_upgrade_exceed_loading() {
         with_vm_variants(|vm_kind: VMKind| {
             let (code, _exec_gas) = almost_trivial_contract_and_exec_gas();
-            let loading_gas = prepaid_loading_gas(code.len()).unwrap();
+            let loading_gas = prepaid_loading_gas(code.len());
 
             let res = make_simple_contract_call_ex(
                 &code,
@@ -971,7 +971,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             );
             gas_and_error_match(
                 res,
-                Some(loading_gas),
+                loading_gas,
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     HostError::GasExceeded,
                 ))),
@@ -985,7 +985,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             );
             gas_and_error_match(
                 res,
-                Some(loading_gas),
+                loading_gas,
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     HostError::GasExceeded,
                 ))),
@@ -999,7 +999,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn test_fn_loading_gas_protocol_upgrade_exceed_executing() {
         with_vm_variants(|vm_kind: VMKind| {
             let (code, exec_gas) = almost_trivial_contract_and_exec_gas();
-            let loading_gas = prepaid_loading_gas(code.len()).unwrap();
+            let loading_gas = prepaid_loading_gas(code.len());
             let total_gas = exec_gas + loading_gas;
 
             let res = make_simple_contract_call_ex(
@@ -1011,7 +1011,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             );
             gas_and_error_match(
                 res,
-                Some(total_gas - 1),
+                total_gas - 1,
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     HostError::GasExceeded,
                 ))),
@@ -1025,7 +1025,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             );
             gas_and_error_match(
                 res,
-                Some(total_gas - 1),
+                total_gas - 1,
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
                     HostError::GasExceeded,
                 ))),
@@ -1056,7 +1056,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             );
             // This is the first property the tests check: Gas cost before
             // compilation errors must remain zero for old versions.
-            let expected_gas = None;
+            let expected_gas = 0;
             gas_and_error_match(
                 res,
                 expected_gas,
@@ -1165,7 +1165,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     new_version,
                     vm_kind,
                 );
-                let expected_gas = prepaid_loading_gas(code.len()).unwrap();
+                let expected_gas = prepaid_loading_gas(code.len());
                 assert_eq!(expected_gas, outcome.used_gas);
                 assert_eq!(expected_gas, outcome.burnt_gas);
                 error
