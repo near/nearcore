@@ -15,8 +15,12 @@ description = "This crate hosts NEAR client-related error types"
 [dependencies]
 actix = "0.13.0"
 chrono = { version = "0.4.4", features = ["serde"] }
-strum = { version = "0.20", features = ["derive"] }
+strum = { version = "0.24", features = ["derive"] }
 thiserror = "1.0"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+
+
 
 near-chain-primitives = { path = "../chain-primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }

@@ -150,6 +150,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    /// Returns reference to logs that have been created so far.
+    pub fn logs(&self) -> &[String] {
+        &self.logs
+    }
+
+    /// Returns receipt metadata for created receipts
+    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
+        &self.receipt_manager.action_receipts
+    }
+
     #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
@@ -1014,9 +1024,9 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
 
-        let value_hash = ripemd160::Ripemd160::digest(&value);
+        let value_hash = ripemd::Ripemd160::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 

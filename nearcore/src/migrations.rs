@@ -4,8 +4,7 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
-use near_store::{create_store, DBCol};
-use std::path::Path;
+use near_store::DBCol;
 
 lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
@@ -16,11 +15,11 @@ lazy_static_include::lazy_static_include_bytes! {
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
-    let store = create_store(path);
+pub fn migrate_30_to_31(store_opener: &near_store::StoreOpener, near_config: &crate::NearConfig) {
+    let store = store_opener.open();
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().unwrap();
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut count = 0;
@@ -30,7 +29,7 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
                 let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
                 let block_hash_from_block_ordinal =
                     chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
-                if *block_hash_from_block_ordinal != block_hash {
+                if block_hash_from_block_ordinal != block_hash {
                     println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
                     count += 1;
                     store_update

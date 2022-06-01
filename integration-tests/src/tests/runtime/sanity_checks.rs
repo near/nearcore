@@ -2,7 +2,7 @@ use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -10,6 +10,7 @@ use near_primitives::views::{
 };
 use nearcore::config::GenesisExt;
 use std::collections::HashSet;
+use std::mem::size_of;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 /// Initial balance used in tests.
@@ -22,11 +23,10 @@ const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 const MAX_GAS: u64 = 300_000_000_000_000;
 
 /// Costs whose amount of `gas_used` may depend on environmental factors.
-const NONDETERMINISTIC_COSTS: [&'static str; 1] = [
-    // Compiling a contract in different environments may yield bytecode of
-    // different sizes. In that case, the cost of loading the contract varies.
-    "CONTRACT_LOADING_BYTES",
-];
+///
+/// In particular, compiling our test contract with different versions of
+/// compiler can lead to slightly different WASM output.
+const NONDETERMINISTIC_COSTS: [&str; 2] = ["CONTRACT_LOADING_BYTES", "WASM_INSTRUCTION"];
 
 fn is_nondeterministic_cost(cost: &str) -> bool {
     NONDETERMINISTIC_COSTS.iter().find(|&&ndt_cost| ndt_cost == cost).is_some()
@@ -95,25 +95,32 @@ fn get_receipts_status_with_clear_hash(
 /// This test intends to catch accidental configuration changes, see #4961.
 #[test]
 fn test_cost_sanity() {
-    let test_contract = if cfg!(feature = "nightly_protocol") {
+    let test_contract = if cfg!(feature = "nightly") {
         near_test_contracts::nightly_rs_contract()
     } else {
         near_test_contracts::rs_contract()
     };
     let node = setup_runtime_node_with_contract(test_contract);
-    let data = serde_json::json!({
-        "contract_code": to_base64(near_test_contracts::trivial_contract()),
-        "method_name": "main",
-        "method_args": to_base64(&[]),
-        "validator_id": bob_account().as_str(),
-    });
+
+    let args = format!(
+        r#"{{
+            "contract_code": {:?},
+            "method_name": "main",
+            "method_args": "",
+            "validator_id": {:?}
+        }}"#,
+        to_base64(near_test_contracts::trivial_contract()),
+        bob_account().as_str()
+    );
+    eprintln!("{args}");
+
     let res = node
         .user()
         .function_call(
             alice_account(),
             test_contract_account(),
             "sanity_check",
-            serde_json::to_vec(&data).unwrap(),
+            args.into_bytes(),
             MAX_GAS,
             0,
         )
@@ -145,7 +152,7 @@ fn test_cost_sanity() {
         .collect::<Vec<_>>();
 
     insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
+        if cfg!(feature = "nightly") {
             "receipts_gas_profile_nightly"
         } else {
             "receipts_gas_profile"
@@ -161,7 +168,10 @@ fn test_cost_sanity() {
 /// no such differences expected.
 #[test]
 fn test_cost_sanity_nondeterministic() {
-    let node = setup_runtime_node_with_contract(near_test_contracts::trivial_contract());
+    let contract = near_test_contracts::wat_contract(
+        r#"(module (func (export "main") (i32.const 92) (drop)))"#,
+    );
+    let node = setup_runtime_node_with_contract(&contract);
     let res = node
         .user()
         .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
@@ -177,14 +187,7 @@ fn test_cost_sanity_nondeterministic() {
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
         .collect::<Vec<_>>();
-    insta::assert_debug_snapshot!(
-        if cfg!(feature = "nightly_protocol") {
-            "receipts_gas_profile_nondeterministic_nightly"
-        } else {
-            "receipts_gas_profile_nondeterministic"
-        },
-        receipts_gas_profile
-    );
+    insta::assert_debug_snapshot!("receipts_gas_profile_nondeterministic", receipts_gas_profile);
 
     // Verify that all nondeterministic costs are covered.
     let all_costs = {
@@ -200,4 +203,126 @@ fn test_cost_sanity_nondeterministic() {
         "some nondeterministic costs are not covered: {:?}",
         missing_costs,
     );
+}
+
+/// Verifies the operation of host function `used_gas` according to
+/// [gas instrumentation].
+///
+/// [gas instrumentation]: https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation
+#[test]
+fn test_sanity_used_gas() {
+    let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
+    let res = node
+        .user()
+        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
+        .unwrap();
+
+    let num_return_values = 4;
+    let returned_bytes = match res.status {
+        FinalExecutionStatus::SuccessValue(v) => from_base64(&v).unwrap(),
+        _ => panic!("Unexpected status: {:?}", res.status),
+    };
+    assert_eq!(returned_bytes.len(), num_return_values * size_of::<u64>());
+
+    let mut used_gas = vec![];
+    for i in 0..num_return_values {
+        let bytes = &returned_bytes[i * size_of::<u64>()..(i + 1) * size_of::<u64>()];
+        let val = u64::from_le_bytes(bytes.try_into().unwrap());
+        used_gas.push(val);
+    }
+
+    // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
+    // within a metered block, the returned values should differ by that amount.
+    let base_cost = node.client.read().unwrap().runtime_config.wasm_config.ext_costs.base;
+    assert_eq!(used_gas[1] - used_gas[0], base_cost);
+
+    // The fees for executing a metered block's WASM code should be paid before
+    // any of the call instructions within that block are executed. Hence, even
+    // after arithmetics, the next call of `used_gas` should still return a
+    // value that differs only by `base_cost`.
+    assert_eq!(used_gas[2] - used_gas[1], base_cost);
+
+    // Entering a new metered block, all of its instructions are paid upfront.
+    // Therefore, the difference across blocks must be larger than `base_cost`,
+    // given that the block contains other instructions besides the call of
+    // `used_gas`.
+    assert!(used_gas[3] - used_gas[2] > base_cost);
+}
+
+/// Returns a contract which calls host function `used_gas` multiple times, both
+/// within the same [metered block] and in different metered blocks. The value
+/// returned by the contract is an array of values returned by calls of
+/// `used_gas`.
+///
+/// This contract is written in `wat` to avoid depending on the output generated
+/// by a compiler (e.g. `rustc`).
+///
+/// [metered block]: https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation
+fn contract_sanity_check_used_gas() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+          (module
+            (type $t0 (func (result i64)))
+            (type $t1 (func (param i64 i64)))
+            (type $t2 (func))
+
+            (import "env" "used_gas" (func $env.used_gas (type $t0)))
+            (import "env" "value_return" (func $env.value_return (type $t1)))
+
+            (memory 1)
+
+            (func $main (export "main") (type $t2)
+              (local $used_0 i64) (local $used_1 i64) (local $used_2 i64) (local $used_3 i64)
+
+              ;; Call used_gas twice in metered block, without instructions in between.
+              (local.set $used_0
+                (call $env.used_gas))
+              (local.set $used_1
+                (call $env.used_gas))
+
+              ;; In the same metered block, call used_gas again after executing other
+              ;; instructions.
+              (i64.add
+                (local.get $used_0)
+                (i64.const 1))
+              drop
+              nop
+              (local.set $used_2
+                (call $env.used_gas))
+
+              ;; Push a new metered block on the stack via br_if. The condition is false,
+              ;; so we will _not_ branch out of the block.
+              (block $b0
+                (br_if $b0
+                  (i64.eq
+                    (local.get $used_0)
+                    (i64.const 0)))
+                  (local.set $used_3
+                    call $env.used_gas)
+                  nop ;; ensure there is more than used_gas to pay for in this block
+              )
+
+              ;; Prepare bytes passed to value_return.
+              (i64.store
+                (i32.const 0)
+                (local.get $used_0))
+              (i64.store
+                (i32.const 8)
+                (local.get $used_1))
+              (i64.store
+                (i32.const 16)
+                (local.get $used_2))
+              (i64.store
+                (i32.const 24)
+                (local.get $used_3))
+
+              (call $env.value_return
+                (i64.const 32)
+                (i64.extend_i32_u
+                  (i32.const 0)))
+            )
+          )
+ "#,
+    )
+    .unwrap()
 }

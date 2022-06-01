@@ -32,13 +32,11 @@ impl Default for VMLogicBuilder {
 
 impl VMLogicBuilder {
     pub fn build(&mut self, context: VMContext) -> VMLogic<'_> {
-        let gas_counter = context.new_gas_counter(&self.config);
         VMLogic::new_with_protocol_version(
             &mut self.ext,
             context,
             &self.config,
             &self.fees_config,
-            gas_counter,
             &self.promise_results,
             &mut self.memory,
             self.current_protocol_version,

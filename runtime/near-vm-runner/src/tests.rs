@@ -126,36 +126,26 @@ fn make_simple_contract_call_vm(
 #[track_caller]
 fn gas_and_error_match(
     outcome_and_error: (VMOutcome, Option<VMError>),
-    expected_gas: Option<u64>,
+    expected_gas: u64,
     expected_error: Option<VMError>,
 ) {
-    match expected_gas {
-        Some(gas) => {
-            let outcome = outcome_and_error.0;
-            assert_eq!(outcome.used_gas, gas, "used gas differs");
-            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
-        }
-        None => {
-            assert_eq!(outcome_and_error.0.used_gas, 0, "used gas non-zero");
-            assert_eq!(outcome_and_error.0.burnt_gas, 0, "burnt gas non-zero");
-        }
-    }
-
+    let outcome = outcome_and_error.0;
+    assert_eq!(outcome.used_gas, expected_gas, "used gas differs");
+    assert_eq!(outcome.burnt_gas, expected_gas, "burnt gas differs");
     assert_eq!(outcome_and_error.1, expected_error);
 }
 
 /// Small helper to compute expected loading gas cost charged before loading.
 /// Includes some hard-coded parameter values that would have to be updated
 /// if they change in the future.
-fn prepaid_loading_gas(bytes: usize) -> Option<u64> {
-    let expected_gas = if checked_feature!(
+fn prepaid_loading_gas(bytes: usize) -> u64 {
+    if checked_feature!(
         "protocol_feature_fix_contract_loading_cost",
         FixContractLoadingCost,
         LATEST_PROTOCOL_VERSION
     ) {
-        Some(35445963 + bytes as u64 * 216750)
+        35445963 + bytes as u64 * 216750
     } else {
-        None
-    };
-    expected_gas
+        0
+    }
 }

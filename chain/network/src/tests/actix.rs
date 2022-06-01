@@ -25,22 +25,21 @@ pub struct ActixSystem<A: actix::Actor> {
 }
 
 impl<A: actix::Actor> ActixSystem<A> {
-    pub async fn spawn<F: Send + 'static + FnOnce() -> anyhow::Result<actix::Addr<A>>>(
-        f: F,
-    ) -> anyhow::Result<Self> {
+    pub async fn spawn<F: Send + 'static + FnOnce() -> actix::Addr<A>>(f: F) -> Self {
         let (send, recv) = tokio::sync::oneshot::channel();
         let thread = Thread::spawn(move || {
             let s = actix::System::new();
             s.block_on(async move {
                 let system = actix::System::current();
-                let addr = f()?;
+                let addr = f();
                 send.send((system, addr)).map_err(|_| anyhow!("send failed"))
-            })?;
-            s.run()?;
+            })
+            .unwrap();
+            s.run().unwrap();
             Ok(())
         });
-        let (system, addr) = recv.await?;
-        Ok(Self { addr, system, _thread: thread })
+        let (system, addr) = recv.await.unwrap();
+        Self { addr, system, _thread: thread }
     }
 }
 

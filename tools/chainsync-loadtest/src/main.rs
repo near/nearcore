@@ -102,7 +102,7 @@ impl Cmd {
         // To avoid that, we create a runtime within the synchronous code and pass just an Arc
         // inside of it.
         let rt_ = Arc::new(tokio::runtime::Runtime::new()?);
-        let rt = rt_.clone();
+        let rt = rt_;
         return actix::System::new().block_on(async move {
             let network =
                 start_with_config(near_config, cmd.qps_limit).context("start_with_config")?;
@@ -134,7 +134,10 @@ fn main() {
         .finish()
         .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let _subscriber = near_o11y::default_subscriber(env_filter).global();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
+    });
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

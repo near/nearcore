@@ -174,7 +174,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 54;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]

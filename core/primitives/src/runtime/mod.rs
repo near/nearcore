@@ -9,6 +9,7 @@ pub mod apply_state;
 pub mod config;
 pub mod config_store;
 pub mod migration_data;
+pub mod parameter_table;
 
 /// Checks if given account has enough balance for storage stake, and returns:
 ///  - None if account has enough balance,

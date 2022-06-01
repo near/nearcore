@@ -10,9 +10,10 @@ use tracing::debug;
 /// output.json should contain dump of current state,
 /// run 'neard --home ~/.near/mainnet/ view_state dump_state'
 /// to get it
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(env_filter).global();
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
     debug!(target: "storage-calculator", "Start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);

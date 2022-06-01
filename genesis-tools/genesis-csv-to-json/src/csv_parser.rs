@@ -157,7 +157,7 @@ where
         if let Some(ref validator_key) = row.validator_key {
             initial_validators.push(AccountInfo {
                 account_id: row.account_id.clone(),
-                public_key: validator_key.clone().into(),
+                public_key: validator_key.clone(),
                 amount: row.validator_stake,
             });
         }
@@ -190,7 +190,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account::new(row.amount, row.validator_stake, smart_contract_hash.into(), 0),
+        account: Account::new(row.amount, row.validator_stake, smart_contract_hash, 0),
     }];
 
     // Add restricted access keys.
@@ -269,7 +269,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 })],
             }),
         };
-        res.push(StateRecord::PostponedReceipt(Box::new(receipt.into())));
+        res.push(StateRecord::PostponedReceipt(Box::new(receipt)));
     }
     res
 }
