@@ -535,8 +535,11 @@ impl crate::runner::VM for Wasmer2VM {
             current_protocol_version,
         );
 
-        let result =
-            logic.before_loading_executable(method_name, current_protocol_version, code.code().len());
+        let result = logic.before_loading_executable(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
         if let Err(e) = result {
             return VMResult::abort(logic, e);
         }

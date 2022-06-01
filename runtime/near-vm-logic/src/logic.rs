@@ -2700,7 +2700,7 @@ impl<'a> VMLogic<'a> {
     }
 
     /// VM independent setup before loading the executable.
-    /// 
+    ///
     /// Does VM independent checks that happen after the instantiation of
     /// VMLogic but before loading the executable. This includes pre-charging gas
     /// costs for loading the executable, which depends on the size of the WASM code.
