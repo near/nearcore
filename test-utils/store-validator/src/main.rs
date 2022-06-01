@@ -30,7 +30,7 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::StoreOpener::with_default_config().home(home_dir).open();
+    let store = near_store::StoreOpener::new(&near_config).home(home_dir).open();
 
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         home_dir,
