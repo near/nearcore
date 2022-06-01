@@ -461,7 +461,6 @@ mod test {
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-            None,
         ));
         let chain_genesis = ChainGenesis::test();
 
@@ -539,7 +538,6 @@ mod test {
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-            None,
         ));
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
