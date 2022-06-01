@@ -22,7 +22,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     context.prepaid_gas = 10u64.pow(14);
     let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
-    let gas_counter = context.new_gas_counter(&config);
 
     let promise_results = vec![];
 
@@ -33,7 +32,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
         &mut fake_external,
         context,
         &fees,
-        gas_counter,
         &promise_results,
         PROTOCOL_VERSION,
         None,

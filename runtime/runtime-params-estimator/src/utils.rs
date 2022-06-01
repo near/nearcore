@@ -8,8 +8,7 @@ use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_vm_logic::gas_counter::GasCounter;
-use near_vm_logic::{ExtCosts, VMConfig};
+use near_vm_logic::ExtCosts;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -294,17 +293,6 @@ pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
     let wat_code = format!("(module (data \"{payload}\") (func (export \"main\")))");
     wat::parse_str(wat_code).unwrap()
-}
-
-pub(crate) fn estimator_gas_counter(wasm_config: &VMConfig) -> GasCounter {
-    let max_gas = wasm_config.limit_config.max_gas_burnt;
-    GasCounter::new(
-        wasm_config.ext_costs.clone(),
-        max_gas,
-        wasm_config.regular_op_cost,
-        max_gas,
-        false,
-    )
 }
 
 #[cfg(test)]

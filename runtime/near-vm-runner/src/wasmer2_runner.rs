@@ -10,7 +10,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
-use near_vm_logic::gas_counter::{FastGasCounter, GasCounter};
+use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic};
 use std::hash::{Hash, Hasher};
@@ -417,7 +417,6 @@ impl Wasmer2VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &'a RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
     ) -> VMResult {
@@ -427,7 +426,6 @@ impl Wasmer2VM {
             context,
             &self.config,
             fees_config,
-            gas_counter,
             promise_results,
             memory,
             current_protocol_version,
@@ -515,7 +513,6 @@ impl crate::runner::VM for Wasmer2VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
@@ -542,11 +539,19 @@ impl crate::runner::VM for Wasmer2VM {
             context,
             &self.config,
             fees_config,
-            gas_counter,
             promise_results,
             &mut memory,
             current_protocol_version,
         );
+
+        let result = logic.checks_before_code_loading(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
+        }
 
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);

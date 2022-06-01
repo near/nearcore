@@ -1,4 +1,3 @@
-use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -6,10 +5,9 @@ use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
-use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
-use near_vm_logic::gas_counter::GasCounter;
+use near_vm_errors::VMError;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ExtCosts, External, ReturnData, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, ReturnData, VMContext, VMLogic, VMOutcome};
 
 use crate::vm_kind::VMKind;
 
@@ -39,61 +37,6 @@ pub fn run(
 ) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
 
-    run_with_vm_kind(
-        code,
-        method_name,
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        current_protocol_version,
-        cache,
-        vm_kind,
-    )
-}
-
-/// Usually the VM is defined by the protocol version. For test and benchmarks,
-/// however, it is useful to have an entry point that can specify protocol
-/// version and VM kind independently.
-pub(crate) fn run_with_vm_kind(
-    code: &ContractCode,
-    method_name: &str,
-    ext: &mut dyn External,
-    context: VMContext,
-    wasm_config: &VMConfig,
-    fees_config: &RuntimeFeesConfig,
-    promise_results: &[PromiseResult],
-    current_protocol_version: ProtocolVersion,
-    cache: Option<&dyn CompiledContractCache>,
-    vm_kind: VMKind,
-) -> VMResult {
-    if method_name.is_empty() {
-        let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-            MethodResolveError::MethodEmptyName,
-        ));
-        return VMResult::nop_outcome(error);
-    }
-
-    let mut gas_counter = context.new_gas_counter(wasm_config);
-    if checked_feature!(
-        "protocol_feature_fix_contract_loading_cost",
-        FixContractLoadingCost,
-        current_protocol_version
-    ) {
-        let code_bytes = code.code().len() as u64;
-
-        if gas_counter.pay_per(ExtCosts::contract_loading_bytes, code_bytes).is_err()
-            || gas_counter.pay_base(ExtCosts::contract_loading_base).is_err()
-        {
-            let error = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-
-            return VMResult::not_run_with_gas_counter(gas_counter, error);
-        }
-    }
-
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
         runtime.run(
             code,
@@ -101,7 +44,6 @@ pub(crate) fn run_with_vm_kind(
             ext,
             context,
             fees_config,
-            gas_counter,
             promise_results,
             current_protocol_version,
             cache,
@@ -121,7 +63,7 @@ pub trait VM {
     ///
     /// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
     ///
-    /// XXX The gas cost for contract preparation will be subtracted by the VM implementation.
+    /// The gas cost for contract preparation will be subtracted by the VM implementation.
     fn run(
         &self,
         code: &ContractCode,
@@ -129,7 +71,6 @@ pub trait VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
@@ -208,28 +149,6 @@ impl VMResult {
             used_gas: 0,
             logs: Vec::new(),
             profile: ProfileData::default(),
-            action_receipts: Vec::new(),
-        };
-        VMResult::Aborted(outcome, error)
-    }
-
-    /// Creates an outcome with a no-op outcome other than spending some gas.
-    pub fn not_run_with_gas_counter(gas_counter: GasCounter, error: VMError) -> VMResult {
-        let burnt_gas = gas_counter.burnt_gas();
-        let used_gas = gas_counter.used_gas();
-
-        let mut profile = gas_counter.profile_data();
-        profile.compute_wasm_instruction_cost(burnt_gas);
-
-        let outcome = VMOutcome {
-            // Note: Balance and storage fields are ignored on a failed outcome.
-            balance: 0,
-            storage_usage: 0,
-            return_data: ReturnData::None,
-            burnt_gas,
-            used_gas,
-            logs: Vec::new(),
-            profile,
             action_receipts: Vec::new(),
         };
         VMResult::Aborted(outcome, error)

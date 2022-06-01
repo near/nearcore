@@ -129,7 +129,6 @@ impl Script {
                         &mut external,
                         step.vm_context.clone(),
                         runtime_fees_config,
-                        step.vm_context.new_gas_counter(&config.wasm_config),
                         &step.promise_results,
                         self.protocol_version,
                         self.contract_cache.as_deref(),

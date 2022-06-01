@@ -11,7 +11,6 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
-use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError};
 use wasmer_runtime::{ImportObject, Module};
@@ -233,7 +232,6 @@ pub(crate) fn run_wasmer0_module<'a>(
     context: VMContext,
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
-    gas_counter: GasCounter,
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
 ) -> VMResult {
@@ -251,7 +249,6 @@ pub(crate) fn run_wasmer0_module<'a>(
         context,
         wasm_config,
         fees_config,
-        gas_counter,
         promise_results,
         memory,
         current_protocol_version,
@@ -292,7 +289,6 @@ impl crate::runner::VM for Wasmer0VM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
@@ -330,11 +326,19 @@ impl crate::runner::VM for Wasmer0VM {
             context,
             &self.config,
             fees_config,
-            gas_counter,
             promise_results,
             &mut memory,
             current_protocol_version,
         );
+
+        let result = logic.checks_before_code_loading(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
+        }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
         let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);

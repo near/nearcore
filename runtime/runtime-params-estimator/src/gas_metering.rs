@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
-use crate::utils::estimator_gas_counter;
 use crate::vm_estimator::create_context;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -152,7 +151,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             PROTOCOL_VERSION,
             cache,
@@ -172,7 +170,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             PROTOCOL_VERSION,
             cache,
@@ -189,7 +186,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             PROTOCOL_VERSION,
             cache,
@@ -206,7 +202,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             PROTOCOL_VERSION,
             cache,

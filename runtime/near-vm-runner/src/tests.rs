@@ -79,19 +79,22 @@ fn make_simple_contract_call_ex(
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
 
-    crate::runner::run_with_vm_kind(
-        &code,
-        method_name,
-        &mut fake_external,
-        context,
-        &config,
-        &fees,
-        &promise_results,
-        protocol_version.unwrap_or(LATEST_PROTOCOL_VERSION),
-        None,
-        vm_kind,
-    )
-    .outcome_error()
+    if let Some(runtime) = vm_kind.runtime(config) {
+        runtime
+            .run(
+                &code,
+                method_name,
+                &mut fake_external,
+                context,
+                &fees,
+                &promise_results,
+                protocol_version.unwrap_or(LATEST_PROTOCOL_VERSION),
+                None,
+            )
+            .outcome_error()
+    } else {
+        panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
+    }
 }
 
 fn make_simple_contract_call_with_protocol_version_vm(

@@ -1,7 +1,6 @@
 use crate::config::GasMetric;
 use crate::gas_cost::GasCost;
 use crate::least_squares::least_squares_method;
-use crate::utils::estimator_gas_counter;
 use crate::vm_estimator::create_context;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -90,7 +89,6 @@ pub fn compute_function_call_cost(
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             protocol_version,
             cache,
@@ -106,7 +104,6 @@ pub fn compute_function_call_cost(
             &mut fake_external,
             fake_context.clone(),
             &fees,
-            estimator_gas_counter(&runtime_config.wasm_config),
             &promise_results,
             protocol_version,
             cache,

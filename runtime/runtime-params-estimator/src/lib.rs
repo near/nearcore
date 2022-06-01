@@ -107,7 +107,6 @@ use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
 use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::estimator_gas_counter;
 use crate::vm_estimator::create_context;
 
 pub use crate::cost::Cost;
@@ -750,7 +749,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             &mut fake_external,
             context,
             &fees,
-            estimator_gas_counter(&config),
             &promise_results,
             PROTOCOL_VERSION,
             Some(&cache),

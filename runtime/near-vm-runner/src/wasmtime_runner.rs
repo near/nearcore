@@ -13,7 +13,6 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, VMLogicError,
     WasmTrap,
 };
-use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, MemoryLike, VMContext, VMLogic};
 use std::cell::RefCell;
@@ -187,7 +186,6 @@ impl crate::runner::VM for WasmtimeVM {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
@@ -214,11 +212,19 @@ impl crate::runner::VM for WasmtimeVM {
             context,
             &self.config,
             fees_config,
-            gas_counter,
             promise_results,
             &mut memory,
             current_protocol_version,
         );
+
+        let result = logic.checks_before_code_loading(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if result.is_err() {
+            return VMResult::abort(logic, result.unwrap_err());
+        }
 
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,

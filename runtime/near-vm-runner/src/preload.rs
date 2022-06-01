@@ -2,7 +2,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use near_primitives::contract::ContractCode;
-use near_vm_logic::gas_counter::GasCounter;
 use threadpool::ThreadPool;
 
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -125,7 +124,6 @@ impl ContractCaller {
         ext: &mut dyn External,
         context: VMContext,
         fees_config: &'a RuntimeFeesConfig,
-        gas_counter: GasCounter,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
     ) -> VMResult {
@@ -155,7 +153,6 @@ impl ContractCaller {
                                 context,
                                 &self.vm_config,
                                 fees_config,
-                                gas_counter,
                                 promise_results,
                                 current_protocol_version,
                             )
@@ -180,7 +177,6 @@ impl ContractCaller {
                                     ext,
                                     context,
                                     fees_config,
-                                    gas_counter,
                                     promise_results,
                                     current_protocol_version,
                                 )

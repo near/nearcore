@@ -112,7 +112,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 
     if preloaded {
         let mut requests = Vec::new();
-        let mut caller = ContractCaller::new(4, vm_kind, vm_config.clone());
+        let mut caller = ContractCaller::new(4, vm_kind, vm_config);
         for _ in 0..repeat {
             requests.push(ContractCallPrepareRequest {
                 code: Arc::clone(&code1),
@@ -131,7 +131,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &mut fake_external,
                 context.clone(),
                 &fees,
-                context.new_gas_counter(&vm_config),
                 &promise_results,
                 ProtocolVersion::MAX,
             );
@@ -140,7 +139,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             errs += err;
         }
     } else {
-        let runtime = vm_kind.runtime(vm_config.clone()).expect("runtime is has not been compiled");
+        let runtime = vm_kind.runtime(vm_config).expect("runtime is has not been compiled");
         for _ in 0..repeat {
             let result1 = runtime.run(
                 &code1,
@@ -148,7 +147,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &mut fake_external,
                 context.clone(),
                 &fees,
-                context.new_gas_counter(&vm_config),
                 &promise_results,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
@@ -162,7 +160,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &mut fake_external,
                 context.clone(),
                 &fees,
-                context.new_gas_counter(&vm_config),
                 &promise_results,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
