@@ -184,7 +184,7 @@ impl<'a> StoreOpener<'a> {
     pub fn get_path(&self) -> std::path::PathBuf {
         let path = match self.config.path {
             Some(ref path) => path,
-            None => std::path::Path::new(STORE_PATH)
+            None => std::path::Path::new(STORE_PATH),
         };
         self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
     }
