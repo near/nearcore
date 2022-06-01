@@ -8,7 +8,6 @@ mod wasm_validation;
 
 use crate::vm_kind::VMKind;
 
-use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -139,11 +138,7 @@ fn gas_and_error_match(
 /// Includes some hard-coded parameter values that would have to be updated
 /// if they change in the future.
 fn prepaid_loading_gas(bytes: usize) -> u64 {
-    if checked_feature!(
-        "protocol_feature_fix_contract_loading_cost",
-        FixContractLoadingCost,
-        LATEST_PROTOCOL_VERSION
-    ) {
+    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
         35445963 + bytes as u64 * 216750
     } else {
         0
