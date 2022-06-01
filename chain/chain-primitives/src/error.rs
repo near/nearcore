@@ -64,6 +64,8 @@ pub enum Error {
     /// The block is already known
     #[error("Block is known: {0}")]
     BlockKnown(#[from] BlockKnownError),
+    #[error("Too many blocks being processed")]
+    TooManyProcessingBlocks,
     /// Orphan block.
     #[error("Orphan")]
     Orphan,
@@ -232,6 +234,7 @@ impl Error {
     pub fn is_bad_data(&self) -> bool {
         match self {
             Error::BlockKnown(_)
+            | Error::TooManyProcessingBlocks
             | Error::Orphan
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
@@ -335,4 +338,6 @@ pub enum BlockKnownError {
     KnownInMissingChunks,
     #[error("already known in store")]
     KnownInStore,
+    #[error("already known in blocks in processing")]
+    KnownInProcessing,
 }
