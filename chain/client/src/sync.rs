@@ -755,6 +755,7 @@ impl StateSync {
                             ],
                             status: ShardSyncStatus::StateDownloadParts,
                         };
+                        update_sync_status = true;
                         need_shard = true;
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
@@ -860,6 +861,7 @@ impl StateSync {
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    update_sync_status = true;
                     if split_states {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
@@ -881,6 +883,7 @@ impl StateSync {
                         state_split_scheduler,
                     )?;
                     debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    update_sync_status = true;
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
                         status: ShardSyncStatus::StateSplitApplying,
@@ -892,6 +895,7 @@ impl StateSync {
                     if let Some(state_roots) = result {
                         chain
                             .build_state_for_split_shards_postprocessing(&sync_hash, state_roots)?;
+                        update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateSyncDone,
