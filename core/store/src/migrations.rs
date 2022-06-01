@@ -6,15 +6,8 @@ use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
-use near_primitives::version::DbVersion;
 
-use crate::db::{DBError, RocksDB};
-use crate::{DBCol, Store, StoreConfig, StoreOpener, StoreUpdate};
-use std::path::Path;
-
-pub fn get_store_version(path: &Path) -> Result<DbVersion, DBError> {
-    RocksDB::get_version(path)
-}
+use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
 fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
     store_update.set(
@@ -125,9 +118,8 @@ where
     Ok(())
 }
 
-pub fn migrate_28_to_29(path: &Path, store_config: &StoreConfig) {
-    // TODO(#6857): Don’t use .path().
-    let store = StoreOpener::new(store_config).path(path).open();
+pub fn migrate_28_to_29(store_opener: &StoreOpener) {
+    let store = store_opener.open();
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_NextBlockWithNewChunk);
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
@@ -136,7 +128,7 @@ pub fn migrate_28_to_29(path: &Path, store_config: &StoreConfig) {
     set_store_version(&store, 29);
 }
 
-pub fn migrate_29_to_30(path: &Path, store_config: &StoreConfig) {
+pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -148,8 +140,7 @@ pub fn migrate_29_to_30(path: &Path, store_config: &StoreConfig) {
     };
     use std::collections::BTreeMap;
 
-    // TODO(#6857): Don’t use .path().
-    let store = StoreOpener::new(store_config).path(path).open();
+    let store = store_opener.open();
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {

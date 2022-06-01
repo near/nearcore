@@ -11,6 +11,7 @@ edition = "2021"
 actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
+enum-map = "2.1.0"
 itertools = "0.10.0"
 lru = "0.7.2"
 num-rational = "0.3"
@@ -31,6 +32,7 @@ near-metrics = { path = "../../core/metrics" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-cache = { path = "../../utils/near-cache" }
 
 [dev-dependencies]
 insta = "1"
