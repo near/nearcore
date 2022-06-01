@@ -55,6 +55,5 @@ Once you have the source dir already set up, you can run the command without `--
 ```console
 $  cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --target-height 60926000
 ```
-The binary will not modify the client dir and the client will start from the chain head stored in the
-client dir, which is height 60925900 in this case because that was the position of the chain head
-in the client dir storage.
+Without `--starting_height`, the binary will not modify the client home dir before starting the mock node. Therefore, 
+the mock node will start from the chain head stored in the client dir.
