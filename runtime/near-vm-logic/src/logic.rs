@@ -2698,7 +2698,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
 
-    /// VM independent setup before performing executable loading.
+    /// VM independent setup before loading the executable.
     /// 
     /// Does VM independent checks that happen after the instantiation of
     /// VMLogic but before loading the executable. This includes pre-charging gas

@@ -78,22 +78,19 @@ fn make_simple_contract_call_ex(
     let promise_results = vec![];
     let code = ContractCode::new(code.to_vec(), None);
 
-    if let Some(runtime) = vm_kind.runtime(config) {
-        runtime
-            .run(
-                &code,
-                method_name,
-                &mut fake_external,
-                context,
-                &fees,
-                &promise_results,
-                protocol_version.unwrap_or(LATEST_PROTOCOL_VERSION),
-                None,
-            )
-            .outcome_error()
-    } else {
-        panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
-    }
+    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+    runtime
+        .run(
+            &code,
+            method_name,
+            &mut fake_external,
+            context,
+            &fees,
+            &promise_results,
+            protocol_version.unwrap_or(LATEST_PROTOCOL_VERSION),
+            None,
+        )
+        .outcome_error()
 }
 
 fn make_simple_contract_call_with_protocol_version_vm(
@@ -135,11 +132,13 @@ fn gas_and_error_match(
 }
 
 /// Small helper to compute expected loading gas cost charged before loading.
-/// Includes some hard-coded parameter values that would have to be updated
-/// if they change in the future.
+///
+/// Includes hard-coded value for runtime parameter values
+/// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
+/// have to be updated if they change in the future.
 fn prepaid_loading_gas(bytes: usize) -> u64 {
     if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
-        35445963 + bytes as u64 * 216750
+        35_445_963 + bytes as u64 * 21_6750
     } else {
         0
     }
