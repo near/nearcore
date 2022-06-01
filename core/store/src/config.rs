@@ -1,8 +1,6 @@
 use near_primitives::version::DbVersion;
 
-// TODO(mina86): This is pub only because recompress-storage needs this value.
-// Refactor code so that this can be private.
-pub const STORE_PATH: &str = "data";
+const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
@@ -102,15 +100,8 @@ impl Default for StoreConfig {
     }
 }
 
-// TODO(#6857): Make this method in StoreOpener.  This way caller won’t need to
-// resolve path to the storage.
-pub fn store_path_exists<P: AsRef<std::path::Path>>(path: P) -> bool {
-    std::fs::canonicalize(path).is_ok()
-}
-
-// TODO(#6857): Get rid of this function.  Clients of this method should not
-// care about path of the storage instead letting StoreOpener figure that one
-// out.
+// TODO(#6857): Get rid of this function.  Clients of this method should use
+// StoreOpener::get_path instead..
 pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
     base_path.join(STORE_PATH)
 }
@@ -192,6 +183,17 @@ impl<'a> StoreOpener<'a> {
     pub fn path(mut self, path: &'a std::path::Path) -> Self {
         self.path = Some(path);
         self
+    }
+
+    /// Returns whether database exists.
+    ///
+    /// It performs only basic file-system-level checks and may result in false
+    /// positives if some but not all database files exist.  In particular, this
+    /// is not a guarantee that the database can be opened without an error.
+    pub fn check_if_exists(&self) -> bool {
+        // TODO(mina86): Add some more checks.  At least check if CURRENT file
+        // exists.
+        std::fs::canonicalize(&self.get_path()).is_ok()
     }
 
     /// Returns path to the underlying RocksDB database.
