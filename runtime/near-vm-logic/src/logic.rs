@@ -2677,10 +2677,11 @@ impl<'a> VMLogic<'a> {
 
     /// Add a cost for loading the contract code in the VM.
     ///
-    /// This cost is "dumb", in that it does not consider the structure of the
-    /// contract code, only the size. This is currently the only loading fee.
-    /// A smarter fee could be added, although that would have to happen slightly
-    /// later, as this dumb fee can be pre-charged without looking at the code.
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
     pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
         self.gas_counter.pay_base(contract_loading_base)
