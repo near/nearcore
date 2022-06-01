@@ -37,13 +37,7 @@ fn setup_runtime(
         near_store::StoreOpener::new(&config.config.store).home(home_dir).open()
     };
 
-    Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store,
-        config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ))
+    Arc::new(NightshadeRuntime::from_config(home_dir, store, config))
 }
 
 fn setup_mock_peer_manager_actor(

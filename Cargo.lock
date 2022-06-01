@@ -2697,6 +2697,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "chrono",
+ "crossbeam-channel",
  "delay-detector",
  "enum-map",
  "insta",
