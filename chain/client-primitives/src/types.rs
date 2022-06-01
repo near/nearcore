@@ -98,13 +98,17 @@ pub enum SyncStatus {
     // Bowen: why do we use epoch ordinal instead of epoch id?
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
-    HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
     /// State sync, with different states of state sync for different shards.
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
-    BodySync { current_height: BlockHeight, highest_height: BlockHeight },
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
 impl SyncStatus {
@@ -127,10 +131,18 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
             SyncStatus::StateSync(_, _) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+        }
+    }
+
+    pub fn start_height(&self) -> Option<BlockHeight> {
+        match self {
+            SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
+            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            _ => None,
         }
     }
 }
