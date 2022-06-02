@@ -733,7 +733,7 @@ impl StateSync {
                 need_shard = true;
                 init_sync_download.clone()
             });
-            let old_status = ShardSyncStatus::StateDownloadHeader;
+            let old_status = shard_sync_download.status;
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
