@@ -1,3 +1,4 @@
+use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -151,6 +152,24 @@ impl VMResult {
             action_receipts: Vec::new(),
         };
         VMResult::Aborted(outcome, error)
+    }
+
+    /// Like `VMResult::abort()` but without feature `FixContractLoadingCost` it
+    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    pub fn abort_but_nop_outcome_in_old_protocol(
+        logic: VMLogic,
+        error: VMError,
+        current_protocol_version: u32,
+    ) -> VMResult {
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            VMResult::abort(logic, error)
+        } else {
+            VMResult::nop_outcome(error)
+        }
     }
 
     /// Borrow the internal outcome, if there is one.
