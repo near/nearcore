@@ -317,6 +317,8 @@ impl<'a> EnvFilterBuilder<'a> {
 /// Prints backtrace to stderr.
 ///
 /// This is intended as a printf-debugging aid.
+/// Note backtrace doesn't properly work with `panic=abort` and one needs to switch to
+/// `panic=unwind` in the root `Cargo.toml` to get the correct stacktrace.
 pub fn print_backtrace() {
     let bt = backtrace::Backtrace::new();
     eprintln!("{bt:?}")
