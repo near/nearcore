@@ -16,8 +16,9 @@ use crate::tests::nearcore::node_cluster::NodeCluster;
 fn track_shards() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(4, |index| format!("track_shards_{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(4)
+        .set_num_nodes(4)
         .set_num_validator_seats(2)
         .set_num_lightclients(0)
         .set_epoch_length(10)

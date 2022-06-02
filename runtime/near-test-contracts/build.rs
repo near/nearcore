@@ -13,18 +13,14 @@ fn main() {
 }
 
 fn try_main() -> Result<(), Error> {
-    build_contract("./test-contract-rs", &[], "test_contract_rs")?;
+    build_contract("./test-contract-rs", &["--features", "latest_protocol"], "test_contract_rs")?;
+    build_contract("./test-contract-rs", &[], "base_test_contract_rs")?;
     build_contract(
         "./test-contract-rs",
-        &["--features", "nightly_protocol_features"],
+        &["--features", "latest_protocol,nightly"],
         "nightly_test_contract_rs",
     )?;
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
-    build_contract(
-        "./test-contract-rs",
-        &["--features", "base_protocol"],
-        "test_contract_rs_base_protocol",
-    )?;
     Ok(())
 }
 
@@ -47,10 +43,15 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
 
 fn cargo_build_cmd(target_dir: &Path) -> Command {
     let mut res = Command::new("cargo");
-    res.env("RUSTFLAGS", "-C link-arg=-s");
+
+    res.env_remove("CARGO_BUILD_RUSTFLAGS");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
+
+    res.env("RUSTFLAGS", "-Dwarnings");
     res.env("CARGO_TARGET_DIR", target_dir);
+
     res.args(&["build", "--target=wasm32-unknown-unknown", "--release"]);
+
     res
 }
 

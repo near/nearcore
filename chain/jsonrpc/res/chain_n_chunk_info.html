@@ -1,0 +1,143 @@
+<html>
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(() => {
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: data => {
+                    let head = data.detailed_debug_status.current_head_status;
+                    let header_head = data.detailed_debug_status.current_header_head_status;
+                    $('.js-current-head-hash').text(head.hash);
+                    $('.js-current-head-height').text(head.height);
+                    $('.js-current-header-head-hash').text(header_head.hash);
+                    $('.js-current-header-head-height').text(header_head.height);
+
+                    let orphans = data.detailed_debug_status.orphans;
+                    if (orphans.length > 0) {
+                        orphans.forEach((orphan, index) => {
+                            $('.js-tbody-orphans').append($('<tr>')
+                                .append($('<td>').append(orphan.hash))
+                                .append($('<td>').append(orphan.height))
+                            )
+                        });
+                    } else {
+                        $('.js-tbody-orphans').append($('<tr>')
+                            .append($('<td colspan="2">').append("(None)"))
+                        );
+                    }
+
+                    let chunk_info = data.detailed_debug_status.chunk_info;
+                    $('.js-block-count').text(chunk_info.num_of_blocks_in_progress);
+                    $('.js-chunk-count').text(chunk_info.num_of_chunks_in_progress);
+                    if (chunk_info.next_blocks_by_chunks.length > 0) {
+                        chunk_info.next_blocks_by_chunks.forEach((line, index) =>
+                            $('.js-tbody-upcoming-blocks').append($('<tr>')
+                                .append($('<td>').append(line.height))
+                                .append($('<td>').append(line.hash))
+                                .append($('<td>').append(line.block_status))
+                                .append($('<td>').append($('<pre>').append(line.chunk_status)))
+                            )
+                        );
+                    } else {
+                        $('.js-tbody-upcoming-blocks').append($('<tr>')
+                            .append($('<td colspan="4">').append("(None)"))
+                        );
+                    }
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+    </script>
+</head>
+<body>
+    <h1>
+        Welcome to the Chain & Chunk Status page!
+    </h1>
+    <h2>
+        <p>
+            Current head:
+            <span class="js-current-head-hash"></span>
+            @
+            <span class="js-current-head-height"></span>
+        </p>
+        <p>
+            Current header head:
+            <span class="js-current-header-head-hash"></span>
+            @
+            <span class="js-current-header-head-height"></span>
+        </p>
+        <p>
+            Number of blocks in progress:
+            <span class="js-block-count"></span>
+        </p>
+        <p>
+            Number of chunks in progress:
+            <span class="js-chunk-count"></span>
+        </p>
+        <p>
+            Orphans
+        </p>
+    </h2>
+    <table>
+        <thead><tr>
+            <th>Hash</th>
+            <th>Height</th>
+        </tr></thead>
+        <tbody class="js-tbody-orphans">
+        </tbody>
+    </table>
+    <h2>
+        <p>
+            Upcoming Blocks
+        </p>
+    </h2>
+    <table>
+        <thead><tr>
+            <th>Height</th>
+            <th>Hash</th>
+            <th>Block Status</th>
+            <th>Chunk Status</th>
+        </tr></thead>
+        <tbody class="js-tbody-upcoming-blocks">
+        </tbody>
+    </table>
+</body>
+
+</html>

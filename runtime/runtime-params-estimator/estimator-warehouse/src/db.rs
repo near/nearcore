@@ -122,11 +122,11 @@ impl EstimationRow {
         db: &Db,
         metric: Option<Metric>,
     ) -> anyhow::Result<Vec<(String, NaiveDateTime)>> {
-        let extra_condition = match metric {
-            Some(m) => format!("AND {}", m.condition()),
-            None => String::new(),
+        let metric_condition = match metric {
+            Some(m) => format!("WHERE {}", m.condition()),
+            None => "".to_owned(),
         };
-        let sql = format!("SELECT commit_hash,min(date) FROM estimation WHERE wall_clock_time IS NOT NULL {extra_condition} GROUP BY commit_hash ORDER BY date ASC;");
+        let sql = format!("SELECT commit_hash,min(date) FROM estimation {metric_condition} GROUP BY commit_hash ORDER BY date ASC;");
         let mut stmt = db.conn.prepare(&sql)?;
         let data = stmt
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, NaiveDateTime>(1)?)))?
@@ -188,6 +188,59 @@ impl Metric {
         match self {
             Metric::ICount => "icount IS NOT NULL",
             Metric::Time => "wall_clock_time IS NOT NULL",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Db;
+    use crate::import::ImportConfig;
+    use chrono::{NaiveDate, NaiveDateTime};
+    use rusqlite::{functions::FunctionFlags, Connection};
+
+    impl Db {
+        /// Create a new in-memory test database with a mocked `datetime()` function.
+        pub(crate) fn test() -> Self {
+            let conn = Connection::open_in_memory().unwrap();
+            let init_sql = include_str!("init.sql");
+            conn.execute_batch(init_sql).unwrap();
+            let db = Self::new(conn);
+            db.mock_time(NaiveDate::from_ymd(2015, 5, 15).and_hms(11, 22, 33));
+            db
+        }
+
+        /// Create a new in-memory test database with data defined by the input.
+        ///
+        /// The test data is expected to come in blocks of JSON lines with a commit header.
+        /// WAIT statements can be used as barriers to make sure DB timestamps differ.
+        pub(crate) fn test_with_data(input: &str) -> Self {
+            let db = Self::test();
+            for block in input.split("\n\n") {
+                if block.trim() == "WAIT" {
+                    // Update mocked time to ensure the following data is considered to be later.
+                    let mocked_now: NaiveDateTime =
+                        db.conn.query_row("SELECT datetime('now')", [], |r| r.get(0)).unwrap();
+                    db.mock_time(mocked_now + chrono::Duration::seconds(1));
+                } else {
+                    let (commit_hash, input) = block.split_once("\n").unwrap();
+                    let conf = ImportConfig {
+                        commit_hash: Some(commit_hash.to_string()),
+                        protocol_version: None,
+                    };
+                    db.import_json_lines(&conf, input).unwrap();
+                }
+            }
+            db
+        }
+
+        pub(crate) fn mock_time(&self, dt: NaiveDateTime) {
+            let string_rep = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+            self.conn
+                .create_scalar_function("datetime", 1, FunctionFlags::SQLITE_UTF8, move |_ctx| {
+                    Ok(string_rep.clone())
+                })
+                .unwrap();
         }
     }
 }

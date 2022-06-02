@@ -481,8 +481,7 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) =
-            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
         store_update.commit().unwrap();
 
         (signer, tries.new_trie_update(ShardUId::single_shard(), root), 100)

@@ -9,9 +9,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.51"
-awc = "3.0.0-beta.5"
-actix = "0.12.0"
-actix-web = "=4.0.0-beta.6"
+awc = "3.0.0"
+actix = "0.13.0"
+actix-web = "4.0.1"
 actix-rt = "2"
 byteorder = "1.2"
 easy-ext = "0.2"
@@ -39,13 +39,14 @@ tempfile = "3"
 indicatif = "0.15.0"
 xz2 = "0.1.6"
 rlimit = "0.7"
-strum = "0.20"
+strum = "0.24"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-store = { path = "../core/store" }
 near-metrics = { path = "../core/metrics" }
+near-o11y = { path = "../core/o11y" }
 node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
 near-chunks = { path = "../chain/chunks" }
@@ -103,10 +104,6 @@ no_cache = [
 delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
-protocol_feature_alt_bn128 = [
-  "near-primitives/protocol_feature_alt_bn128",
-  "node-runtime/protocol_feature_alt_bn128",
-]
 protocol_feature_chunk_only_producers = [
   "near-chain-configs/protocol_feature_chunk_only_producers",
   "near-epoch-manager/protocol_feature_chunk_only_producers",
@@ -131,17 +128,20 @@ protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
 ]
-nightly_protocol_features = [
+protocol_feature_fix_contract_loading_cost = [
+  "near-vm-runner/protocol_feature_fix_contract_loading_cost",
+]
+nightly = [
   "nightly_protocol",
-  "near-primitives/nightly_protocol_features",
-  "near-client/nightly_protocol_features",
-  "near-epoch-manager/nightly_protocol_features",
-  "near-store/nightly_protocol_features",
-  "protocol_feature_alt_bn128",
+  "near-primitives/nightly",
+  "near-client/nightly",
+  "near-epoch-manager/nightly",
+  "near-store/nightly",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_routing_exchange_algorithm",
   "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_fix_contract_loading_cost",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",

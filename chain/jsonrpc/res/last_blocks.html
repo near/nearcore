@@ -58,12 +58,12 @@
             root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "/debug/api/block_status",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
                     root.html("");
                     var max_shard = 0;
-                    data.detailed_debug_status.last_blocks.forEach(element => {
+                    data.status_response.BlockStatus.forEach(element => {
                         element.chunks.forEach(chunk => {
                             if (chunk.shard_id > max_shard) {
                                 max_shard = chunk.shard_id;
@@ -72,8 +72,7 @@
                     });
 
                     prepareTableHeader(max_shard);
-                    data.detailed_debug_status.last_blocks.forEach(element => {
-                        console.log(element.block_hash);
+                    data.status_response.BlockStatus.forEach(element => {
                         var row = $('<tr>');
 
                         row.append($('<td>').text(element.block_height));
@@ -81,6 +80,7 @@
 
                         row.append($('<td>').text(element.processing_time_ms));
                         row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
+                        row.append($('<td>').text(element.gas_price_ratio));
 
 
                         let shards_cells = []
@@ -116,9 +116,10 @@
         });
 
         function prepareTableHeader(max_shard) {
-            var headers = '<th>Block id</th> <th>Block hash</th><th>Processing Time(ms)</th><th>Next block time(s)</th>';
+            var headers = '<th>Block id</th> <th>Block hash</th>' +
+                '<th>Processing Time(ms)</th> <th>Next block time(s)</th> <th>Gas price ratio</th>';
             for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += `<th colspan=3>Shard ${i} (hash/gas/time)</th>`;
+                headers += `<th colspan=3>Shard ${i} (hash/gas(Tgas)/time(ms))</th>`;
             }
             $("#blocks_table_thead")[0].innerHTML = headers;
         }

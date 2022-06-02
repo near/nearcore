@@ -150,7 +150,7 @@ mod nodes_counter_tests {
         let trie = Rc::new(trie);
         let state_root = Trie::empty_root();
         let trie_changes = simplify_changes(&items);
-        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes);
         (trie, state_root)
     }
 
@@ -211,8 +211,8 @@ mod nodes_counter_tests {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::TRIE_LIMIT_CACHED_VALUE_SIZE;
-    use crate::trie::{TrieCache, TrieCachingStorage, TrieRefcountChange};
+    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TRIE_LIMIT_CACHED_VALUE_SIZE};
+    use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
@@ -229,7 +229,7 @@ mod caching_storage_tests {
                 rc: 1,
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit().unwrap();
         tries.get_store()
     }

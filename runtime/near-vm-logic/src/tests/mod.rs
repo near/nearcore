@@ -1,3 +1,4 @@
+mod alt_bn128;
 mod context;
 mod fixtures;
 mod gas_counter;

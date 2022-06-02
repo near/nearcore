@@ -7,9 +7,11 @@ use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
+use near_primitives::checked_feature;
+use near_primitives::config::ViewConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -17,10 +19,9 @@ use near_primitives_core::runtime::fees::{
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-#[cfg(feature = "protocol_feature_function_call_weight")]
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
+use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -146,6 +147,16 @@ impl<'a> VMLogic<'a> {
             current_protocol_version,
             receipt_manager: ReceiptManager::default(),
         }
+    }
+
+    /// Returns reference to logs that have been created so far.
+    pub fn logs(&self) -> &[String] {
+        &self.logs
+    }
+
+    /// Returns receipt metadata for created receipts
+    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
+        &self.receipt_manager.action_receipts
     }
 
     #[allow(dead_code)]
@@ -781,23 +792,33 @@ impl<'a> VMLogic<'a> {
     // # Math API #
     // ############
 
-    /// Compute multiexp on alt_bn128 curve.
-    /// See more detailed description at `alt_bn128::alt_bn128_g1_multiexp`.
+    /// Computes multiexp on alt_bn128 curve using Pippenger's algorithm \sum_i
+    /// mul_i g_{1 i} should be equal result.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - sequence of (g1:G1, fr:Fr), where
+    ///    G1 is point (x:Fq, y:Fq) on alt_bn128,
+    ///   alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
+    ///
+    ///   `value` is encoded as packed, little-endian
+    ///   `[((u256, u256), u256)]` slice.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit, the function returns
+    /// `MemoryAccessViolation`.
     ///
-    /// AltBn128SerializationError, AltBn128DeserializationError
+    /// If point coordinates are not on curve, point is not in the subgroup,
+    /// scalar is not in the field or  `value.len()%96!=0`, the function returns
+    /// `AltBn128InvalidInput`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_multiexp_base +
-    /// alt_bn128_g1_multiexp_byte * num_bytes + alt_bn128_g1_multiexp_sublinear *
-    /// alt_bn128_g1_multiexp_sublinear_complexity_estimate(num_bytes, (alt_bn128_g1_multiexp_base *
-    /// alt_bn128_g1_multiexp_byte * num_bytes) / alt_bn128_g1_multiexp_sublinear)`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///  alt_bn128_g1_multiexp_base +
+    ///  alt_bn128_g1_multiexp_element * num_elements`
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -805,41 +826,42 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
-        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        let len = value_buf.len() as u64;
-        self.gas_counter.pay_per(alt_bn128_g1_multiexp_byte, len)?;
+        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
 
-        let discount = ((alt_bn128_g1_multiexp_base as u64)
-            .checked_add(
-                (alt_bn128_g1_multiexp_byte as u64)
-                    .checked_mul(len)
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?)
-            / alt_bn128_g1_multiexp_sublinear as u64;
-        let sublinear_complexity =
-            crate::alt_bn128::alt_bn128_g1_multiexp_sublinear_complexity_estimate(len, discount)?;
-        self.gas_counter.pay_per(alt_bn128_g1_multiexp_sublinear, sublinear_complexity)?;
+        let elements = crate::alt_bn128::split_elements(&data)?;
+        self.gas_counter.pay_per(alt_bn128_g1_multiexp_element, elements.len() as u64)?;
 
-        let res = crate::alt_bn128::alt_bn128_g1_multiexp(&value_buf)?;
+        let res = crate::alt_bn128::g1_multiexp(elements)?;
 
-        self.internal_write_register(register_id, res)
+        self.internal_write_register(register_id, res.into())
     }
 
-    /// Compute signed sum on alt_bn128 for g1 group.
-    /// See more detailed description at `alt_bn128::alt_bn128_g1_sum`.
+    /// Computes sum for signed g1 group elements on alt_bn128 curve \sum_i
+    /// (-1)^{sign_i} g_{1 i} should be equal result.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - sequence of (sign:bool, g1:G1), where
+    ///    G1 is point (x:Fq, y:Fq) on alt_bn128,
+    ///    alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
+    ///
+    ///   `value` is encoded as packed, little-endian
+    ///   `[(u8, (u256, u256))]` slice. `0u8` is postive sign,
+    ///   `1u8` -- negative.
     ///
     /// # Errors
     ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// If `value_len + value_ptr` points outside the memory or the registers
+    /// use more memory than the limit, the function returns `MemoryAccessViolation`.
     ///
-    /// AltBn128SerializationError, AltBn128DeserializationError
+    /// If point coordinates are not on curve, point is not in the subgroup,
+    /// scalar is not in the field, sign is not 0 or 1, or `value.len()%65!=0`,
+    /// the function returns `AltBn128InvalidInput`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_g1_sum_base + alt_bn128_g1_sum_byte * num_bytes`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -847,34 +869,53 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
-        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per(alt_bn128_g1_sum_byte, value_buf.len() as u64)?;
+        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
 
-        let res = crate::alt_bn128::alt_bn128_g1_sum(&value_buf)?;
+        let elements = crate::alt_bn128::split_elements(&data)?;
+        self.gas_counter.pay_per(alt_bn128_g1_sum_element, elements.len() as u64)?;
 
-        self.internal_write_register(register_id, res)
+        let res = crate::alt_bn128::g1_sum(elements)?;
+
+        self.internal_write_register(register_id, res.into())
     }
 
-    /// Compute pairing check on alt_bn128 curve.
-    /// See more detailed description at `alt_bn128::alt_bn128_pairing_check`.
+    /// Computes pairing check on alt_bn128 curve.
+    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is Ate pairing
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - sequence of (g1:G1, g2:G2), where
+    ///   G2 is Fr-ordered subgroup point (x:Fq2, y:Fq2) on alt_bn128 twist,
+    ///   alt_bn128 twist is Y^2 = X^3 + 3/(i+9) curve over Fq2
+    ///   Fq2 is complex field element (re: Fq, im: Fq)
+    ///   G1 is point (x:Fq, y:Fq) on alt_bn128,
+    ///   alt_bn128 is Y^2 = X^3 + 3 curve over Fq
+    ///
+    ///   `value` is encoded a as packed, little-endian
+    ///   `[((u256, u256), ((u256, u256), (u256, u256)))]` slice.
     ///
     /// # Errors
     ///
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
+    /// the function returns `MemoryAccessViolation`.
     ///
-    /// AltBn128SerializationError, AltBn128DeserializationError
+    /// If point coordinates are not on curve, point is not in the subgroup, scalar
+    /// is not in the field or data are wrong serialized, for example,
+    /// `value.len()%192!=0`, the function returns `AltBn128InvalidInput`.
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_byte * num_bytes`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
-        let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per(alt_bn128_pairing_check_byte, value_buf.len() as u64)?;
+        let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
 
-        Ok(crate::alt_bn128::alt_bn128_pairing_check(&value_buf)? as u64)
+        let elements = crate::alt_bn128::split_elements(&data)?;
+        self.gas_counter.pay_per(alt_bn128_pairing_check_element, elements.len() as u64)?;
+
+        let res = crate::alt_bn128::pairing_check(elements)?;
+
+        Ok(res as u64)
     }
 
     /// Writes random seed into the register.
@@ -979,9 +1020,9 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
 
-        let value_hash = ripemd160::Ripemd160::digest(&value);
+        let value_hash = ripemd::Ripemd160::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
@@ -1537,16 +1578,7 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
-        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
-            vm.receipt_manager.append_action_function_call(
-                receipt_idx,
-                method_name,
-                arguments,
-                amount,
-                gas,
-            )
-        };
-        self.internal_promise_batch_action_function_call(
+        self.promise_batch_action_function_call_weight(
             promise_idx,
             method_name_len,
             method_name_ptr,
@@ -1554,7 +1586,7 @@ impl<'a> VMLogic<'a> {
             arguments_ptr,
             amount_ptr,
             gas,
-            append_action_fn,
+            0,
         )
     }
 
@@ -1594,7 +1626,6 @@ impl<'a> VMLogic<'a> {
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
     pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_idx: u64,
@@ -1605,39 +1636,6 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
         gas_weight: u64,
-    ) -> Result<()> {
-        let append_action_fn = |vm: &mut Self, receipt_idx, method_name, arguments, amount, gas| {
-            vm.receipt_manager.append_action_function_call_weight(
-                receipt_idx,
-                method_name,
-                arguments,
-                amount,
-                gas,
-                GasWeight(gas_weight),
-            )
-        };
-        self.internal_promise_batch_action_function_call(
-            promise_idx,
-            method_name_len,
-            method_name_ptr,
-            arguments_len,
-            arguments_ptr,
-            amount_ptr,
-            gas,
-            append_action_fn,
-        )
-    }
-
-    fn internal_promise_batch_action_function_call(
-        &mut self,
-        promise_idx: u64,
-        method_name_len: u64,
-        method_name_ptr: u64,
-        arguments_len: u64,
-        arguments_ptr: u64,
-        amount_ptr: u64,
-        gas: Gas,
-        append_action_fn: impl FnOnce(&mut Self, u64, Vec<u8>, Vec<u8>, u128, u64) -> Result<()>,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
@@ -1673,7 +1671,14 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        append_action_fn(self, receipt_idx, method_name, arguments, amount, gas)
+        self.receipt_manager.append_action_function_call_weight(
+            receipt_idx,
+            method_name,
+            arguments,
+            amount,
+            gas,
+            GasWeight(gas_weight),
+        )
     }
 
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
@@ -1874,13 +1879,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
 
         self.receipt_manager.append_action_add_key_with_function_call(
@@ -2340,7 +2345,7 @@ impl<'a> VMLogic<'a> {
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
+        self.gas_counter.add_trie_fees(nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2419,7 +2424,7 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
+        self.gas_counter.add_trie_fees(nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
         match read {
             Some(value) => {
@@ -2473,7 +2478,7 @@ impl<'a> VMLogic<'a> {
 
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
+        self.gas_counter.add_trie_fees(nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2520,7 +2525,7 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.pay_per(touching_trie_node, nodes_delta.db_reads)?;
+        self.gas_counter.add_trie_fees(nodes_delta)?;
         Ok(res? as u64)
     }
 
@@ -2637,9 +2642,7 @@ impl<'a> VMLogic<'a> {
     /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
     /// distributed to functions that specify a gas weight. If there are no functions with
     /// a gas weight, the outcome will contain unused gas as usual.
-    #[cfg_attr(not(feature = "protocol_feature_function_call_weight"), allow(unused_mut))]
     pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
-        #[cfg(feature = "protocol_feature_function_call_weight")]
         if !self.context.is_view() {
             // Distribute unused gas to scheduled function calls
             let unused_gas = self.gas_counter.unused_gas();
@@ -2669,10 +2672,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
-        self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
-        self.gas_counter.pay_base(contract_compile_base)
+    /// Add a cost for loading the contract code in the VM.
+    ///
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
+    pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
+        self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
+        self.gas_counter.pay_base(contract_loading_base)
     }
 
     /// Gets pointer to the fast gas counter.
@@ -2685,6 +2694,62 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
+
+    /// VM independent setup before loading the executable.
+    ///
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
+        &mut self,
+        method_name: &str,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if method_name.is_empty() {
+            let error =
+                VMError::FunctionCallError(near_vm_errors::FunctionCallError::MethodResolveError(
+                    near_vm_errors::MethodResolveError::MethodEmptyName,
+                ));
+            return Err(error);
+        }
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                let error =
+                    VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_loading_executable(
+        &mut self,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                return Err(VMError::FunctionCallError(
+                    near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

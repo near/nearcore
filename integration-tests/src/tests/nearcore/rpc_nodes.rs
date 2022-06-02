@@ -1,12 +1,11 @@
-use std::time::Duration;
-
+use crate::genesis_helpers::genesis_block;
+use crate::tests::nearcore::node_cluster::NodeCluster;
 use actix::clock::sleep;
 use actix::{Actor, System};
+use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
-
-use crate::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
@@ -23,15 +22,14 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
-
-use crate::tests::nearcore::node_cluster::NodeCluster;
+use std::time::Duration;
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_get_validator_info_rpc() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("validator_info{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -44,7 +42,12 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    let block_view = view_client.send(GetBlock::latest()).await.unwrap().unwrap();
+                    let block_view = view_client.send(GetBlock::latest()).await.unwrap();
+                    if let Err(err) = block_view {
+                        println!("Failed to get the latest block: {:?}", err);
+                        return;
+                    }
+                    let block_view = block_view.unwrap();
                     if block_view.header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
                         let block_hash = block_view.header.hash;
@@ -97,7 +100,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
 fn test_get_execution_outcome(is_tx_successful: bool) {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_propagation{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -230,7 +233,7 @@ fn test_get_execution_outcome_tx_failure() {
 fn test_protocol_config_rpc() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -270,7 +273,7 @@ fn test_protocol_config_rpc() {
 fn test_query_rpc_account_view_must_succeed() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -299,7 +302,7 @@ fn test_query_rpc_account_view_must_succeed() {
                     query_response.kind
                 );
             };
-        assert!(matches!(account, near_primitives::views::AccountView { .. }));
+        assert_matches!(account, near_primitives::views::AccountView { .. });
         System::current().stop();
     });
 }
@@ -309,7 +312,7 @@ fn test_query_rpc_account_view_must_succeed() {
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
@@ -318,18 +321,28 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
 
     cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let query_response = client
-            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
-                request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "accountdoesntexist.0".parse().unwrap(),
-                },
-            })
-            .await;
+        let error_message = loop {
+            let query_response = client
+                .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                    block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
+                    request: near_primitives::views::QueryRequest::ViewAccount {
+                        account_id: "accountdoesntexist.0".parse().unwrap(),
+                    },
+                })
+                .await;
 
-        let error_message = match query_response {
-            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-            Err(err) => err.data.unwrap(),
+            break match query_response {
+                Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+                Err(err) => {
+                    let value = err.data.unwrap();
+                    if value == serde_json::to_value("Block either has never been observed on the node or has been garbage collected: Finality(Final)").unwrap() {
+                                println!("No blocks are produced yet, retry.");
+                                sleep(std::time::Duration::from_millis(100)).await;
+                                continue;
+                    }
+                    value
+                }
+            };
         };
 
         assert!(
@@ -349,7 +362,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
 fn test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(2)
         .set_num_lightclients(0)
@@ -412,8 +425,9 @@ fn test_tx_not_enough_balance_must_return_error() {
 fn test_send_tx_sync_returns_transaction_hash() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_not_enough_balance{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
+        .set_num_nodes(2)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
         .set_epoch_length(10)
@@ -461,7 +475,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 fn test_send_tx_sync_to_lightclient_must_be_routed() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_routed{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -520,8 +534,9 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 fn test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("tx_unknown{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
+        .set_num_nodes(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)
         .set_epoch_length(10)
@@ -579,7 +594,7 @@ fn test_check_unknown_tx_must_return_error() {
 fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(2, |index| format!("tx_does_not_track_shard{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(1)
@@ -633,7 +648,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
 fn test_validators_by_epoch_id_current_epoch_not_fails() {
     init_integration_logger();
 
-    let cluster = NodeCluster::new(1, |index| format!("validators_epoch_id{}", index))
+    let cluster = NodeCluster::default()
         .set_num_shards(1)
         .set_num_validator_seats(1)
         .set_num_lightclients(0)

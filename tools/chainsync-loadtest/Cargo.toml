@@ -13,16 +13,16 @@ path = "src/main.rs"
 name = "chainsync-loadtest"
 
 [dependencies]
-clap = { version = "3.1.6", features = ["derive"] }
-actix = "0.12.0"
-parking_lot = "0.11.2"
-openssl-probe = "0.1.4"
-futures = "0.3"
+actix = "0.13.0"
 anyhow = "1.0.55"
-rand = "0.8"
+clap = { version = "3.1.6", features = ["derive"] }
 dirs = "3"
-tokio = "1.16.1"
+futures = "0.3"
 log = "0.4"
+openssl-probe = "0.1.4"
+parking_lot = "0.11.2"
+rand = "0.8"
+tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }

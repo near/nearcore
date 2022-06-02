@@ -32,59 +32,6 @@ pub struct RpcValidatorResponse {
     pub validator_info: near_primitives::views::EpochValidatorInfo,
 }
 
-impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidatorError {
-    fn from(error: near_client_primitives::types::GetValidatorInfoError) -> Self {
-        match error {
-            near_client_primitives::types::GetValidatorInfoError::UnknownEpoch => {
-                Self::UnknownEpoch
-            }
-            near_client_primitives::types::GetValidatorInfoError::ValidatorInfoUnavailable => {
-                Self::ValidatorInfoUnavailable
-            }
-            near_client_primitives::types::GetValidatorInfoError::IOError(error_message) => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetValidatorInfoError::Unreachable(
-                ref error_message,
-            ) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcValidatorError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<actix::MailboxError> for RpcValidatorError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
-}
-
-impl RpcValidatorRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        let epoch_reference = if let Ok((block_id,)) =
-            crate::utils::parse_params::<(near_primitives::types::MaybeBlockId,)>(value.clone())
-        {
-            match block_id {
-                Some(id) => near_primitives::types::EpochReference::BlockId(id),
-                None => near_primitives::types::EpochReference::Latest,
-            }
-        } else {
-            crate::utils::parse_params::<near_primitives::types::EpochReference>(value)?
-        };
-        Ok(Self { epoch_reference })
-    }
-}
-
-impl RpcValidatorsOrderedRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcValidatorsOrderedRequest>(value)?)
-    }
-}
-
 impl From<RpcValidatorError> for crate::errors::RpcError {
     fn from(error: RpcValidatorError) -> Self {
         let error_data = match &error {

@@ -4,8 +4,8 @@ use crate::routing::graph::Graph;
 use crate::routing::routing_table_view::SAVE_PEERS_MAX_TIME;
 use crate::stats::metrics;
 use actix::{
-    Actor, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running, SyncArbiter,
-    System, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, Addr, Context, ContextFutureSpawner, Handler, Running,
+    SyncArbiter, WrapFuture,
 };
 use near_network_primitives::types::{Edge, EdgeState};
 use near_performance_metrics_macros::perf;
@@ -13,7 +13,7 @@ use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
-use near_store::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::DBCol;
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -46,7 +46,6 @@ pub struct RoutingTableActor {
     /// Data structure with all edges. It's guaranteed that `peer.0` < `peer.1`.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     pub peer_ibf_set: crate::routing::ibf_peer_set::IbfPeerSet,
     /// Current view of the network represented by undirected graph.
     /// Nodes are Peers and edges are active connections.
@@ -60,11 +59,11 @@ pub struct RoutingTableActor {
     /// If any of them become reachable again, we re-add whole component.
     ///
     /// To store components, we have following column in the DB.
-    /// ColLastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
+    /// DBCol::LastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
     ///                          hasn't been used yet. If new component gets created it will use
     ///                          this nonce.
-    /// ColComponentEdges     -> Mapping from `component_nonce` to list of edges
-    /// ColPeerComponent      -> Mapping from `peer_id` to last component nonce if there
+    /// DBCol::ComponentEdges     -> Mapping from `component_nonce` to list of edges
+    /// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce if there
     ///                          exists one it belongs to.
     store: Store,
     /// First component nonce id that hasn't been used. Used for creating new components.
@@ -83,13 +82,12 @@ pub struct RoutingTableActor {
 impl RoutingTableActor {
     pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         let component_nonce = store
-            .get_ser::<u64>(ColLastComponentNonce, &[])
+            .get_ser::<u64>(DBCol::LastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
         let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             peer_ibf_set: Default::default(),
             raw_graph: Graph::new(my_peer_id),
             peer_forwarding: Default::default(),
@@ -233,7 +231,7 @@ impl RoutingTableActor {
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
                                 update.delete(
-                                    ColPeerComponent,
+                                    DBCol::PeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
                             }
@@ -330,7 +328,7 @@ impl RoutingTableActor {
         // component that the edge belonged to.
         for peer_id in peers_to_remove.iter() {
             let _ = update.set_ser(
-                ColPeerComponent,
+                DBCol::PeerComponent,
                 peer_id.try_to_vec().unwrap().as_ref(),
                 &self.next_available_component_nonce,
             );
@@ -347,14 +345,15 @@ impl RoutingTableActor {
             .collect();
 
         let _ = update.set_ser(
-            ColComponentEdges,
+            DBCol::ComponentEdges,
             &index_to_bytes(self.next_available_component_nonce),
             &edges_to_remove,
         );
 
         self.next_available_component_nonce += 1;
         // Stores next available nonce.
-        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
+        let _ =
+            update.set_ser(DBCol::LastComponentNonce, &[], &self.next_available_component_nonce);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
@@ -367,9 +366,12 @@ impl RoutingTableActor {
         self.edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
     }
 
-    /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
+    /// Get edges stored in DB under `DBCol::PeerComponent` column at `peer_id` key.
     fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
-        match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
+        match self
+            .store
+            .get_ser::<u64>(DBCol::PeerComponent, peer_id.try_to_vec().unwrap().as_ref())
+        {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
         }
@@ -383,12 +385,12 @@ impl RoutingTableActor {
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(component_nonce);
 
-        let res = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+        let res = match self.store.get_ser::<Vec<Edge>>(DBCol::ComponentEdges, enc_nonce.as_ref()) {
             Ok(Some(edges)) => Ok(edges),
             _ => Err(()),
         };
 
-        update.delete(ColComponentEdges, enc_nonce.as_ref());
+        update.delete(DBCol::ComponentEdges, enc_nonce.as_ref());
 
         res
     }
@@ -411,9 +413,9 @@ impl Actor for RoutingTableActor {
 
 impl Handler<StopMsg> for RoutingTableActor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
         self.edge_validator_pool.do_send(StopMsg {});
-        System::current().stop();
+        ctx.stop();
     }
 }
 
@@ -465,7 +467,6 @@ pub enum RoutingTableMessages {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RemovePeer(PeerId),
     /// Do new routing table exchange algorithm.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     ProcessIbfMessage { peer_id: PeerId, ibf_msg: crate::types::RoutingVersion2 },
     /// Start new routing table sync.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -485,7 +486,6 @@ pub enum RoutingTableMessagesResponse {
         seed: u64,
     },
     Empty,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     ProcessIbfMessageResponse {
         ibf_msg: Option<crate::types::RoutingVersion2>,
     },
@@ -506,7 +506,6 @@ pub enum RoutingTableMessagesResponse {
     },
 }
 
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
@@ -605,7 +604,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 self.peer_ibf_set.remove_peer(&peer_id);
                 RoutingTableMessagesResponse::Empty
             }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
                 match ibf_msg.routing_state {
                     crate::types::RoutingState::PartialSync(partial_sync) => {

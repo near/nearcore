@@ -16,7 +16,7 @@ You can read more about this structure on [Wikipedia](https://en.wikipedia.org/w
 
 Trie is stored in the RocksDB, which is persistent across node restarts. 
 Trie communicates with database using `TrieStorage`.
-On the database level, data is stored in key-value format in `ColState` column. 
+On the database level, data is stored in key-value format in `DBCol::State` column. 
 There are two kinds of records:
 - trie nodes, for which key is constructed from shard id and `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by custom algorithm;
 - values (encoded contract codes, postponed receipts, etc.), for which key is constructed from shard id and hash of value, which maps to the encoded value.
@@ -40,7 +40,7 @@ Provides a way to access storage and record changes to commit in the future. Upd
 
 Note that `finalize`, `Trie::insert` and `Trie::update` do not update the database storage. 
 These functions only modify trie nodes in memory.
-Instead, these functions prepares `TrieChanges` object, and `Trie` is actually updated when `ShardTries::apply_insertions` is called, which puts new values to `ColState` part of key-value database.
+Instead, these functions prepares `TrieChanges` object, and `Trie` is actually updated when `ShardTries::apply_insertions` is called, which puts new values to `DBCol::State` part of key-value database.
 
 ### TrieStorage
 

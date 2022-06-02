@@ -76,7 +76,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
             ).read()?;
         db.import_json_lines(
             &ImportConfig { commit_hash: Some(commit_hash.clone()), protocol_version: None },
-            estimation_output.as_bytes(),
+            &estimation_output,
         )?;
     }
 
@@ -88,7 +88,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
             ).read()?;
         db.import_json_lines(
             &ImportConfig { commit_hash: Some(commit_hash), protocol_version: None },
-            estimation_output.as_bytes(),
+            &estimation_output,
         )?;
     }
 

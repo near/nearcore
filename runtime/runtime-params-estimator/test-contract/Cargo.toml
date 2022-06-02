@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 codegen-units = 1
 # Tell `rustc` to optimize for small code size.
 opt-level = "z"
+strip = true
 lto = true
 debug = false
 panic = "abort"
@@ -22,7 +23,6 @@ panic = "abort"
 members = []
 
 [features]
-nightly_protocol_features = ["protocol_feature_alt_bn128"]
-protocol_feature_alt_bn128 = []
+nightly = []
 
 payload = []

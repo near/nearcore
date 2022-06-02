@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -21,10 +21,8 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
-};
-use nearcore::{get_store_path, NightshadeRuntime, TrackedConfig};
+use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use nearcore::{NightshadeRuntime, TrackedConfig};
 
 fn get_account_id(account_index: u64) -> AccountId {
     AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
@@ -65,6 +63,7 @@ impl GenesisBuilder {
             None,
             None,
             None,
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -80,11 +79,6 @@ impl GenesisBuilder {
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
         }
-    }
-
-    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, genesis, store)
     }
 
     pub fn print_progress(mut self) -> Self {
@@ -176,7 +170,7 @@ impl GenesisBuilder {
         let trie_changes = state_update.finalize()?.0;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid)?;
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());

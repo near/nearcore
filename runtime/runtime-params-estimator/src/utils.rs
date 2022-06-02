@@ -222,6 +222,16 @@ pub(crate) fn aggregate_per_block_measurements(
     (gas_cost, total_ext_costs)
 }
 
+pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost {
+    let total = measurements.iter().fold(GasCost::zero(config.metric), |acc, x| acc + x.clone());
+    let mut avg = total / measurements.len() as u64;
+    let scalar_costs = measurements.iter().map(|cost| cost.to_gas() as f64).collect::<Vec<_>>();
+    if is_high_variance(&scalar_costs) {
+        avg.set_uncertain("HIGH-VARIANCE");
+    }
+    avg
+}
+
 /// We expect our cost computations to be fairly reproducible, and just flag
 /// "high-variance" measurements as suspicious. To make results easily
 /// explainable, we just require that all the samples don't deviate from the
@@ -240,6 +250,23 @@ pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
         samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
 
     !all_below_threshold
+}
+
+/// Returns several percentile values from the given vector of costs. For
+/// example, the input 0.9 represents the 90th percentile, which is the largest
+/// gas cost in the vector for which no more than 90% of all values are smaller.
+pub(crate) fn percentiles(
+    mut costs: Vec<GasCost>,
+    percentiles: &[f32],
+) -> impl Iterator<Item = GasCost> + '_ {
+    costs.sort();
+    let sample_size = costs.len();
+    percentiles
+        .into_iter()
+        .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
+        .map(move |idx| costs[idx].clone())
+    // .collect::<Vec<_>>()
+    // .into_iter()
 }
 
 /// Get account id from its index.
@@ -266,4 +293,36 @@ pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
     let wat_code = format!("(module (data \"{payload}\") (func (export \"main\")))");
     wat::parse_str(wat_code).unwrap()
+}
+
+#[cfg(test)]
+mod test {
+    use super::percentiles;
+    use crate::{config::GasMetric, gas_cost::GasCost};
+    use rand::prelude::SliceRandom;
+
+    #[track_caller]
+    fn check_percentiles(gas_values: &[u64], p_values: &[f32], expected_gas_results: &[u64]) {
+        let costs =
+            gas_values.iter().map(|n| GasCost::from_gas((*n).into(), GasMetric::Time)).collect();
+
+        let results = percentiles(costs, p_values).map(|cost| cost.to_gas()).collect::<Vec<_>>();
+
+        assert_eq!(results, expected_gas_results,)
+    }
+
+    #[test]
+    fn test_percentiles() {
+        let mut one_to_thousand = (1..=1000u64).collect::<Vec<_>>();
+        one_to_thousand.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_thousand, &[0.1, 0.5, 0.995], &[100, 500, 995]);
+
+        let mut one_to_ninety_nine = (1..=99u64).collect::<Vec<_>>();
+        one_to_ninety_nine.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_ninety_nine, &[0.1, 0.5, 0.995], &[10, 50, 99]);
+
+        let mut one_to_one_o_one = (1..=101u64).collect::<Vec<_>>();
+        one_to_one_o_one.shuffle(&mut rand::thread_rng());
+        check_percentiles(&one_to_one_o_one, &[0.1, 0.5, 0.995], &[11, 51, 101]);
+    }
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use num_rational::Rational;
 
@@ -261,19 +262,22 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
                 panic!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV3(header) => header,
+            BlockHeader::BlockHeaderV3(header) => Arc::make_mut(header),
         }
     }
 
     pub fn set_lastest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV2(header) => {
+                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
         }
@@ -287,14 +291,17 @@ impl BlockHeader {
         );
         match self {
             BlockHeader::BlockHeaderV1(header) => {
+                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV2(header) => {
+                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
             }
@@ -305,14 +312,21 @@ impl BlockHeader {
 impl Block {
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
-            Block::BlockV1(block) => &mut block.header,
-            Block::BlockV2(block) => &mut block.header,
+            Block::BlockV1(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
+            Block::BlockV2(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
         }
     }
 
     pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
             Block::BlockV1(block) => {
+                let block = Arc::make_mut(block);
                 let legacy_chunks = chunks
                     .into_iter()
                     .map(|chunk| match chunk {
@@ -325,10 +339,11 @@ impl Block {
                         }
                     })
                     .collect();
-                block.as_mut().chunks = legacy_chunks;
+                block.chunks = legacy_chunks;
             }
             Block::BlockV2(block) => {
-                block.as_mut().chunks = chunks;
+                let block = Arc::make_mut(block);
+                block.chunks = chunks;
             }
         }
     }
@@ -495,4 +510,9 @@ impl FinalExecutionStatus {
     pub fn as_success_decoded(self) -> Option<Vec<u8>> {
         self.as_success().and_then(|value| from_base64(&value).ok())
     }
+}
+
+/// Encode array of `u64` to be passed as a smart contract argument.
+pub fn encode(xs: &[u64]) -> Vec<u8> {
+    xs.iter().flat_map(|it| it.to_le_bytes()).collect()
 }

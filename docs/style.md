@@ -84,7 +84,7 @@ imports and rely on `rustfmt` to sort them.
 use crate::types::KnownPeerState;
 use borsh::BorshSerialize;
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::Peers, Store};
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -97,7 +97,7 @@ use borsh::BorshSerialize;
 use rand::seq::SliceRandom;
 
 use near_primitives::utils::to_timestamp;
-use near_store::{ColPeers, Store};
+use near_store::{DBCol::Peers, Store};
 
 use crate::types::KnownPeerState;
 ```
@@ -215,6 +215,11 @@ instead of manually adding such information as part of the events themselves.
 Most of the subscribers ingesting spans also provide a built-in timing facility,
 so prefer using spans for measuring the amount of time a section of code needs
 to execute.
+
+Give spans simple names that make them both easy to trace back to code, and to
+find a particular span in logs or other tools ingesting the span data. If a
+span begins at the top of a function, prefer giving it a name of that function,
+otherwise prefer a `snake_case` name.
 
 Use the regular span API over convenience macros such as `#[instrument]`, as
 this allows instrumenting portions of a function without affecting the code

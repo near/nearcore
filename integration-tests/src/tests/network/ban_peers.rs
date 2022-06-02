@@ -4,7 +4,7 @@ use std::time::Duration;
 /// Check we don't try to connect to a banned peer and we don't accept
 /// incoming connection from it.
 #[test]
-fn dont_connect_to_banned_peer() {
+fn dont_connect_to_banned_peer() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2)
         .enable_outbound()
         .use_boot_nodes(vec![0, 1])
@@ -15,17 +15,17 @@ fn dont_connect_to_banned_peer() {
 
     runner.push_action(ban_peer(0, 1));
     // It needs to wait a large timeout so we are sure both peer don't establish a connection.
-    runner.push(Action::Wait(1000));
+    runner.push(Action::Wait(Duration::from_millis(1000)));
 
     runner.push(Action::CheckRoutingTable(0, vec![]));
     runner.push(Action::CheckRoutingTable(1, vec![]));
 
-    start_test(runner);
+    start_test(runner)
 }
 
 /// Check two peers are able to connect again after one peers is banned and unbanned.
 #[test]
-fn connect_to_unbanned_peer() {
+fn connect_to_unbanned_peer() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2)
         .enable_outbound()
         .use_boot_nodes(vec![0, 1])
@@ -38,7 +38,7 @@ fn connect_to_unbanned_peer() {
     // Ban peer 1
     runner.push_action(ban_peer(0, 1));
 
-    runner.push(Action::Wait(1000));
+    runner.push(Action::Wait(Duration::from_millis(1000)));
     // During two seconds peer is banned so no connection is possible.
     runner.push(Action::CheckRoutingTable(0, vec![]));
     runner.push(Action::CheckRoutingTable(1, vec![]));
@@ -47,5 +47,5 @@ fn connect_to_unbanned_peer() {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
-    start_test(runner);
+    start_test(runner)
 }

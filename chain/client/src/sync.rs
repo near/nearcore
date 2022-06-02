@@ -168,6 +168,7 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
         if !self.header_sync_due(sync_status, &header_head, highest_height) {
             return Ok(());
@@ -188,8 +189,15 @@ impl HeaderSync {
         };
 
         if enable_header_sync {
-            *sync_status =
-                SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
+            let start_height = match sync_status.start_height() {
+                Some(height) => height,
+                None => chain.head()?.height,
+            };
+            *sync_status = SyncStatus::HeaderSync {
+                start_height,
+                current_height: header_head.height,
+                highest_height,
+            };
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
@@ -427,6 +435,7 @@ impl BlockSync {
         highest_height: BlockHeight,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
         if self.block_sync_due(chain)? {
             if self.block_sync(chain, highest_height_peers)? {
                 debug!(target: "sync", "Sync: transition to State Sync.");
@@ -435,7 +444,12 @@ impl BlockSync {
         }
 
         let head = chain.head()?;
-        *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
+        let start_height = match sync_status.start_height() {
+            Some(height) => height,
+            None => head.height,
+        };
+        *sync_status =
+            SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
         Ok(false)
     }
 
@@ -494,8 +508,8 @@ impl BlockSync {
             // First go back until we find the common block
             while match chain.get_header_by_height(candidate.0) {
                 Ok(header) => header.hash() != &candidate.1,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => true,
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => true,
                     _ => return Err(e),
                 },
             } {
@@ -508,15 +522,14 @@ impl BlockSync {
             loop {
                 match chain.mut_store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
-                        let hash = *hash;
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
                         } else {
                             break;
                         }
                     }
-                    Err(e) => match e.kind() {
-                        near_chain::ErrorKind::DBNotFoundErr(_) => break,
+                    Err(e) => match e {
+                        near_chain::Error::DBNotFoundErr(_) => break,
                         _ => return Err(e),
                     },
                 }
@@ -530,11 +543,9 @@ impl BlockSync {
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
             match chain.mut_store().get_next_block_hash(&next_hash) {
-                Ok(hash) => next_hash = *hash,
-                Err(e) => match e.kind() {
-                    near_chain::ErrorKind::DBNotFoundErr(_) => {
-                        break;
-                    }
+                Ok(hash) => next_hash = hash,
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => break,
                     _ => return Err(e),
                 },
             }
@@ -1028,8 +1039,8 @@ impl StateSync {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
 
-        let prev_block_hash = chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
+        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         Ok(runtime_adapter
             .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
@@ -1038,7 +1049,7 @@ impl StateSync {
                 let account_id = validator_stake.account_id();
                 if runtime_adapter.cares_about_shard(
                     Some(account_id),
-                    prev_block_hash,
+                    &prev_block_hash,
                     shard_id,
                     false,
                 ) {
@@ -1178,7 +1189,8 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
-        debug!(target:"sync", "syncing state sync_hash {:?} new_shard_sync {:?} tracking_shards {:?}", sync_hash, new_shard_sync, tracking_shards);
+        let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
+        debug!(target: "sync", %sync_hash, ?new_shard_sync, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
@@ -1339,7 +1351,7 @@ mod test {
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer);
+            let block = Block::empty(&prev, &*signer);
             chain
                 .process_block(
                     &None,
@@ -1355,7 +1367,7 @@ mod test {
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
-            let block = Block::empty(prev, &*signer2);
+            let block = Block::empty(&prev, &*signer2);
             chain2
                 .process_block(
                     &None,
@@ -1436,7 +1448,7 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (mut chain, _, signers) = setup_with_validators(
+        let (chain, _, signers) = setup_with_validators(
             vec!["test0", "test1", "test2", "test3", "test4"]
                 .iter()
                 .map(|x| x.parse().unwrap())
@@ -1446,7 +1458,7 @@ mod test {
             1000,
             100,
         );
-        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
+        let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
         let mut all_blocks = vec![];
@@ -1519,7 +1531,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );
@@ -1537,7 +1553,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );

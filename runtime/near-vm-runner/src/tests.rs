@@ -55,21 +55,29 @@ fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn make_simple_contract_call_with_gas_vm(
+/// Exhaustive parameters for making a simple contract call.
+/// Calling with no protocol version specified will use a test configuration.
+fn make_simple_contract_call_ex(
     code: &[u8],
     method_name: &str,
-    prepaid_gas: u64,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
+    protocol_version: Option<ProtocolVersion>,
+    prepaid_gas: u64,
+) -> (VMOutcome, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = VMConfig::test();
-    let fees = RuntimeFeesConfig::test();
+    let (config, fees) = if let Some(protocol_version) = protocol_version {
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config = runtime_config_store.get_config(protocol_version);
+        (runtime_config.wasm_config.clone(), runtime_config.transaction_costs.clone())
+    } else {
+        (VMConfig::test(), RuntimeFeesConfig::test())
+    };
 
     let promise_results = vec![];
-
     let code = ContractCode::new(code.to_vec(), None);
+
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
     runtime
         .run(
@@ -79,7 +87,7 @@ fn make_simple_contract_call_with_gas_vm(
             context,
             &fees,
             &promise_results,
-            LATEST_PROTOCOL_VERSION,
+            protocol_version.unwrap_or(LATEST_PROTOCOL_VERSION),
             None,
         )
         .outcome_error()
@@ -90,53 +98,48 @@ fn make_simple_contract_call_with_protocol_version_vm(
     method_name: &str,
     protocol_version: ProtocolVersion,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    let mut fake_external = MockedExternal::new();
-    let context = create_context(vec![]);
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
-    let fees = &runtime_config.transaction_costs;
-    let runtime =
-        vm_kind.runtime(runtime_config.wasm_config.clone()).expect("runtime has not been compiled");
+) -> (VMOutcome, Option<VMError>) {
+    make_simple_contract_call_ex(code, method_name, vm_kind, Some(protocol_version), 10u64.pow(14))
+}
 
-    let promise_results = vec![];
-    let code = ContractCode::new(code.to_vec(), None);
-    runtime
-        .run(
-            &code,
-            method_name,
-            &mut fake_external,
-            context,
-            fees,
-            &promise_results,
-            protocol_version,
-            None,
-        )
-        .outcome_error()
+fn make_simple_contract_call_with_gas_vm(
+    code: &[u8],
+    method_name: &str,
+    prepaid_gas: u64,
+    vm_kind: VMKind,
+) -> (VMOutcome, Option<VMError>) {
+    make_simple_contract_call_ex(code, method_name, vm_kind, None, prepaid_gas)
 }
 
 fn make_simple_contract_call_vm(
     code: &[u8],
     method_name: &str,
     vm_kind: VMKind,
-) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
+) -> (VMOutcome, Option<VMError>) {
+    make_simple_contract_call_ex(code, method_name, vm_kind, None, 10u64.pow(14))
 }
 
 #[track_caller]
 fn gas_and_error_match(
-    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
-    expected_gas: Option<u64>,
+    outcome_and_error: (VMOutcome, Option<VMError>),
+    expected_gas: u64,
     expected_error: Option<VMError>,
 ) {
-    match expected_gas {
-        Some(gas) => {
-            let outcome = outcome_and_error.0.unwrap();
-            assert_eq!(outcome.used_gas, gas, "used gas differs");
-            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
-        }
-        None => assert!(outcome_and_error.0.is_none()),
-    }
-
+    let outcome = outcome_and_error.0;
+    assert_eq!(outcome.used_gas, expected_gas, "used gas differs");
+    assert_eq!(outcome.burnt_gas, expected_gas, "burnt gas differs");
     assert_eq!(outcome_and_error.1, expected_error);
+}
+
+/// Small helper to compute expected loading gas cost charged before loading.
+///
+/// Includes hard-coded value for runtime parameter values
+/// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
+/// have to be updated if they change in the future.
+fn prepaid_loading_gas(bytes: usize) -> u64 {
+    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
+        35_445_963 + bytes as u64 * 21_6750
+    } else {
+        0
+    }
 }

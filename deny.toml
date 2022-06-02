@@ -17,18 +17,16 @@ deny = [
 ]
 
 skip = [
-    { name = "clap", version = "=2.33.3" },
-    # criterion uses clap=2.33.3 which relies on an older textwrap
+    { name = "clap", version = "=2.34.0" },
+    # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
-    # insta uses older version of console
-    { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
     { name = "rand_core", version = "=0.3.1" },
     { name = "rand_chacha", version = "=0.1.1" },
-    { name = "autocfg", version = "=0.1.7" },
+    { name = "autocfg", version = "=0.1.8" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "base64", version = "=0.11.0" },
     { name = "wasmparser", version = "=0.51.4" },
@@ -39,21 +37,25 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # Wasmer 2.0 indirectly uses this outdated version.
-    { name = "memmap2", version = "=0.2.3" },
+    # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
+    { name = "block-buffer", version = "=0.9.0" },
+    { name = "digest", version = "=0.9.0" },
+    { name = "sha2", version = "=0.9.9" },
+
     # Wasmer 2.0 uses newer object
     { name = "object", version = "=0.27.1" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
     # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
     { name = "wasmparser", version = "=0.81.0" },
+    # wasm-smith relies on 0.84.0
+    { name = "wasmparser", version = "=0.84.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
     { name = "parity-wasm", version = "=0.41.0" },
 
     # param estimator uses newer imports, but it's not part of neard
-    { name = "indicatif", version = "=0.15.0" },
     { name = "rand_xorshift", version = "=0.2.0" },
     { name = "wasmparser", version = "=0.59.0" },
 
@@ -68,12 +70,14 @@ skip = [
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
+    { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
+    { name = "parking_lot_core", version = "=0.8.5" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
 
     # chrono uses old time crate
-    { name = "time", version = "=0.1.43" },
+    { name = "time", version = "=0.1.44" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand", version = "=0.7.3" },
@@ -100,6 +104,10 @@ skip = [
 
     # actix-http depends on an old version
     { name = "itoa", version = "=0.4.8" },
-    { name = "time", version = "=0.2.27" },
 
+    # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
+    { name = "hashbrown", version = "0.11.0" },
+
+    # prometheus depends on an old version of protobuf
+    { name = "protobuf", version = "=2.27.1" },
 ]

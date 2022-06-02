@@ -1,11 +1,13 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::test_utils::encode;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
 use near_primitives::version::ProtocolFeature;
-use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
+use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{VMConfig, VMOutcome};
+use near_vm_logic::{ReceiptMetadata, VMConfig};
 use std::mem::size_of;
 
 use crate::tests::{
@@ -16,11 +18,7 @@ use crate::vm_kind::VMKind;
 use crate::VMResult;
 
 fn test_contract() -> ContractCode {
-    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
+    let code = near_test_contracts::rs_contract();
     ContractCode::new(code.to_vec(), None)
 }
 
@@ -29,26 +27,14 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
         panic!("Failed execution");
     }
 
-    if let Some(VMOutcome { return_data, .. }) = result.outcome() {
-        if let ReturnData::Value(value) = return_data {
-            let mut arr = [0u8; size_of::<u64>()];
-            arr.copy_from_slice(&value);
-            let res = u64::from_le_bytes(arr);
-            assert_eq!(res, expected_value);
-        } else {
-            panic!("Value was not returned");
-        }
+    if let ReturnData::Value(value) = &result.outcome().return_data {
+        let mut arr = [0u8; size_of::<u64>()];
+        arr.copy_from_slice(&value);
+        let res = u64::from_le_bytes(arr);
+        assert_eq!(res, expected_value);
     } else {
-        panic!("Failed execution");
+        panic!("Value was not returned");
     }
-}
-
-fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
-    let mut res = vec![];
-    for el in value {
-        res.extend_from_slice(&el.to_le_bytes());
-    }
-    res
 }
 
 #[test]
@@ -57,7 +43,7 @@ pub fn test_read_write() {
         let code = test_contract();
         let mut fake_external = MockedExternal::new();
 
-        let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
+        let context = create_context(encode(&[10u64, 20u64]));
         let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
@@ -75,7 +61,7 @@ pub fn test_read_write() {
         );
         assert_run_result(result, 0);
 
-        let context = create_context(arr_u64_to_u8(&[10u64]));
+        let context = create_context(encode(&[10u64]));
         let result = runtime.run(
             &code,
             "read_value",
@@ -178,22 +164,16 @@ fn run_test_ext(
         .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
         .outcome_error();
 
-    if let Some(outcome) = &outcome {
-        assert_eq!(outcome.profile.action_gas(), 0);
-    }
+    assert_eq!(outcome.profile.action_gas(), 0);
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
     }
 
-    if let Some(VMOutcome { return_data, .. }) = outcome {
-        if let ReturnData::Value(value) = return_data {
-            assert_eq!(&value, &expected);
-        } else {
-            panic!("Value was not returned");
-        }
+    if let ReturnData::Value(value) = outcome.return_data {
+        assert_eq!(&value, &expected);
     } else {
-        panic!("Failed execution");
+        panic!("Value was not returned");
     }
 }
 
@@ -259,30 +239,6 @@ def_test_ext!(
     vec![("alice", 100), ("bob", 1)]
 );
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
-def_test_ext!(
-    ext_alt_bn128_pairing_check,
-    "ext_alt_bn128_pairing_check",
-    &[1],
-    &base64::decode("AgAAAHUK2WNxTupDt1oaOshWw3squNVY4PgSyGwGtQYcEWMHJIY1c8C0A3FM466TMq5PSpfDrArT0hpcdfZB7ahoEAQBGgPbBg3Bc03mGw3y1sMJ1WOHDKDKcoevKnSsT+oaKdRvwIF8cDlrJvTm3vAkQe6FvBMrlDvNKKGzreRYqecdEUOjM6W7ZSz6GERlXIDLvjNVCSs6iES0XG65qGuBLR67FmQRS13YfRfUC7rHzAGMhQtSLEHeFBowGoTcGdVdGU+wBJWX8wuD/el5Jt4PdnXI1q/pgrXBp/+ZqfDP6xwfU0pFswaWSENKpoJTUnN7b9DdQCvt1brrBzj7s1/pnxdtrVVnCKXr4tpPSHis+xRTecmMYqr2edoTcyqHPO8eIDGqq8zExaCeqC8Xbot73t71Yn3QRiduupL+Qrl2A04gL7PFXU/wzE7shdWtdV4/mkRZ7IoA9/LU9SH5ACP26QB8VsaiyTYTGsRL/kdG7jMCF7mYi4ZBa4Fy9C/78FDBFw==").unwrap()
-);
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-def_test_ext!(
-    ext_alt_bn128_g1_sum,
-    "ext_alt_bn128_g1_sum",
-    &base64::decode("6I9NGC6Ikzk7Xw/CIippAtOEsTx4TodcXRjzzu5TLh4EIPsrWPsfnQMtqKfMMF+SHgSphZseRKyej9jTVCT8Aw==").unwrap(),
-    &base64::decode("AgAAAADs00QWBTHQDDU1J1FtsDVGC5rDTICkFAtdvqNcFVO0EsRf4pf1kU9yNWyaj2ligWxqnoZGLtEEu3Ldp8+dgkQpAT+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsDb34dEXKnY0BG4EoWCfaLdEAFcmAKKBbqXEqkAlbaTDA=").unwrap()
-);
-
-#[cfg(feature = "protocol_feature_alt_bn128")]
-def_test_ext!(
-    ext_alt_bn128_g1_multiexp,
-    "ext_alt_bn128_g1_multiexp",
-    &base64::decode("qoK67D1yppH5iP0qhCrD8Ms+idcZtEry4EegUtSpIylhCyZNbRQ0xVdRe9hQBxZIovzCMwFRMAdcZ5FB+QA6Lg==").unwrap(),
-    &base64::decode("AgAAAOzTRBYFMdAMNTUnUW2wNUYLmsNMgKQUC12+o1wVU7QSxF/il/WRT3I1bJqPaWKBbGqehkYu0QS7ct2nz52CRCn3EXSIf0p4ORYJ7mRmZLWtUyGrqlKl/4DNx2kHDEUrET+SS7pJZ4ql4b8tnwGv8W020cyHrmLCU15/Hp+LLCsD2H5fx6TkvPtG6iZSiHT1Ih1TDyGsHTrOzFWN3hx0FwAaB2tgYeH+WuEKReDHNFmxyi8v597Ji5NP4PU8bZXkGQ==").unwrap()
-);
-
 #[test]
 pub fn test_out_of_memory() {
     with_vm_variants(|vm_kind: VMKind| {
@@ -321,4 +277,96 @@ pub fn test_out_of_memory() {
             }
         );
     })
+}
+
+fn function_call_weight_contract() -> ContractCode {
+    ContractCode::new(near_test_contracts::rs_contract().to_vec(), None)
+}
+
+#[test]
+fn attach_unspent_gas_but_burn_all_gas() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = function_call_weight_contract();
+        let mut external = MockedExternal::new();
+        let mut config = VMConfig::test();
+        let fees = RuntimeFeesConfig::test();
+        let mut context = create_context(vec![]);
+
+        let prepaid_gas = 100 * 10u64.pow(12);
+        context.prepaid_gas = prepaid_gas;
+        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+
+        let (outcome, err) = runtime
+            .run(
+                &code,
+                "attach_unspent_gas_but_burn_all_gas",
+                &mut external,
+                context,
+                &fees,
+                &[],
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .outcome_error();
+
+        let err = err.unwrap();
+        assert!(matches!(
+            err,
+            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasLimitExceeded))
+        ));
+        match &outcome.action_receipts.as_slice() {
+            [(_, ReceiptMetadata { actions, .. })] => match actions.as_slice() {
+                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
+                    assert!(*gas > prepaid_gas / 3);
+                }
+                other => panic!("unexpected actions: {other:?}"),
+            },
+            other => panic!("unexpected receipts: {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn attach_unspent_gas_but_use_all_gas() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = function_call_weight_contract();
+        let mut external = MockedExternal::new();
+        let mut config = VMConfig::test();
+        let fees = RuntimeFeesConfig::test();
+        let mut context = create_context(vec![]);
+
+        context.prepaid_gas = 100 * 10u64.pow(12);
+        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+
+        let (outcome, err) = runtime
+            .run(
+                &code,
+                "attach_unspent_gas_but_use_all_gas",
+                &mut external,
+                context,
+                &fees,
+                &[],
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .outcome_error();
+
+        let err = err.unwrap();
+        assert!(matches!(
+            err,
+            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))
+        ));
+
+        match &outcome.action_receipts.as_slice() {
+            [(_, ReceiptMetadata { actions, .. }), _] => match actions.as_slice() {
+                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
+                    assert_eq!(*gas, 0);
+                }
+                other => panic!("unexpected actions: {other:?}"),
+            },
+            other => panic!("unexpected receipts: {other:?}"),
+        }
+    });
 }

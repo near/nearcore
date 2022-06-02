@@ -269,8 +269,12 @@ class BaseNode(object):
 
         return reversed(heights)
 
-    def get_validators(self):
-        return self.json_rpc('validators', [None])
+    def get_validators(self, epoch_id=None):
+        if epoch_id is None:
+            args = [None]
+        else:
+            args = {'epoch_id': epoch_id}
+        return self.json_rpc('validators', args)
 
     def get_account(self, acc, finality='optimistic', do_assert=True):
         res = self.json_rpc('query', {
@@ -398,7 +402,6 @@ class LocalNode(BaseNode):
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
-                'metrics_addr': f'0.0.0.0:{rpc_port + 1000}',
             },
             'consensus': {
                 'min_num_peers': int(not single_node)
