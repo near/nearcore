@@ -731,6 +731,7 @@ impl StateSync {
             let mut need_shard = false;
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
+                update_sync_status = true;
                 init_sync_download.clone()
             });
             let old_status = shard_sync_download.status;
@@ -931,6 +932,7 @@ impl StateSync {
 
             // Execute syncing for shard `shard_id`
             if need_shard {
+                update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     me,
                     shard_id,
