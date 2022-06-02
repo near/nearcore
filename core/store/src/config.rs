@@ -182,11 +182,8 @@ impl<'a> StoreOpener<'a> {
     /// Does not check whether the database actually exists.  It merely
     /// constructs the path where the database would be if it existed.
     pub fn get_path(&self) -> std::path::PathBuf {
-        let path = match self.config.path {
-            Some(ref path) => path,
-            None => std::path::Path::new(STORE_PATH),
-        };
-        self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
+        let path = self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH));
+        self.home.map_or_else(|| path.to_owned(), |home| home.join(path))
     }
 
     /// Returns version of the database; or `None` if it does not exist.
