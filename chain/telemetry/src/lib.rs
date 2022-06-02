@@ -46,7 +46,7 @@ impl TelemetryActor {
 
         let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
-            .connector(Connector::new().max_http_version(actix_web::http::Version::HTTP_11))
+            .connector(Connector::new().max_http_version(awc::http::Version::HTTP_11))
             .finish();
         Self { config, client }
     }
