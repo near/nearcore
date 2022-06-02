@@ -1,6 +1,6 @@
 #[cfg(feature = "test_features")]
 mod adv {
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicI64, Ordering};
 
     #[derive(Default)]
     struct Inner {
@@ -9,7 +9,7 @@ mod adv {
         // Negative values mean None, non-negative values mean Some(sync_height
         // as u64).  This is only for testig so we can live with not supporting
         // values over i64::MAX.
-        sync_height: std::sync::atomic::AtomicI64,
+        sync_height: AtomicI64,
         is_archival: bool,
     }
 
@@ -18,7 +18,11 @@ mod adv {
 
     impl Controls {
         pub fn new(is_archival: bool) -> Self {
-            Self(std::sync::Arc::new(Inner { is_archival, ..Inner::default() }))
+            Self(std::sync::Arc::new(Inner {
+                is_archival,
+                sync_height: AtomicI64::from(-1),
+                ..Inner::default()
+            }))
         }
 
         pub fn disable_header_sync(&self) -> bool {
