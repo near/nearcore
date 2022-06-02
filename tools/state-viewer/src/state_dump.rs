@@ -399,7 +399,6 @@ mod test {
             })],
             genesis_hash,
         );
-        env.clients[0].process_tx(tx00, false, false);
         let tx01 = SignedTransaction::stake(
             1,
             "test0".parse().unwrap(),
@@ -408,6 +407,7 @@ mod test {
             signer0.public_key.clone(),
             genesis_hash,
         );
+        env.clients[0].process_tx(tx00, false, false);
         env.clients[0].process_tx(tx01, false, false);
 
         let signer1 =
@@ -439,25 +439,26 @@ mod test {
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
-        let records_file = tempfile::NamedTempFile::new().unwrap();
-        let select_account_ids = vec!["test1".parse().unwrap()];
+        let select_account_ids = vec!["test0".parse().unwrap()];
         let new_near_config = state_dump(
             runtime,
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            None,
             Some(&select_account_ids),
         );
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
             new_genesis.config.validators.iter().map(|v| v.account_id.clone()).collect();
         expected_accounts.extend(select_account_ids.clone());
+        let mut actual_accounts: HashSet<AccountId> = HashSet::new();
         for record in new_genesis.records.0.iter() {
             if let StateRecord::Account { account_id, .. } = record {
-                assert!(expected_accounts.contains(account_id));
+                actual_accounts.insert(account_id.clone());
             }
         }
+        assert_eq!(expected_accounts, actual_accounts);
         validate_genesis(&new_genesis);
     }
 
