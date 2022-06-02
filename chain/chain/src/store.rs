@@ -2672,7 +2672,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
-            store_update.set_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
+            store_update.insert_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
         }
         for ((height, shard_id), chunk_hash) in
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
