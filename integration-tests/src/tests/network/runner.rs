@@ -1,30 +1,16 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-#[allow(unused_imports)]
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
+use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
-use anyhow::{anyhow, bail};
-use parking_lot::Mutex;
-use tracing::debug;
-
+use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
-
-use crate::tests::network::multiset::MultiSet;
-use near_network::routing::start_routing_table_actor;
-#[cfg(feature = "test_features")]
-use near_network::test_utils::SetAdvOptions;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
@@ -37,7 +23,15 @@ use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::future::Future;
+use std::iter::Iterator;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::debug;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -280,7 +274,7 @@ impl StateMachine {
                     #[allow(unused_variables)]
                     let addr = info.get_node(target)?.addr.clone();
                     #[cfg(feature = "test_features")]
-                    addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
+                    addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         disable_edge_signature_verification: None,
                         disable_edge_propagation: None,
                         disable_edge_pruning: None,
@@ -649,16 +643,13 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for (i, a) in actions.into_iter().enumerate() {
             debug!("[starting action {i}]");
             loop {
-                tokio::select! {
-                    done = a(&mut info) => {
-                        match done? {
-                            ControlFlow::Break(_) => { break }
-                            ControlFlow::Continue(_) => {}
-                        }
-                    }
-                    () = tokio::time::sleep_until(start + timeout) => {
-                        bail!("timeout while executing action {i}/{actions_count}");
-                    }
+                let done =
+                    tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
+                        || format!("timeout while executing action {i}/{actions_count}"),
+                    )??;
+                match done {
+                    ControlFlow::Break(()) => break,
+                    ControlFlow::Continue(()) => {}
                 }
                 tokio::time::sleep(step).await;
             }
@@ -667,7 +658,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for i in 0..info.nodes.len() {
             info.stop_node(i).await?;
         }
-        return Ok(());
+        Ok(())
     })
 }
 

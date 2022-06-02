@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
 mod alt_bn128;
-#[cfg(feature = "protocol_feature_alt_bn128")]
 mod array_utils;
 mod context;
 mod dependencies;

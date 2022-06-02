@@ -1,6 +1,6 @@
-// TODO(mina86): This is pub only because recompress-storage needs this value.
-// Refactor code so that this can be private.
-pub const STORE_PATH: &str = "data";
+use near_primitives::version::DbVersion;
+
+const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
@@ -100,15 +100,8 @@ impl Default for StoreConfig {
     }
 }
 
-// TODO(#6857): Make this method in StoreOpener.  This way caller won’t need to
-// resolve path to the storage.
-pub fn store_path_exists<P: AsRef<std::path::Path>>(path: P) -> bool {
-    std::fs::canonicalize(path).is_ok()
-}
-
-// TODO(#6857): Get rid of this function.  Clients of this method should not
-// care about path of the storage instead letting StoreOpener figure that one
-// out.
+// TODO(#6857): Get rid of this function.  Clients of this method should use
+// StoreOpener::get_path instead..
 pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
     base_path.join(STORE_PATH)
 }
@@ -192,15 +185,40 @@ impl<'a> StoreOpener<'a> {
         self
     }
 
+    /// Returns whether database exists.
+    ///
+    /// It performs only basic file-system-level checks and may result in false
+    /// positives if some but not all database files exist.  In particular, this
+    /// is not a guarantee that the database can be opened without an error.
+    pub fn check_if_exists(&self) -> bool {
+        // TODO(mina86): Add some more checks.  At least check if CURRENT file
+        // exists.
+        std::fs::canonicalize(&self.get_path()).is_ok()
+    }
+
+    /// Returns path to the underlying RocksDB database.
+    ///
+    /// Does not check whether the database actually exists.  It merely
+    /// constructs the path where the database would be if it existed.
+    pub fn get_path(&self) -> std::path::PathBuf {
+        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
+        self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
+    }
+
+    /// Returns version of the database; or `None` if it does not exist.
+    pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
+        std::fs::canonicalize(self.get_path())
+            .ok()
+            .map(|path| crate::RocksDB::get_version(&path))
+            .transpose()
+    }
+
     /// Opens the RocksDB database.
     ///
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
     pub fn open(&self) -> crate::Store {
-        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
-        let path = self.home.map_or(std::borrow::Cow::Borrowed(path), |home| {
-            std::borrow::Cow::Owned(home.join(path))
-        });
+        let path = self.get_path();
         if std::fs::canonicalize(&path).is_ok() {
             tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
         } else if self.read_only {

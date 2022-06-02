@@ -18,9 +18,7 @@ use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::db::RocksDB;
-use near_store::migrations::{
-    get_store_version, migrate_28_to_29, migrate_29_to_30, set_store_version,
-};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
 use near_store::{DBCol, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -87,12 +85,23 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
     Ok(checkpoint_path)
 }
 
-/// Function checks current version of the database and applies migrations to the database.
-fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
-    let db_version = get_store_version(&path)?;
-    if db_version == near_primitives::version::DB_VERSION {
-        return Ok(());
-    }
+/// Checks current version of the database and applies migrations if needed.
+///
+/// Returns whether the database exists in the first place.  If it doesn’t,
+/// returns false and does nothing.  If it does, performs any necessary
+/// migrations and returns true.
+///
+/// Other than regular database errors, returns an error if the database has
+/// unsupported version: either too far in the past or a future version.
+fn apply_store_migrations_if_exists(
+    store_opener: &StoreOpener,
+    near_config: &NearConfig,
+) -> anyhow::Result<bool> {
+    let db_version = match store_opener.get_version_if_exists()? {
+        None => return Ok(false),
+        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        Some(db_version) => db_version,
+    };
 
     anyhow::ensure!(
         db_version < near_primitives::version::DB_VERSION,
@@ -117,7 +126,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(path, near_config).context(
+        let checkpoint_path = create_db_checkpoint(&store_opener.get_path(), near_config).context(
             "Failed to create a database migration snapshot.\n\
              You can change the location of the snapshot by adjusting `config.json`:\n\
              \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
@@ -146,27 +155,28 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(path, &near_config.config.store);
+        migrate_28_to_29(store_opener);
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(path, &near_config.config.store);
+        migrate_29_to_30(store_opener);
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(path, &near_config);
+        migrate_30_to_31(store_opener, &near_config);
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
-        // TODO(#6857): Don’t use .path().
-        let store = StoreOpener::new(&near_config.config.store).path(path).open();
+        let store = store_opener.open();
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
     } else {
-        let db_version = get_store_version(path)?;
-        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+        debug_assert_eq!(
+            Some(near_primitives::version::DB_VERSION),
+            store_opener.get_version_if_exists()?
+        );
     }
 
     // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
@@ -189,18 +199,14 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let path = near_store::get_store_path(home_dir);
-    let store_exists = near_store::store_path_exists(&path);
-    if store_exists {
-        apply_store_migrations(&path, near_config)?;
-    }
-    // TODO(#6857): Don’t use .path().
-    let store = StoreOpener::new(&near_config.config.store).path(&path).open();
-    if !store_exists {
+    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    let store = opener.open();
+    if !exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
 
@@ -243,13 +249,7 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
@@ -381,30 +381,37 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_dir = home_dir.join(near_store::STORE_PATH);
-    anyhow::ensure!(
-        near_store::store_path_exists(&src_dir),
-        "{}: source storage doesn’t exist",
-        src_dir.display()
-    );
-    let db_version = get_store_version(&src_dir)?;
-    anyhow::ensure!(
-        db_version == near_primitives::version::DB_VERSION,
-        "{}: expected DB version {} but got {}",
-        src_dir.display(),
-        near_primitives::version::DB_VERSION,
-        db_version
-    );
+    let src_opener = StoreOpener::new(&config.store).home(home_dir).read_only(true);
+    let src_path = src_opener.get_path();
+    if let Some(db_version) = src_opener.get_version_if_exists()? {
+        anyhow::ensure!(
+            db_version == near_primitives::version::DB_VERSION,
+            "{}: expected DB version {} but got {}",
+            src_path.display(),
+            near_primitives::version::DB_VERSION,
+            db_version
+        );
+    } else {
+        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
+    }
 
+    // Note: opts.dest_dir is resolved relative to current working directory
+    // (since it’s a command line option) which is why we set home to cwd and
+    // path to dest_dir.
+    let cwd = std::env::current_dir()?;
+    let dst_opener = StoreOpener::new(&config.store).home(&cwd).path(&opts.dest_dir);
+    let dst_path = dst_opener.get_path();
     anyhow::ensure!(
-        !near_store::store_path_exists(&opts.dest_dir),
+        !dst_opener.check_if_exists(),
         "{}: directory already exists",
-        opts.dest_dir.display()
+        dst_path.display()
     );
 
-    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    // TODO(#6857): Don’t use .path().
-    let src_store = StoreOpener::new(&config.store).read_only(true).path(&src_dir).open();
+    info!(target: "recompress",
+          src = %src_path.display(), dest = %dst_path.display(),
+          "Recompressing database");
+
+    let src_store = src_opener.open();
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -412,7 +419,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         anyhow::ensure!(
             tip.is_some(),
             "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
-            src_dir.display(),
+            src_path.display(),
             std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
         );
         tip.map(|tip| tip.height)
@@ -420,8 +427,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    // TODO(#6857): Don’t use .path().
-    let dst_store = StoreOpener::new(&config.store).path(&opts.dest_dir).open();
+    let dst_store = dst_opener.open();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
