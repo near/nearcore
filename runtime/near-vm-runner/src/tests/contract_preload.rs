@@ -9,7 +9,7 @@ use std::time::Duration;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
-use near_vm_errors::VMError::FunctionCallError;
+use near_vm_errors::{FunctionCallError, MethodResolveError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext};
 
@@ -72,32 +72,39 @@ impl CompiledContractCache for MockCompiledContractCache {
     }
 }
 
-fn test_result(result: VMResult, check_gas: bool) -> (i32, i32) {
-    let mut oks = 0;
-    let mut errs = 0;
-
+#[track_caller]
+fn test_result(result: VMResult, expected_gas: u64) -> Result<(), ()> {
     match result {
         VMResult::Ok(outcome) => {
-            if check_gas {
-                assert_eq!(outcome.burnt_gas, 11088051921);
-            }
-            oks += 1;
+            assert_eq!(outcome.burnt_gas, expected_gas);
+            Ok(())
         }
-        VMResult::Aborted(outcome, FunctionCallError(_)) => {
-            assert_eq!(outcome.used_gas, 0, "Empty outcome expected but was: {outcome:?}",);
-            errs += 1;
+        VMResult::Aborted(
+            outcome,
+            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodNotFound,
+            )),
+        ) => {
+            assert_eq!(
+                outcome.used_gas, expected_gas,
+                "Outcome with {expected_gas} gas expected but outcome was: {outcome:?}",
+            );
+            Err(())
         }
         VMResult::Aborted(_, err) => {
-            assert!(false, "Unexpected error: {:?}", err)
+            // This test should only produce `MethodNotFound` errors.
+            assert!(false, "Unexpected error: {:?}", err);
+            Err(())
         }
     }
-    (oks, errs)
 }
 
 fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     let code1 = Arc::new(ContractCode::new(near_test_contracts::rs_contract().to_vec(), None));
     let code2 = Arc::new(ContractCode::new(near_test_contracts::ts_contract().to_vec(), None));
-    let method_name1 = "log_something";
+    // This method name exists in code1 but not in code2. Using it for both
+    // contract calls means the first will succeed and the second will fail.
+    let method_name = "log_something";
 
     let mut fake_external = MockedExternal::new();
 
@@ -107,8 +114,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
         Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
-    let mut oks = 0;
-    let mut errs = 0;
 
     if preloaded {
         let mut requests = Vec::new();
@@ -124,26 +129,29 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
             });
         }
         let calls = caller.preload(requests);
-        for prepared in &calls {
+        for (i, prepared) in calls.iter().enumerate() {
             let result = caller.run_preloaded(
                 prepared,
-                method_name1,
+                method_name,
                 &mut fake_external,
                 context.clone(),
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,
             );
-            let (ok, err) = test_result(result, true);
-            oks += ok;
-            errs += err;
+            let call_to_first_contract = i % 2 == 0;
+            if call_to_first_contract {
+                test_result(result, 11088051921).expect("Call expected to succeed.");
+            } else {
+                test_result(result, 0).expect_err("Call expected to fail.");
+            }
         }
     } else {
         let runtime = vm_kind.runtime(vm_config).expect("runtime is has not been compiled");
         for _ in 0..repeat {
             let result1 = runtime.run(
                 &code1,
-                method_name1,
+                method_name,
                 &mut fake_external,
                 context.clone(),
                 &fees,
@@ -151,12 +159,10 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
-            let (ok, err) = test_result(result1, false);
-            oks += ok;
-            errs += err;
+            test_result(result1, 31554569634).expect("Call expected to succeed.");
             let result2 = runtime.run(
                 &code2,
-                method_name1,
+                method_name,
                 &mut fake_external,
                 context.clone(),
                 &fees,
@@ -164,14 +170,9 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
-            let (ok, err) = test_result(result2, false);
-            oks += ok;
-            errs += err;
+            test_result(result2, 0).expect_err("Call expected to fail.");
         }
     }
-
-    assert_eq!(oks, repeat);
-    assert_eq!(errs, repeat);
 }
 
 #[test]
