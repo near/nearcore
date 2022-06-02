@@ -19,7 +19,7 @@
 * Added `path` option to `StoreConfig` which makes location to the
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
-  directory.
+  directory [#6938](https://github.com/near/nearcore/pull/6938)
 
 ## 1.26.0 [2022-05-18]
 
