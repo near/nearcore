@@ -40,13 +40,8 @@ near-test-contracts = { path = "../near-test-contracts" }
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
-protocol_feature_alt_bn128 = [
-  "near-vm-logic/protocol_feature_alt_bn128",
-  "near-vm-runner/protocol_feature_alt_bn128",
-]
 nightly = [
   "nightly_protocol",
   "near-primitives/nightly",
-  "protocol_feature_alt_bn128",
 ]
 nightly_protocol = ["near-primitives/nightly_protocol"]
