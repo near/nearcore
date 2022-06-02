@@ -4,7 +4,8 @@
 
 ### Protocol Changes
 
-* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672)
+* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672).
+* Stabilized `alt_bn128_g1_multiexp`, `alt_bn128_g1_sum`, `alt_bn128_pairing_check` host functions [#6813](https://github.com/near/nearcore/pull/6813).
 
 ### Non-protocol Changes
 
