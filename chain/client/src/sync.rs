@@ -733,6 +733,7 @@ impl StateSync {
                 need_shard = true;
                 init_sync_download.clone()
             });
+            let old_status = ShardSyncStatus::StateDownloadHeader;
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
@@ -755,7 +756,6 @@ impl StateSync {
                             ],
                             status: ShardSyncStatus::StateDownloadParts,
                         };
-                        update_sync_status = true;
                         need_shard = true;
                     } else {
                         let prev = shard_sync_download.downloads[0].prev_update_time;
@@ -791,7 +791,6 @@ impl StateSync {
                         }
                     }
                     if parts_done {
-                        update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateDownloadScheduling,
@@ -809,7 +808,6 @@ impl StateSync {
                         state_parts_task_scheduler,
                     ) {
                         Ok(()) => {
-                            update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
                                 status: ShardSyncStatus::StateDownloadApplying,
@@ -819,7 +817,6 @@ impl StateSync {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
                             error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                            update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
                             chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                         }
@@ -830,7 +827,6 @@ impl StateSync {
                     if let Some(result) = result {
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
-                                update_sync_status = true;
                                 *shard_sync_download = ShardSyncDownload {
                                     downloads: vec![],
                                     status: ShardSyncStatus::StateDownloadComplete,
@@ -840,7 +836,6 @@ impl StateSync {
                                 // Cannot finalize the downloaded state.
                                 // The reasonable behavior here is to start from the very beginning.
                                 error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                                update_sync_status = true;
                                 *shard_sync_download = init_sync_download.clone();
                                 let shard_state_header =
                                     chain.get_state_header(shard_id, sync_hash)?;
@@ -861,7 +856,6 @@ impl StateSync {
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-                    update_sync_status = true;
                     if split_states {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
@@ -883,7 +877,6 @@ impl StateSync {
                         state_split_scheduler,
                     )?;
                     debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
-                    update_sync_status = true;
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
                         status: ShardSyncStatus::StateSplitApplying,
@@ -895,7 +888,6 @@ impl StateSync {
                     if let Some(state_roots) = result {
                         chain
                             .build_state_for_split_shards_postprocessing(&sync_hash, state_roots)?;
-                        update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateSyncDone,
@@ -939,7 +931,6 @@ impl StateSync {
 
             // Execute syncing for shard `shard_id`
             if need_shard {
-                update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     me,
                     shard_id,
@@ -950,6 +941,7 @@ impl StateSync {
                     highest_height_peers,
                 )?;
             }
+            update_sync_status |= shard_sync_download.status != old_status;
         }
 
         Ok((update_sync_status, all_done))
