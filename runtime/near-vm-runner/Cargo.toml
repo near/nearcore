@@ -92,15 +92,8 @@ no_cpu_compatibility_checks = []
 
 no_cache = []
 
-protocol_feature_alt_bn128 = [
-    "near-vm-logic/protocol_feature_alt_bn128",
-    "near-primitives/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128"
-]
-
 nightly = [
     "near-primitives/nightly",
-    "protocol_feature_alt_bn128",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 
