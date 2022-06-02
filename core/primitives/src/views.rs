@@ -405,6 +405,7 @@ pub struct EpochInfoView {
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
     pub protocol_version: u32,
+    pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -427,16 +428,20 @@ pub struct ChunkInfoView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
+pub struct TrackedShardsView {
+    pub shards_tracked_this_epoch: Vec<bool>,
+    pub shards_tracked_next_epoch: Vec<bool>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
-    pub last_blocks: Vec<DebugBlockStatus>,
     pub network_info: NetworkInfoView,
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
     pub blocks_with_missing_chunks: Vec<BlockStatusView>,
-    // List of epochs - in descending order (next epoch is first).
-    pub epochs_info: Vec<EpochInfoView>,
     pub block_production_delay_millis: u64,
     pub chunk_info: ChunkInfoView,
 }
@@ -609,7 +614,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV1(Box::new(header))
+            BlockHeader::BlockHeaderV1(Arc::new(header))
         } else if last_header_v2_version.is_none()
             || view.latest_protocol_version <= last_header_v2_version.unwrap()
         {
@@ -641,7 +646,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV2(Box::new(header))
+            BlockHeader::BlockHeaderV2(Arc::new(header))
         } else {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
@@ -673,7 +678,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV3(Box::new(header))
+            BlockHeader::BlockHeaderV3(Arc::new(header))
         }
     }
 }

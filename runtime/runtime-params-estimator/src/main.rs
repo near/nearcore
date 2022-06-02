@@ -5,9 +5,7 @@ use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::create_store;
 use near_vm_runner::internal::VMKind;
-use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::utils::read_resource;
 use runtime_params_estimator::{
@@ -143,9 +141,10 @@ fn main() -> anyhow::Result<()> {
         )
         .expect("failed to init config");
 
-        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full)
+        let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store = create_store(&get_store_path(&state_dump_path));
+        let store =
+            near_store::StoreOpener::new(&near_config.config.store).home(&state_dump_path).open();
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
             Arc::new(near_config.genesis),
@@ -227,7 +226,7 @@ fn main() -> anyhow::Result<()> {
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
-        state_dump_path: state_dump_path.clone(),
+        state_dump_path: state_dump_path,
         metric,
         vm_kind,
         costs_to_measure,

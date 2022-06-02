@@ -144,20 +144,14 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn with_config(
-        home_dir: &Path,
-        store: Store,
-        config: &NearConfig,
-        trie_viewer_state_size_limit: Option<u64>,
-        max_gas_burnt_view: Option<Gas>,
-    ) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
         Self::new(
             home_dir,
             store,
             &config.genesis,
             TrackedConfig::from_config(&config.client_config),
-            trie_viewer_state_size_limit,
-            max_gas_burnt_view,
+            config.client_config.trie_viewer_state_size_limit,
+            config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
         )
@@ -221,7 +215,6 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-        gc_num_epochs_to_keep: Option<u64>,
     ) -> Self {
         Self::new(
             home_dir,
@@ -231,7 +224,7 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            gc_num_epochs_to_keep.unwrap_or(DEFAULT_GC_NUM_EPOCHS_TO_KEEP),
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         )
     }
 
@@ -242,7 +235,6 @@ impl NightshadeRuntime {
             genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
-            None,
         )
     }
 
@@ -563,14 +555,14 @@ impl NightshadeRuntime {
                 states_to_patch,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::from(Error::InvalidTransactions),
+                RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
                 RuntimeError::UnexpectedIntegerOverflow => {
                     panic!("RuntimeError::UnexpectedIntegerOverflow")
                 }
-                RuntimeError::StorageError(e) => Error::from(Error::StorageError(e)),
+                RuntimeError::StorageError(e) => Error::StorageError(e),
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
@@ -744,7 +736,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap();
 
         if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(Error::InvalidRandomnessBeaconOutput.into());
+            return Err(Error::InvalidRandomnessBeaconOutput);
         }
         Ok(())
     }
@@ -781,7 +773,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         } else {
@@ -798,7 +790,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
                     Ok(Some(err))
                 }
-                Err(RuntimeError::StorageError(err)) => Err(Error::from(Error::StorageError(err))),
+                Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
@@ -854,7 +846,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 state_update.rollback();
                             }
                             Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::from(Error::StorageError(err)))
+                                return Err(Error::StorageError(err))
                             }
                             Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                         }
@@ -945,7 +937,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
         } else {
-            Err(Error::NotAValidator.into())
+            Err(Error::NotAValidator)
         }
     }
 
@@ -975,7 +967,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
             if let Some(signature) = may_be_signature {
                 if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(Error::InvalidApprovals.into());
+                    return Err(Error::InvalidApprovals);
                 }
             }
         }
@@ -984,7 +976,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
             .collect::<Vec<_>>();
         if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(Error::NotEnoughApprovals.into())
+            Err(Error::NotEnoughApprovals)
         } else {
             Ok(())
         }
@@ -1073,7 +1065,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((validator, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(Error::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -1090,7 +1082,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
                 Ok((fisherman, block_info.slashed().contains_key(account_id)))
             }
-            Ok(None) => Err(Error::NotAValidator.into()),
+            Ok(None) => Err(Error::NotAValidator),
             Err(e) => Err(e.into()),
         }
     }
@@ -1239,12 +1231,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             // maintain pointers to avoid cloning.
             let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = *epoch_first_block_info.height();
+            let mut epoch_start_height = epoch_first_block_info.height();
             for _ in 0..self.gc_num_epochs_to_keep - 1 {
                 let epoch_first_block =
                     *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
                 let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = *epoch_first_block_info.height();
+                epoch_start_height = epoch_first_block_info.height();
                 last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
             }
             Ok(epoch_start_height)
@@ -1304,7 +1296,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Error,
     > {
         let epoch_manager = self.epoch_manager.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?.clone();
+        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
         let prev_epoch_id = last_block_info.epoch_id().clone();
         Ok((
             epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
@@ -2001,10 +1993,8 @@ mod test {
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
-    use near_store::create_store;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::get_store_path;
 
     use super::*;
 
@@ -2140,7 +2130,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-            let store = create_store(&get_store_path(dir.path()));
+            let store = near_store::StoreOpener::with_default_config().home(dir.path()).open();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
@@ -2899,8 +2889,7 @@ mod test {
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-            }
-            .into()]
+            }]
         );
         assert!(response.current_proposals.is_empty());
         assert_eq!(

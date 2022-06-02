@@ -16,7 +16,7 @@ use near_logger_utils::init_test_logger;
 use near_network::routing::start_routing_table_actor;
 
 use near_network::test_utils::{
-    convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
+    convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
@@ -82,20 +82,16 @@ fn peer_handshake() {
         let (port1, port2) = (open_port(), open_port());
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
-        WaitOrTimeoutActor::new(
-            Box::new(move |_| {
-                actix::spawn(pm1.send(GetInfo {}).then(move |res| {
-                    let info = res.unwrap();
-                    if info.num_connected_peers == 1 {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            2000,
-        )
-        .start();
+        wait_or_timeout(100, 2000, || async {
+            let info = pm1.send(GetInfo {}).await.unwrap();
+            if info.num_connected_peers == 1 {
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        System::current().stop()
     });
 }
 

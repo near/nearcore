@@ -246,17 +246,11 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base },
         Cost::WasmInstruction,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_element },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base },
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element },
     ];
 
@@ -326,17 +320,11 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => 61,
             Cost::WasmInstruction => 62,
             Cost::ExtCost { ext_cost_kind: ExtCosts::read_cached_trie_node } => 63,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => 64,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_element } => 65,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => 66,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element } => 67,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element } => 69,
         }
     }

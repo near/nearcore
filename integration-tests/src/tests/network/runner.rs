@@ -1,52 +1,68 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-#[allow(unused_imports)]
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
+use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
-use anyhow::{anyhow, bail};
-use tracing::debug;
-
+use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
-
-use near_network::routing::start_routing_table_actor;
-#[cfg(feature = "test_features")]
-use near_network::test_utils::SetAdvOptions;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, ROUTED_MESSAGE_TTL,
+    NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
+    ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::future::Future;
+use std::iter::Iterator;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::debug;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 pub type ActionFn =
     Box<dyn for<'a> Fn(&'a mut RunningInfo) -> BoxFuture<'a, anyhow::Result<ControlFlow>>>;
 
+#[derive(Default)]
+struct PingCounterInner {
+    pings: MultiSet<NetPing>,
+    pongs: MultiSet<NetPong>,
+}
+
+#[derive(Clone, Default)]
+struct PingCounter(Arc<Mutex<PingCounterInner>>);
+
+impl near_network::PingCounter for PingCounter {
+    fn add_ping(&self, ping: &NetPing) {
+        self.0.lock().pings.insert(ping.clone());
+    }
+    fn add_pong(&self, pong: &NetPong) {
+        self.0.lock().pongs.insert(pong.clone());
+    }
+}
+
 /// Sets up a node with a valid Client, Peer
-pub fn setup_network_node(
+fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: NetworkConfig,
+    ping_counter: PingCounter,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
@@ -102,9 +118,22 @@ pub fn setup_network_node(
             routing_table_addr,
         )
         .unwrap()
+        .with_ping_counter(Box::new(ping_counter))
     });
 
     peer_manager
+}
+
+#[derive(Debug, Clone)]
+pub struct Ping {
+    pub source: usize,
+    pub nonce: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pong {
+    pub source: usize,
+    pub nonce: u64,
 }
 
 // TODO: Deprecate this in favor of separate functions.
@@ -118,9 +147,13 @@ pub enum Action {
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     CheckAccountId(usize, Vec<usize>),
     // Send ping from `source` with `nonce` to `target`
-    PingTo(usize, usize, usize),
+    PingTo {
+        source: usize,
+        target: usize,
+        nonce: u64,
+    },
     // Check for `source` received pings and pongs.
-    CheckPingPong(usize, Vec<(usize, usize, Option<usize>)>, Vec<(usize, usize, Option<usize>)>),
+    CheckPingPong(usize, Vec<Ping>, Vec<Pong>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
@@ -144,26 +177,25 @@ struct StateMachine {
 async fn check_routing_table(
     info: &mut RunningInfo,
     u: usize,
-    expected: Vec<(usize, Vec<usize>)>,
+    want: Vec<(usize, Vec<usize>)>,
 ) -> anyhow::Result<ControlFlow> {
-    let mut expected_rt = vec![];
-    for (target, routes) in expected {
-        let mut peers = vec![];
-        for hop in routes {
-            peers.push(info.runner.test_config[hop].peer_id());
-        }
-        expected_rt.push((info.runner.test_config[target].peer_id(), peers));
-    }
+    let want_rt: Vec<_> = want
+        .into_iter()
+        .map(|(target, routes)| {
+            let peers =
+                routes.into_iter().map(|hop| info.runner.test_config[hop].peer_id()).collect();
+            (info.runner.test_config[target].peer_id(), peers)
+        })
+        .collect();
     let pm = info.get_node(u)?.addr.clone();
     let resp = pm
         .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
         .await?;
-    let rt = if let NetworkResponses::RoutingTableInfo(rt) = resp.as_network_response() {
-        rt
-    } else {
-        bail!("bad response")
+    let rt = match resp.as_network_response() {
+        NetworkResponses::RoutingTableInfo(rt) => rt,
+        _ => bail!("bad response"),
     };
-    if expected_routing_tables((*rt.peer_forwarding.as_ref()).clone(), expected_rt) {
+    if expected_routing_tables(&rt.peer_forwarding, &want_rt) {
         return Ok(ControlFlow::Break(()));
     }
     Ok(ControlFlow::Continue(()))
@@ -198,54 +230,28 @@ async fn check_account_id(
 async fn check_ping_pong(
     info: &mut RunningInfo,
     source: usize,
-    pings: Vec<(usize, usize, Option<usize>)>,
-    pongs: Vec<(usize, usize, Option<usize>)>,
+    want_pings: Vec<Ping>,
+    want_pongs: Vec<Pong>,
 ) -> anyhow::Result<ControlFlow> {
-    let mut pings_expected = vec![];
-    for (nonce, source, count) in pings {
-        pings_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
+    let want_pings: MultiSet<NetPing> = want_pings
+        .iter()
+        .map(|p| NetPing { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
+        .collect();
+    let want_pongs: MultiSet<NetPong> = want_pongs
+        .iter()
+        .map(|p| NetPong { nonce: p.nonce, source: info.runner.test_config[p.source].peer_id() })
+        .collect();
+    let got = info.nodes[source].as_ref().unwrap().ping_counter.0.lock();
+    if !got.pings.is_subset(&want_pings) {
+        bail!("got_pings = {:?}, want_pings = {want_pings:?}", got.pings);
     }
-    let mut pongs_expected = vec![];
-    for (nonce, source, count) in pongs {
-        pongs_expected.push((nonce, info.runner.test_config[source].peer_id(), count));
+    if !got.pongs.is_subset(&want_pongs) {
+        bail!("got_pongs = {:?}, want_pongs = {want_pongs:?}", got.pongs);
     }
-    let pm = &info.get_node(source)?.addr;
-    let resp = pm
-        .send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::FetchPingPongInfo))
-        .await?;
-    let (pings, pongs) =
-        if let NetworkResponses::PingPongInfo { pings, pongs } = resp.as_network_response() {
-            (pings, pongs)
-        } else {
-            bail!("bad response")
-        };
-    if pings.len() != pings_expected.len() {
-        return Ok(ControlFlow::Continue(()));
+    if got.pings == want_pings && got.pongs == want_pongs {
+        return Ok(ControlFlow::Break(()));
     }
-    for (nonce, source, count) in pings_expected {
-        let ping = if let Some(ping) = pings.get(&nonce) {
-            ping
-        } else {
-            return Ok(ControlFlow::Continue(()));
-        };
-        if ping.0.source != source || count.map_or(false, |c| c != ping.1) {
-            return Ok(ControlFlow::Continue(()));
-        }
-    }
-    if pongs.len() != pongs_expected.len() {
-        return Ok(ControlFlow::Continue(()));
-    }
-    for (nonce, source, count) in pongs_expected {
-        let pong = if let Some(pong) = pongs.get(&nonce) {
-            pong
-        } else {
-            return Ok(ControlFlow::Continue(()));
-        };
-        if pong.0.source != source || count.map_or(false, |c| c != pong.1) {
-            return Ok(ControlFlow::Continue(()));
-        }
-    }
-    Ok(ControlFlow::Break(()))
+    Ok(ControlFlow::Continue(()))
 }
 
 impl StateMachine {
@@ -268,7 +274,7 @@ impl StateMachine {
                     #[allow(unused_variables)]
                     let addr = info.get_node(target)?.addr.clone();
                     #[cfg(feature = "test_features")]
-                    addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
+                    addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         disable_edge_signature_verification: None,
                         disable_edge_propagation: None,
                         disable_edge_pruning: None,
@@ -308,13 +314,13 @@ impl StateMachine {
                     Box::pin(check_account_id(info, source, known_validators.clone()))
                 }));
             }
-            Action::PingTo(source, nonce, target) => {
+            Action::PingTo { source, nonce, target } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let target = info.runner.test_config[target].peer_id();
-                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo{
                         nonce, target,
-                    ))).await?;
+                    })).await?;
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -401,6 +407,7 @@ pub struct Runner {
 
 struct NodeHandle {
     addr: Addr<PeerManagerActor>,
+    ping_counter: PingCounter,
     send_stop: tokio::sync::oneshot::Sender<std::convert::Infallible>,
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
 }
@@ -581,12 +588,14 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
+        let ping_counter = PingCounter::default();
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({
             let account_id = config.account_id.clone();
             let validators = self.validators.clone();
             let chain_genesis = self.chain_genesis.clone();
+            let ping_counter = ping_counter.clone();
             move || {
                 actix::System::new().block_on(async move {
                     send_pm
@@ -595,6 +604,7 @@ impl Runner {
                             validators,
                             chain_genesis,
                             network_config,
+                            ping_counter,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
                     // recv_stop is expected to get closed.
@@ -604,7 +614,7 @@ impl Runner {
             }
         });
         let addr = recv_pm.await?;
-        Ok(NodeHandle { addr, send_stop, handle })
+        Ok(NodeHandle { addr, send_stop, handle, ping_counter })
     }
 
     async fn build(self) -> anyhow::Result<RunningInfo> {
@@ -633,16 +643,13 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for (i, a) in actions.into_iter().enumerate() {
             debug!("[starting action {i}]");
             loop {
-                tokio::select! {
-                    done = a(&mut info) => {
-                        match done? {
-                            ControlFlow::Break(_) => { break }
-                            ControlFlow::Continue(_) => {}
-                        }
-                    }
-                    () = tokio::time::sleep_until(start + timeout) => {
-                        bail!("timeout while executing action {i}/{actions_count}");
-                    }
+                let done =
+                    tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
+                        || format!("timeout while executing action {i}/{actions_count}"),
+                    )??;
+                match done {
+                    ControlFlow::Break(()) => break,
+                    ControlFlow::Continue(()) => {}
                 }
                 tokio::time::sleep(step).await;
             }
@@ -651,7 +658,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for i in 0..info.nodes.len() {
             info.stop_node(i).await?;
         }
-        return Ok(());
+        Ok(())
     })
 }
 
@@ -672,7 +679,7 @@ impl RunningInfo {
         Ok(())
     }
     fn change_account_id(&mut self, node_id: usize, account_id: AccountId) {
-        self.runner.test_config[node_id].account_id = account_id.clone();
+        self.runner.test_config[node_id].account_id = account_id;
     }
 }
 

@@ -41,7 +41,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
     } else {
-        insta::assert_display_snapshot!(hash, @"sFAi6Xq5jWcbRetAkMQ3A44GvfLHSLMnb8SqaRsmWmo");
+        insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
     }
 
     for i in 1..5 {
@@ -57,7 +57,7 @@ fn build_chain() {
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(prev, &*signer);
+        let block = Block::empty(&prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i as u64);
     }
@@ -70,7 +70,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
     } else {
-        insta::assert_display_snapshot!(hash, @"F5srbRRkG5KBzvDzEpDiiJp257SCVUaeFhNeXAddbHGZ");
+        insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
     }
 }
 
@@ -78,7 +78,7 @@ fn build_chain() {
 fn build_chain_with_orhpans() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()];
+    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], &*signer);
         blocks.push(block);
@@ -128,8 +128,8 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(genesis, &*signer);
-    let b2 = Block::empty_with_height(genesis, 2, &*signer);
+    let b1 = Block::empty(&genesis, &*signer);
+    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
@@ -149,11 +149,11 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(genesis, 1, &*signer);
+    let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(genesis, 1, &*signer);
+    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
@@ -228,7 +228,7 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(genesis, &*signer);
+    let b1 = Block::empty(&genesis, &*signer);
     let b2 = Block::empty_with_height(&b1, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b3, 4, &*signer);
@@ -238,9 +238,9 @@ fn next_blocks() {
     let b4_hash = *b4.hash();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
-    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
 }

@@ -19,56 +19,30 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView,
+    BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
+    ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
+    LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
+use serde::Serialize;
 
 /// Combines errors coming from chain, tx pool and block producer.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Chain(near_chain_primitives::Error),
-    Chunk(near_chunks_primitives::Error),
+    #[error("Chain: {0}")]
+    Chain(#[from] near_chain_primitives::Error),
+    #[error("Chunk: {0}")]
+    Chunk(#[from] near_chunks_primitives::Error),
+    #[error("Block Producer: {0}")]
     BlockProducer(String),
+    #[error("Chunk Producer: {0}")]
     ChunkProducer(String),
+    #[error("Other: {0}")]
     Other(String),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Chunk(err) => write!(f, "Chunk: {}", err),
-            Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
-            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
-            Error::Other(err) => write!(f, "Other: {}", err),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<near_chain_primitives::Error> for Error {
-    fn from(e: near_chain_primitives::Error) -> Self {
-        Error::Chain(e)
-    }
-}
-
-impl From<near_chunks_primitives::Error> for Error {
-    fn from(err: near_chunks_primitives::Error) -> Self {
-        Error::Chunk(err)
-    }
-}
-
-impl From<String> for Error {
-    fn from(e: String) -> Self {
-        Error::Other(e)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
@@ -94,7 +68,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -106,14 +80,14 @@ pub enum ShardSyncStatus {
     StateSyncDone,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr)]
+#[derive(Clone, Debug, strum::AsRefStr, Serialize)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -124,13 +98,17 @@ pub enum SyncStatus {
     // Bowen: why do we use epoch ordinal instead of epoch id?
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
-    HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
     /// State sync, with different states of state sync for different shards.
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
-    BodySync { current_height: BlockHeight, highest_height: BlockHeight },
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
 impl SyncStatus {
@@ -153,10 +131,18 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
             SyncStatus::StateSync(_, _) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+        }
+    }
+
+    pub fn start_height(&self) -> Option<BlockHeight> {
+        match self {
+            SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
+            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            _ => None,
         }
     }
 }
@@ -221,7 +207,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -362,6 +348,32 @@ pub struct Status {
     pub detailed: bool,
 }
 
+// Different debug requests that can be sent by HTML pages, via GET.
+pub enum DebugStatus {
+    // Request for the current sync status
+    SyncStatus,
+    // Request currently tracked shards
+    TrackedShards,
+    // Detailed information about last couple epochs.
+    EpochInfo,
+    // Detailed information about last couple blocks.
+    BlockStatus,
+}
+
+impl Message for DebugStatus {
+    type Result = Result<DebugStatusResponse, StatusError>;
+}
+
+#[derive(Serialize, Debug)]
+pub enum DebugStatusResponse {
+    SyncStatus(SyncStatus),
+    TrackedShards(TrackedShardsView),
+    // List of epochs - in descending order (next epoch is first).
+    EpochInfo(Vec<EpochInfoView>),
+    // Detailed information about blocks.
+    BlockStatus(Vec<DebugBlockStatus>),
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum StatusError {
     #[error("Node is syncing")]
@@ -440,7 +452,7 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
 }
 
 impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 }
 
 pub struct GetNetworkInfo {}

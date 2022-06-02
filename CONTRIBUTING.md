@@ -48,7 +48,7 @@ The `test plan` should describe in detail what tests are presented, and what cas
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within one business day. 
+2. Once the CI passes, you should expect the first feedback to appear within one business day.
    One code owner (chosen in a round robin order for the codeowner list) will first review your pull request.
    They may re-assign the pull request to another person if they feel that they don't have sufficient expertise to review the pull request.
    The reviewers will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
@@ -75,6 +75,14 @@ There are couple of specifics though:
   (for technical reasons, we have to care about CPU architecture, and supporting one is easier).
   To compile to x86_64 on Apple silicon, use `rustup set default-host x86_64-apple-darwin` command.
   That is, cross-compilation sadly doesn't work at the time of writing, although the fix is in the pipeline.
+* You can optionally use the system installations of `librocksdb`, `libsnappy` and `lz4` in order
+  to speed up the compilation and reduce the build memory requirements by setting the
+  `ROCKSDB_LIB_DIR`, `SNAPPY_LIB_DIR` and `LZ4_LIB_DIR` environment variables. These environment
+  variables should point at the directory containing the dynamic shared objects (`.so`s or
+  `.dylib`s.)
+
+If your setup does not involve `rustup`, the required version of the rust toolchain can be found in
+the `rust-toolchain` file.
 
 ## Editors and IDEs
 

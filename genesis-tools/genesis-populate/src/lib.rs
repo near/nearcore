@@ -21,10 +21,8 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
-};
-use nearcore::{get_store_path, NightshadeRuntime, TrackedConfig};
+use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use nearcore::{NightshadeRuntime, TrackedConfig};
 
 fn get_account_id(account_index: u64) -> AccountId {
     AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
@@ -81,11 +79,6 @@ impl GenesisBuilder {
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
         }
-    }
-
-    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, genesis, store)
     }
 
     pub fn print_progress(mut self) -> Self {

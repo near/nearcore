@@ -13,7 +13,7 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint};
+use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -87,10 +87,7 @@ fn test_block_query() {
 #[test]
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let chunk = client
-            .chunk(ChunkId::BlockShardId(BlockId::Height(0), ShardId::from(0u64)))
-            .await
-            .unwrap();
+        let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64)).await.unwrap();
         assert_eq!(chunk.author, "test2".parse().unwrap());
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);

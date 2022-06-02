@@ -147,6 +147,16 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    /// Returns reference to logs that have been created so far.
+    pub fn logs(&self) -> &[String] {
+        &self.logs
+    }
+
+    /// Returns receipt metadata for created receipts
+    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
+        &self.receipt_manager.action_receipts
+    }
+
     #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
@@ -807,7 +817,6 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -851,7 +860,6 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -896,7 +904,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1011,9 +1018,9 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
 
-        let value_hash = ripemd160::Ripemd160::digest(&value);
+        let value_hash = ripemd::Ripemd160::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 

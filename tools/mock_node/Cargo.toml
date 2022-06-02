@@ -1,5 +1,5 @@
 [package]
-name = "mock_node"
+name = "mock-node"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
@@ -7,24 +7,20 @@ publish = false
 rust-version = "1.60.0"
 edition = "2021"
 
-[[bin]]
-path = "src/main.rs"
-name = "start_mock_node"
-
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2"
-actix-web = "=4.0.0-beta.6"
+actix-web = "4.0.1"
 anyhow = "1.0.55"
 clap = { version = "3.1.6", features = ["derive"] }
 flate2 = "1.0.22"
 futures = "0.3"
 rand = "0.7"
 rayon = "1.5"
-regex = "1"
 tar = "0.4.38"
 tempfile = "3"
 tracing = "0.1.13"
+tokio = { version = "1.16.1", features = ["time"]}
 
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 near-chain = { path = "../../chain/chain" }
