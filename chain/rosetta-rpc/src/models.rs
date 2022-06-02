@@ -719,15 +719,18 @@ pub(crate) enum OperationType {
     Apiv2Schema,
     strum::EnumIter,
 )]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationStatusKind {
+    #[serde(rename = "SCREAMING_SNAKE_CASE")]
     Success,
+    #[serde(rename = "")]
+    Empty,
 }
 
 impl OperationStatusKind {
     pub(crate) fn is_successful(&self) -> bool {
         match self {
             Self::Success => true,
+            Self::Empty => false,
         }
     }
 }
