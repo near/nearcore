@@ -172,7 +172,8 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 ProtocolVersion::MAX,
                 cache.as_deref(),
             );
-            test_result(result2, 0).expect_err("Call expected to fail.");
+            let expected_gas = crate::tests::prepaid_loading_gas(code2.code().len());
+            test_result(result2, expected_gas).expect_err("Call expected to fail.");
         }
     }
 }
