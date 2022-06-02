@@ -22,6 +22,7 @@ strum = "0.24"
 thiserror = "1.0"
 tracing = "0.1.13"
 prometheus = "0.11"
+crossbeam-channel = "0.5"
 
 delay-detector = { path = "../../tools/delay_detector"}
 near-chain-configs = { path = "../../core/chain-configs" }

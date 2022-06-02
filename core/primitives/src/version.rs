@@ -149,10 +149,9 @@ pub enum ProtocolFeature {
     ChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
     LowerStorageKeyLimit,
-
-    // nightly features
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
+
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -174,7 +173,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 54;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
 /// Version used by this binary.
 #[cfg(not(feature = "nightly_protocol"))]
@@ -236,10 +235,9 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractLocals
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::AltBn128 => 55,
 
             // Nightly features
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 124,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

@@ -37,11 +37,8 @@ extern "C" {
     // ############
     // # Math API #
     // ############
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
@@ -482,14 +479,12 @@ pub unsafe fn ecrecover_10k() {
 }
 
 #[repr(C)]
-#[cfg(feature = "protocol_feature_alt_bn128")]
 struct MultiexpElem([u8; 64], [u8; 32]);
 
 // Function to measure `alt_bn128_g1_multiexp_base` and `alt_bn128_g1_multiexp_sublinear`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 1 element 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_multiexp_1_10() {
     #[rustfmt::skip]
@@ -509,7 +504,6 @@ pub unsafe fn alt_bn128_g1_multiexp_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 10 elements 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_multiexp_10_10() {
     #[rustfmt::skip]
@@ -545,14 +539,12 @@ pub unsafe fn alt_bn128_g1_multiexp_10_10() {
 }
 
 #[repr(C)]
-#[cfg(feature = "protocol_feature_alt_bn128")]
 struct SumElem(u8, [u8; 64]);
 
 // Function to measure `alt_bn128_g1_sum_base` and `alt_bn128_g1_sum_element`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 1 element 1k times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_sum_1_1k() {
     #[rustfmt::skip]
@@ -572,7 +564,6 @@ pub unsafe fn alt_bn128_g1_sum_1_1k() {
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 10 element 1k times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_sum_10_1k() {
     #[rustfmt::skip]
@@ -598,14 +589,12 @@ pub unsafe fn alt_bn128_g1_sum_10_1k() {
 }
 
 #[repr(C)]
-#[cfg(feature = "protocol_feature_alt_bn128")]
 struct PairingElem([u8; 64], [u8; 128]);
 
 // Function to measure `alt_bn128_pairing_check_base` and `alt_bn128_pairing_check_element`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 1 element 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_pairing_check_1_10() {
     #[rustfmt::skip]
@@ -624,7 +613,6 @@ pub unsafe fn alt_bn128_pairing_check_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 10 elements 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_pairing_check_10_10() {
     #[rustfmt::skip]

@@ -67,7 +67,6 @@ dependencies = [
  "actix-codec",
  "actix-rt",
  "actix-service",
- "actix-tls",
  "actix-utils",
  "ahash",
  "base64 0.13.0",
@@ -202,7 +201,6 @@ dependencies = [
  "actix-rt",
  "actix-server",
  "actix-service",
- "actix-tls",
  "actix-utils",
  "actix-web-codegen",
  "ahash",
@@ -424,6 +422,7 @@ dependencies = [
  "itoa 1.0.2",
  "log",
  "mime",
+ "openssl",
  "percent-encoding",
  "pin-project-lite",
  "rand 0.8.5",
@@ -2621,6 +2620,7 @@ dependencies = [
  "rayon",
  "tar",
  "tempfile",
+ "tokio",
  "tracing",
 ]
 
@@ -2695,6 +2695,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "chrono",
+ "crossbeam-channel",
  "delay-detector",
  "enum-map",
  "insta",
@@ -3333,11 +3334,12 @@ name = "near-telemetry"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-web",
  "awc",
  "futures",
+ "near-metrics",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "once_cell",
  "openssl",
  "serde",
  "serde_json",
