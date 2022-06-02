@@ -45,6 +45,11 @@ impl From<AddError> for near_chain_primitives::Error {
     }
 }
 
+/// Results from processing a block that are useful for client and client actor to use
+/// for steps after a block is processed that can't be finished inside Chain after a block is processed
+/// (for example, sending requests for missing chunks or challenges).
+/// This struct is passed to Chain::process_block as an argument instead of returned as Result,
+/// because the information stored here need to returned whether process_block succeeds or returns an error.
 #[derive(Default)]
 pub struct BlockProcessingArtifact {
     pub accepted_blocks: Vec<AcceptedBlock>,
