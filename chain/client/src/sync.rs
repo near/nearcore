@@ -1301,7 +1301,7 @@ mod test {
     use std::thread;
 
     use near_chain::test_utils::{setup, setup_with_validators};
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
@@ -1357,10 +1357,7 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
+                    &mut BlockProcessingArtifact::default(),
                 )
                 .unwrap();
         }
@@ -1373,10 +1370,7 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
+                    &mut BlockProcessingArtifact::default(),
                 )
                 .unwrap();
         }

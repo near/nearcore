@@ -20,8 +20,8 @@ use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
-    Provenance, RuntimeAdapter,
+    byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
+    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
@@ -1525,7 +1525,7 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), &mut |_| {});
+            let res = chain.process_block_header(block.header());
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1943,24 +1943,20 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let mut accepted_blocks = vec![];
-                        let mut orphans_missing_chunks = vec![];
-                        let mut blocks_missing_chunks = vec![];
-                        let mut challenges = vec![];
+                        let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            &mut |accepted_block| {
-                                accepted_blocks.push(accepted_block);
-                            },
-                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
-                            &mut |orphan_missing_chunks| {
-                                orphans_missing_chunks.push(orphan_missing_chunks);
-                            },
-                            &mut |challenge| challenges.push(challenge)
+                            &mut block_processing_artifacts,
                         ));
 
+                        let BlockProcessingArtifact {
+                            accepted_blocks,
+                            orphans_missing_chunks,
+                            blocks_missing_chunks,
+                            challenges,
+                        } = block_processing_artifacts;
                         self.client.send_challenges(challenges);
 
                         self.process_accepted_blocks(accepted_blocks);

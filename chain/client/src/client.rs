@@ -15,8 +15,8 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
-    BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode,
-    Provenance, RuntimeAdapter,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
+    DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
@@ -765,30 +765,22 @@ impl Client {
             }
         }
 
-        let mut accepted_blocks = vec![];
-        let mut blocks_missing_chunks = vec![];
-        let mut orphans_missing_chunks = vec![];
-        let mut challenges = vec![];
+        let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {
             let me = self
                 .validator_signer
                 .as_ref()
                 .map(|validator_signer| validator_signer.validator_id().clone());
-            self.chain.process_block(
-                &me,
-                block,
-                provenance,
-                &mut |accepted_block| {
-                    accepted_blocks.push(accepted_block);
-                },
-                &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
-                &mut |orphan_missing_chunks| {
-                    orphans_missing_chunks.push(orphan_missing_chunks);
-                },
-                &mut |challenge| challenges.push(challenge),
-            )
+            self.chain.process_block(&me, block, provenance, &mut block_processing_artifacts)
         };
+
+        let BlockProcessingArtifact {
+            accepted_blocks,
+            orphans_missing_chunks,
+            blocks_missing_chunks,
+            challenges,
+        } = block_processing_artifacts;
 
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
@@ -960,7 +952,7 @@ impl Client {
         headers: Vec<BlockHeader>,
     ) -> Result<(), near_chain::Error> {
         let mut challenges = vec![];
-        self.chain.sync_block_headers(headers, &mut |challenge| challenges.push(challenge))?;
+        self.chain.sync_block_headers(headers, &mut challenges)?;
         self.send_challenges(challenges);
         Ok(())
     }
@@ -1315,21 +1307,19 @@ impl Client {
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
     pub fn process_blocks_with_missing_chunks(&mut self) -> Vec<AcceptedBlock> {
-        let mut accepted_blocks = vec![];
-        let mut blocks_missing_chunks = vec![];
-        let mut orphans_missing_chunks = vec![];
-        let mut challenges = vec![];
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
+        let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
-            &mut |accepted_block| {
-                debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
-                accepted_blocks.push(accepted_block);
-            },
-            &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
-            &mut |orphan_missing_chunks| orphans_missing_chunks.push(orphan_missing_chunks),
-            &mut |challenge| challenges.push(challenge));
+            &mut blocks_processing_artifacts,
+        );
+        let BlockProcessingArtifact {
+            accepted_blocks,
+            orphans_missing_chunks,
+            blocks_missing_chunks,
+            challenges,
+        } = blocks_processing_artifacts;
         self.send_challenges(challenges);
 
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
@@ -1818,24 +1808,21 @@ impl Client {
                     )?;
 
                     if blocks_catch_up_state.is_finished() {
-                        let mut accepted_blocks = vec![];
-                        let mut blocks_missing_chunks = vec![];
-                        let mut orphans_missing_chunks = vec![];
-                        let mut challenges = vec![];
+                        let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
                         self.chain.finish_catchup_blocks(
                             me,
                             &sync_hash,
-                            &mut |accepted_block| {
-                                accepted_blocks.push(accepted_block);
-                            },
-                            &mut |missing_chunks| blocks_missing_chunks.push(missing_chunks),
-                            &mut |orphan_missing_chunks| {
-                                orphans_missing_chunks.push(orphan_missing_chunks)
-                            },
-                            &mut |challenge| challenges.push(challenge),
+                            &mut block_processing_artifacts,
                             &blocks_catch_up_state.done_blocks,
                         )?;
+
+                        let BlockProcessingArtifact {
+                            accepted_blocks,
+                            orphans_missing_chunks,
+                            blocks_missing_chunks,
+                            challenges,
+                        } = block_processing_artifacts;
 
                         self.send_challenges(challenges);
 

@@ -1,7 +1,9 @@
+use crate::chain::{BlockMissingChunks, OrphanMissingChunks};
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
+use crate::types::AcceptedBlock;
 use crate::Provenance;
 use near_primitives::block::Block;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
 use near_primitives::types::ShardId;
@@ -27,7 +29,7 @@ pub(crate) struct BlocksInProcessing {
 }
 
 #[derive(Debug)]
-pub enum AddError {
+pub(crate) enum AddError {
     ExceedingPoolSize,
     BlockAlreadyInPool,
 }
@@ -41,6 +43,14 @@ impl From<AddError> for near_chain_primitives::Error {
             }
         }
     }
+}
+
+#[derive(Default)]
+pub struct BlockProcessingArtifact {
+    pub accepted_blocks: Vec<AcceptedBlock>,
+    pub orphans_missing_chunks: Vec<OrphanMissingChunks>,
+    pub blocks_missing_chunks: Vec<BlockMissingChunks>,
+    pub challenges: Vec<ChallengeBody>,
 }
 
 #[derive(Debug)]
