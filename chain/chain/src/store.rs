@@ -2645,20 +2645,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 continue;
             }
 
-            match header_hashes_by_height.entry(header.height()) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(*hash);
-                }
-                Entry::Vacant(entry) => {
-                    let mut hash_set =
-                        match self.chain_store.get_all_header_hashes_by_height(header.height()) {
-                            Ok(hash_set) => hash_set.clone(),
-                            Err(_) => HashSet::new(),
-                        };
-                    hash_set.insert(*hash);
-                    entry.insert(hash_set);
-                }
-            };
+            header_hashes_by_height
+                .entry(header.height())
+                .or_insert_with(|| {
+                    self.chain_store
+                        .get_all_header_hashes_by_height(header.height())
+                        .unwrap_or_default()
+                })
+                .insert(*hash);
             store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
