@@ -3421,7 +3421,7 @@ impl Chain {
     /// Gets a chunk from header.
     #[inline]
     pub fn get_chunk_clone_from_header(
-        &mut self,
+        &self,
         header: &ShardChunkHeader,
     ) -> Result<ShardChunk, Error> {
         self.store.get_chunk_clone_from_header(header)
@@ -4039,7 +4039,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn get_split_state_roots(
-        &mut self,
+        &self,
         block: &Block,
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
