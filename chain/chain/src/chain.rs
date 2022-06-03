@@ -1,5 +1,3 @@
-
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use std::sync::Arc;
@@ -457,7 +455,7 @@ pub struct Chain {
     /// place in the database. Instead, we will include this "bonus changes" in
     /// the next block we'll be processing, keeping them in this field in the
     /// meantime.
-    pending_states_to_patch: Cell<Option<Vec<StateRecord>>>,
+    pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl ChainAccess for Chain {
@@ -519,7 +517,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            pending_states_to_patch: Cell::new(None),
+            pending_states_to_patch: None,
         })
     }
 
@@ -652,7 +650,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            pending_states_to_patch: Cell::new(None),
+            pending_states_to_patch: None,
         })
     }
 
@@ -1799,12 +1797,10 @@ impl Chain {
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let preprocess_res = self.preprocess_block(
-            me,
-            &block,
-            &provenance,
-            &mut block_processing_artifact.challenges,
-        );
+        let states_to_patch =
+            if cfg!(feature = "sandbox") { self.pending_states_to_patch.take() } else { None };
+        let preprocess_res =
+            self.preprocess_block(me, &block, &provenance, &mut block_processing_artifact.challenges, states_to_patch);
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
             Err(e) => {
@@ -1929,7 +1925,7 @@ impl Chain {
             chain_update.chain_store_update.save_block_height_processed(block.header().height());
             chain_update.commit()?;
 
-            self.pending_states_to_patch.set(None);
+            self.pending_states_to_patch = None;
 
             if let Some(tip) = &new_head {
                 if let Ok(producers) = self
@@ -1964,11 +1960,12 @@ impl Chain {
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
     fn preprocess_block(
-        &mut self,
+        &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         challenges: &mut Vec<ChallengeBody>,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<
         (
             Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
@@ -2120,6 +2117,7 @@ impl Chain {
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
             if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+            states_to_patch,
         )?;
 
         Ok((
@@ -2963,6 +2961,7 @@ impl Chain {
                 &prev_block,
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
+                None,
             )?;
             blocks_catch_up_state
                 .scheduled_blocks
@@ -3277,6 +3276,7 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
+        mut states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<
         Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
         Error,
@@ -3296,6 +3296,10 @@ impl Chain {
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_chunk_headers.iter())).enumerate()
         {
+            // XXX: This is a bit questionable -- sandbox state patching works
+            // only for a single shard. This so far has been enough.
+            let states_to_patch = states_to_patch.take();
+
             let shard_id = shard_id as ShardId;
             let cares_about_shard_this_epoch =
                 self.runtime_adapter.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
@@ -3445,8 +3449,6 @@ impl Chain {
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
-                    #[cfg(feature = "sandbox")]
-                    let states_to_patch = self.pending_states_to_patch.take();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3472,10 +3474,7 @@ impl Chain {
                             random_seed,
                             true,
                             is_first_block_with_chunk_of_version,
-                            #[cfg(feature = "sandbox")]
                             states_to_patch,
-                            #[cfg(not(feature = "sandbox"))]
-                            None,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3511,8 +3510,6 @@ impl Chain {
                     let random_seed = *block.header().random_value();
                     let height = block.header().height();
                     let prev_block_hash = *prev_block.hash();
-                    #[cfg(feature = "sandbox")]
-                    let states_to_patch = self.pending_states_to_patch.take();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3537,10 +3534,7 @@ impl Chain {
                             random_seed,
                             false,
                             false,
-                            #[cfg(feature = "sandbox")]
                             states_to_patch,
-                            #[cfg(not(feature = "sandbox"))]
-                            None,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4188,20 +4182,14 @@ impl Chain {
 #[cfg(feature = "sandbox")]
 impl Chain {
     pub fn patch_state(&mut self, records: Vec<StateRecord>) {
-        match self.pending_states_to_patch.take() {
-            None => self.pending_states_to_patch.set(Some(records)),
-            Some(mut pending) => {
-                pending.extend_from_slice(&records);
-                self.pending_states_to_patch.set(Some(pending));
-            }
+        match &mut self.pending_states_to_patch {
+            None => self.pending_states_to_patch = Some(records),
+            Some(pending) => pending.extend(records),
         }
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        let pending_states = self.pending_states_to_patch.take();
-        let res = pending_states.is_some();
-        self.pending_states_to_patch.set(pending_states);
-        res
+        self.pending_states_to_patch.is_some()
     }
 }
 
