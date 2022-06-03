@@ -2923,11 +2923,9 @@ impl Chain {
     ) -> Result<(), Error> {
         debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}",
                blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
-               blocks_catch_up_state.scheduled_blocks.keys().collect::<Vec<_>>(), blocks_catch_up_state.done_blocks.len());
-        for (queued_block, (saved_store_update, results)) in
-            blocks_catch_up_state.processed_blocks.drain()
-        {
-            match self.block_catch_up_postprocess(&queued_block, results, saved_store_update) {
+               blocks_catch_up_state.scheduled_blocks, blocks_catch_up_state.done_blocks.len());
+        for (queued_block, results) in blocks_catch_up_state.processed_blocks.drain() {
+            match self.block_catch_up_postprocess(&queued_block, results) {
                 Ok(_) => {
                     let mut saw_one = false;
                     for next_block_hash in self.store.get_blocks_to_catchup(&queued_block)?.clone()
@@ -2963,10 +2961,7 @@ impl Chain {
                 ApplyChunksMode::CatchingUp,
                 None,
             )?;
-            blocks_catch_up_state
-                .scheduled_blocks
-                // TODO: no need for a saved store update here at all? o_O
-                .insert(pending_block, self.chain_update().into_saved_store_update());
+            blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
                 block_hash: pending_block,
@@ -2981,11 +2976,10 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
         results: Vec<Result<ApplyChunkResult, Error>>,
-        saved_store_update: SavedStoreUpdate,
     ) -> Result<(), Error> {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
-        let mut chain_update = self.chain_update_from_save_store_update(saved_store_update);
+        let mut chain_update = self.chain_update();
         chain_update.apply_chunk_postprocessing(&block, &prev_block, results)?;
         chain_update.commit()?;
         Ok(())
@@ -3615,21 +3609,6 @@ impl Chain {
     fn chain_update(&mut self) -> ChainUpdate {
         ChainUpdate::new(
             &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
-            self.doomslug_threshold_mode,
-            self.transaction_validity_period,
-        )
-    }
-
-    fn chain_update_from_save_store_update(
-        &mut self,
-        saved_store_update: SavedStoreUpdate,
-    ) -> ChainUpdate {
-        ChainUpdate::new_from_save_store_update(
-            &mut self.store,
-            saved_store_update,
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
@@ -5109,10 +5088,9 @@ pub struct BlocksCatchUpState {
     pub pending_blocks: Vec<CryptoHash>,
     /// Map from block hashes that are scheduled for processing to saved store updates from their
     /// preprocessing
-    pub scheduled_blocks: HashMap<CryptoHash, SavedStoreUpdate>,
+    pub scheduled_blocks: HashSet<CryptoHash>,
     /// Map from block hashes that were processed to (saved store update, process results)
-    pub processed_blocks:
-        HashMap<CryptoHash, (SavedStoreUpdate, Vec<Result<ApplyChunkResult, Error>>)>,
+    pub processed_blocks: HashMap<CryptoHash, Vec<Result<ApplyChunkResult, Error>>>,
     /// Collection of block hashes that are fully processed
     pub done_blocks: Vec<CryptoHash>,
 }
@@ -5123,7 +5101,7 @@ impl BlocksCatchUpState {
             first_block_hash,
             epoch_id,
             pending_blocks: vec![first_block_hash],
-            scheduled_blocks: HashMap::new(),
+            scheduled_blocks: HashSet::new(),
             processed_blocks: HashMap::new(),
             done_blocks: vec![],
         }
