@@ -909,19 +909,14 @@ impl ChainStoreAccess for ChainStore {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
+            read_with_cache(
+                &self.store,
+                DBCol::BlockHeight,
+                &self.height,
+                &index_to_bytes(height),
+            ),
             &format!("BLOCK HEIGHT: {}", height),
         )
-        // TODO: cache needs to be deleted when things get updated.
-        //        option_to_not_found(
-        //            read_with_cache(
-        //                &self.store,
-        //                DBCol::BlockHeight,
-        //                &mut self.height,
-        //                &index_to_bytes(height),
-        //            ),
-        //            &format!("BLOCK HEIGHT: {}", height),
-        //        )
     }
 
     fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
