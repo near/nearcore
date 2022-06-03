@@ -72,6 +72,11 @@ nightly-debug:
 	cargo build -p genesis-populate --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
 
 
+assertions-release: NEAR_RELEASE_BUILD=release
+assertions-release:
+	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release --features performance_stats,memory_stats
+
+
 sandbox: CARGO_TARGET_DIR=sandbox
 sandbox: neard-sandbox
 	mkdir -p target/debug
@@ -93,5 +98,5 @@ neard-sandbox-release:
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
-.PHONY: perf-release perf-debug nightly-release nightly-debug sandbox
+.PHONY: perf-release perf-debug nightly-release nightly-debug assertions-release sandbox
 .PHONY: sandbox-release
