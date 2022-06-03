@@ -811,6 +811,10 @@ impl Client {
         let (accepted_blocks, block_processing_artifacts) =
             self.chain.postprocess_ready_blocks(&me);
         self.process_block_processing_artifact(block_processing_artifacts);
+        let last_time_head_updated = self.chain.get_last_time_head_updated();
+        if last_time_head_updated >= self.last_time_head_progress_made {
+            self.last_time_head_progress_made = last_time_head_updated;
+        }
         accepted_blocks
     }
 
