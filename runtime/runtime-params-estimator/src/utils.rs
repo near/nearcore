@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_vm_logic::ExtCosts;
+use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -285,7 +285,7 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
 }
 
 /// Create a WASM module that is empty except for a main method and a single data entry with n characters
-pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
+pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -> Vec<u8> {
     // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
@@ -296,7 +296,10 @@ pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
             (data (i32.const 0) "{payload}")
         )"#
     );
-    wat::parse_str(wat_code).unwrap()
+    let wasm = wat::parse_str(wat_code).unwrap();
+    // Validate generated code is valid.
+    near_vm_runner::prepare::prepare_contract(&wasm, config).unwrap();
+    wasm
 }
 
 #[cfg(test)]
