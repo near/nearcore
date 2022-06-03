@@ -887,10 +887,9 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
+            let blocks_current_height = self.store.get_all_block_hashes_by_height(height);
             let mut chain_store_update = self.store.store_update();
-            if let Ok(blocks_current_height) =
-                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
-            {
+            if let Ok(blocks_current_height) = blocks_current_height {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 if let Some(block_hash) = blocks_current_height.first() {

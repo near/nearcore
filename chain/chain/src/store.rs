@@ -1213,15 +1213,6 @@ impl<'a> ChainStoreUpdate<'a> {
             challenged_blocks: HashSet::default(),
         }
     }
-
-    /// WARNING
-    ///
-    /// Usually ChainStoreUpdate has some uncommitted changes
-    /// and chain_store don't have access to them until they become committed.
-    /// Make sure you're doing it right.
-    pub fn get_chain_store(&mut self) -> &mut ChainStore {
-        self.chain_store
-    }
 }
 
 impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
