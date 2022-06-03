@@ -745,7 +745,7 @@ impl Client {
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-    ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+    ) -> Result<(), near_chain::Error> {
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -758,10 +758,8 @@ impl Client {
                     .head()
                     .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
         {
-            match self.chain.store().is_height_processed(block.header().height()) {
-                Ok(true) => return (vec![], Ok(None)),
-                Ok(false) => {}
-                Err(e) => return (vec![], Err(e)),
+            if self.chain.store().is_height_processed(block.header().height())? {
+                return Ok(());
             }
         }
 
@@ -772,18 +770,10 @@ impl Client {
                 .validator_signer
                 .as_ref()
                 .map(|validator_signer| validator_signer.validator_id().clone());
-            self.chain.process_block(&me, block, provenance, &mut block_processing_artifacts)
+            self.chain.start_process_block(&me, block, provenance, &mut block_processing_artifacts)
         };
 
-        let BlockProcessingArtifact {
-            accepted_blocks,
-            orphans_missing_chunks,
-            blocks_missing_chunks,
-            challenges,
-        } = block_processing_artifacts;
-
-        // Send out challenges that accumulated via on_challenge.
-        self.send_challenges(challenges);
+        self.process_block_processing_artifact(block_processing_artifacts);
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
@@ -810,14 +800,30 @@ impl Client {
             }
         }
 
-        if let Ok(Some(_)) = result {
-            self.last_time_head_progress_made = Clock::instant();
-        }
+        result
+    }
 
+    pub fn postprocess_ready_blocks(&mut self) -> Vec<AcceptedBlock> {
+        let me = self
+            .validator_signer
+            .as_ref()
+            .map(|validator_signer| validator_signer.validator_id().clone());
+        let (accepted_blocks, block_processing_artifacts) =
+            self.chain.postprocess_ready_blocks(&me);
+        self.process_block_processing_artifact(block_processing_artifacts);
+        accepted_blocks
+    }
+
+    pub fn process_block_processing_artifact(
+        &mut self,
+        block_processing_artifacts: BlockProcessingArtifact,
+    ) {
+        let BlockProcessingArtifact { orphans_missing_chunks, blocks_missing_chunks, challenges } =
+            block_processing_artifacts;
+        // Send out challenges that accumulated via on_challenge.
+        self.send_challenges(challenges);
         // Request any missing chunks
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
-
-        (accepted_blocks, result)
     }
 
     pub fn rebroadcast_block(&mut self, block: &Block) {
@@ -832,7 +838,7 @@ impl Client {
     pub fn process_partial_encoded_chunk_response(
         &mut self,
         response: PartialEncodedChunkResponseMsg,
-    ) -> Result<Vec<AcceptedBlock>, Error> {
+    ) -> Result<(), Error> {
         let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
@@ -843,7 +849,7 @@ impl Client {
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
-    ) -> Result<Vec<AcceptedBlock>, Error> {
+    ) -> Result<(), Error> {
         let maybe_header = self
             .shards_mgr
             .validate_partial_encoded_chunk_forward(&forward)
@@ -888,8 +894,7 @@ impl Client {
     /// This function is needed because chunks in chunk cache will only be marked as complete after
     /// the previous block is accepted. So we need to check if there are any chunks can be marked as
     /// complete when a new block is accepted.
-    pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) -> Vec<AcceptedBlock> {
-        let mut accepted_blocks = vec![];
+    pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
         for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
             debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
             let res = self.shards_mgr.try_process_chunk_parts_and_receipts(
@@ -898,20 +903,18 @@ impl Client {
                 &mut self.rs,
             );
             match res {
-                Ok(res) => accepted_blocks
-                    .extend(self.process_process_partial_encoded_chunk_result(chunk_header, res)),
+                Ok(res) => self.process_process_partial_encoded_chunk_result(chunk_header, res),
                 Err(err) => {
                     error!(target:"client", "unexpected error processing orphan chunk {:?}", err)
                 }
             }
         }
-        accepted_blocks
     }
 
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
-    ) -> Result<Vec<AcceptedBlock>, Error> {
+    ) -> Result<(), Error> {
         let chunk_hash = partial_encoded_chunk.chunk_hash();
         let pec_v2: MaybeValidated<PartialEncodedChunkV2> = partial_encoded_chunk.map(Into::into);
         let process_result = self.shards_mgr.process_partial_encoded_chunk(
@@ -922,21 +925,19 @@ impl Client {
         )?;
         debug!(target:"client", "process partial encoded chunk {:?}, result: {:?}", chunk_hash, process_result);
 
-        Ok(self.process_process_partial_encoded_chunk_result(
+        self.process_process_partial_encoded_chunk_result(
             pec_v2.into_inner().header,
             process_result,
-        ))
+        );
+        Ok(())
     }
 
     fn process_process_partial_encoded_chunk_result(
         &mut self,
         header: ShardChunkHeader,
         process_result: ProcessPartialEncodedChunkResult,
-    ) -> Vec<AcceptedBlock> {
+    ) {
         match process_result {
-            ProcessPartialEncodedChunkResult::Known
-            | ProcessPartialEncodedChunkResult::NeedBlock
-            | ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts => vec![],
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
                 self.chain
                     .blocks_delay_tracker
@@ -944,6 +945,7 @@ impl Client {
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 self.process_blocks_with_missing_chunks()
             }
+            _ => {}
         }
     }
 
@@ -1244,14 +1246,7 @@ impl Client {
                 }
             }
         }
-        for accepted_block in self.check_incomplete_chunks(block.hash()) {
-            self.on_block_accepted_with_optional_chunk_produce(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                skip_produce_chunk,
-            );
-        }
+        self.check_incomplete_chunks(block.hash());
 
         let chunk_hashes: Vec<ChunkHash> =
             block.chunks().iter().map(|chunk| chunk.chunk_hash()).collect();
@@ -1306,7 +1301,7 @@ impl Client {
 
     /// Check if any block with missing chunks is ready to be processed
     #[must_use]
-    pub fn process_blocks_with_missing_chunks(&mut self) -> Vec<AcceptedBlock> {
+    pub fn process_blocks_with_missing_chunks(&mut self) {
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
@@ -1314,16 +1309,7 @@ impl Client {
             &me.map(|x| x.clone()),
             &mut blocks_processing_artifacts,
         );
-        let BlockProcessingArtifact {
-            accepted_blocks,
-            orphans_missing_chunks,
-            blocks_missing_chunks,
-            challenges,
-        } = blocks_processing_artifacts;
-        self.send_challenges(challenges);
-
-        self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
-        accepted_blocks
+        self.process_block_processing_artifact(blocks_processing_artifacts);
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash) -> bool {
@@ -1724,7 +1710,7 @@ impl Client {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
-    ) -> Result<Vec<AcceptedBlock>, Error> {
+    ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1817,24 +1803,13 @@ impl Client {
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
-                        let BlockProcessingArtifact {
-                            accepted_blocks,
-                            orphans_missing_chunks,
-                            blocks_missing_chunks,
-                            challenges,
-                        } = block_processing_artifacts;
-
-                        self.send_challenges(challenges);
-
-                        self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
-
-                        return Ok(accepted_blocks);
+                        self.process_block_processing_artifact(block_processing_artifacts);
                     }
                 }
             }
         }
 
-        Ok(vec![])
+        Ok(())
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.

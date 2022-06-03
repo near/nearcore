@@ -1,6 +1,5 @@
 use crate::chain::{BlockMissingChunks, OrphanMissingChunks};
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
-use crate::types::AcceptedBlock;
 use crate::Provenance;
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
@@ -52,7 +51,6 @@ impl From<AddError> for near_chain_primitives::Error {
 /// because the information stored here need to returned whether process_block succeeds or returns an error.
 #[derive(Default)]
 pub struct BlockProcessingArtifact {
-    pub accepted_blocks: Vec<AcceptedBlock>,
     pub orphans_missing_chunks: Vec<OrphanMissingChunks>,
     pub blocks_missing_chunks: Vec<BlockMissingChunks>,
     pub challenges: Vec<ChallengeBody>,

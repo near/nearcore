@@ -320,15 +320,8 @@ impl ClientActor {
                                     NetworkRequests::Block { block: block.clone() },
                                 ),
                             );
-                            let (accepted_blocks, _) =
+                            let _ =
                                 self.client.process_block(block.into(), Provenance::PRODUCED);
-                            for accepted_block in accepted_blocks {
-                                self.client.on_block_accepted(
-                                    accepted_block.hash,
-                                    accepted_block.status,
-                                    accepted_block.provenance,
-                                );
-                            }
                             blocks_produced += 1;
                             if blocks_produced == num_blocks {
                                 break;
@@ -610,25 +603,18 @@ impl ClientActor {
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                if let Ok(accepted_blocks) =
-                    self.client.process_partial_encoded_chunk_response(response)
-                {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
+                let _ = self.client.process_partial_encoded_chunk_response(response);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                if let Ok(accepted_blocks) = self
+                let _ = self
                     .client
-                    .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
-                {
-                    self.process_accepted_blocks(accepted_blocks);
-                }
+                    .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk));
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
                 match self.client.process_partial_encoded_chunk_forward(forward) {
-                    Ok(accepted_blocks) => self.process_accepted_blocks(accepted_blocks),
+                    Ok(()) => {}
                     // Unknown chunk is normal if we get parts before the header
                     Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
                     Err(err) => {
@@ -1293,6 +1279,8 @@ impl ClientActor {
 
         let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 
+        self.try_process_unfinished_blocks();
+
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
@@ -1371,6 +1359,11 @@ impl ClientActor {
         )
     }
 
+    fn try_process_unfinished_blocks(&mut self) {
+        let accepted_blocks = self.client.postprocess_ready_blocks();
+        self.process_accepted_blocks(accepted_blocks);
+    }
+
     fn try_handle_block_production(&mut self) {
         if let Err(err) = self.handle_block_production() {
             tracing::error!(target: "client", ?err, "Handle block production failed")
@@ -1411,31 +1404,27 @@ impl ClientActor {
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block").entered();
-        match self.client.produce_block(next_height) {
-            Ok(Some(block)) => {
-                let peer_id = self.node_id.clone();
-                // We’ve produced the block so that counts as validated block.
-                let block = MaybeValidated::from_validated(block);
-                let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
-                match &res {
-                    Ok(_) => Ok(()),
-                    Err(e) => match e {
-                        near_chain::Error::ChunksMissing(_) => {
-                            // missing chunks were already handled in Client::process_block, we don't need to
-                            // do anything here
-                            Ok(())
-                        }
-                        _ => {
-                            error!(target: "client", "Failed to process freshly produced block: {:?}", res);
-                            byzantine_assert!(false);
-                            res.map_err(|err| err.into())
-                        }
-                    },
+        if let Some(block) = self.client.produce_block(next_height)? {
+            let peer_id = self.node_id.clone();
+            // We’ve produced the block so that counts as validated block.
+            let block = MaybeValidated::from_validated(block);
+            let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
+            if let Err(e) = &res {
+                match e {
+                    near_chain::Error::ChunksMissing(_) => {
+                        // missing chunks were already handled in Client::process_block, we don't need to
+                        // do anything here
+                        return Ok(());
+                    }
+                    _ => {
+                        error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                        byzantine_assert!(false);
+                        return res.map_err(|err| err.into());
+                    }
                 }
             }
-            Ok(None) => Ok(()),
-            Err(err) => Err(err),
         }
+        Ok(())
     }
 
     /// Process all blocks that were accepted by calling other relevant services.
@@ -1560,9 +1549,7 @@ impl ClientActor {
                 }
             }
         }
-        let (accepted_blocks, result) = self.client.process_block(block, provenance);
-        self.process_accepted_blocks(accepted_blocks);
-        result.map(|_| ())
+        self.client.process_block(block, provenance)
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
@@ -1763,18 +1750,13 @@ impl ClientActor {
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         let _d = delay_detector::DelayDetector::new(|| "client catchup".into());
-        match self.client.run_catchup(
+        if let Err(err) = self.client.run_catchup(
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
             &self.block_catch_up_scheduler,
             &self.state_split_scheduler,
         ) {
-            Ok(accepted_blocks) => {
-                self.process_accepted_blocks(accepted_blocks);
-            }
-            Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
-            }
+            error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
         }
 
         near_performance_metrics::actix::run_later(
@@ -1954,18 +1936,7 @@ impl ClientActor {
                             &mut block_processing_artifacts,
                         ));
 
-                        let BlockProcessingArtifact {
-                            accepted_blocks,
-                            orphans_missing_chunks,
-                            blocks_missing_chunks,
-                            challenges,
-                        } = block_processing_artifacts;
-                        self.client.send_challenges(challenges);
-
-                        self.process_accepted_blocks(accepted_blocks);
-
-                        self.client
-                            .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+                        self.client.process_block_processing_artifact(block_processing_artifacts);
 
                         self.client.sync_status = SyncStatus::BodySync {
                             start_height: 0,

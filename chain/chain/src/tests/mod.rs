@@ -19,7 +19,7 @@ impl Chain {
         block: Block,
     ) -> Result<Option<Tip>, Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        self.process_block(
+        self.start_process_block(
             me,
             MaybeValidated::from(block),
             Provenance::PRODUCED,

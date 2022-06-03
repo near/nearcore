@@ -448,6 +448,11 @@ pub struct Chain {
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
+    /// This callback will be called after apply_chunks are finished. ClientActor can use this
+    /// to receive notifications that apply_chunks for some blocks are finished and it should call
+    /// postprocess_ready_blocks.
+    // apply_chunks_ready_callback: Box<dyn Fn<()>>,
+    last_time_head_updated: Instant,
 }
 
 impl ChainAccess for Chain {
@@ -510,6 +515,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            last_time_head_updated: Clock::instant(),
         })
     }
 
@@ -643,6 +649,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            last_time_head_updated: Clock::instant(),
         })
     }
 
@@ -670,6 +677,10 @@ impl Chain {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
             Chain::compute_collection_hash(validator_stakes)
         }
+    }
+
+    pub fn get_last_time_head_updated(&self) -> Instant {
+        self.last_time_head_updated
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -1488,24 +1499,46 @@ impl Chain {
         Ok(())
     }
 
-    /// Process a received or produced block, and unroll any orphans that may depend on it.
+    /// Start process a received or produced block.
+    /// Note that the processing of this block won't be finished by the end of this function, since
+    /// chunks are applied async. Caller of this function must call postprocess_ready_blocks()
+    /// to complete processing the blocks that finished applying chunks.
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
-    pub fn process_block(
+    pub fn start_process_block(
         &mut self,
         me: &Option<AccountId>,
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-    ) -> Result<Option<Tip>, Error> {
+    ) -> Result<(), Error> {
         self.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
+        metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
+        metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
         let block_hash = *block.hash();
-        let res = self.process_block_single(me, block, provenance, block_processing_artifacts);
-        if res.is_ok() {
-            if let Some(new_res) = self.check_orphans(me, block_hash, block_processing_artifacts) {
-                return Ok(Some(new_res));
+        let _timer = CryptoHashTimer::new(block_hash);
+        let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
+
+        let block_height = block.header().height();
+        let res = self.start_process_block_impl(me, block, provenance, block_processing_artifacts);
+
+        match &res {
+            Ok(_) => {
+                metrics::BLOCK_PROCESSED_TOTAL.inc();
+                success_timer.stop_and_record();
             }
-        }
+            Err(_) => {
+                // Save the block as processed even if it failed. This is used to filter out the
+                // incoming blocks that are not requested on heights which we already processed.
+                // If there is a new incoming block that we didn't request and we already have height
+                // processed 'marked as true' - then we'll not even attempt to process it
+                if let Err(e) = self.save_block_height_processed(block_height) {
+                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+                }
+                success_timer.stop_and_discard();
+            }
+        };
+
         res
     }
 
@@ -1734,52 +1767,15 @@ impl Chain {
         Ok(())
     }
 
-    // Processes a single block, increments the metric for the number of blocks processing and also
-    // for the number of blocks processed successfully (returns OK).
-    fn process_block_single(
-        &mut self,
-        me: &Option<AccountId>,
-        block: MaybeValidated<Block>,
-        provenance: Provenance,
-        block_processing_artifact: &mut BlockProcessingArtifact,
-    ) -> Result<Option<Tip>, Error> {
-        metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
-        metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
-        let block_hash = *block.hash();
-        let _timer = CryptoHashTimer::new(block_hash);
-        let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
-
-        let block_height = block.header().height();
-        let res = self.process_block_single_impl(me, block, provenance, block_processing_artifact);
-
-        match &res {
-            Ok(_) => {
-                metrics::BLOCK_PROCESSED_TOTAL.inc();
-                success_timer.stop_and_record();
-            }
-            Err(_) => {
-                // Save the block as processed even if it failed. This is used to filter out the
-                // incoming blocks that are not requested on heights which we already processed.
-                // If there is a new incoming block that we didn't request and we already have height
-                // processed 'marked as true' - then we'll not even attempt to process it
-                if let Err(e) = self.save_block_height_processed(block_height) {
-                    warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
-                }
-                success_timer.stop_and_discard();
-            }
-        }
-        res
-    }
-
-    // Block processing. Unlike process_block_single() this function doesn't update metrics for
+    // Unlike start_process_block() this function doesn't update metrics for
     // successful blocks processing.
-    fn process_block_single_impl(
+    fn start_process_block_impl(
         &mut self,
         me: &Option<AccountId>,
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
-    ) -> Result<Option<Tip>, Error> {
+    ) -> Result<(), Error> {
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
             target: "chain",
@@ -1878,16 +1874,20 @@ impl Chain {
 
         // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
         //    there still no change to ChainStore.
-        self.async_apply_chunks(block_hash, apply_chunk_work);
+        self.async_apply_chunks(
+            block_hash,
+            apply_chunk_work,
+            //self.apply_chunks_ready_callback.clone(),
+        );
 
-        // TODO: this will be moved out of process_block once we make do_apply_chunks async
-        self.postprocess_ready_blocks(me, &mut block_processing_artifact.accepted_blocks)
+        Ok(())
     }
 
     fn async_apply_chunks(
         &self,
         block_hash: CryptoHash,
         work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
+        //apply_chunks_ready_callback: Box<dyn Fn()>,
     ) {
         let sc = self.apply_chunks_sender.clone();
         // TODO: uncomment this line when we are ready to move apply_chunks async
@@ -1896,58 +1896,78 @@ impl Chain {
         // we can safely unwrap here because error means the receiver is deallocated, which means
         // the chain thread is shut down, and the node already crashed
         sc.send((block_hash, res)).unwrap();
+        //apply_chunks_ready_callback();
         //});
     }
 
-    /// Check if there are any block that finished applying chunks. Run postprocessing on the block.
-    fn postprocess_ready_blocks(
+    fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
-        block_accepted: &mut Vec<AcceptedBlock>,
-    ) -> Result<Option<Tip>, Error> {
-        if let Ok((block_hash, apply_results)) = self.apply_chunks_receiver.try_recv() {
-            let (block, block_preprocess_info) =
-                self.blocks_in_processing.remove(&block_hash).expect(&format!(
-                    "block {:?} finished applying chunks but not in blocks_in_processing pool",
-                    block_hash
-                ));
-            let prev_head = self.store.head()?;
-            let mut chain_update = self.chain_update();
-            let provenance = block_preprocess_info.provenance.clone();
-            let new_head =
-                chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
-            chain_update.chain_store_update.save_block_height_processed(block.header().height());
-            chain_update.commit()?;
+        block_apply_chunk_result: BlockApplyChunksResult,
+        block_processing_artifacts: &mut BlockProcessingArtifact,
+    ) -> Result<AcceptedBlock, Error> {
+        let (block_hash, apply_results) = block_apply_chunk_result;
+        let (block, block_preprocess_info) =
+            self.blocks_in_processing.remove(&block_hash).expect(&format!(
+                "block {:?} finished applying chunks but not in blocks_in_processing pool",
+                block_hash
+            ));
+        let prev_head = self.store.head()?;
+        let mut chain_update = self.chain_update();
+        let provenance = block_preprocess_info.provenance.clone();
+        let new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
+        chain_update.chain_store_update.save_block_height_processed(block.header().height());
+        chain_update.commit()?;
 
-            self.pending_states_to_patch = None;
+        self.pending_states_to_patch = None;
 
-            if let Some(tip) = &new_head {
-                if let Ok(producers) = self
-                    .runtime_adapter
-                    .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-                {
-                    let mut count = 0;
-                    let mut stake = 0;
-                    for (info, is_slashed) in producers.iter() {
-                        if !*is_slashed {
-                            stake += info.stake();
-                            count += 1;
-                        }
+        if let Some(tip) = &new_head {
+            if let Ok(producers) = self
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+            {
+                let mut count = 0;
+                let mut stake = 0;
+                for (info, is_slashed) in producers.iter() {
+                    if !*is_slashed {
+                        stake += info.stake();
+                        count += 1;
                     }
-                    stake /= NEAR_BASE;
-                    metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
-                    metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
                 }
-            };
+                stake /= NEAR_BASE;
+                metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+                metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+            }
+            self.last_time_head_updated = Instant::now();
+        };
 
-            let status = self.determine_status(new_head.clone(), prev_head);
+        let status = self.determine_status(new_head.clone(), prev_head);
 
-            // Notify other parts of the system of the update.
-            block_accepted.push(AcceptedBlock { hash: *block.hash(), status, provenance });
+        self.check_orphans(me, *block.hash(), block_processing_artifacts);
+        Ok(AcceptedBlock { hash: *block.hash(), status, provenance })
+    }
 
-            return Ok(new_head);
+    pub fn postprocess_ready_blocks(
+        &mut self,
+        me: &Option<AccountId>,
+    ) -> (Vec<AcceptedBlock>, BlockProcessingArtifact) {
+        let mut block_processing_artifacts = BlockProcessingArtifact::default();
+        let mut accepted_blocks = vec![];
+        while let Ok(block_apply_chunk_result) = self.apply_chunks_receiver.try_recv() {
+            match self.postprocess_block(
+                me,
+                block_apply_chunk_result,
+                &mut block_processing_artifacts,
+            ) {
+                // TODO: handle errors here
+                // For now, let's just ignore the error. These errors get dropped eventually
+                // anyways (except some logging or debug_assert in client actor)
+                Err(_e) => {}
+                Ok(accepted_block) => accepted_blocks.push(accepted_block),
+            }
         }
-        Ok(None)
+        (accepted_blocks, block_processing_artifacts)
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -2261,12 +2281,11 @@ impl Chain {
         me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
     ) {
-        let mut new_blocks_accepted = vec![];
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
         for orphan in orphans {
             let block_hash = *orphan.block.header().hash();
             let time = Clock::instant();
-            let res = self.process_block_single(
+            let res = self.start_process_block(
                 me,
                 orphan.block,
                 orphan.provenance,
@@ -2274,19 +2293,14 @@ impl Chain {
             );
             match res {
                 Ok(_) => {
-                    debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
+                    debug!(target: "chain", "Block with missing chunks starts processing; me: {:?}", me);
                     self.blocks_delay_tracker
                         .mark_block_completed_missing_chunks(&block_hash, time);
-                    new_blocks_accepted.push(block_hash);
                 }
                 Err(_) => {
                     debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
                 }
             }
-        }
-
-        for accepted_block in new_blocks_accepted {
-            self.check_orphans(me, accepted_block, block_processing_artifact);
         }
     }
 
@@ -2304,11 +2318,9 @@ impl Chain {
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-    ) -> Option<Tip> {
+    ) {
         let mut queue = vec![prev_hash];
         let mut queue_idx = 0;
-
-        let mut maybe_new_head = None;
 
         // Check if there are orphans we can process.
         debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
@@ -2332,15 +2344,14 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     self.blocks_delay_tracker.mark_block_unorphaned(&block_hash, Clock::instant());
-                    let res = self.process_block(
+                    let res = self.start_process_block(
                         me,
                         orphan.block,
                         orphan.provenance,
                         block_processing_artifacts,
                     );
                     match res {
-                        Ok(maybe_tip) => {
-                            maybe_new_head = maybe_tip;
+                        Ok(()) => {
                             queue.push(block_hash);
                         }
                         Err(_) => {
@@ -2360,8 +2371,6 @@ impl Chain {
                 self.orphans.len(),
             );
         }
-
-        maybe_new_head
     }
 
     pub fn get_outgoing_receipts_for_shard(

@@ -1313,6 +1313,7 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
+    // TODO: fix testing
     pub fn process_block_with_options(
         &mut self,
         id: usize,
@@ -1321,13 +1322,11 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        let (mut accepted_blocks, result) =
-            self.clients[id].process_block(MaybeValidated::from(block), provenance);
-        assert!(result.is_ok(), "{:?}", result);
+        self.clients[id].process_block(MaybeValidated::from(block), provenance).unwrap();
         if should_run_catchup {
-            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-            accepted_blocks.extend(more_accepted_blocks);
+            run_catchup(&mut self.clients[id], &vec![]).unwrap();
         }
+        /*
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
@@ -1336,6 +1335,7 @@ impl TestEnv {
                 !should_produce_chunk,
             );
         }
+         */
     }
 
     /// Process a given block in the client with index `id`.
@@ -1386,6 +1386,7 @@ impl TestEnv {
     }
 
     /// Send the PartialEncodedChunkRequest to the target client, get response and process the response
+    /// TODO: fix testing
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         id: usize,
@@ -1397,11 +1398,7 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            let accepted_blocks =
-                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
-            for block in accepted_blocks {
-                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
-            }
+            self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1673,8 +1670,7 @@ pub fn create_chunk(
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<AcceptedBlock>, Error> {
-    let mut result = vec![];
+) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1688,7 +1684,7 @@ pub fn run_catchup(
     };
     let rt = client.runtime_adapter.clone();
     while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+        client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
@@ -1716,7 +1712,6 @@ pub fn run_catchup(
                 client.state_sync.set_split_result(msg.shard_id, results);
             }
         }
-        result.extend(call);
     }
-    Ok(result)
+    Ok(())
 }

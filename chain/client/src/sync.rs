@@ -1353,7 +1353,7 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer);
             chain
-                .process_block(
+                .start_process_block(
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
@@ -1366,7 +1366,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
             chain2
-                .process_block(
+                .start_process_block(
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
