@@ -508,14 +508,6 @@ impl crate::runner::VM for Wasmer2VM {
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult {
-        let _span = tracing::debug_span!(
-            target: "vm",
-            "run_wasmer2",
-            "code.len" = code.code().len(),
-            %method_name
-        )
-        .entered();
-
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
