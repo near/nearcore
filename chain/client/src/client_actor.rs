@@ -1525,7 +1525,10 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header());
+            // TODO: refactor this after we make apply_chunks async. After that, process_block
+            // will return before the full block is finished processing, and we can simply move the
+            // rebroadcast_block logic to after self.client.process_block
+            let res = chain.process_block_header(block.header(), &mut vec![]);
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {

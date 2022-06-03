@@ -17,11 +17,14 @@ fn chain_sync_headers() {
             &mut block_merkle_tree,
         ));
     }
+
+    let mut challenges = vec![];
     chain
         .sync_block_headers(
             blocks.drain(1..).map(|block| block.header().clone()).collect(),
-            &mut vec![],
+            &mut challenges,
         )
         .unwrap();
     assert_eq!(chain.header_head().unwrap().height, 4);
+    assert!(challenges.is_empty());
 }

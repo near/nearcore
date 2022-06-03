@@ -1093,6 +1093,10 @@ impl Chain {
         Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 
+    /// Validate header. Returns error if the header is invalid.
+    /// `challenges`: the function will add new challenges generated from validating this header
+    ///               to the vector. You can pass an empty vector here, or a vector with existing
+    ///               challenges already.
     fn validate_header(
         &self,
         header: &BlockHeader,
@@ -1248,12 +1252,15 @@ impl Chain {
     /// We validate the header but we do not store it or update header head
     /// based on this. We will update these once we get the block back after
     /// requesting it.
-    pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn process_block_header(
+        &self,
+        header: &BlockHeader,
+        challenges: &mut Vec<ChallengeBody>,
+    ) -> Result<(), Error> {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
-        let mut challenges = vec![];
-        self.validate_header(header, &Provenance::NONE, &mut challenges)?;
+        self.validate_header(header, &Provenance::NONE, challenges)?;
         Ok(())
     }
 
@@ -1482,7 +1489,8 @@ impl Chain {
     }
 
     /// Process a received or produced block, and unroll any orphans that may depend on it.
-    /// Changes current state, and calls `block_accepted` callback in case block was successfully applied.
+    /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
+    ///              This function will add the effect from processing this block to there.
     pub fn process_block(
         &mut self,
         me: &Option<AccountId>,
