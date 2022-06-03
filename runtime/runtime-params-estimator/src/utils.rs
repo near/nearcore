@@ -265,8 +265,6 @@ pub(crate) fn percentiles(
         .into_iter()
         .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
         .map(move |idx| costs[idx].clone())
-    // .collect::<Vec<_>>()
-    // .into_iter()
 }
 
 /// Get account id from its index.
@@ -291,7 +289,13 @@ pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
     // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
-    let wat_code = format!("(module (data \"{payload}\") (func (export \"main\")))");
+    let wat_code = format!(
+        r#"(module 
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    );
     wat::parse_str(wat_code).unwrap()
 }
 
