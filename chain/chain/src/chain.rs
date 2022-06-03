@@ -1,3 +1,5 @@
+
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use std::sync::Arc;
@@ -437,7 +439,6 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
-    pending_states_to_patch: Option<Vec<StateRecord>>,
     pub blocks_delay_tracker: BlocksDelayTracker,
     /// Processing a block is done in three stages: preprocess_block, async_apply_chunks and
     /// postprocess_block. The async_apply_chunks is done asynchronously from the ClientActor thread.
@@ -448,6 +449,15 @@ pub struct Chain {
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
+
+    /// Support for sandbox's patch_state requests.
+    ///
+    /// Sandbox needs ability to arbitrary modify the state. Blockchains
+    /// naturally prevent state tampering, so we can't *just* modify data in
+    /// place in the database. Instead, we will include this "bonus changes" in
+    /// the next block we'll be processing, keeping them in this field in the
+    /// meantime.
+    pending_states_to_patch: Cell<Option<Vec<StateRecord>>>,
 }
 
 impl ChainAccess for Chain {
@@ -506,10 +516,10 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            pending_states_to_patch: None,
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            pending_states_to_patch: Cell::new(None),
         })
     }
 
@@ -639,10 +649,10 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            pending_states_to_patch: None,
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            pending_states_to_patch: Cell::new(None),
         })
     }
 
@@ -1919,7 +1929,7 @@ impl Chain {
             chain_update.chain_store_update.save_block_height_processed(block.header().height());
             chain_update.commit()?;
 
-            self.pending_states_to_patch = None;
+            self.pending_states_to_patch.set(None);
 
             if let Some(tip) = &new_head {
                 if let Ok(producers) = self
@@ -3436,7 +3446,7 @@ impl Chain {
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
                     #[cfg(feature = "sandbox")]
-                    let states_to_patch = self.states_to_patch.take();
+                    let states_to_patch = self.pending_states_to_patch.take();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3502,9 +3512,7 @@ impl Chain {
                     let height = block.header().height();
                     let prev_block_hash = *prev_block.hash();
                     #[cfg(feature = "sandbox")]
-                    let states_to_patch = self.states_to_patch.take();
-                    // #[cfg(not(feature = "sandbox"))]
-                    // let _ = self.states_to_patch;
+                    let states_to_patch = self.pending_states_to_patch.take();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3618,7 +3626,6 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
-            self.pending_states_to_patch.take(),
         )
     }
 
@@ -3634,7 +3641,6 @@ impl Chain {
             &self.blocks_with_missing_chunks,
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
-            self.pending_states_to_patch.take(),
         )
     }
 
@@ -4183,16 +4189,19 @@ impl Chain {
 impl Chain {
     pub fn patch_state(&mut self, records: Vec<StateRecord>) {
         match self.pending_states_to_patch.take() {
-            None => self.pending_states_to_patch = Some(records),
+            None => self.pending_states_to_patch.set(Some(records)),
             Some(mut pending) => {
                 pending.extend_from_slice(&records);
-                self.pending_states_to_patch = Some(pending);
+                self.pending_states_to_patch.set(Some(pending));
             }
         }
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        self.pending_states_to_patch.is_some()
+        let pending_states = self.pending_states_to_patch.take();
+        let res = pending_states.is_some();
+        self.pending_states_to_patch.set(pending_states);
+        res
     }
 }
 
@@ -4208,7 +4217,6 @@ pub struct ChainUpdate<'a> {
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
-    states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl<'a> ChainAccess for ChainUpdate<'a> {
@@ -4258,16 +4266,14 @@ impl<'a> ChainUpdate<'a> {
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
-        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
-        <ChainUpdate<'a>>::new_impl(
+        Self::new_impl(
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
             doomslug_threshold_mode,
             transaction_validity_period,
-            states_to_patch,
             chain_store_update,
         )
     }
@@ -4280,16 +4286,14 @@ impl<'a> ChainUpdate<'a> {
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
-        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update = saved_store_update.restore(store);
-        <ChainUpdate<'a>>::new_impl(
+        Self::new_impl(
             runtime_adapter,
             orphans,
             blocks_with_missing_chunks,
             doomslug_threshold_mode,
             transaction_validity_period,
-            states_to_patch,
             chain_store_update,
         )
     }
@@ -4300,7 +4304,6 @@ impl<'a> ChainUpdate<'a> {
         blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
-        states_to_patch: Option<Vec<StateRecord>>,
         chain_store_update: ChainStoreUpdate<'a>,
     ) -> Self {
         ChainUpdate {
@@ -4310,7 +4313,6 @@ impl<'a> ChainUpdate<'a> {
             blocks_with_missing_chunks,
             doomslug_threshold_mode,
             transaction_validity_period,
-            states_to_patch,
         }
     }
 
