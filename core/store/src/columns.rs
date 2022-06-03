@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
-use strum::EnumCount;
 
 /// This enum holds the information about the columns that we use within the RocksDB storage.
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
@@ -14,7 +13,6 @@ use strum::EnumCount;
     BorshDeserialize,
     BorshSerialize,
     enum_map::Enum,
-    strum::EnumCount,
     strum::EnumIter,
     strum::IntoStaticStr,
 )]
@@ -252,40 +250,90 @@ impl DBCol {
     ///
     /// In some sence, insert-only column acts as an rc-column, where rc is
     /// always one.
-    pub fn is_insert_only(&self) -> bool {
-        INSERT_ONLY_COLUMNS[*self as usize]
+    pub const fn is_insert_only(&self) -> bool {
+        match self {
+            DBCol::BlockInfo
+            | DBCol::ChunkPerHeightShard
+            | DBCol::Chunks
+            | DBCol::InvalidChunks
+            | DBCol::PartialChunks => true,
+            _ => false,
+        }
     }
+
     /// Whethere this column is reference-counted.
     /// This means, that we're storing additional 8 bytes at the end of the payload with the current RC value.
     /// For such columns you must not use set, set_ser or delete, but 'update_refcount' instead.
-    //
+    ///
     /// Under the hood, we're using our custom merge operator (refcount_merge) to properly 'join' the refcounted cells.
     /// WARNING: this means that the 'value' for a given key must never change.
-    /// Example:
-    ///   update_refcount("foo", "bar", 1);
-    ///   // good - after this call, the RC will be equal to 3.
-    ///   update_refcount("foo", "bar", 2);
-    ///   // bad - the value is still 'bar'.
-    ///   update_refcount("foo", "baz", 1);
-    ///   // ok - the value will be removed now. (as rc == 0)
-    ///   update_refcount("foo", "", -3)
     ///
-    /// Quick note on negative refcounts:
-    ///   if we have a key that ends up having a negative refcount, we have to store this value (negative ref) in the database.
     /// Example:
-    ///   update_refcount("a", "b", 1)
-    ///   update_refcount("a", -3)
-    ///   // Now we have the entry in the database that has "a", empty value and refcount value of -2,
-    pub fn is_rc(&self) -> bool {
-        RC_COLUMNS[*self as usize]
+    ///
+    /// ```ignore
+    /// update_refcount("foo", "bar", 1);
+    /// // good - after this call, the RC will be equal to 3.
+    /// update_refcount("foo", "bar", 2);
+    /// // bad - the value is still 'bar'.
+    /// update_refcount("foo", "baz", 1);
+    /// // ok - the value will be removed now. (as rc == 0)
+    /// update_refcount("foo", "", -3)
+    /// ```
+    ///
+    /// Quick note on negative refcounts: if we have a key that ends up having
+    /// a negative refcount, we have to store this value (negative ref) in the
+    /// database.
+    ///
+    /// Example:
+    ///
+    /// ```ignore
+    /// update_refcount("a", "b", 1);
+    /// update_refcount("a", -3);
+    /// // Now we have the entry in the database that has "a", empty value and refcount value of -2,
+    /// ```
+    pub const fn is_rc(&self) -> bool {
+        match self {
+            DBCol::State | DBCol::Transactions | DBCol::Receipts | DBCol::ReceiptIdToShardId => {
+                true
+            }
+            _ => false,
+        }
     }
+
     /// Whether this column is garbage collected.
-    pub fn is_gc(&self) -> bool {
-        !NO_GC_COLUMNS[*self as usize]
+    pub const fn is_gc(&self) -> bool {
+        match self {
+            DBCol::DbVersion  // DB version is unrelated to GC
+            | DBCol::BlockMisc
+            // TODO #3488 remove
+            | DBCol::BlockHeader  // header sync needs headers
+            | DBCol::GCCount      // GC count it self isn't GCed
+            | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
+            | DBCol::Peers        // Peers is unrelated to GC
+            | DBCol::BlockMerkleTree
+            | DBCol::AccountAnnouncements
+            | DBCol::EpochLightClientBlocks
+            | DBCol::PeerComponent  // Peer related info doesn't GC
+            | DBCol::LastComponentNonce
+            | DBCol::ComponentEdges
+            | DBCol::BlockOrdinal
+            | DBCol::EpochInfo           // https://github.com/nearprotocol/nearcore/pull/2952
+            | DBCol::EpochValidatorInfo  // https://github.com/nearprotocol/nearcore/pull/2952
+            | DBCol::EpochStart          // https://github.com/nearprotocol/nearcore/pull/2952
+            | DBCol::CachedContractCode => false,
+            _ => true,
+        }
     }
+
     /// Whether GC for this column is possible, but optional.
-    pub fn is_gc_optional(&self) -> bool {
-        OPTIONAL_GC_COLUMNS[*self as usize]
+    pub const fn is_gc_optional(&self) -> bool {
+        match self {
+            // A node may never restarted
+            DBCol::StateHeaders |
+            // True until #2515
+            DBCol::StateParts => true,
+            _ => false,
+        }
     }
 
     /// Returns variant’s name as a static string.
@@ -295,55 +343,6 @@ impl DBCol {
     pub fn variant_name(&self) -> &'static str {
         self.into()
     }
-}
-
-const NO_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
-    DBCol::DbVersion, // DB version is unrelated to GC
-    DBCol::BlockMisc,
-    // TODO #3488 remove
-    DBCol::BlockHeader, // header sync needs headers
-    DBCol::GCCount,     // GC count it self isn't GCed
-    DBCol::BlockHeight, // block sync needs it + genesis should be accessible
-    DBCol::Peers,       // Peers is unrelated to GC
-    DBCol::BlockMerkleTree,
-    DBCol::AccountAnnouncements,
-    DBCol::EpochLightClientBlocks,
-    DBCol::PeerComponent, // Peer related info doesn't GC
-    DBCol::LastComponentNonce,
-    DBCol::ComponentEdges,
-    DBCol::BlockOrdinal,
-    DBCol::EpochInfo,          // https://github.com/nearprotocol/nearcore/pull/2952
-    DBCol::EpochValidatorInfo, // https://github.com/nearprotocol/nearcore/pull/2952
-    DBCol::EpochStart,         // https://github.com/nearprotocol/nearcore/pull/2952
-    DBCol::CachedContractCode,
-]);
-
-const OPTIONAL_GC_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
-    // A node may never restarted
-    DBCol::StateHeaders,
-    // True until #2515
-    DBCol::StateParts,
-]);
-
-const RC_COLUMNS: [bool; DBCol::COUNT] =
-    col_set(&[DBCol::State, DBCol::Transactions, DBCol::Receipts, DBCol::ReceiptIdToShardId]);
-
-const INSERT_ONLY_COLUMNS: [bool; DBCol::COUNT] = col_set(&[
-    DBCol::BlockInfo,
-    DBCol::ChunkPerHeightShard,
-    DBCol::Chunks,
-    DBCol::InvalidChunks,
-    DBCol::PartialChunks,
-]);
-
-const fn col_set(cols: &[DBCol]) -> [bool; DBCol::COUNT] {
-    let mut res = [false; DBCol::COUNT];
-    let mut i = 0;
-    while i < cols.len() {
-        res[cols[i] as usize] = true;
-        i += 1;
-    }
-    res
 }
 
 impl fmt::Display for DBCol {
@@ -410,7 +409,7 @@ fn column_props_sanity() {
 
     for col in DBCol::iter() {
         if col.is_gc_optional() {
-            assert!(col.is_gc())
+            assert!(col.is_gc(), "{col}")
         }
         // Check that rc and write_once are mutually exclusive.
         assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
