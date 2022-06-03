@@ -33,6 +33,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
+use near_primitives::state_patch::StatePatch;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
@@ -431,7 +432,7 @@ impl NightshadeRuntime {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<StatePatch>,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -552,7 +553,7 @@ impl NightshadeRuntime {
                 receipts,
                 transactions,
                 &self.epoch_manager,
-                states_to_patch,
+                state_patch,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
@@ -1393,7 +1394,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        states_to_patch: Option<StatePatch>,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
 
