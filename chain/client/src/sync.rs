@@ -698,7 +698,7 @@ impl StateSync {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
-        let mut update_sync_state = false;
+        let mut update_sync_status = false;
         let init_sync_download = ShardSyncDownload {
             downloads: vec![
                 DownloadStatus {
@@ -731,7 +731,7 @@ impl StateSync {
             let mut need_shard = false;
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
-                update_sync_state = true;
+                update_sync_status = true;
                 init_sync_download.clone()
             });
             let old_status = shard_sync_download.status;
@@ -932,7 +932,7 @@ impl StateSync {
 
             // Execute syncing for shard `shard_id`
             if need_shard {
-                update_sync_state = true;
+                update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     me,
                     shard_id,
@@ -943,10 +943,10 @@ impl StateSync {
                     highest_height_peers,
                 )?;
             }
-            update_sync_state |= shard_sync_download.status != old_status;
+            update_sync_status |= shard_sync_download.status != old_status;
         }
 
-        Ok((update_sync_state, all_done))
+        Ok((update_sync_status, all_done))
     }
 
     pub fn set_apply_result(&mut self, shard_id: ShardId, apply_result: Result<(), Error>) {
@@ -1205,7 +1205,7 @@ impl StateSync {
             };
         }
 
-        let (update_sync_state, all_done) = self.sync_shards_status(
+        let (update_sync_status, all_done) = self.sync_shards_status(
             me,
             sync_hash,
             new_shard_sync,
@@ -1223,7 +1223,7 @@ impl StateSync {
             return Ok(StateSyncResult::Completed);
         }
 
-        Ok(if update_sync_state || request_block {
+        Ok(if update_sync_status || request_block {
             StateSyncResult::Changed(request_block)
         } else {
             StateSyncResult::Unchanged
