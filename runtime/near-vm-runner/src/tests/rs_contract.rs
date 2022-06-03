@@ -18,11 +18,7 @@ use crate::vm_kind::VMKind;
 use crate::VMResult;
 
 fn test_contract() -> ContractCode {
-    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
+    let code = near_test_contracts::rs_contract();
     ContractCode::new(code.to_vec(), None)
 }
 

@@ -395,11 +395,12 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
     }
 
+    let mut dst_config = config.store.clone();
+    dst_config.path = Some(opts.dest_dir);
     // Note: opts.dest_dir is resolved relative to current working directory
-    // (since it’s a command line option) which is why we set home to cwd and
-    // path to dest_dir.
+    // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = StoreOpener::new(&config.store).home(&cwd).path(&opts.dest_dir);
+    let dst_opener = StoreOpener::new(&dst_config).home(&cwd);
     let dst_path = dst_opener.get_path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),
@@ -491,6 +492,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
+    info!(target: "recompress", dest = %dst_path.display(), "Database recompressed");
     Ok(())
 }

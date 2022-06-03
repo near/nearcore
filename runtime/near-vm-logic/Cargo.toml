@@ -30,7 +30,7 @@ near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-vm-errors = { path = "../near-vm-errors" }
 
-bn = { package = "zeropool-bn", version = "0.5.11", features = [], optional = true }
+bn = { package = "zeropool-bn", version = "0.5.11", features = [] }
 tracing = { version = "0.1.13", optional = true}
 
 [dev-dependencies]
@@ -39,10 +39,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 
 [features]
 default = []
-protocol_feature_alt_bn128 = [
-  "bn",
-  "near-primitives-core/protocol_feature_alt_bn128",
-  "near-vm-errors/protocol_feature_alt_bn128",
+protocol_feature_fix_contract_loading_cost = [
+    "near-primitives/protocol_feature_fix_contract_loading_cost",
 ]
 
 # Use this feature to enable counting of fees and costs applied.

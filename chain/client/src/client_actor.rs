@@ -420,7 +420,7 @@ impl ClientActor {
                 let blocks_at_height = self
                     .client
                     .chain
-                    .mut_store()
+                    .store()
                     .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
@@ -1225,7 +1225,7 @@ impl ClientActor {
 
         self.pre_block_production()?;
         let head = self.client.chain.head()?;
-        let latest_known = self.client.chain.mut_store().get_latest_known()?;
+        let latest_known = self.client.chain.store().get_latest_known()?;
 
         assert!(
             head.height <= latest_known.height,

@@ -372,7 +372,7 @@ impl Client {
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        let known_height = self.chain.mut_store().get_latest_known()?.height;
+        let known_height = self.chain.store().get_latest_known()?.height;
 
         let validator_signer = self
             .validator_signer
@@ -491,7 +491,7 @@ impl Client {
         let timestamp_override = None;
 
         // Get block extra from previous block.
-        let block_merkle_tree = self.chain.mut_store().get_block_merkle_tree(&prev_hash)?;
+        let block_merkle_tree = self.chain.store().get_block_merkle_tree(&prev_hash)?;
         let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
@@ -710,7 +710,7 @@ impl Client {
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
-                        .mut_store()
+                        .store()
                         .check_transaction_validity_period(
                             prev_block_header,
                             &tx.transaction.block_hash,
@@ -758,7 +758,7 @@ impl Client {
                     .head()
                     .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
         {
-            match self.chain.mut_store().is_height_processed(block.header().height()) {
+            match self.chain.store().is_height_processed(block.header().height()) {
                 Ok(true) => return (vec![], Ok(None)),
                 Ok(false) => {}
                 Err(e) => return (vec![], Err(e)),
@@ -1598,7 +1598,7 @@ impl Client {
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self.chain.mut_store().check_transaction_validity_period(
+        if let Err(e) = self.chain.store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,
