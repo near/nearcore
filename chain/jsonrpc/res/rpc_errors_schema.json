@@ -1,5 +1,12 @@
 {
   "schema": {
+    "AltBn128InvalidInput": {
+      "name": "AltBn128InvalidInput",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
     "BadUTF16": {
       "name": "BadUTF16",
       "subtypes": [],
@@ -139,7 +146,8 @@
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
         "Deprecated",
-        "ECRecoverError"
+        "ECRecoverError",
+        "AltBn128InvalidInput"
       ],
       "props": {}
     },
