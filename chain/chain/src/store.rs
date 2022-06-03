@@ -2628,7 +2628,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update
                 .block_hash_per_height
                 .insert(block.header().height(), map);
-            store_update.set_ser(DBCol::Block, hash.as_ref(), block)?;
+            store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
         }
         let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> = HashMap::new();
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
@@ -2637,20 +2637,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 continue;
             }
 
-            match header_hashes_by_height.entry(header.height()) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(*hash);
-                }
-                Entry::Vacant(entry) => {
-                    let mut hash_set =
-                        match self.chain_store.get_all_header_hashes_by_height(header.height()) {
-                            Ok(hash_set) => hash_set.clone(),
-                            Err(_) => HashSet::new(),
-                        };
-                    hash_set.insert(*hash);
-                    entry.insert(hash_set);
-                }
-            };
+            header_hashes_by_height
+                .entry(header.height())
+                .or_insert_with(|| {
+                    self.chain_store
+                        .get_all_header_hashes_by_height(header.height())
+                        .unwrap_or_default()
+                })
+                .insert(*hash);
             store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
@@ -2670,7 +2664,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
-            store_update.set_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
+            store_update.insert_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
         }
         for ((height, shard_id), chunk_hash) in
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
