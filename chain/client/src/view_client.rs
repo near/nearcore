@@ -586,7 +586,7 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
         let block_view = self.handle(GetBlock(msg.0), ctx)?;
         self.chain
-            .mut_store()
+            .store()
             .get_block_merkle_tree(&block_view.header.hash)
             .map(|merkle_tree| (block_view, merkle_tree))
             .map_err(|e| e.into())
@@ -678,7 +678,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
                     BlockId::Height(h) => self.chain.get_header_by_height(h)?,
                 };
                 let next_block_hash =
-                    self.chain.mut_store().get_next_block_hash(block_header.hash())?;
+                    self.chain.store().get_next_block_hash(block_header.hash())?;
                 let next_block_header = self.chain.get_block_header(&next_block_hash)?;
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
@@ -829,7 +829,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
             let ret = Chain::create_light_client_block(
                 &head_header,
                 &*self.runtime_adapter,
-                self.chain.mut_store(),
+                self.chain.store(),
             )?;
 
             if ret.inner_lite.height <= last_height {
@@ -838,7 +838,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                 Ok(Some(Arc::new(ret)))
             }
         } else {
-            match self.chain.mut_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
+            match self.chain.store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block)),
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
@@ -957,7 +957,7 @@ impl Handler<GetReceipt> for ViewClientActor {
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
         Ok(self
             .chain
-            .mut_store()
+            .store()
             .get_receipt(&msg.receipt_id)?
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
