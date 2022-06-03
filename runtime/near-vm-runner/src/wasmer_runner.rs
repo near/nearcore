@@ -311,19 +311,7 @@ impl crate::runner::VM for Wasmer0VM {
         if !is_x86_feature_detected!("avx") {
             panic!("AVX support is required in order to run Wasmer VM Singlepass backend.");
         }
-        if method_name.is_empty() {
-            let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ));
-            return VMResult::nop_outcome(err);
-        }
 
-        // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
-        let module = match into_vm_result(module) {
-            Ok(x) => x,
-            Err(err) => return VMResult::nop_outcome(err),
-        };
         let mut memory = WasmerMemory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -342,20 +330,43 @@ impl crate::runner::VM for Wasmer0VM {
             current_protocol_version,
         );
 
-        // TODO: charge this before module is loaded
-        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-            let err = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-            return VMResult::abort(logic, err);
+        let result = logic.before_loading_executable(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
+        }
+
+        // TODO: consider using get_module() here, once we'll go via deployment path.
+        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
+        let module = match into_vm_result(module) {
+            Ok(x) => x,
+            // Note on backwards-compatibility: This error used to be an error
+            // without result, later refactored to NOP outcome. Now this returns
+            // an actual outcome, including gas costs that occurred before this
+            // point. This is compatible with earlier versions because those
+            // version do not have gas costs before reaching this code. (Also
+            // see `test_old_fn_loading_behavior_preserved` for a test that
+            // verifies future changes do not counteract this assumption.)
+            Err(err) => return VMResult::abort(logic, err),
+        };
+
+        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         let import_object =
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            // TODO: This should return an outcome to account for loading cost
-            return VMResult::nop_outcome(e);
+            return VMResult::abort_but_nop_outcome_in_old_protocol(
+                logic,
+                e,
+                current_protocol_version,
+            );
         }
 
         match run_method(&module, &import_object, method_name) {

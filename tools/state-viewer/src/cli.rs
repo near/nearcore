@@ -115,11 +115,24 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
+    /// List of account IDs to dump.
+    /// Note: validators will always be dumped.
+    /// If not set, all account IDs will be dumped.
+    #[clap(long)]
+    account_ids: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
+        dump_state(
+            self.height,
+            self.stream,
+            self.file,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+        );
     }
 }
 

@@ -30,6 +30,7 @@ near-network = { path = "../../chain/network" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-store = { path = "../../core/store" }
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
 nearcore = { path = "../../nearcore" }
 node-runtime = { path = "../../runtime/runtime" }
 

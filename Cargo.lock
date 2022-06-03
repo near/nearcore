@@ -5281,6 +5281,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-store",
+ "near-test-contracts",
  "nearcore",
  "node-runtime",
  "once_cell",
