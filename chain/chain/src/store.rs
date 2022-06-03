@@ -2636,7 +2636,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update
                 .block_hash_per_height
                 .insert(block.header().height(), map);
-            store_update.set_ser(DBCol::Block, hash.as_ref(), block)?;
+            store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
         }
         let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> = HashMap::new();
         for (hash, header) in self.chain_store_cache_update.headers.iter() {
@@ -2672,7 +2672,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (block_hash, block_extra) in self.chain_store_cache_update.block_extras.iter() {
-            store_update.set_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
+            store_update.insert_ser(DBCol::BlockExtra, block_hash.as_ref(), block_extra)?;
         }
         for ((height, shard_id), chunk_hash) in
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()

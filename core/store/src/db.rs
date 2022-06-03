@@ -357,7 +357,7 @@ impl Database for RocksDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get(col, &key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     batch.put_cf(self.cf_handle(col), key, value);
@@ -446,7 +446,7 @@ impl Database for TestDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Some(old_value) = db[col].get(&key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     db[col].insert(key, value);
@@ -470,7 +470,7 @@ impl Database for TestDB {
     }
 }
 
-fn assert_no_ovewrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
     assert_eq!(
         value, old_value,
         "\

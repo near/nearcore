@@ -444,13 +444,11 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::Block).is_ok());
-        store_update
-            .set_ser::<Vec<u8>>(
-                DBCol::Block,
-                chain.get_block_by_height(0).unwrap().hash().as_ref(),
-                &vec![123],
-            )
-            .unwrap();
+        store_update.set_raw_bytes(
+            DBCol::Block,
+            chain.get_block_by_height(0).unwrap().hash().as_ref(),
+            &vec![123],
+        );
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
