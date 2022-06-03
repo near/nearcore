@@ -7,7 +7,7 @@ use near_cache::CellLruCache;
 use near_primitives::time::Utc;
 
 use near_chain_primitives::error::Error;
-use near_primitives::block::{Approval, Tip};
+use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -27,9 +27,9 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId,
-    StateChanges, StateChangesExt, StateChangesForSplitStates, StateChangesKinds,
-    StateChangesKindsExt, StateChangesRequest,
+    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
+    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
+    StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -309,10 +309,6 @@ pub struct ChainStore {
     next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
     /// Light client blocks corresponding to the last finalized block of each epoch
     epoch_light_client_blocks: CellLruCache<Vec<u8>, Arc<LightClientBlockView>>,
-    /// Cache of my last approvals
-    my_last_approvals: CellLruCache<Vec<u8>, Arc<Approval>>,
-    /// Cache of last approvals for each account
-    last_approvals_per_account: CellLruCache<Vec<u8>, Arc<Approval>>,
     /// Cache with outgoing receipts.
     outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
     /// Cache with incoming receipts.
@@ -365,8 +361,6 @@ impl ChainStore {
             chunk_hash_per_height_shard: CellLruCache::new(CACHE_SIZE),
             next_block_hashes: CellLruCache::new(CACHE_SIZE),
             epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),
-            my_last_approvals: CellLruCache::new(CACHE_SIZE),
-            last_approvals_per_account: CellLruCache::new(CACHE_SIZE),
             outgoing_receipts: CellLruCache::new(CACHE_SIZE),
             incoming_receipts: CellLruCache::new(CACHE_SIZE),
             invalid_chunks: CellLruCache::new(CACHE_SIZE),
@@ -1116,8 +1110,6 @@ struct ChainStoreCacheUpdate {
     height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
-    my_last_approvals: HashMap<CryptoHash, Approval>,
-    last_approvals_per_account: HashMap<AccountId, Approval>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<CryptoHash, Vec<ExecutionOutcomeWithIdAndProof>>,
@@ -2946,8 +2938,6 @@ impl<'a> ChainStoreUpdate<'a> {
             height_to_hashes,
             next_block_hashes,
             epoch_light_client_blocks,
-            last_approvals_per_account,
-            my_last_approvals,
             outgoing_receipts,
             incoming_receipts,
             invalid_chunks,
@@ -2958,7 +2948,10 @@ impl<'a> ChainStoreUpdate<'a> {
             block_merkle_tree,
             block_ordinal_to_hash,
             processed_block_heights,
-            ..
+
+            outcomes: _,
+            outcome_ids: _,
+            gc_count: _,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.put(hash.into(), block);
@@ -2996,19 +2989,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store.height.pop(&bytes.to_vec());
             }
         }
-        for (account_id, approval) in last_approvals_per_account {
-            self.chain_store
-                .last_approvals_per_account
-                .put(account_id.as_ref().into(), Arc::new(approval));
-        }
         for (block_hash, next_hash) in next_block_hashes {
             self.chain_store.next_block_hashes.put(block_hash.into(), next_hash);
         }
         for (epoch_hash, light_client_block) in epoch_light_client_blocks {
             self.chain_store.epoch_light_client_blocks.put(epoch_hash.into(), light_client_block);
-        }
-        for (block_hash, approval) in my_last_approvals {
-            self.chain_store.my_last_approvals.put(block_hash.into(), Arc::new(approval));
         }
         for ((block_hash, shard_id), shard_outgoing_receipts) in outgoing_receipts {
             let key = get_block_shard_id(&block_hash, shard_id);
