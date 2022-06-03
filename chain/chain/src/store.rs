@@ -208,6 +208,42 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
+    /// Collect incoming receipts for shard `shard_id` from
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
+    /// This is because the chunks for the shard are empty for the blocks in between,
+    /// so the receipts from these blocks are propagated
+    fn get_incoming_receipts_for_shard(
+        &self,
+        shard_id: ShardId,
+        mut block_hash: CryptoHash,
+        last_chunk_height_included: BlockHeight,
+    ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        let mut ret = vec![];
+
+        loop {
+            let header = self.get_block_header(&block_hash)?;
+
+            if header.height() < last_chunk_height_included {
+                panic!("get_incoming_receipts_for_shard failed");
+            }
+
+            if header.height() == last_chunk_height_included {
+                break;
+            }
+
+            let prev_hash = *header.prev_hash();
+
+            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
+                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
+            } else {
+                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+            }
+
+            block_hash = prev_hash;
+        }
+
+        Ok(ret)
+    }
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -1178,43 +1214,6 @@ impl<'a> ChainStoreUpdate<'a> {
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
         }
-    }
-
-    /// Collect incoming receipts for shard `shard_id` from
-    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
-    /// This is because the chunks for the shard are empty for the blocks in between,
-    /// so the receipts from these blocks are propagated
-    pub fn get_incoming_receipts_for_shard(
-        &self,
-        shard_id: ShardId,
-        mut block_hash: CryptoHash,
-        last_chunk_height_included: BlockHeight,
-    ) -> Result<Vec<ReceiptProofResponse>, Error> {
-        let mut ret = vec![];
-
-        loop {
-            let header = self.get_block_header(&block_hash)?;
-
-            if header.height() < last_chunk_height_included {
-                panic!("get_incoming_receipts_for_shard failed");
-            }
-
-            if header.height() == last_chunk_height_included {
-                break;
-            }
-
-            let prev_hash = *header.prev_hash();
-
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
-            }
-
-            block_hash = prev_hash;
-        }
-
-        Ok(ret)
     }
 
     /// WARNING

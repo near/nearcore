@@ -1,9 +1,8 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
-use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::validate::validate_challenge;
 use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance,
+    Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance,
 };
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
@@ -298,7 +297,6 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let transaction_validity_period = genesis.config.transaction_validity_period;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
@@ -400,25 +398,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
     );
 
-    let challenge_body = {
-        use near_chain::chain::{ChainUpdate, OrphanBlockPool};
-        let chain = &mut client.chain;
-        let adapter = chain.runtime_adapter.clone();
-        let empty_block_pool = OrphanBlockPool::new();
-        let empty_chunks_pool = MissingChunksPool::new();
-
-        let mut chain_update = ChainUpdate::new(
-            chain.mut_store(),
-            adapter,
-            &empty_block_pool,
-            &empty_chunks_pool,
-            DoomslugThresholdMode::NoApprovals,
-            transaction_validity_period,
-            None,
-        );
-
-        chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()
-    };
+    let challenge_body =
+        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
     {
         let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
