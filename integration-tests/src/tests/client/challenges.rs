@@ -1,9 +1,7 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use near_chain::validate::validate_challenge;
-use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance,
-};
+use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
