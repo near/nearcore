@@ -75,7 +75,6 @@ nightly-debug:
 assertions-release: NEAR_RELEASE_BUILD=release
 assertions-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo build -p neard --release --features performance_stats,memory_stats
-	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
 
 
 sandbox: CARGO_TARGET_DIR=sandbox
