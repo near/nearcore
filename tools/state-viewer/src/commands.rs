@@ -1,11 +1,13 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
+use crate::tx_dump::tx_dump;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
+use near_chain::Error;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
@@ -24,6 +26,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieIterator};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -106,6 +109,26 @@ pub(crate) fn dump_state_redis(
 
     let res = state_dump_redis(runtime, &state_roots, header);
     assert_eq!(res, Ok(()));
+}
+
+pub(crate) fn dump_tx(
+    height: BlockHeight,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    select_account_ids: Option<&Vec<AccountId>>,
+) -> Result<(), Error> {
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        !near_config.client_config.archive,
+    );
+    let hash = chain_store.get_block_hash_by_height(height)?;
+    let block = chain_store.get_block(&hash)?;
+    let txs = tx_dump(&mut chain_store, &block, select_account_ids);
+    fs::write(PathBuf::from(&home_dir).join("tx.json"), json!(txs).to_string())
+        .expect("Error writing the results to a json file.");
+    return Ok(());
 }
 
 pub(crate) fn apply_range(
