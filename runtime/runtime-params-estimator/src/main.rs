@@ -197,6 +197,14 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if cli_args.debug {
+        use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+    }
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
     }
