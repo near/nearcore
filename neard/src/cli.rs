@@ -465,8 +465,9 @@ impl RunCmd {
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
-            opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
+            // opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
             actix::System::current().stop();
+            opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
