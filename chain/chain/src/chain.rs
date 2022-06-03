@@ -2103,26 +2103,16 @@ impl Chain {
         // TODO: move apply_chunks_preprocessing from ChainUpdate to Chain
         let mut chain_update = self.chain_update();
 
-        // If we have the state for shards in the next epoch already downloaded, apply the state transition
-        // for these states as well
-        // otherwise put the block into the permanent storage, waiting for be caught up
-        let apply_chunk_work = if is_caught_up {
-            chain_update.apply_chunks_preprocessing(
-                me,
-                block,
-                &prev_block,
-                &incoming_receipts,
-                ApplyChunksMode::IsCaughtUp,
-            )?
-        } else {
-            chain_update.apply_chunks_preprocessing(
-                me,
-                block,
-                &prev_block,
-                &incoming_receipts,
-                ApplyChunksMode::NotCaughtUp,
-            )?
-        };
+        let apply_chunk_work = chain_update.apply_chunks_preprocessing(
+            me,
+            block,
+            &prev_block,
+            &incoming_receipts,
+            // If we have the state for shards in the next epoch already downloaded, apply the state transition
+            // for these states as well
+            // otherwise put the block into the permanent storage, waiting for be caught up
+            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+        )?;
 
         Ok((
             apply_chunk_work,
