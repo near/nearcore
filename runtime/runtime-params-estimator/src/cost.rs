@@ -83,13 +83,10 @@ pub enum Cost {
     /// cost for adding a `FunctionCallAction` to a receipt. It aims to account
     /// for all costs of calling a function that are already known on the caller
     /// side.
-    /// 
+    ///
     /// Estimation: Measure the cost to execute a transaction with an empty
     /// function with no arguments. Subtract the receipt creating cost from
     /// that, as that is already charged separately.
-    /// 
-    /// TODO[jakmeier][#6353]: Today, the estimation falsely includes the
-    /// loading cost of the estimator test contract.
     ActionFunctionCallBase,
     /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
     /// the incremental cost for each byte of the method name and method
@@ -573,26 +570,38 @@ pub enum Cost {
     /// around bytes that are not code. Divide this cost by the difference of
     /// bytes.
     DeployBytes,
-    /// Estimates `contract_compile_base` which is charged once per contract
+    /// Estimates `wasm_contract_loading_base` which is charged once per contract
     /// that is loaded from the database to execute a method on it.
-    /// (will be renamed to `contract_loading_base`, see
-    /// https://github.com/near/nearcore/issues/5962)
     ///
     /// Estimation: Measure the cost to execute an empty contract method
     /// directly on a runtime instance, using different sizes of contracts.
     /// Use least-squares to calculate base and per-byte cost.
     /// The contract size is scaled by adding more methods to it. This has been
-    /// identified as a particular expensive in terms of per-byte loading time.
+    /// identified as particular expensive in terms of per-byte loading time.
     /// This makes it a better scaling strategy than, for example, adding large
     /// constants in the data section.
     ContractLoadingBase,
-    /// Estimates `contract_compile_byte` which is charged for each byte in a
-    /// contract when it is loaded from the database to execute a method on it.
-    /// (will be renamed to `contract_loading_base`, see
-    /// https://github.com/near/nearcore/issues/5962)
+    /// Estimates the executable loading part of `wasm_contract_loading_bytes`
+    /// which is charged for each byte in a contract when it is loaded as an
+    /// executable.
+    /// 
+    /// This cost also has to cover the reading of the code from the database.
+    /// So technically, it covers code loading from database and also executable
+    /// loading. But it is still charged right before executable loading because
+    /// pre-charging for loading from the database is not possible without
+    /// knowing the code size.
     ///
     /// Estimation: See `ContractLoadingBase`.
     ContractLoadingPerByte,
+    /// Estimates the storage loading part of `wasm_contract_loading_bytes`.
+    /// 
+    /// See comment on `ContractLoadingPerByte` why these are combined.
+    /// 
+    /// Estimation: Measure the cost difference of two transactions calling a
+    /// trivial smart contract method, where one contract has a large data
+    /// section and the other contract is very small. Divide the difference in
+    /// size.
+    FunctionCallPerStorageByte,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.

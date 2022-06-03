@@ -94,9 +94,9 @@ use near_vm_runner::MockCompiledContractCache;
 use rand::Rng;
 use serde_json::json;
 use utils::{
-    aggregate_per_block_measurements, average_cost, fn_cost, fn_cost_count, fn_cost_with_setup,
-    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost, transaction_cost_ext,
+    aggregate_per_block_measurements, average_cost, fn_cost, fn_cost_count, fn_cost_in_contract,
+    fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
+    read_resource, transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -186,6 +186,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::DeployBytes, pure_deploy_bytes),
     (Cost::ContractLoadingBase, contract_loading_base),
     (Cost::ContractLoadingPerByte, contract_loading_per_byte),
+    (Cost::FunctionCallPerStorageByte, function_call_per_storage_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -695,10 +696,19 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
         return base_byte_cost;
     }
 
-    let (total_base, per_byte) = crate::function_call::function_call_cost_per_code_byte(ctx.config);
-    let base = total_base - action_function_call_base(ctx);
+    let (base, per_byte) = crate::function_call::function_call_cost_per_code_byte(ctx.config);
     ctx.cached.contract_loading_base_per_byte = Some((base.clone(), per_byte.clone()));
     (base, per_byte)
+}
+fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let small_code = generate_data_only_contract(0);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code);
+
+    let large_code = generate_data_only_contract(4_000_000);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code);
+
+    large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
+        / (large_code.len() - small_code.len()) as u64
 }
 
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {

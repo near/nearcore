@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
 /// total contract code. The contract size is increased by adding more methods
-/// to it.
+/// to it. This cost is pure VM cost, without the loading from storage.
 pub(crate) fn function_call_cost_per_code_byte(config: &Config) -> (GasCost, GasCost) {
     let mut xs = vec![];
     let mut ys = vec![];

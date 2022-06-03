@@ -6,7 +6,7 @@ use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
 
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
@@ -193,6 +193,61 @@ pub(crate) fn fn_cost_with_setup(
     let base_cost = noop_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
+}
+
+/// Estimates the cost to call `method`, on given contract.
+///
+/// Used for costs that specifically need to deploy a contract first. Note that
+/// this causes the contract to be deployed once in every iteration. Therefore,
+/// whenever possible, prefer to add a method to the generic test contract.
+pub(crate) fn fn_cost_in_contract(
+    ctx: &mut EstimatorContext,
+    method: &str,
+    code: &[u8],
+) -> GasCost {
+    let total_cost = {
+        let block_size = 10;
+        let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+        let mut testbed = ctx.testbed();
+
+        let chosen_accounts = {
+            let tb = testbed.transaction_builder();
+            std::iter::repeat_with(|| tb.random_unused_account()).take(n_blocks).collect::<Vec<_>>()
+        };
+
+        for account in &chosen_accounts {
+            let tb = testbed.transaction_builder();
+            let setup = vec![Action::DeployContract(DeployContractAction { code: code.to_vec() })];
+            let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
+
+            testbed.process_block(vec![setup_tx], 0);
+        }
+
+        let blocks = {
+            let mut blocks = Vec::with_capacity(n_blocks);
+            for account in chosen_accounts {
+                let tb = testbed.transaction_builder();
+                let mut block = Vec::new();
+                for _ in 0..block_size {
+                    let tx = tb.transaction_from_function_call(account.clone(), method, Vec::new());
+                    block.push(tx);
+                }
+                blocks.push(block);
+            }
+            blocks
+        };
+
+        let mut measurements = testbed.measure_blocks(blocks, 0);
+        measurements.drain(0..ctx.config.warmup_iters_per_block);
+
+        let (gas_cost, _ext_costs) =
+            aggregate_per_block_measurements(ctx.config, block_size, measurements);
+        gas_cost
+    };
+
+    let base_cost = noop_function_call_cost(ctx);
+
+    total_cost - base_cost
 }
 
 pub(crate) fn aggregate_per_block_measurements(
