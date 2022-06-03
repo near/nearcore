@@ -444,6 +444,8 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::Block).is_ok());
+        // Use `set_raw` to ruthlessly override block data with some garbage,
+        // simulating IO error.
         store_update.set_raw_bytes(
             DBCol::Block,
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
