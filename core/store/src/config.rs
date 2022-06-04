@@ -135,12 +135,12 @@ pub struct StoreOpener<'a> {
 }
 
 impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given store configuration.
+    /// Initialises a new opener with given home directory and store config.
     pub fn new(home_dir: &'a std::path::Path, config: &'a StoreConfig) -> Self {
         Self { home_dir, config, read_only: false }
     }
 
-    /// Initialises a new opener using default store configuration.
+    /// Initialises a new opener with given home directory and default config.
     ///
     /// This is meant for tests only.  Production code should always read store
     /// configuration from a config file and use [`Self::new`] instead.
