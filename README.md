@@ -53,7 +53,7 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 [tutorials-url]: https://docs.near.org/docs/tutorials/overview
 [api-docs-url]: https://docs.near.org/docs/api/overview
 
-## Join the Network
+## Join the Network sDC
 
 The easiest way to join the network, is by using the `nearup` command, which you can install as follows:
 
