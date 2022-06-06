@@ -203,7 +203,7 @@ fn apply_store_migrations_if_exists(
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let opener = StoreOpener::new(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener.open();
     if !exists {
@@ -381,7 +381,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_opener = StoreOpener::new(&config.store).home(home_dir).read_only(true);
+    let src_opener = StoreOpener::new(home_dir, &config.store).read_only(true);
     let src_path = src_opener.get_path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
@@ -400,7 +400,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = StoreOpener::new(&dst_config).home(&cwd);
+    let dst_opener = StoreOpener::new(&cwd, &dst_config);
     let dst_path = dst_opener.get_path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),
