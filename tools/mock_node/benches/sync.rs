@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use criterion::Criterion;
 use flate2::read::GzDecoder;
 use mock_node::setup::setup_mock_node;
-use mock_node::GetChainTargetBlockHeight;
+use mock_node::{GetChainTargetBlockHeight, MockNetworkConfig};
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_chain_configs::GenesisValidationMode;
 use near_client::GetBlock;
@@ -101,12 +101,13 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
         },
         |(sys, near_config, home)| {
             let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
+            let network_config = MockNetworkConfig::with_delay(Duration::from_millis(100));
             let servers = block_on_interruptible(&sys, async move {
                 let (mock_network, _client, view_client, servers) = setup_mock_node(
                     tempdir.path(),
                     home.as_path(),
                     near_config,
-                    Duration::from_millis(100),
+                    &network_config,
                     0,
                     None,
                     target_height,

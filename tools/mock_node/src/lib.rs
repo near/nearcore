@@ -2,6 +2,7 @@
 //! components of the mock network.
 
 use actix::{Actor, Context, Handler, Recipient};
+use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
@@ -15,12 +16,164 @@ use near_network_primitives::types::{
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
-use std::collections::HashMap;
+use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::Duration;
 
 pub mod setup;
+
+// For now this is a simple struct with one field just to leave the door
+// open for adding stuff and/or having different configs for different message types later.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MockIncomingRequestConfig {
+    // How long we wait between sending each incoming request
+    interval: Duration,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MockIncomingRequestsConfig {
+    // Options for sending unrequested blocks
+    block: Option<MockIncomingRequestConfig>,
+    // Options for sending chunk part requests
+    chunk_request: Option<MockIncomingRequestConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MockNetworkConfig {
+    #[serde(default = "default_delay")]
+    // How long we'll wait until sending replies to the client
+    pub response_delay: Duration,
+    pub incoming_requests: Option<MockIncomingRequestsConfig>,
+}
+
+impl MockNetworkConfig {
+    pub fn with_delay(response_delay: Duration) -> Self {
+        let mut ret = Self::default();
+        ret.response_delay = response_delay;
+        ret
+    }
+
+    pub fn from_file<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
+        let s = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&s)?)
+    }
+}
+
+fn default_delay() -> Duration {
+    Duration::from_millis(100)
+}
+
+impl Default for MockNetworkConfig {
+    fn default() -> Self {
+        Self { response_delay: default_delay(), incoming_requests: None }
+    }
+}
+
+#[derive(Debug)]
+// Info related to unrequested messages we'll send to the client
+struct IncomingRequests {
+    block: Option<(Duration, Block)>,
+    chunk_request: Option<(Duration, PartialEncodedChunkRequestMsg)>,
+}
+
+// get some chunk hash to serve as the source of unrequested incoming chunks.
+// For now we find the first chunk hash we know about starting from the height the client will start at.
+// The lower the height, the better, so that the client will actually do some work on these
+// requests instead of just seeing that the chunk hash is unknown.
+fn retrieve_starting_chunk_hash(
+    chain: &mut Chain,
+    client_start_height: BlockHeight,
+    target_height: BlockHeight,
+) -> anyhow::Result<ChunkHash> {
+    let mut last_err = None;
+    for height in client_start_height..target_height + 1 {
+        match chain.store().get_any_chunk_hash_by_height_shard(height, 0) {
+            Ok(hash) => return Ok(hash),
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+    match last_err {
+        Some(e) => Err(e)
+            .with_context(|| format!("Last error (retrieving chunk hash @ #{})", target_height)),
+        None => Err(anyhow!("given target_height is not after the client start height?")),
+    }
+}
+
+// get some block to serve as the source of unrequested incoming blocks.
+fn retrieve_incoming_block(
+    chain: &mut Chain,
+    client_start_height: BlockHeight,
+    target_height: BlockHeight,
+) -> anyhow::Result<Block> {
+    let mut last_err = None;
+    for height in client_start_height..target_height + 1 {
+        match chain.get_block_by_height(height) {
+            Ok(b) => return Ok(b),
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+    match last_err {
+        Some(e) => {
+            Err(e).with_context(|| format!("Last error (retrieving block #{})", target_height))
+        }
+        None => Err(anyhow!("given target_height is not after the client start height?")),
+    }
+}
+
+impl IncomingRequests {
+    fn new(
+        config: &Option<MockIncomingRequestsConfig>,
+        chain: &mut Chain,
+        client_start_height: BlockHeight,
+        target_height: BlockHeight,
+    ) -> Self {
+        let mut block = None;
+        let mut chunk_request = None;
+
+        if let Some(config) = config {
+            if let Some(block_config) = &config.block {
+                match retrieve_incoming_block(chain, client_start_height, target_height) {
+                    Ok(b) => {
+                        block = Some((block_config.interval, b));
+                    }
+                    Err(e) => {
+                        tracing::error!("Can't retrieve block suitable for mock messages: {:?}", e);
+                    }
+                };
+            }
+            if let Some(chunk_request_config) = &config.chunk_request {
+                match retrieve_starting_chunk_hash(chain, client_start_height, target_height) {
+                    Ok(chunk_hash) => {
+                        chunk_request = Some((
+                            chunk_request_config.interval,
+                            PartialEncodedChunkRequestMsg {
+                                chunk_hash,
+                                part_ords: vec![0],
+                                tracking_shards: std::iter::once(0).collect::<HashSet<_>>(),
+                            },
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Can't construct chunk part request suitable for mock messages: {:?}",
+                            e
+                        );
+                    }
+                };
+            }
+        }
+
+        Self { block, chunk_request }
+    }
+}
 
 /// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
 /// Instead of sending these messages out to other peers, it simulates a network and reads
@@ -43,17 +196,19 @@ pub struct MockPeerManagerActor {
     network_delay: Duration,
     /// The simulated peers will stop producing new blocks at this height
     target_height: BlockHeight,
+    incoming_requests: IncomingRequests,
 }
 
 impl MockPeerManagerActor {
     fn new(
         client_addr: Recipient<NetworkClientMessages>,
         genesis_config: &GenesisConfig,
-        chain: Chain,
+        mut chain: Chain,
+        client_start_height: BlockHeight,
         network_start_height: BlockHeight,
         target_height: BlockHeight,
         block_production_delay: Duration,
-        network_delay: Duration,
+        network_config: MockNetworkConfig,
     ) -> Self {
         // for now, we only simulate one peer
         // we will add more complicated network config in the future
@@ -80,13 +235,20 @@ impl MockPeerManagerActor {
             known_producers: vec![],
             peer_counter: 0,
         };
+        let incoming_requests = IncomingRequests::new(
+            &network_config.incoming_requests,
+            &mut chain,
+            client_start_height,
+            target_height,
+        );
         Self {
             client_addr,
             chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
-            network_delay,
+            network_delay: network_config.response_delay,
             target_height,
+            incoming_requests,
         }
     }
 
@@ -120,6 +282,42 @@ impl MockPeerManagerActor {
             },
         );
     }
+
+    fn send_unrequested_block(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
+        if let Some((interval, block)) = &self.incoming_requests.block {
+            let _response = self.client_addr.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                self.network_info.connected_peers[0].peer_info.id.clone(),
+                false,
+            ));
+
+            run_later(ctx, *interval, move |act, ctx| {
+                act.send_unrequested_block(ctx);
+            });
+        }
+    }
+
+    fn send_unrequested_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
+        if let Some((interval, request)) = &self.incoming_requests.chunk_request {
+            let _response =
+                self.client_addr.do_send(NetworkClientMessages::PartialEncodedChunkRequest(
+                    request.clone(),
+                    // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
+                    // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
+                    // responsible for it.
+                    CryptoHash::default(),
+                ));
+
+            run_later(ctx, *interval, move |act, ctx| {
+                act.send_unrequested_chunk_request(ctx);
+            });
+        }
+    }
+
+    fn send_incoming_requests(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
+        self.send_unrequested_block(ctx);
+        self.send_unrequested_chunk_request(ctx);
+    }
 }
 
 impl Actor for MockPeerManagerActor {
@@ -127,6 +325,8 @@ impl Actor for MockPeerManagerActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start syncing job.
         self.update_peers(ctx);
+
+        self.send_incoming_requests(ctx);
     }
 }
 
@@ -169,6 +369,7 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                         );
                     });
                 }
+                NetworkRequests::PartialEncodedChunkResponse { .. } => {}
                 NetworkRequests::Block { .. } => {}
                 NetworkRequests::StateRequestHeader { .. } => {
                     panic!(
