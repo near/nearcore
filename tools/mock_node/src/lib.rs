@@ -297,7 +297,7 @@ impl MockPeerManagerActor {
         }
     }
 
-    fn send_unrequested_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
+    fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
             let _response =
                 self.client_addr.do_send(NetworkClientMessages::PartialEncodedChunkRequest(
@@ -309,14 +309,14 @@ impl MockPeerManagerActor {
                 ));
 
             run_later(ctx, *interval, move |act, ctx| {
-                act.send_unrequested_chunk_request(ctx);
+                act.send_chunk_request(ctx);
             });
         }
     }
 
     fn send_incoming_requests(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         self.send_unrequested_block(ctx);
-        self.send_unrequested_chunk_request(ctx);
+        self.send_chunk_request(ctx);
     }
 }
 
