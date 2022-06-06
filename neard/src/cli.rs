@@ -412,7 +412,7 @@ impl RunCmd {
             near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
-            near_config.network_config.addr = Some(network_addr);
+            near_config.network_config.node_addr = Some(network_addr);
         }
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
