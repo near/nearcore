@@ -4819,6 +4819,7 @@ dependencies = [
  "sha256",
  "tempfile",
  "tracing-span-tree",
+ "tracing-subscriber",
  "walrus",
  "wat",
 ]

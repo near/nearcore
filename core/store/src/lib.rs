@@ -240,7 +240,7 @@ impl StoreUpdate {
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
     /// Deletes the given key from the database.

@@ -252,7 +252,9 @@ impl DBCol {
     /// always one.
     pub const fn is_insert_only(&self) -> bool {
         match self {
-            DBCol::BlockInfo
+            DBCol::Block
+            | DBCol::BlockExtra
+            | DBCol::BlockInfo
             | DBCol::ChunkPerHeightShard
             | DBCol::Chunks
             | DBCol::InvalidChunks

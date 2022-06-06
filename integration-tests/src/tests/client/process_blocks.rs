@@ -15,7 +15,8 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance, RuntimeAdapter,
+    Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
+    RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -1794,10 +1795,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(
             &None,
             *sync_block.hash(),
-            &mut |_| {},
-            &mut |_| {},
-            &mut |_| {},
-            &mut |_| {},
+            &mut BlockProcessingArtifact::default(),
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -2683,8 +2681,8 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    assert!(logs_at_old_version.iter().any(|l| l.contains(&"run_wasmer0")));
-    assert!(logs_at_new_version.iter().any(|l| l.contains(&"run_wasmer2")));
+    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
+    assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
 }
 
 #[test]
