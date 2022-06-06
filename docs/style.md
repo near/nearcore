@@ -47,7 +47,7 @@ idioms usually reflect learned truths, which might not be immediately obvious.
 This section documents all micro-rules which are not otherwise enforced by
 `rustfmt`.
 
-### Avoid `.as_ref`
+### Avoid `AsRef::as_ref`
 
 When you have some concrete type, prefer `.as_str`, `.as_bytes`, `.as_path` over
 generic `.as_ref`. Only use `.as_ref` when the type in question is a generic
@@ -67,6 +67,8 @@ fn log_validator(account_id: AccountId) {
        .increment()
 }
 ```
+
+Note that `Option::as_ref`, `Result::as_ref` are great, use do use them!
 
 **Rationale:** readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
