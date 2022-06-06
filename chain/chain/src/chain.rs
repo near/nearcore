@@ -1798,8 +1798,13 @@ impl Chain {
         //    No chain updates are applied at this step.
         let states_to_patch =
             if cfg!(feature = "sandbox") { self.pending_states_to_patch.take() } else { None };
-        let preprocess_res =
-            self.preprocess_block(me, &block, &provenance, &mut block_processing_artifact.challenges, states_to_patch);
+        let preprocess_res = self.preprocess_block(
+            me,
+            &block,
+            &provenance,
+            &mut block_processing_artifact.challenges,
+            states_to_patch,
+        );
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
             Err(e) => {
