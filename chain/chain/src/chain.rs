@@ -51,7 +51,7 @@ use near_store::{DBCol, ShardTries, StoreUpdate};
 use near_primitives::state_record::StateRecord;
 
 use crate::block_processing_utils::{
-    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    ApplyChunkCallback, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
@@ -76,6 +76,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -451,7 +452,7 @@ pub struct Chain {
     /// This callback will be called after apply_chunks are finished. ClientActor can use this
     /// to receive notifications that apply_chunks for some blocks are finished and it should call
     /// postprocess_ready_blocks.
-    // apply_chunks_ready_callback: Box<dyn Fn<()>>,
+    // apply_chunks_ready_callback: Box<dyn Fn<CryptoHash>->()>,
     last_time_head_updated: Instant,
 }
 
@@ -1499,18 +1500,43 @@ impl Chain {
         Ok(())
     }
 
+    pub fn process_block_sync(
+        &mut self,
+        me: &Option<AccountId>,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        block_processing_artifacts: &mut BlockProcessingArtifact,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let block_done = Arc::new(OnceCell::new());
+        let block_done1 = block_done.clone();
+        self.start_process_block_async(
+            me,
+            block,
+            provenance,
+            block_processing_artifacts,
+            Arc::new(move |_| block_done1.set(true).unwrap()),
+        )?;
+        let _ = block_done.wait();
+        Ok(self.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {})))
+    }
+
     /// Start process a received or produced block.
     /// Note that the processing of this block won't be finished by the end of this function, since
     /// chunks are applied async. Caller of this function must call postprocess_ready_blocks()
     /// to complete processing the blocks that finished applying chunks.
     /// `block_processing_artifacts`: Callers can pass an empty object or an existing BlockProcessingArtifact.
     ///              This function will add the effect from processing this block to there.
-    pub fn start_process_block(
+    /// `apply_chunks_done_callback`: This callback will be called after apply_chunks are finished
+    ///              (so it also happens asynchronously from the current thread). Callers can
+    ///              use this callback as a way to receive notifications when apply chunks are done
+    ///              so it can call postprocess_ready_blocks.
+    pub fn start_process_block_async(
         &mut self,
         me: &Option<AccountId>,
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) -> Result<(), Error> {
         self.blocks_delay_tracker.mark_block_received(block.get_inner(), Clock::instant());
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
@@ -1520,7 +1546,13 @@ impl Chain {
         let success_timer = metrics::BLOCK_PROCESSING_TIME.start_timer();
 
         let block_height = block.header().height();
-        let res = self.start_process_block_impl(me, block, provenance, block_processing_artifacts);
+        let res = self.start_process_block_impl(
+            me,
+            block,
+            provenance,
+            block_processing_artifacts,
+            apply_chunks_done_callback,
+        );
 
         match &res {
             Ok(_) => {
@@ -1739,6 +1771,7 @@ impl Chain {
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
@@ -1763,7 +1796,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts);
+        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
         Ok(())
     }
 
@@ -1775,6 +1808,7 @@ impl Chain {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
@@ -1874,11 +1908,7 @@ impl Chain {
 
         // 2) apply chunks, this is where the transactions and receipts are processed. At this step,
         //    there still no change to ChainStore.
-        self.async_apply_chunks(
-            block_hash,
-            apply_chunk_work,
-            //self.apply_chunks_ready_callback.clone(),
-        );
+        self.async_apply_chunks(block_hash, apply_chunk_work, apply_chunks_done_callback.clone());
 
         Ok(())
     }
@@ -1887,7 +1917,7 @@ impl Chain {
         &self,
         block_hash: CryptoHash,
         work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
-        //apply_chunks_ready_callback: Box<dyn Fn()>,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) {
         let sc = self.apply_chunks_sender.clone();
         // TODO: uncomment this line when we are ready to move apply_chunks async
@@ -1895,8 +1925,8 @@ impl Chain {
         let res = do_apply_chunks(work);
         // we can safely unwrap here because error means the receiver is deallocated, which means
         // the chain thread is shut down, and the node already crashed
-        sc.send((block_hash, res)).unwrap();
-        //apply_chunks_ready_callback();
+        sc.send((block_hash.clone(), res)).unwrap();
+        apply_chunks_done_callback(block_hash);
         //});
     }
 
@@ -1905,6 +1935,7 @@ impl Chain {
         me: &Option<AccountId>,
         block_apply_chunk_result: BlockApplyChunksResult,
         block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) -> Result<AcceptedBlock, Error> {
         let (block_hash, apply_results) = block_apply_chunk_result;
         let (block, block_preprocess_info) =
@@ -1939,26 +1970,33 @@ impl Chain {
                 metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
                 metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
             }
-            self.last_time_head_updated = Instant::now();
+            self.last_time_head_updated = Clock::instant();
         };
 
         let status = self.determine_status(new_head.clone(), prev_head);
 
-        self.check_orphans(me, *block.hash(), block_processing_artifacts);
+        self.check_orphans(
+            me,
+            *block.hash(),
+            block_processing_artifacts,
+            apply_chunks_done_callback,
+        );
         Ok(AcceptedBlock { hash: *block.hash(), status, provenance })
     }
 
     pub fn postprocess_ready_blocks(
         &mut self,
         me: &Option<AccountId>,
-    ) -> (Vec<AcceptedBlock>, BlockProcessingArtifact) {
-        let mut block_processing_artifacts = BlockProcessingArtifact::default();
+        block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
+    ) -> Vec<AcceptedBlock> {
         let mut accepted_blocks = vec![];
         while let Ok(block_apply_chunk_result) = self.apply_chunks_receiver.try_recv() {
             match self.postprocess_block(
                 me,
                 block_apply_chunk_result,
-                &mut block_processing_artifacts,
+                block_processing_artifacts,
+                apply_chunks_done_callback.clone(),
             ) {
                 // TODO: handle errors here
                 // For now, let's just ignore the error. These errors get dropped eventually
@@ -1967,7 +2005,11 @@ impl Chain {
                 Ok(accepted_block) => accepted_blocks.push(accepted_block),
             }
         }
-        (accepted_blocks, block_processing_artifacts)
+        accepted_blocks
+    }
+
+    pub fn get_blocks_in_processing(&self) -> Vec<CryptoHash> {
+        self.blocks_in_processing.get_blocks()
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -2280,16 +2322,18 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) {
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
         for orphan in orphans {
             let block_hash = *orphan.block.header().hash();
             let time = Clock::instant();
-            let res = self.start_process_block(
+            let res = self.start_process_block_async(
                 me,
                 orphan.block,
                 orphan.provenance,
                 block_processing_artifact,
+                apply_chunks_done_callback.clone(),
             );
             match res {
                 Ok(_) => {
@@ -2318,6 +2362,7 @@ impl Chain {
         me: &Option<AccountId>,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
     ) {
         let mut queue = vec![prev_hash];
         let mut queue_idx = 0;
@@ -2344,11 +2389,12 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.hash();
                     self.blocks_delay_tracker.mark_block_unorphaned(&block_hash, Clock::instant());
-                    let res = self.start_process_block(
+                    let res = self.start_process_block_async(
                         me,
                         orphan.block,
                         orphan.provenance,
                         block_processing_artifacts,
+                        apply_chunks_done_callback.clone(),
                     );
                     match res {
                         Ok(()) => {
@@ -3009,6 +3055,7 @@ impl Chain {
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
+        apply_chunks_done_callback: ApplyChunkCallback,
         affected_blocks: &Vec<CryptoHash>,
     ) -> Result<(), Error> {
         debug!(
@@ -3036,7 +3083,12 @@ impl Chain {
         chain_store_update.commit()?;
 
         for hash in affected_blocks.iter() {
-            self.check_orphans(me, *hash, block_processing_artifacts);
+            self.check_orphans(
+                me,
+                *hash,
+                block_processing_artifacts,
+                apply_chunks_done_callback.clone(),
+            );
         }
 
         Ok(())

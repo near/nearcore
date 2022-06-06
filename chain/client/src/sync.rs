@@ -1353,7 +1353,7 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer);
             chain
-                .start_process_block(
+                .process_block_sync(
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
@@ -1366,7 +1366,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
             chain2
-                .start_process_block(
+                .process_block_sync(
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
@@ -1659,9 +1659,10 @@ mod test {
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
-        let _ = env.clients[1].process_block(
+        let _ = env.clients[1].start_process_block(
             MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
             Provenance::NONE,
+            Arc::new(|_| {}),
         );
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();

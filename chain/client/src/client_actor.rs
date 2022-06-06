@@ -20,8 +20,8 @@ use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
+    byzantine_assert, near_chain_primitives, ApplyChunkCallback, Block, BlockHeader,
+    BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
@@ -76,10 +76,16 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ApplyChunksDoneMessage;
+
 pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
 
+    // Address of this ClientActor. Can be used to send messages to self.
+    address: Addr<ClientActor>,
     client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
@@ -136,6 +142,7 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
 
 impl ClientActor {
     pub fn new(
+        address: Addr<ClientActor>,
         config: ClientConfig,
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -176,6 +183,7 @@ impl ClientActor {
         let now = Utc::now();
         Ok(ClientActor {
             adv,
+            address,
             client,
             network_adapter,
             node_id,
@@ -321,7 +329,7 @@ impl ClientActor {
                                 ),
                             );
                             let _ =
-                                self.client.process_block(block.into(), Provenance::PRODUCED);
+                                self.client.start_process_block(block.into(), Provenance::PRODUCED, self.get_apply_chunks_done_callback());
                             blocks_produced += 1;
                             if blocks_produced == num_blocks {
                                 break;
@@ -603,17 +611,24 @@ impl ClientActor {
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.process_partial_encoded_chunk_response(response);
+                let _ = self.client.process_partial_encoded_chunk_response(
+                    response,
+                    self.get_apply_chunks_done_callback(),
+                );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                let _ = self
-                    .client
-                    .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk));
+                let _ = self.client.process_partial_encoded_chunk(
+                    MaybeValidated::from(partial_encoded_chunk),
+                    self.get_apply_chunks_done_callback(),
+                );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.process_partial_encoded_chunk_forward(forward) {
+                match self.client.process_partial_encoded_chunk_forward(
+                    forward,
+                    self.get_apply_chunks_done_callback(),
+                ) {
                     Ok(()) => {}
                     // Unknown chunk is normal if we get parts before the header
                     Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
@@ -1065,6 +1080,14 @@ impl Handler<GetNetworkInfo> for ClientActor {
     }
 }
 
+impl Handler<ApplyChunksDoneMessage> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: ApplyChunksDoneMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.try_process_unfinished_blocks();
+    }
+}
+
 impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
@@ -1360,7 +1383,8 @@ impl ClientActor {
     }
 
     fn try_process_unfinished_blocks(&mut self) {
-        let accepted_blocks = self.client.postprocess_ready_blocks();
+        let accepted_blocks =
+            self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback());
         self.process_accepted_blocks(accepted_blocks);
     }
 
@@ -1439,6 +1463,7 @@ impl ClientActor {
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
+                self.get_apply_chunks_done_callback(),
             );
             let block = self.client.chain.get_block(&accepted_block.hash).unwrap().clone();
             let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
@@ -1549,7 +1574,14 @@ impl ClientActor {
                 }
             }
         }
-        self.client.process_block(block, provenance)
+        self.client.start_process_block(block, provenance, self.get_apply_chunks_done_callback())
+    }
+
+    fn get_apply_chunks_done_callback(&self) -> ApplyChunkCallback {
+        let addr = self.address.clone();
+        Arc::new(move |_| {
+            addr.do_send(ApplyChunksDoneMessage {});
+        })
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
@@ -1755,6 +1787,7 @@ impl ClientActor {
             &self.state_parts_task_scheduler,
             &self.block_catch_up_scheduler,
             &self.state_split_scheduler,
+            self.get_apply_chunks_done_callback(),
         ) {
             error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
         }
@@ -1934,6 +1967,7 @@ impl ClientActor {
                             &me,
                             sync_hash,
                             &mut block_processing_artifacts,
+                            self.get_apply_chunks_done_callback(),
                         ));
 
                         self.client.process_block_processing_artifact(block_processing_artifacts);
@@ -2192,6 +2226,7 @@ pub fn start_client(
     let client_arbiter_handle = client_arbiter.handle();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
+            ctx.address(),
             client_config,
             chain_genesis,
             runtime_adapter,

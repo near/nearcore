@@ -5,7 +5,6 @@ mod simple_chain;
 mod sync_chain;
 
 use crate::block_processing_utils::BlockProcessingArtifact;
-use crate::types::Tip;
 use crate::{Block, Chain, Error, Provenance};
 use near_primitives::account::id::AccountId;
 use near_primitives::utils::MaybeValidated;
@@ -17,13 +16,14 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block: Block,
-    ) -> Result<Option<Tip>, Error> {
+    ) -> Result<(), Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        self.start_process_block(
+        self.process_block_sync(
             me,
             MaybeValidated::from(block),
             Provenance::PRODUCED,
             &mut block_processing_artifacts,
         )
+        .map(|_| {})
     }
 }

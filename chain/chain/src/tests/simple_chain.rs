@@ -12,16 +12,17 @@ use num_rational::Rational;
 use std::time::Instant;
 
 #[test]
-fn build_chain() {
+fn build_chain_1() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
 
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, signer) = setup();
 
     assert_eq!(mock_clock_guard.utc_call_count(), 1);
-    assert_eq!(mock_clock_guard.instant_call_count(), 0);
+    assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
     // The hashes here will have to be modified after changes to the protocol.
@@ -54,16 +55,17 @@ fn build_chain() {
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
-        let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i as u64);
+        chain.process_block_test(&None, block).unwrap();
+        assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
     assert_eq!(mock_clock_guard.utc_call_count(), 9);
-    assert_eq!(mock_clock_guard.instant_call_count(), 12);
+    assert_eq!(mock_clock_guard.instant_call_count(), 17);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
@@ -115,8 +117,8 @@ fn build_chain_with_orhpans() {
         chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
         Error::Orphan
     );
-    let res = chain.process_block_test(&None, blocks.pop().unwrap());
-    assert_eq!(res.unwrap().unwrap().height, 10);
+    chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
         Error::BlockKnown(BlockKnownError::KnownInStore)

@@ -7,6 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
 use near_primitives::types::ShardId;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -56,6 +57,8 @@ pub struct BlockProcessingArtifact {
     pub challenges: Vec<ChallengeBody>,
 }
 
+pub type ApplyChunkCallback = Arc<dyn Fn(CryptoHash) -> ()>;
+
 #[derive(Debug)]
 pub struct BlockNotInPoolError;
 
@@ -97,5 +100,9 @@ impl BlocksInProcessing {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn get_blocks(&self) -> Vec<CryptoHash> {
+        self.preprocessed_blocks.keys().map(|h| *h).collect()
     }
 }
