@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
         let store =
-            near_store::StoreOpener::new(&near_config.config.store).home(&state_dump_path).open();
+            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
             Arc::new(near_config.genesis),
@@ -199,6 +199,13 @@ fn main() -> anyhow::Result<()> {
 
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
+    } else {
+        use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;

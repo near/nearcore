@@ -357,7 +357,7 @@ impl Database for RocksDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get(col, &key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     batch.put_cf(self.cf_handle(col), key, value);
@@ -446,7 +446,7 @@ impl Database for TestDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Some(old_value) = db[col].get(&key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     db[col].insert(key, value);
@@ -470,7 +470,7 @@ impl Database for TestDB {
     }
 }
 
-fn assert_no_ovewrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
     assert_eq!(
         value, old_value,
         "\
@@ -814,7 +814,7 @@ mod tests {
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -835,7 +835,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

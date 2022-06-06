@@ -20,8 +20,8 @@ use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
-    Provenance, RuntimeAdapter,
+    byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
+    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
@@ -420,7 +420,7 @@ impl ClientActor {
                 let blocks_at_height = self
                     .client
                     .chain
-                    .mut_store()
+                    .store()
                     .get_all_block_hashes_by_height(block.header().height());
                 if was_requested || !blocks_at_height.is_ok() {
                     if let SyncStatus::StateSync(sync_hash, _) = &mut self.client.sync_status {
@@ -1008,11 +1008,7 @@ impl Handler<Status> for ClientActor {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
-                    display_sync_status(
-                        &self.client.sync_status,
-                        &self.client.chain.head()?,
-                        self.client.chain.genesis_block().header().height(),
-                    ),
+                    display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
                 ),
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
@@ -1229,7 +1225,7 @@ impl ClientActor {
 
         self.pre_block_production()?;
         let head = self.client.chain.head()?;
-        let latest_known = self.client.chain.mut_store().get_latest_known()?;
+        let latest_known = self.client.chain.store().get_latest_known()?;
 
         assert!(
             head.height <= latest_known.height,
@@ -1529,7 +1525,10 @@ impl ClientActor {
             block.mark_as_valid();
         } else {
             let chain = &mut self.client.chain;
-            let res = chain.process_block_header(block.header(), &mut |_| {});
+            // TODO: refactor this after we make apply_chunks async. After that, process_block
+            // will return before the full block is finished processing, and we can simply move the
+            // rebroadcast_block logic to after self.client.process_block
+            let res = chain.process_block_header(block.header(), &mut vec![]);
             let res = res.and_then(|_| chain.validate_block(&block));
             match res {
                 Ok(_) => {
@@ -1947,24 +1946,20 @@ impl ClientActor {
                     StateSyncResult::Completed => {
                         info!(target: "sync", "State sync: all shards are done");
 
-                        let mut accepted_blocks = vec![];
-                        let mut orphans_missing_chunks = vec![];
-                        let mut blocks_missing_chunks = vec![];
-                        let mut challenges = vec![];
+                        let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
                         unwrap_or_run_later!(self.client.chain.reset_heads_post_state_sync(
                             &me,
                             sync_hash,
-                            &mut |accepted_block| {
-                                accepted_blocks.push(accepted_block);
-                            },
-                            &mut |missing_chunks| { blocks_missing_chunks.push(missing_chunks) },
-                            &mut |orphan_missing_chunks| {
-                                orphans_missing_chunks.push(orphan_missing_chunks);
-                            },
-                            &mut |challenge| challenges.push(challenge)
+                            &mut block_processing_artifacts,
                         ));
 
+                        let BlockProcessingArtifact {
+                            accepted_blocks,
+                            orphans_missing_chunks,
+                            blocks_missing_chunks,
+                            challenges,
+                        } = block_processing_artifacts;
                         self.client.send_challenges(challenges);
 
                         self.process_accepted_blocks(accepted_blocks);
@@ -1972,8 +1967,11 @@ impl ClientActor {
                         self.client
                             .request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
 
-                        self.client.sync_status =
-                            SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+                        self.client.sync_status = SyncStatus::BodySync {
+                            start_height: 0,
+                            current_height: 0,
+                            highest_height: 0,
+                        };
                     }
                 }
             }
@@ -2038,7 +2036,6 @@ impl ClientActor {
             None
         };
         self.info_helper.info(
-            self.client.chain.store().get_genesis_height(),
             &head,
             &self.client.sync_status,
             &self.node_id,

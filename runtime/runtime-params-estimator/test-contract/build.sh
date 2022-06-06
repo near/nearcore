@@ -46,8 +46,11 @@ echo ${bare_wasm}
 # Generate several files of various sizes. We will compile these files into the Wasm binary to
 # bloat its size to the given values.
 
+# FIXME(#6822): we should just remove the payload logic. 10Kib variant is
+# broken, because the baseline contract is >10KiB (data for alt_bn estimatons).
+
 # 10KiB
-dd if=/dev/urandom of=./res/payload bs=$(expr 10240 - ${bare_wasm}) count=1
+dd if=/dev/urandom of=./res/payload bs=1 count=1
 cargo build --target wasm32-unknown-unknown --release  --features "payload$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/stable_small_contract.wasm
 

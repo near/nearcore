@@ -189,8 +189,15 @@ impl HeaderSync {
         };
 
         if enable_header_sync {
-            *sync_status =
-                SyncStatus::HeaderSync { current_height: header_head.height, highest_height };
+            let start_height = match sync_status.start_height() {
+                Some(height) => height,
+                None => chain.head()?.height,
+            };
+            *sync_status = SyncStatus::HeaderSync {
+                start_height,
+                current_height: header_head.height,
+                highest_height,
+            };
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.chain_info.height > header_head.height {
@@ -437,7 +444,12 @@ impl BlockSync {
         }
 
         let head = chain.head()?;
-        *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
+        let start_height = match sync_status.start_height() {
+            Some(height) => height,
+            None => head.height,
+        };
+        *sync_status =
+            SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
         Ok(false)
     }
 
@@ -508,7 +520,7 @@ impl BlockSync {
             // Then go forward for as long as we know the next block
             let mut ret_hash = candidate.1;
             loop {
-                match chain.mut_store().get_next_block_hash(&ret_hash) {
+                match chain.store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
@@ -530,7 +542,7 @@ impl BlockSync {
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
-            match chain.mut_store().get_next_block_hash(&next_hash) {
+            match chain.store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,
@@ -1289,7 +1301,7 @@ mod test {
     use std::thread;
 
     use near_chain::test_utils::{setup, setup_with_validators};
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
@@ -1345,10 +1357,7 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
+                    &mut BlockProcessingArtifact::default(),
                 )
                 .unwrap();
         }
@@ -1361,10 +1370,7 @@ mod test {
                     &None,
                     block.into(),
                     Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
+                    &mut BlockProcessingArtifact::default(),
                 )
                 .unwrap();
         }
@@ -1519,7 +1525,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );
@@ -1537,7 +1547,11 @@ mod test {
             let current_height = block.header().height();
             set_syncing_peer(&mut header_sync);
             header_sync.header_sync_due(
-                &SyncStatus::HeaderSync { current_height, highest_height },
+                &SyncStatus::HeaderSync {
+                    start_height: current_height,
+                    current_height,
+                    highest_height,
+                },
                 &Tip::from_header(block.header()),
                 highest_height,
             );
@@ -1614,7 +1628,9 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
+        let mut challenges = vec![];
+        env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
+        assert!(challenges.is_empty());
 
         // fetch three blocks at a time
         for i in 0..3 {
@@ -1682,7 +1698,9 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
+        let mut challenges = vec![];
+        env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
+        assert!(challenges.is_empty());
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());

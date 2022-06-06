@@ -1,43 +1,37 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-#[allow(unused_imports)]
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
+use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
-use anyhow::{anyhow, bail};
-use parking_lot::Mutex;
-use tracing::debug;
-
+use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
+use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
-
-use crate::tests::network::multiset::MultiSet;
-use near_network::routing::start_routing_table_actor;
-#[cfg(feature = "test_features")]
-use near_network::test_utils::SetAdvOptions;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
-    ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
+    Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::future::Future;
+use std::iter::Iterator;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::debug;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -96,7 +90,7 @@ fn setup_network_node(
             client_config.clone(),
             chain_genesis.clone(),
             runtime.clone(),
-            PeerId::new(config.public_key.clone()),
+            config.node_id(),
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
@@ -105,7 +99,7 @@ fn setup_network_node(
         )
         .0;
         let view_client_actor = start_view_client(
-            config.account_id.clone(),
+            config.validator.as_ref().map(|v| v.account_id()),
             chain_genesis.clone(),
             runtime.clone(),
             network_adapter,
@@ -113,8 +107,7 @@ fn setup_network_node(
             adv,
         );
 
-        let routing_table_addr =
-            start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+        let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
 
         PeerManagerActor::new(
             store.clone(),
@@ -280,7 +273,7 @@ impl StateMachine {
                     #[allow(unused_variables)]
                     let addr = info.get_node(target)?.addr.clone();
                     #[cfg(feature = "test_features")]
-                    addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
+                    addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         disable_edge_signature_verification: None,
                         disable_edge_propagation: None,
                         disable_edge_pruning: None,
@@ -558,15 +551,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist = config
+        let blacklist: Blacklist = config
             .blacklist
             .iter()
-            .map(|x| {
-                if let Some(x) = x {
-                    self.test_config[*x].addr().to_string()
-                } else {
-                    "127.0.0.1".to_string()
-                }
+            .map(|x| match x {
+                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
+                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =
@@ -649,16 +639,13 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for (i, a) in actions.into_iter().enumerate() {
             debug!("[starting action {i}]");
             loop {
-                tokio::select! {
-                    done = a(&mut info) => {
-                        match done? {
-                            ControlFlow::Break(_) => { break }
-                            ControlFlow::Continue(_) => {}
-                        }
-                    }
-                    () = tokio::time::sleep_until(start + timeout) => {
-                        bail!("timeout while executing action {i}/{actions_count}");
-                    }
+                let done =
+                    tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
+                        || format!("timeout while executing action {i}/{actions_count}"),
+                    )??;
+                match done {
+                    ControlFlow::Break(()) => break,
+                    ControlFlow::Continue(()) => {}
                 }
                 tokio::time::sleep(step).await;
             }
@@ -667,7 +654,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         for i in 0..info.nodes.len() {
             info.stop_node(i).await?;
         }
-        return Ok(());
+        Ok(())
     })
 }
 

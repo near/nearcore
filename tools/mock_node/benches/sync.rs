@@ -93,8 +93,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
             near_config.validator_signer = None;
             near_config.client_config.min_num_peers = 1;
             let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
-            near_config.network_config.public_key = signer.public_key;
-            near_config.network_config.secret_key = signer.secret_key;
+            near_config.network_config.node_key = signer.secret_key;
             near_config.client_config.tracked_shards =
                 (0..near_config.genesis.config.shard_layout.num_shards()).collect();
             (setup_actix(), near_config, home)

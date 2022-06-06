@@ -19,11 +19,23 @@ pub fn trivial_contract() -> &'static [u8] {
 /// Contract with exact size in bytes.
 pub fn sized_contract(size: usize) -> Vec<u8> {
     let payload = "x".repeat(size);
-    let base_size =
-        wat_contract(&format!("(module (data \"{payload}\") (func (export \"main\")))")).len();
+    let base_size = wat_contract(&format!(
+        r#"(module
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    ))
+    .len();
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
-    let code = format!("(module (data \"{payload}\") (func (export \"main\")))");
+    let code = format!(
+        r#"(module 
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    );
     let contract = wat_contract(&code);
     assert_eq!(contract.len(), size);
     contract
@@ -167,7 +179,7 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     config.exceptions_enabled = false;
     config.saturating_float_to_int_enabled = false;
     config.sign_extension_enabled = false;
-    config.available_imports = Some(rs_contract().to_vec());
+    config.available_imports = Some(base_rs_contract().to_vec());
     let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
     module.to_bytes()
 }
