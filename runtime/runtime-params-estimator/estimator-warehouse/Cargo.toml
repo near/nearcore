@@ -11,7 +11,7 @@ edition = "2021"
 anyhow = "1.0.56"
 chrono = "0.4.19"
 clap = {version = "3.1.6", features = ["derive"]}
-nix = "0.15.0"
+nix = "0.24.1"
 reqwest = {version = "0.11.0", features = ["blocking"]}
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"]}
 serde = {version = "1.0.136", features = ["derive"]}
