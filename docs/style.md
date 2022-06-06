@@ -47,6 +47,34 @@ idioms usually reflect learned truths, which might not be immediately obvious.
 This section documents all micro-rules which are not otherwise enforced by
 `rustfmt`.
 
+### Avoid `AsRef::as_ref`
+
+When you have some concrete type, prefer `.as_str`, `.as_bytes`, `.as_path` over
+generic `.as_ref`. Only use `.as_ref` when the type in question is a generic
+`T: AsRef<U>`.
+
+
+```rust
+// GOOD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_str())
+       .increment()
+}
+
+// BAD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_ref())
+       .increment()
+}
+```
+
+Note that `Option::as_ref`, `Result::as_ref` are great, use do use them!
+
+**Rationale:** readability and churn-resistance. There might be more than one
+`AsRef<U>` implementation for a given type (with different `U`s). If a new
+implementation is added, some of the `.as_ref()` calls might break. See also
+https://github.com/rust-lang/rust/issues/62586.
+
 ### Import Granularity
 
 Group import by module, but not deeper:
