@@ -75,6 +75,39 @@ Note that `Option::as_ref`, `Result::as_ref` are great, use do use them!
 implementation is added, some of the `.as_ref()` calls might break. See also
 https://github.com/rust-lang/rust/issues/62586.
 
+
+### Avoid references to `Copy`-types
+
+Various generic APIs in Rust often return references to data (`&T`). When `T` is
+a small `Copy` type like `i32`, you end up with `&i32` while many API expect
+`i32`, so dereference has to happen _somewhere_. Prefer dereferencing as early
+as possible, typically in a pattern:
+
+```rust
+// GOOD
+fn compute(map: HashMap<&'str, i32>) {
+    if let Some(&value) = map.get("key") {
+        process(value)
+    }
+}
+fn process(value: i32) { ... }
+
+// BAD
+fn compute(map: HashMap<&'str, i32>) {
+    if let Some(value) = map.get("key") {
+        process(*value)
+    }
+}
+fn process(value: i32) { ... }
+```
+
+**Rationale:** if the value is used multiple times, dereferencing in the pattern
+saves keystrokes. If the value is used exactly once, we just want to be
+consistent. Additional benefit of early deref is reduced scope of borrow.
+
+Note that for some *big* `Copy` types, notably `CryptoHash`, we sometimes use
+references for performance reasons.
+
 ### Import Granularity
 
 Group import by module, but not deeper:
