@@ -835,9 +835,8 @@ impl Client {
 
     pub fn finish_blocks_in_processing(&mut self) -> Vec<AcceptedBlock> {
         let mut accepted_blocks = vec![];
-        while !self.chain.get_blocks_in_processing().is_empty() {
+        while !self.chain.wait_for_all_block_in_processing() {
             accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {})));
-            thread::sleep(Duration::from_millis(10));
         }
         accepted_blocks
     }

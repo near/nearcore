@@ -12,7 +12,7 @@ use num_rational::Rational;
 use std::time::Instant;
 
 #[test]
-fn build_chain_1() {
+fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
 
@@ -118,6 +118,9 @@ fn build_chain_with_orhpans() {
         Error::Orphan
     );
     chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    assert_eq!(chain.head().unwrap().height, 1);
+
+    chain.finish_processing_remaining_blocks(&None);
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
