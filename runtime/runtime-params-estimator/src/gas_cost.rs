@@ -601,8 +601,7 @@ mod tests {
             GasCost::new_time_based(Ratio::new(13, 10)),
         ];
 
-        let expected =
-            Ok((GasCost::new_time_based(1), GasCost::new_time_based(Ratio::new(1, 10))));
+        let expected = Ok((GasCost::new_time_based(1), GasCost::new_time_based(Ratio::new(1, 10))));
         check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
     }
 
