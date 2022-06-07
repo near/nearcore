@@ -194,7 +194,11 @@ pub struct PeerManagerActor {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     routing_table_view: RoutingTableView,
-
+    /// A graph of the whole NEAR network, shared between routing::Actor
+    /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
+    /// TODO: this is an intermediate step towards replacing actix runtime with a
+    /// generic threadpool (or multiple pools) in the near-network crate.
+    /// It the threadpool setup, inevitably some of the state will be shared.
     network_graph: Arc<RwLock<routing::GraphWithCache>>,
     /// Fields used for communicating with EdgeValidatorActor
     routing_table_exchange_helper: EdgeValidatorHelper,

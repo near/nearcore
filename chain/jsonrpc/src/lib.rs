@@ -334,7 +334,7 @@ impl JsonRpcHandler {
                 }
                 "adv_get_routing_table" => {
                     let result = self
-                        .routing_table_addr
+                        .peer_manager_addr
                         .send(near_network::types::PeerManagerMessageRequest::GetRoutingTable)
                         .await
                         .map_err(RpcError::rpc_from)?;

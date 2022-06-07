@@ -57,9 +57,14 @@ impl RoutingTableTest {
     }
 
     fn check(&mut self, want_mem: Vec<Edge>, want_db: Vec<Component>) {
-        let got_mem: HashMap<_, _> = self.graph.read().edges().clone().into_iter().collect();
-        let want_mem: HashMap<_, _> = want_mem.into_iter().map(|e| (e.key().clone(), e)).collect();
-        assert_eq!(got_mem, want_mem);
+        let got_mem: HashMap<_, _> = self.graph.read().edges().clone();
+        let mut want_mem_map = HashMap::new();
+        for e in want_mem {
+            if want_mem_map.insert(e.key().clone(), e.clone()).is_some() {
+                panic!("want_mem: multiple entries for {:?}", e.key());
+            }
+        }
+        assert_eq!(got_mem, want_mem_map);
 
         let got_db: HashSet<_> =
             self.store.list_components().into_iter().map(|c| c.normal()).collect();
