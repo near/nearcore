@@ -29,14 +29,17 @@
         tr.active {
             background-color: #eff8bf;
         }
+
+        .skippedChunk {
+            background-color: grey;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
-        function createHashElement(hashValue, creator, className) {
+        function createHashElement(hashValue, creator) {
             var element = $('<span>');
             element.addClass('hashElem');
-            element.addClass(className);
-            element.attr("hashValue", hashValue);
+            element.attr("hashvalue", hashValue);
             element.attr("creator", creator);
             element.css("font-family", "monospace");
             var suffix = "...";
@@ -71,6 +74,7 @@
                             }
                         });
                     });
+                    let chunks_by_index = {};
 
                     prepareTableHeader(max_shard);
                     data.status_response.BlockStatus.forEach(element => {
@@ -89,7 +93,9 @@
                             shards_cells.push($('<td>'));
                         }
                         element.chunks.forEach((chunk, index) => {
-                            shards_cells[chunk.shard_id * 3].append(createHashElement(chunk.chunk_hash, chunk.chunk_producer, "chunk_" + index));
+                            let element = createHashElement(chunk.chunk_hash, chunk.chunk_producer);
+                            (chunks_by_index[index] = chunks_by_index[index] || []).push(element);
+                            shards_cells[chunk.shard_id * 3].append(element);
                             shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
                             shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
                         });
@@ -102,13 +108,11 @@
                     });
 
                     for (let i = 0; i <= max_shard; i += 1) {
-                        let chunk_span = "chunk_" + i;
-                        let entries = $("." + chunk_span);
                         let previous_hash = ""
-                        for (let j = entries.length - 1; j >= 0; j -= 1) {
-                            let new_hash = entries[j].attributes['hashvalue'].value;
+                        for (let j = chunks_by_index[i].length - 1; j >= 0; j -= 1) {
+                            let new_hash = chunks_by_index[i][j][0].attributes['hashvalue'].value;
                             if (previous_hash == new_hash) {
-                                entries[j].style['background-color'] = 'grey';
+                                chunks_by_index[i][j].addClass('skippedChunk')
                             }
                             previous_hash = new_hash;
                         }
