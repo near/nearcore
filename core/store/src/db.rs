@@ -278,12 +278,8 @@ pub(crate) trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn flush(&self) -> Result<(), DBError> {
-        Ok(())
-    }
-    fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
-    }
+    fn flush(&self) -> Result<(), DBError>;
+    fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
@@ -467,6 +463,14 @@ impl Database for TestDB {
             };
         }
         Ok(())
+    }
+    
+    fn flush(&self) -> Result<(), DBError> {
+        Ok(())
+    }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        None
     }
 }
 
