@@ -814,7 +814,7 @@ mod tests {
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -835,7 +835,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

@@ -70,9 +70,8 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store = near_store::StoreOpener::new(&near_config.config.store)
+        let store = near_store::StoreOpener::new(home_dir, &near_config.config.store)
             .read_only(!readwrite)
-            .home(home_dir)
             .open();
         match self {
             StateViewerSubCommand::Peers => peers(store),
