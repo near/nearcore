@@ -668,19 +668,34 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", vec![0; 1024 * 1024])
-        };
-        transaction_cost(ctx, &mut make_transaction)
+    let xs = [1, 1_000_000, 4_000_000];
+    let ys: Vec<GasCost> = xs
+        .iter()
+        .map(|&arg_len| inner_action_function_call_per_byte(ctx, arg_len as usize))
+        .collect();
+
+    let negative_base_tolerance = 0u64;
+    let rel_factor_tolerance = 0.001;
+    let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
+        &xs,
+        &ys,
+        &LeastSquaresTolerance::default()
+            .base_abs_nn_tolerance(negative_base_tolerance)
+            .factor_rel_nn_tolerance(rel_factor_tolerance),
+        ctx.config.debug,
+    );
+    per_byte
+}
+
+fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usize) -> GasCost {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let args = tb.random_vec(arg_len);
+        tb.transaction_from_function_call(sender, "noop", args)
     };
-
-    let base_cost = noop_function_call_cost(ctx);
-
-    let bytes_per_transaction = 1024 * 1024;
-
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
+    let block_size = 5;
+    let block_latency = 0;
+    transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
 }
 
 fn contract_loading_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -702,12 +717,13 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let vm_config = VMConfig::test();
+    let block_size = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
-    let small_cost = fn_cost_in_contract(ctx, "main", &small_code);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, block_size);
 
     let large_code = generate_data_only_contract(4_000_000, &vm_config);
-    let large_cost = fn_cost_in_contract(ctx, "main", &large_code);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, block_size);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
         / (large_code.len() - small_code.len()) as u64
