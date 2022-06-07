@@ -464,7 +464,7 @@ impl Database for TestDB {
         }
         Ok(())
     }
-    
+
     fn flush(&self) -> Result<(), DBError> {
         Ok(())
     }
