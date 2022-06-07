@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>", "Egor Kulikov <egor@near.org>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

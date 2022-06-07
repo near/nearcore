@@ -49,7 +49,7 @@ impl Scenario {
         } else {
             let tempdir = tempfile::tempdir()
                 .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = near_store::StoreOpener::with_default_config().home(tempdir.path()).open();
+            let store = near_store::StoreOpener::with_default_config(tempdir.path()).open();
             (Some(tempdir), store)
         };
 

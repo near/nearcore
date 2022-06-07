@@ -4819,6 +4819,7 @@ dependencies = [
  "sha256",
  "tempfile",
  "tracing-span-tree",
+ "tracing-subscriber",
  "walrus",
  "wat",
 ]
@@ -5281,6 +5282,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-store",
+ "near-test-contracts",
  "nearcore",
  "node-runtime",
  "once_cell",

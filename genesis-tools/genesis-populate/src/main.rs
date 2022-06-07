@@ -29,7 +29,7 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::StoreOpener::new(&near_config.config.store).home(home_dir).open();
+    let store = near_store::StoreOpener::new(home_dir, &near_config.config.store).open();
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())
