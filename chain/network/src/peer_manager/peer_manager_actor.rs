@@ -30,7 +30,7 @@ use near_network_primitives::types::{
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerType, Ping, Pong, RawRoutedMessage,
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_network_primitives::types::{Blacklist, EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -202,7 +202,7 @@ pub struct PeerManagerActor {
     /// Connected peers we have sent new edge update, but we haven't received response so far.
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Dynamic Prometheus metrics
-    pub(crate) network_metrics: Arc<NetworkMetrics>,
+    pub(crate) network_metrics: NetworkMetrics,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     routing_table_addr: Addr<RoutingTableActor>,
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -215,14 +215,24 @@ pub struct PeerManagerActor {
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
+    /// test-only, defaults to () (a noop counter).
+    ping_counter: Box<dyn PingCounter>,
 }
+
+// test-only
+pub trait PingCounter {
+    fn add_ping(&self, _ping: &Ping) {}
+    fn add_pong(&self, _pong: &Pong) {}
+}
+
+impl PingCounter for () {}
 
 impl Actor for PeerManagerActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start server if address provided.
-        if let Some(server_addr) = self.config.addr {
+        if let Some(server_addr) = self.config.node_addr {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let peer_manager_addr = ctx.address();
 
@@ -296,16 +306,13 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
-        let peer_store = PeerStore::new(
-            store.clone(),
-            &config.boot_nodes,
-            Blacklist::from_iter(config.blacklist.iter()),
-        )
-        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store =
+            PeerStore::new(store.clone(), &config.boot_nodes, config.blacklist.clone())
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
-        let my_peer_id: PeerId = PeerId::new(config.public_key.clone());
+        let my_peer_id: PeerId = PeerId::new(config.node_key.public_key());
         let routing_table = RoutingTableView::new(store);
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
@@ -330,13 +337,20 @@ impl PeerManagerActor {
             routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
-            network_metrics: Arc::new(NetworkMetrics::new()),
+            network_metrics: Default::default(),
             routing_table_addr,
             txns_since_last_block,
             peer_counter: Arc::new(AtomicUsize::new(0)),
             adv_helper: AdvHelper::default(),
             whitelist_nodes,
+            ping_counter: Box::new(()),
         })
+    }
+
+    /// test-only, sets the ping_counter field.
+    pub fn with_ping_counter(mut self, ping_counter: Box<dyn PingCounter>) -> Self {
+        self.ping_counter = ping_counter;
+        self
     }
 
     fn update_routing_table_and_prune_edges(
@@ -406,7 +420,7 @@ impl PeerManagerActor {
         if accounts.is_empty() {
             return;
         }
-        debug!(target: "network", account_id = ?self.config.account_id, ?accounts, "Received new accounts");
+        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?accounts, "Received new accounts");
         for account in accounts.iter() {
             self.routing_table_view.add_account(account.clone());
         }
@@ -717,7 +731,7 @@ impl PeerManagerActor {
     }
 
     fn send_sync(
-        network_metrics: Arc<NetworkMetrics>,
+        network_metrics: NetworkMetrics,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
@@ -780,8 +794,7 @@ impl PeerManagerActor {
 
         if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
-                let edge_update =
-                    edge.remove_edge(self.my_peer_id.clone(), &self.config.secret_key);
+                let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
                 Self::broadcast_message(
                     self.network_metrics.clone(),
@@ -854,8 +867,8 @@ impl PeerManagerActor {
         partial_edge_info: Option<PartialEdgeInfo>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
-        let account_id = self.config.account_id.clone();
-        let server_addr = self.config.addr;
+        let account_id = self.config.validator.as_ref().map(|v| v.account_id());
+        let server_addr = self.config.node_addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
         let view_client_addr = self.view_client_addr.clone();
@@ -1028,11 +1041,7 @@ impl PeerManagerActor {
         self.routing_table_addr.do_send(RoutingTableMessages::AdvRemoveEdges(edges));
     }
 
-    fn wait_peer_or_remove(
-        ctx: &mut Context<Self>,
-        edge: Edge,
-        network_metrics: Arc<NetworkMetrics>,
-    ) {
+    fn wait_peer_or_remove(ctx: &mut Context<Self>, edge: Edge, network_metrics: NetworkMetrics) {
         // This edge says this is an connected peer, which is currently not in the set of connected peers.
         // Wait for some time to let the connection begin or broadcast edge removal instead.
 
@@ -1043,7 +1052,7 @@ impl PeerManagerActor {
                 let other = edge.other(&act.my_peer_id).unwrap();
                 if !act.connected_peers.contains_key(other) {
                     // Peer is still not connected after waiting a timeout.
-                    let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.secret_key);
+                    let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
                     Self::broadcast_message(
                         network_metrics,
                         &act.connected_peers,
@@ -1084,7 +1093,7 @@ impl PeerManagerActor {
                 &self.my_peer_id,
                 other,
                 nonce,
-                &self.config.secret_key,
+                &self.config.node_key,
             )),
         );
 
@@ -1275,7 +1284,7 @@ impl PeerManagerActor {
             if let Some(peer_info) = self.peer_store.unconnected_peer(|peer_state| {
                 // Ignore connecting to ourself
                 self.my_peer_id == peer_state.peer_info.id
-                    || self.config.addr == peer_state.peer_info.addr
+                    || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || self.outgoing_peers.contains(&peer_state.peer_info.id)
             }) {
@@ -1341,7 +1350,7 @@ impl PeerManagerActor {
 
     /// Broadcast message to all active peers.
     fn broadcast_message(
-        network_metrics: Arc<NetworkMetrics>,
+        network_metrics: NetworkMetrics,
         connected_peers: &HashMap<PeerId, ConnectedPeer>,
         msg: SendMessage,
     ) {
@@ -1364,7 +1373,7 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, announce_account: AnnounceAccount) {
-        debug!(target: "network", account_id = ?self.config.account_id, ?announce_account, "Account announce");
+        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?announce_account, "Account announce");
         if !self.routing_table_view.contains_account(&announce_account) {
             self.routing_table_view.add_account(announce_account.clone());
             Self::broadcast_message(
@@ -1424,7 +1433,7 @@ impl PeerManagerActor {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &self.my_peer_id {
-                debug!(target: "network", account_id = ?self.config.account_id, my_peer_id = ?self.my_peer_id, ?msg, "Drop signed message to myself");
+                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), my_peer_id = ?self.my_peer_id, ?msg, "Drop signed message to myself");
                 return false;
             }
         }
@@ -1444,7 +1453,7 @@ impl PeerManagerActor {
                 metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
                 debug!(target: "network",
-                      account_id = ?self.config.account_id,
+                      account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.target,
                       reason = ?find_route_error,
                       known_peers = ?self.routing_table_view.peer_forwarding.len(),
@@ -1472,7 +1481,7 @@ impl PeerManagerActor {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 metrics::MessageDropped::UnknownAccount.inc(&msg);
                 debug!(target: "network",
-                       account_id = ?self.config.account_id,
+                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                        to = ?account_id,
                        reason = ?find_route_error,
                        ?msg,"Drop message",
@@ -1487,7 +1496,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage, my_peer_id: PeerId) -> Box<RoutedMessage> {
-        msg.sign(my_peer_id, &self.config.secret_key, self.config.routed_message_ttl)
+        msg.sign(my_peer_id, &self.config.node_key, self.config.routed_message_ttl)
     }
 
     // Determine if the given target is referring to us.
@@ -1509,16 +1518,11 @@ impl PeerManagerActor {
             self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
         });
 
-        PartialEdgeInfo::new(&self.my_peer_id, peer1, nonce, &self.config.secret_key)
+        PartialEdgeInfo::new(&self.my_peer_id, peer1, nonce, &self.config.node_key)
     }
 
-    // Ping pong useful functions.
-
-    // for unit tests
-    fn send_ping(&mut self, nonce: usize, target: PeerId) {
-        let body =
-            RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.my_peer_id.clone() });
-        self.routing_table_view.sending_ping(nonce, target.clone());
+    fn send_ping(&mut self, nonce: u64, target: PeerId) {
+        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(msg);
     }
@@ -1528,16 +1532,6 @@ impl PeerManagerActor {
             RoutedMessageBody::Pong(Pong { nonce: nonce as u64, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(msg);
-    }
-
-    fn handle_ping(&mut self, ping: Ping, hash: CryptoHash) {
-        self.send_pong(ping.nonce as usize, hash);
-        self.routing_table_view.add_ping(ping);
-    }
-
-    /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
-    fn handle_pong(&mut self, pong: Pong) {
-        self.routing_table_view.add_pong(pong);
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -1902,7 +1896,7 @@ impl PeerManagerActor {
                         self.my_peer_id.clone(),
                         peer_id,
                         edge_info.nonce,
-                        &self.config.secret_key,
+                        &self.config.node_key,
                         edge_info.signature,
                     );
 
@@ -1940,17 +1934,9 @@ impl PeerManagerActor {
                 }
             }
             // For unit tests
-            NetworkRequests::PingTo(nonce, target) => {
+            NetworkRequests::PingTo { nonce, target } => {
                 self.send_ping(nonce, target);
                 NetworkResponses::NoResponse
-            }
-            // For unit tests
-            NetworkRequests::FetchPingPongInfo => {
-                let (pings, pongs) = self.routing_table_view.fetch_ping_pong();
-                NetworkResponses::PingPongInfo {
-                    pings: pings.map(|(k, v)| (*k, v.clone())).collect(),
-                    pongs: pongs.map(|(k, v)| (*k, v.clone())).collect(),
-                }
             }
         }
     }
@@ -2304,12 +2290,17 @@ impl PeerManagerActor {
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match &msg.body {
-                RoutedMessageBody::Ping(ping) => self.handle_ping(ping.clone(), msg.hash()),
-                RoutedMessageBody::Pong(pong) => self.handle_pong(pong.clone()),
-                _ => return true,
+                RoutedMessageBody::Ping(ping) => {
+                    self.send_pong(ping.nonce as usize, msg.hash());
+                    self.ping_counter.add_ping(ping);
+                    false
+                }
+                RoutedMessageBody::Pong(pong) => {
+                    self.ping_counter.add_pong(pong);
+                    false
+                }
+                _ => true,
             }
-
-            false
         } else {
             if msg.decrease_ttl() {
                 self.send_signed_message_to_peer(msg);

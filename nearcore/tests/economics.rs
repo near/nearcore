@@ -92,12 +92,12 @@ fn test_burn_mint() {
     }
 
     // Block 3: epoch ends, it gets it's 10% of total supply - transfer cost.
-    let block3 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
+    let block3 = env.clients[0].chain.get_block_by_height(3).unwrap();
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
     let epoch_total_reward = {
-        let block0 = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-        let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+        let block0 = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
         let duration = block2.header().raw_timestamp() - block0.header().raw_timestamp();
         (U256::from(initial_total_supply) * U256::from(duration)
             / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))
@@ -110,15 +110,15 @@ fn test_burn_mint() {
     );
     assert_eq!(block3.chunks()[0].balance_burnt(), half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
-    let block4 = env.clients[0].chain.get_block_by_height(4).unwrap().clone();
+    let block4 = env.clients[0].chain.get_block_by_height(4).unwrap();
     assert_eq!(block4.header().total_supply(), block3.header().total_supply() - half_transfer_cost);
     assert_eq!(block4.chunks()[0].balance_burnt(), half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
     assert_eq!(env.query_balance("near".parse().unwrap()), near_balance + epoch_total_reward / 10);
     // Block 5: reward from previous block.
-    let block5 = env.clients[0].chain.get_block_by_height(5).unwrap().clone();
+    let block5 = env.clients[0].chain.get_block_by_height(5).unwrap();
     let prev_total_supply = block4.header().total_supply();
-    let block2 = env.clients[0].chain.get_block_by_height(2).unwrap().clone();
+    let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
     let epoch_total_reward = (U256::from(prev_total_supply)
         * U256::from(block4.header().raw_timestamp() - block2.header().raw_timestamp())
         / U256::from(10u128.pow(9) * 24 * 60 * 60 * 365 * 10))

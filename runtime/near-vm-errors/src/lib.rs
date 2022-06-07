@@ -223,7 +223,6 @@ pub enum HostError {
     ECRecoverError { msg: String },
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128InvalidInput { msg: String },
 }
 
@@ -420,7 +419,6 @@ impl std::fmt::Display for HostError {
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }

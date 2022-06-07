@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [lib]
@@ -19,6 +19,7 @@ wee_alloc = { version = "0.4.5", default-features = false }
 codegen-units = 1
 # Tell `rustc` to optimize for small code size.
 opt-level = "z"
+strip = true
 lto = true
 debug = false
 panic = "abort"
@@ -30,7 +31,5 @@ incremental = false
 members = []
 
 [features]
-nightly = ["protocol_feature_alt_bn128"]
-protocol_feature_alt_bn128 = []
-protocol_feature_function_call_weight = []
+nightly = []
 latest_protocol = []

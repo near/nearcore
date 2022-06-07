@@ -1,8 +1,6 @@
 #![no_std]
 #![allow(non_snake_case)]
 
-use core::mem;
-
 #[panic_handler]
 #[no_mangle]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
@@ -39,11 +37,8 @@ extern "C" {
     // ############
     // # Math API #
     // ############
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
@@ -490,7 +485,6 @@ struct MultiexpElem([u8; 64], [u8; 32]);
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 1 element 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_multiexp_1_10() {
     #[rustfmt::skip]
@@ -500,7 +494,7 @@ pub unsafe fn alt_bn128_g1_multiexp_1_10() {
     ];
     for _ in 0..10 {
         alt_bn128_g1_multiexp(
-            mem::size_of_val(&buffer) as u64,
+            core::mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
             0,
         );
@@ -510,7 +504,6 @@ pub unsafe fn alt_bn128_g1_multiexp_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_multiexp on 10 elements 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_multiexp_10_10() {
     #[rustfmt::skip]
@@ -538,7 +531,7 @@ pub unsafe fn alt_bn128_g1_multiexp_10_10() {
     ];
     for _ in 0..10 {
         alt_bn128_g1_multiexp(
-            mem::size_of_val(&buffer) as u64,
+            core::mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
             0,
         );
@@ -552,7 +545,6 @@ struct SumElem(u8, [u8; 64]);
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 1 element 1k times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_sum_1_1k() {
     #[rustfmt::skip]
@@ -560,7 +552,11 @@ pub unsafe fn alt_bn128_g1_sum_1_1k() {
         SumElem(0, [11, 49, 94, 29, 152, 111, 116, 138, 248, 2, 184, 8, 159, 80, 169, 45, 149, 48, 32, 49, 37, 6, 133, 105, 171, 194, 120, 44, 195, 17, 180, 35, 137, 154, 4, 192, 211, 244, 93, 200, 2, 44, 0, 64, 26, 108, 139, 147, 88, 235, 242, 23, 253, 52, 110, 236, 67, 99, 176, 2, 186, 198, 228, 25]),
     ];
     for _ in 0..1_000 {
-        alt_bn128_g1_sum(mem::size_of_val(&buffer) as u64, buffer.as_ptr() as *const u64 as u64, 0);
+        alt_bn128_g1_sum(
+            core::mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
     }
 }
 
@@ -568,7 +564,6 @@ pub unsafe fn alt_bn128_g1_sum_1_1k() {
 // and `write_register_byte`. However `g1_sum` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute g1_sum on 10 element 1k times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_g1_sum_10_1k() {
     #[rustfmt::skip]
@@ -585,7 +580,11 @@ pub unsafe fn alt_bn128_g1_sum_10_1k() {
         SumElem(1, [173, 37, 223, 11, 68, 227, 111, 46, 246, 210, 31, 181, 36, 149, 221, 113, 27, 34, 156, 35, 82, 144, 38, 34, 165, 43, 130, 70, 86, 34, 148, 30, 15, 207, 202, 218, 30, 22, 143, 20, 58, 60, 133, 67, 150, 255, 65, 29, 217, 94, 89, 182, 13, 160, 65, 173, 5, 232, 223, 65, 213, 210, 55, 25]),
     ];
     for _ in 0..1_000 {
-        alt_bn128_g1_sum(mem::size_of_val(&buffer) as u64, buffer.as_ptr() as *const u64 as u64, 0);
+        alt_bn128_g1_sum(
+            core::mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
     }
 }
 
@@ -596,7 +595,6 @@ struct PairingElem([u8; 64], [u8; 128]);
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 1 element 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_pairing_check_1_10() {
     #[rustfmt::skip]
@@ -606,7 +604,7 @@ pub unsafe fn alt_bn128_pairing_check_1_10() {
     ];
     for _ in 0..10 {
         alt_bn128_pairing_check(
-            mem::size_of_val(&buffer) as u64,
+            core::mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
         );
     }
@@ -615,7 +613,6 @@ pub unsafe fn alt_bn128_pairing_check_1_10() {
 // and `write_register_byte`. However `g1_multiexp` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute pairing_check on 10 elements 10 times.
-#[cfg(feature = "protocol_feature_alt_bn128")]
 #[no_mangle]
 pub unsafe fn alt_bn128_pairing_check_10_10() {
     #[rustfmt::skip]
@@ -643,7 +640,7 @@ pub unsafe fn alt_bn128_pairing_check_10_10() {
     ];
     for _ in 0..10 {
         alt_bn128_pairing_check(
-            mem::size_of_val(&buffer) as u64,
+            core::mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
         );
     }

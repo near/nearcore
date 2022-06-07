@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [dependencies]
@@ -19,9 +19,6 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
 default = []
-protocol_feature_alt_bn128 = [
-    "near-primitives/protocol_feature_alt_bn128",
-]
 protocol_feature_chunk_only_producers = [
     "near-chain-configs/protocol_feature_chunk_only_producers",
     "near-chain/protocol_feature_chunk_only_producers",
@@ -30,6 +27,5 @@ protocol_feature_chunk_only_producers = [
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_alt_bn128",
 ]
 nightly_protocol = []

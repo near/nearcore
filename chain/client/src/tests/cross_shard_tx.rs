@@ -181,13 +181,13 @@ fn test_cross_shard_tx_callback(
             *presumable_epoch.write().unwrap() += 1;
             let connectors_ = connectors.write().unwrap();
             let connectors1 = connectors.clone();
-            let iteration1 = iteration.clone();
-            let nonce1 = nonce.clone();
-            let validators1 = validators.clone();
-            let successful_queries1 = successful_queries.clone();
-            let unsuccessful_queries1 = unsuccessful_queries.clone();
-            let balances1 = balances.clone();
-            let observed_balances1 = observed_balances.clone();
+            let iteration1 = iteration;
+            let nonce1 = nonce;
+            let validators1 = validators;
+            let successful_queries1 = successful_queries;
+            let unsuccessful_queries1 = unsuccessful_queries;
+            let balances1 = balances;
+            let observed_balances1 = observed_balances;
             let presumable_epoch1 = presumable_epoch.clone();
             actix::spawn(
                 connectors_[account_id_to_shard_id(&account_id, 8) as usize
@@ -235,7 +235,7 @@ fn test_cross_shard_tx_callback(
         if view_account_result.amount == expected {
             let mut successful_queries_local = successful_queries.write().unwrap();
             assert!(!successful_queries_local.contains(&account_id));
-            successful_queries_local.insert(account_id.clone());
+            successful_queries_local.insert(account_id);
             if successful_queries_local.len() == 8 {
                 println!("Finished iteration {}", iteration.load(Ordering::Relaxed));
 
@@ -425,7 +425,7 @@ fn test_cross_shard_tx_common(
 
         let (genesis_block, conn, block_stats) = setup_mock_all_validators(
             validators.clone(),
-            key_pairs.clone(),
+            key_pairs,
             validator_groups,
             true,
             block_production_time,

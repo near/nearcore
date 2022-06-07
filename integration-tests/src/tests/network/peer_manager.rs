@@ -1,30 +1,9 @@
-use actix::{Actor, Addr, SyncArbiter};
-use actix::{Handler, SyncContext, System};
-use futures::{future, FutureExt};
-use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier};
+use actix::Actor;
+use actix::{Handler, SyncContext};
+use std::sync::Arc;
 
-use near_actix_test_utils::run_actix;
-use near_crypto::Signature;
-use near_logger_utils::init_test_logger;
-
-use near_network::routing::start_routing_table_actor;
-
-use near_network::test_utils::{open_port, GetMetrics, WaitOrTimeoutActor};
-use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
-    RoutingTableUpdate,
-};
-use near_network::PeerManagerActor;
-use near_network_primitives::types::{
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-};
-use near_primitives::network::AnnounceAccount;
-use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
-use near_primitives::types::EpochId;
-use near_store::test_utils::create_test_store;
+use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 
 #[derive(Default)]
 struct MockClientActor {
@@ -62,20 +41,42 @@ impl Handler<NetworkClientMessages> for MockClientActor {
     }
 }
 
-fn start_mock_client(
-    on_view_client_callback: Option<
-        Arc<dyn Fn(&NetworkViewClientMessages) -> NetworkViewClientResponses + Send + Sync>,
-    >,
-) -> Addr<MockClientActor> {
-    SyncArbiter::start(5, move || MockClientActor {
-        on_view_client_callback: on_view_client_callback.clone(),
-    })
-}
-
 // This test is trying to see how PeerManager reacts to repeated AnnounceAccounts requests.
 // We want to make sure that we broadcast them only once.
+#[cfg(feature = "test_features")]
 #[test]
 fn repeated_announce_accounts() {
+    use actix::System;
+    use actix::{Addr, SyncArbiter};
+    use futures::{future, FutureExt};
+    use near_actix_test_utils::run_actix;
+    use near_crypto::Signature;
+    use near_logger_utils::init_test_logger;
+    use near_network::routing::start_routing_table_actor;
+    use near_network::test_utils::GetBroadcastMessageCount;
+    use near_network::test_utils::{open_port, WaitOrTimeoutActor};
+    use near_network::types::{NetworkRequests, PeerManagerMessageRequest, RoutingTableUpdate};
+    use near_network::PeerManagerActor;
+    use near_network_primitives::types::NetworkConfig;
+    use near_primitives::network::AnnounceAccount;
+    use near_primitives::network::PeerId;
+    use near_primitives::types::AccountId;
+    use near_primitives::types::EpochId;
+    use near_store::test_utils::create_test_store;
+    use std::str::FromStr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
+
+    fn start_mock_client(
+        on_view_client_callback: Option<
+            Arc<dyn Fn(&NetworkViewClientMessages) -> NetworkViewClientResponses + Send + Sync>,
+        >,
+    ) -> Addr<MockClientActor> {
+        SyncArbiter::start(5, move || MockClientActor {
+            on_view_client_callback: on_view_client_callback.clone(),
+        })
+    }
+
     run_actix(async {
         init_test_logger();
         let store = create_test_store();
@@ -98,8 +99,7 @@ fn repeated_announce_accounts() {
                 _ => NetworkViewClientResponses::NoResponse,
             }
         })));
-        let routing_table_addr =
-            start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+        let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
         let pm = PeerManagerActor::new(
             store,
             config,
@@ -133,25 +133,22 @@ fn repeated_announce_accounts() {
             Box::new(move |_| {
                 actix::spawn({
                     let foo = successes.clone();
-                    pm.send(GetMetrics {}).then(move |res| {
-                        let metrics = res.unwrap();
-                        let sync_routing_table_sent = metrics
-                            .broadcast_messages
-                            .get_metric_with_label_values(&["SyncRoutingTable"])
-                            .unwrap()
-                            .get();
-                        if sync_routing_table_sent == 1 {
-                            // Try it couple times - we want to be sure that it didn't hit in the middle of processing.
-                            if foo.fetch_add(1, Ordering::SeqCst) > 4 {
-                                System::current().stop();
+                    pm.send(GetBroadcastMessageCount { msg_type: "SyncRoutingTable" }).then(
+                        move |res| {
+                            let sync_routing_table_sent = res.unwrap();
+                            if sync_routing_table_sent == 1 {
+                                // Try it couple times - we want to be sure that it didn't hit in the middle of processing.
+                                if foo.fetch_add(1, Ordering::SeqCst) > 4 {
+                                    System::current().stop();
+                                }
                             }
-                        }
-                        assert!(
-                            sync_routing_table_sent <= 1,
-                            "Too many sync routing table requests"
-                        );
-                        future::ready(())
-                    })
+                            assert!(
+                                sync_routing_table_sent <= 1,
+                                "Too many sync routing table requests"
+                            );
+                            future::ready(())
+                        },
+                    )
                 });
             }),
             100,

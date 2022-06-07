@@ -740,7 +740,7 @@ impl ShardsManager {
     /// Only marks this chunk as being requested
     /// Note no requests are actually sent at this point.
     fn request_chunk_single_mark_only(&mut self, chunk_header: &ShardChunkHeader) {
-        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash(), None, false)
+        self.request_chunk_single(chunk_header, chunk_header.prev_block_hash().clone(), None, false)
     }
 
     /// send partial chunk requests for one chunk
@@ -770,7 +770,7 @@ impl ShardsManager {
 
         self.encoded_chunks.try_insert(&chunk_header);
 
-        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block_hash = chunk_header.prev_block_hash().clone();
         self.requested_partial_encoded_chunks.insert(
             chunk_hash.clone(),
             ChunkRequestInfo {
@@ -1053,7 +1053,7 @@ impl ShardsManager {
         let started = Instant::now();
         if let Ok(partial_chunk) = chain_store.get_partial_chunk(&request.chunk_hash) {
             let response =
-                Self::prepare_partial_encoded_chunk_response_from_partial(request, partial_chunk);
+                Self::prepare_partial_encoded_chunk_response_from_partial(request, &partial_chunk);
             return (started, "partial", response);
         }
 
@@ -1062,16 +1062,11 @@ impl ShardsManager {
         // partial chunk while we still keep the chunk itself.  We can get the
         // chunk, recalculate the parts and respond to the request.
         let started = Instant::now();
-        if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash).map(|ch| ch.clone()) {
-            // Note: we need to clone the chunk because otherwise we would be
-            // holding multiple references to chain_store.  One through the
-            // chunk and another through chain_store which we need to pass down
-            // to do further fetches.
-
+        if let Ok(chunk) = chain_store.get_chunk(&request.chunk_hash) {
             // TODO(#6242): This is currently not implemented and effectively
             // this is dead code.
             let response =
-                self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, chunk);
+                self.prepare_partial_encoded_chunk_response_from_chunk(request, rs, &chunk);
             return (started, "chunk", response);
         }
 
@@ -1153,7 +1148,7 @@ impl ShardsManager {
         let shard_id = chunk_header.shard_id();
         let shard_layout = self
             .runtime_adapter
-            .get_shard_layout_from_prev_block(chunk_header.prev_block_hash_ref())?;
+            .get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
 
         let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (root, proofs) = merklize(&hashes);
@@ -1182,7 +1177,7 @@ impl ShardsManager {
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         rs: &mut ReedSolomonWrapper,
-        chunk: ShardChunk,
+        chunk: &ShardChunk,
     ) -> Option<PartialEncodedChunkResponseMsg> {
         let total_parts = self.runtime_adapter.num_total_parts();
         // rs is created with self.runtime_adapter.num_total_parts() so this
@@ -1505,7 +1500,7 @@ impl ShardsManager {
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
         let (ancestor_hash, epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = header.prev_block_hash();
+            let prev_block_hash = header.prev_block_hash().clone();
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
                 (prev_block_hash, epoch_id, true)
@@ -1537,10 +1532,7 @@ impl ShardsManager {
                     // we are not sure if we are using the correct epoch id for validation, so
                     // we can't be sure if the chunk header is actually invalid. Let's return
                     // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(near_chain::Error::from(DBNotFoundErr(
-                        format!("block {:?}", header.prev_block_hash()).to_string(),
-                    ))
-                    .into())
+                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
                 };
             }
             Ok(true) => (),
@@ -1555,10 +1547,7 @@ impl ShardsManager {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
-                Err(near_chain::Error::from(DBNotFoundErr(
-                    format!("block {:?}", header.prev_block_hash()).to_string(),
-                ))
-                .into())
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
             };
         }
         Ok(())
@@ -1616,9 +1605,9 @@ impl ShardsManager {
             if let Ok(hash) = chain_store
                 .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
             {
-                if *hash != chunk_hash {
+                if hash != chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
-                    return Err(Error::DuplicateChunkHeight.into());
+                    return Err(Error::DuplicateChunkHeight);
                 }
             }
         }
@@ -1765,7 +1754,10 @@ impl ShardsManager {
             return Err(Error::UnknownChunk);
         }
 
-        // Now check whether we have all parts and receipts for the given chunk
+        // Now check whether we have all parts and receipts needed for the given chunk
+        // Note that have_all_parts and have_all_receipts don't mean that we have every part and receipt
+        // in this chunk, it simply means that we have the parts and receipts that we need for this
+        // chunk. See comments in has_all_parts and has_all_receipts to see the conditions.
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry)?;
@@ -1804,22 +1796,21 @@ impl ShardsManager {
                 true,
             );
 
-            if let Err(_) = chain_store.get_partial_chunk(&chunk_hash) {
+            // If we don't care about the shard, we don't need to reconstruct the full chunk for
+            // this shard, so we can mark this chunk as completed since we have all the necessary
+            // parts and receipts.
+            if !cares_about_shard {
                 let mut store_update = chain_store.store_update();
                 self.persist_partial_chunk_for_data_availability(entry, &mut store_update);
                 store_update.commit()?;
-            }
 
-            // If all the parts and receipts are received, and we don't care about the shard,
-            //    no need to request anything else.
-            // If we do care about the shard, we will remove the request once the full chunk is
-            //    assembled.
-            if !cares_about_shard {
                 self.complete_chunk(&chunk_hash);
                 return Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts);
             }
         }
 
+        // If we do care about the shard, we will remove the request once the full chunk is
+        //    assembled.
         if can_reconstruct {
             let height = header.height_created();
             let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
@@ -1927,6 +1918,9 @@ impl ShardsManager {
         Ok(Some(self.runtime_adapter.get_part_owner(prev_block_hash, part_ord)?) == self.me)
     }
 
+    /// Returns true if we have all the necessary receipts for this chunk entry to process it.
+    /// NOTE: this doesn't mean that we got *all* the receipts.
+    /// It means that we have all receipts included in this chunk sending to the shards we track.
     fn has_all_receipts(
         &self,
         prev_block_hash: &CryptoHash,
@@ -2290,7 +2284,7 @@ mod test {
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter.clone(),
-            network_adapter.clone(),
+            network_adapter,
             TEST_SEED,
         );
         let signer =
@@ -2317,12 +2311,13 @@ mod test {
         )
         .unwrap();
         let header = encoded_chunk.cloned_header();
+        let prev_block_hash = header.prev_block_hash();
         shards_manager.requested_partial_encoded_chunks.insert(
             header.chunk_hash(),
             ChunkRequestInfo {
                 height: header.height_created(),
-                ancestor_hash: header.prev_block_hash(),
-                prev_block_hash: header.prev_block_hash(),
+                ancestor_hash: prev_block_hash.clone(),
+                prev_block_hash: prev_block_hash.clone(),
                 shard_id: header.shard_id(),
                 last_requested: Clock::instant(),
                 added: Clock::instant(),
@@ -2629,7 +2624,7 @@ mod test {
         };
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager
@@ -2650,7 +2645,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager
@@ -2671,7 +2666,7 @@ mod test {
         );
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
-            fixture.mock_chunk_header.prev_block_hash(),
+            fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
         assert!(shards_manager

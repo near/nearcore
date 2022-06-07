@@ -6,9 +6,8 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, StoreCompiledContractCache};
+use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -130,7 +129,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let warmup_repeats = config.warmup_iters_per_block;
 
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
+    let store = near_store::StoreOpener::with_default_config(workdir.path()).open();
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let config_store = RuntimeConfigStore::new(None);

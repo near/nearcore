@@ -543,9 +543,9 @@ where
 }
 
 impl actix_web::ResponseError for Error {
-    fn error_response(&self) -> actix_web::BaseHttpResponse<actix_web::body::Body> {
+    fn error_response(&self) -> actix_web::HttpResponse {
         let data = paperclip::actix::web::Json(self);
-        actix_web::HttpResponse::InternalServerError().json(data).into()
+        actix_web::HttpResponse::InternalServerError().json(data)
     }
 }
 
@@ -582,8 +582,8 @@ pub(crate) struct MempoolTransactionResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MetadataRequest {
     // Rosetta Spec optionally provides, but we don't have any use for it:
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub metadata: Option<serde_json::Value>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub metadata: Option<serde_json::Value>,
 }
 
 /// The network_identifier specifies which network a particular object is

@@ -6,7 +6,7 @@ description = "Observability helpers for the near codebase"
 edition = "2021"
 publish = false
 readme = "README.md"
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 
 [dependencies]
 atty = "0.2"
@@ -21,7 +21,4 @@ tracing = { version = "0.1.13", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = { version = "0.17" }
 tracing-serde = "0.1"
-tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "std"] }
-
-[features]
-opentelemetry = []
+tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "registry", "std"] }

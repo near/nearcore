@@ -20,7 +20,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryRespo
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
 pub(crate) mod edge;
@@ -71,30 +71,50 @@ impl fmt::Display for PeerInfo {
 
 impl FromStr for PeerInfo {
     type Err = Box<dyn std::error::Error>;
-
+    /// Returns a PeerInfo from string
+    ///
+    /// Valid format examples:
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:24567
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@test.near
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:24567@test.near
+    ///
+    /// Hostname can be used instead of IP address, if node trusts DNS server it connects to, for example:
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@localhost:24567@test.near
+    ///     ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@my.own.node.test:24567@test.near
+    ///
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let chunks: Vec<&str> = s.split('@').collect();
         let addr;
         let account_id;
+
+        let invalid_peer_error_factory = || -> Self::Err {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid PeerInfo format: {:?}", chunks),
+            ))
+        };
+
         if chunks.len() == 1 {
             addr = None;
             account_id = None;
         } else if chunks.len() == 2 {
-            if let Ok(x) = chunks[1].parse::<SocketAddr>() {
-                addr = Some(x);
+            if let Ok(mut x) = chunks[1].to_socket_addrs() {
+                addr = x.next();
                 account_id = None;
             } else {
                 addr = None;
                 account_id = Some(chunks[1].parse().unwrap());
             }
         } else if chunks.len() == 3 {
-            addr = Some(chunks[1].parse::<SocketAddr>()?);
-            account_id = Some(chunks[2].parse().unwrap());
+            if let Ok(mut x) = chunks[1].to_socket_addrs() {
+                addr = x.next();
+                account_id = Some(chunks[2].parse().unwrap());
+            } else {
+                return Err(invalid_peer_error_factory());
+            }
         } else {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid PeerInfo format: {:?}", chunks),
-            )));
+            return Err(invalid_peer_error_factory());
         }
         Ok(PeerInfo { id: PeerId::new(chunks[0].parse()?), addr, account_id })
     }
@@ -149,7 +169,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
@@ -157,7 +177,7 @@ pub struct Ping {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -380,7 +400,7 @@ impl PartialEncodedChunkForwardMsg {
             inner_header_hash: header.inner_header_hash(),
             merkle_root: header.encoded_merkle_root(),
             signature: header.signature().clone(),
-            prev_block_hash: header.prev_block_hash(),
+            prev_block_hash: header.prev_block_hash().clone(),
             height_created: header.height_created(),
             shard_id: header.shard_id(),
             parts,
@@ -452,5 +472,46 @@ impl StateResponseInfo {
             Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
             Self::V2(info) => info.state_response,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::net::IpAddr;
+    use std::net::SocketAddr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    /// TODO this test might require an improvement (probably by mocking the DNS resolution)
+    fn test_from_str() {
+        use crate::types::PeerInfo;
+        use std::str::FromStr;
+
+        let socket_v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1337);
+        let socket_v6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 1337);
+
+        let mut peer_test = PeerInfo::from_str(
+            "ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@localhost:1337@account.near",
+        )
+        .unwrap();
+        assert!(peer_test.addr.unwrap() == socket_v4 || peer_test.addr.unwrap() == socket_v6);
+
+        peer_test = PeerInfo::from_str(
+            "ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@localhost:1337",
+        )
+        .unwrap();
+        assert!(peer_test.addr.unwrap() == socket_v4 || peer_test.addr.unwrap() == socket_v6);
+
+        peer_test = PeerInfo::from_str(
+            "ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:1337@account.near",
+        )
+        .unwrap();
+        assert!(peer_test.addr.unwrap() == socket_v4 || peer_test.addr.unwrap() == socket_v6);
+
+        peer_test = PeerInfo::from_str(
+            "ed25519:C6HLP37VJN1Wj2irxxZPsVsSya92Rnx12tqK3us5erKV@127.0.0.1:1337",
+        )
+        .unwrap();
+        assert!(peer_test.addr.unwrap() == socket_v4 || peer_test.addr.unwrap() == socket_v6);
     }
 }

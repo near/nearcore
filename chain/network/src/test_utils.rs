@@ -1,4 +1,3 @@
-use crate::stats::metrics::NetworkMetrics;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
@@ -6,17 +5,18 @@ use crate::types::{
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
 use futures::future::BoxFuture;
-use futures::{future, FutureExt};
+use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::debug;
@@ -73,6 +73,8 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 
 /// Waits until condition or timeouts with panic.
 /// Use in tests to check for a condition and stop or fail otherwise.
+///
+/// Prefer using [`wait_or_timeout`], which is not specific to actix.
 ///
 /// # Example
 ///
@@ -136,6 +138,35 @@ impl Actor for WaitOrTimeoutActor {
     }
 }
 
+/// Blocks until `cond` returns `ControlFlow::Break`, checking it every
+/// `check_interval_ms`.
+///
+/// If condition wasn't fulfilled within `max_wait_ms`, returns an error.
+pub async fn wait_or_timeout<C, F, T>(
+    check_interval_ms: u64,
+    max_wait_ms: u64,
+    mut cond: C,
+) -> Result<T, tokio::time::error::Elapsed>
+where
+    C: FnMut() -> F,
+    F: Future<Output = ControlFlow<T>>,
+{
+    assert!(
+        check_interval_ms < max_wait_ms,
+        "interval shorter than wait time, did you swap the argument order?"
+    );
+    let mut interval = tokio::time::interval(Duration::from_millis(check_interval_ms));
+    tokio::time::timeout(Duration::from_millis(max_wait_ms), async {
+        loop {
+            interval.tick().await;
+            if let ControlFlow::Break(res) = cond().await {
+                break res;
+            }
+        }
+    })
+    .await
+}
+
 // Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
@@ -149,29 +180,29 @@ pub fn random_epoch_id() -> EpochId {
 
 // Compare whenever routing table match.
 pub fn expected_routing_tables(
-    current: HashMap<PeerId, Vec<PeerId>>,
-    expected: Vec<(PeerId, Vec<PeerId>)>,
+    got: &HashMap<PeerId, Vec<PeerId>>,
+    want: &[(PeerId, Vec<PeerId>)],
 ) -> bool {
-    if current.len() != expected.len() {
+    if got.len() != want.len() {
         return false;
     }
 
-    for (peer, paths) in expected.into_iter() {
-        let cur_paths = current.get(&peer);
-        if cur_paths.is_none() {
+    for (target, want_peers) in want {
+        let got_peers = match got.get(target) {
+            Some(ps) => ps,
+            None => {
+                return false;
+            }
+        };
+        if got_peers.len() != want_peers.len() {
             return false;
         }
-        let cur_paths = cur_paths.unwrap();
-        if cur_paths.len() != paths.len() {
-            return false;
-        }
-        for next_hop in paths.into_iter() {
-            if !cur_paths.contains(&next_hop) {
+        for peer in want_peers {
+            if !got_peers.contains(peer) {
                 return false;
             }
         }
     }
-
     true
 }
 
@@ -188,16 +219,20 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-/// `GetMetrics` gets `NetworkMetrics` from `PeerManager`.
+/// `GetBroadcastMessageCount` gets `NetworkMetrics` from `PeerManager`.
+#[cfg(feature = "test_features")]
 #[derive(Message)]
-#[rtype(result = "Arc<NetworkMetrics>")]
-pub struct GetMetrics {}
+#[rtype(result = "u64")]
+pub struct GetBroadcastMessageCount {
+    pub msg_type: &'static str,
+}
 
-impl Handler<GetMetrics> for PeerManagerActor {
-    type Result = Arc<NetworkMetrics>;
+#[cfg(feature = "test_features")]
+impl Handler<GetBroadcastMessageCount> for PeerManagerActor {
+    type Result = u64;
 
-    fn handle(&mut self, _msg: GetMetrics, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network_metrics.clone()
+    fn handle(&mut self, msg: GetBroadcastMessageCount, _ctx: &mut Context<Self>) -> Self::Result {
+        self.network_metrics.get_broadcast_count(msg.msg_type)
     }
 }
 
@@ -311,8 +346,7 @@ pub mod test_features {
 
         let net_config = NetworkConfig::from_seed(seed, port);
         let store = create_test_store();
-        let routing_table_addr =
-            start_routing_table_actor(PeerId::new(net_config.public_key.clone()), store.clone());
+        let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
         let peer_manager_addr = make_peer_manager(
             store,
             net_config,
@@ -371,7 +405,7 @@ pub mod test_features {
             }
         }))
         .start();
-        let peer_id = PeerId::new(config.public_key.clone());
+        let peer_id = config.node_id();
         (
             PeerManagerActor::new(
                 store,
@@ -387,15 +421,17 @@ pub mod test_features {
     }
 }
 
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
-    }
-}
-
 #[derive(Default)]
 pub struct NetworkRecipient {
-    peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
+    peer_manager_recipient: OnceCell<Recipient<PeerManagerMessageRequest>>,
+}
+
+impl NetworkRecipient {
+    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
+        self.peer_manager_recipient
+            .set(peer_manager_recipient)
+            .expect("can't `set_recipient` twice");
+    }
 }
 
 impl PeerManagerAdapter for NetworkRecipient {
@@ -403,23 +439,11 @@ impl PeerManagerAdapter for NetworkRecipient {
         &self,
         msg: PeerManagerMessageRequest,
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient
-            .read()
-            .unwrap()
-            .as_ref()
-            .expect("Recipient must be set")
-            .send(msg)
-            .boxed()
+        self.peer_manager_recipient.wait().send(msg).boxed()
     }
 
     fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self
-            .peer_manager_recipient
-            .read()
-            .unwrap()
-            .as_ref()
-            .expect("Recipient must be set")
-            .do_send(msg);
+        let _ = self.peer_manager_recipient.wait().do_send(msg);
     }
 }
 

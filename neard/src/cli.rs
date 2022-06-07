@@ -3,12 +3,11 @@ use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{
-    default_subscriber, BuildEnvFilterError, ColorOutput, DefaultSubcriberGuard, EnvFilterBuilder,
+    default_subscriber, BuildEnvFilterError, DefaultSubscriberGuard, EnvFilterBuilder,
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
-use nearcore::get_store_path;
 use std::cell::Cell;
 use std::fs;
 use std::net::SocketAddr;
@@ -80,7 +79,7 @@ impl NeardCmd {
 
             // TODO(mina86): Remove the command in Q3 2022.
             NeardSubCommand::UnsafeResetData => {
-                let store_path = get_store_path(&home_dir);
+                let store_path = near_store::get_store_path(&home_dir);
                 unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
             }
             // TODO(mina86): Remove the command in Q3 2022.
@@ -102,8 +101,8 @@ impl NeardCmd {
 
 async fn init_logging(
     opts: &NeardOpts,
-) -> Result<DefaultSubcriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
-    let verbose = opts.verbose.as_deref();
+) -> Result<DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
+    let verbose = opts.verbose_target();
     let env_filter =
         EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
     // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
@@ -113,7 +112,7 @@ async fn init_logging(
     } else {
         env_filter
     };
-    let subscriber = default_subscriber(env_filter, &opts.color).await.global();
+    let subscriber = default_subscriber(env_filter, &opts.o11y).await.global();
     Ok(subscriber)
 }
 
@@ -147,20 +146,30 @@ fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str
 
 #[derive(Parser, Debug)]
 struct NeardOpts {
-    /// Sets verbose logging for the given target, or for all targets
-    /// if "debug" is given.
+    /// Sets verbose logging for the given target, or for all targets if no
+    /// target is given.
     #[clap(long, name = "target")]
-    verbose: Option<String>,
+    verbose: Option<Option<String>>,
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
-    pub unsafe_fast_startup: bool,
-    /// Whether the log needs to be colored.
-    #[clap(long, arg_enum, default_value = "auto")]
-    pub color: ColorOutput,
+    unsafe_fast_startup: bool,
+    /// Enables export of span data using opentelemetry protocol.
+    #[clap(flatten)]
+    o11y: near_o11y::Options,
+}
+
+impl NeardOpts {
+    pub fn verbose_target(&self) -> Option<&str> {
+        match self.verbose {
+            None => None,
+            Some(None) => Some(""),
+            Some(Some(ref target)) => Some(target.as_str()),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -403,7 +412,7 @@ impl RunCmd {
             near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
-            near_config.network_config.addr = Some(network_addr);
+            near_config.network_config.node_addr = Some(network_addr);
         }
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
@@ -512,21 +521,23 @@ async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) 
 #[derive(Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
-    #[clap(long = "n", default_value = "0")]
+    #[clap(short = 'n', long, alias = "n", default_value = "0")]
     non_validators: NumSeats,
-    /// Prefix the directory name for each node with (node results in node0, node1, ...)
+    /// Prefix for the directory name for each node with (e.g. ‘node’ results in
+    /// ‘node0’, ‘node1’, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the localnet with.
-    #[clap(long, default_value = "1")]
+    #[clap(short = 's', long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the localnet with.
-    #[clap(long = "v", default_value = "4")]
+    #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    // Whether to create fixed shards accounts (that are tied to a given shard).
+    /// Whether to create fixed shards accounts (that are tied to a given
+    /// shard).
     #[clap(long)]
     fixed_shards: bool,
-    // Archival nodes
+    /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
 }

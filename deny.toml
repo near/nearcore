@@ -17,8 +17,8 @@ deny = [
 ]
 
 skip = [
-    { name = "clap", version = "=2.33.3" },
-    # criterion uses clap=2.33.3 which relies on an older textwrap
+    { name = "clap", version = "=2.34.0" },
+    # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
     # near-epoch-manager fixed the rand version to ensure protocol stability
@@ -26,7 +26,7 @@ skip = [
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
     { name = "rand_core", version = "=0.3.1" },
     { name = "rand_chacha", version = "=0.1.1" },
-    { name = "autocfg", version = "=0.1.7" },
+    { name = "autocfg", version = "=0.1.8" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "base64", version = "=0.11.0" },
     { name = "wasmparser", version = "=0.51.4" },
@@ -37,14 +37,17 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # Wasmer 2.0 indirectly uses this outdated version.
-    { name = "memmap2", version = "=0.2.3" },
+    # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
+    { name = "block-buffer", version = "=0.9.0" },
+    { name = "digest", version = "=0.9.0" },
+    { name = "sha2", version = "=0.9.9" },
+
     # Wasmer 2.0 uses newer object
     { name = "object", version = "=0.27.1" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
-    # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
-    { name = "wasmparser", version = "=0.81.0" },
+    # Wasmtime 0.34 use relies on a newer wasmparser, the main version stays the one in production.
+    { name = "wasmparser", version = "=0.82.0" },
     # wasm-smith relies on 0.84.0
     { name = "wasmparser", version = "=0.84.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
@@ -74,7 +77,7 @@ skip = [
     { name = "digest", version = "=0.8.1" },
 
     # chrono uses old time crate
-    { name = "time", version = "=0.1.43" },
+    { name = "time", version = "=0.1.44" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand", version = "=0.7.3" },
@@ -101,16 +104,10 @@ skip = [
 
     # actix-http depends on an old version
     { name = "itoa", version = "=0.4.8" },
-    { name = "time", version = "=0.2.27" },
-    { name = "tokio-util", version = "=0.6.9" },
 
     # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "hashbrown", version = "0.11.0" },
 
     # prometheus depends on an old version of protobuf
-    { name = "protobuf", version = "=2.25.1" },
-
-    # paperclip-core 0.3.0 depends on old strum
-    { name = "strum", version = "=0.20.0" },
-    { name = "strum_macros", version = "=0.20.1" },
+    { name = "protobuf", version = "=2.27.1" },
 ]

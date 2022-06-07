@@ -142,7 +142,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_REGISTER_BYTE",
-            gas_used: 18628218,
+            gas_used: 25034748,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -262,7 +262,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 24286111608,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -272,7 +272,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_MEMORY_BYTE",
-            gas_used: 689114316,
+            gas_used: 866159496,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
@@ -282,7 +282,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WRITE_REGISTER_BYTE",
-            gas_used: 1657481904,
+            gas_used: 1904583564,
         },
     ],
     [
@@ -304,7 +304,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 822756,
+            gas_used: 0,
         },
     ],
     [],
@@ -347,7 +347,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 3291024,
+            gas_used: 0,
         },
     ],
     [],
@@ -442,7 +442,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "WASM_INSTRUCTION",
-            gas_used: 18923388,
+            gas_used: 0,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

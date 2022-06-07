@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::time::Duration;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use integration_tests::user::{rpc_user::RpcUser, User};
-use near_o11y::ColorOutput;
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";
@@ -24,7 +23,7 @@ fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &ColorOutput::Auto).await.global()
+        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
     });
 
     let default_home = get_default_home();

@@ -1,7 +1,6 @@
-use super::gas_and_error_match;
 use crate::tests::{
-    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm,
-    make_simple_contract_call_with_protocol_version_vm, with_vm_variants,
+    gas_and_error_match, make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm,
+    make_simple_contract_call_with_protocol_version_vm, prepaid_loading_gas, with_vm_variants,
 };
 use crate::vm_kind::VMKind;
 use near_primitives::version::ProtocolFeature;
@@ -29,7 +28,7 @@ fn test_infinite_initializer() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello", vm_kind),
-            Some(100000000000000),
+            100000000000000,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -38,9 +37,10 @@ fn test_infinite_initializer() {
 #[test]
 fn test_infinite_initializer_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = infinite_initializer_contract();
         gas_and_error_match(
-            make_simple_contract_call_vm(&infinite_initializer_contract(), "hello2", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello2", vm_kind),
+            prepaid_loading_gas(code.len()),
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -65,7 +65,7 @@ fn test_simple_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "hello", vm_kind),
-            Some(43032213),
+            43032213,
             None,
         );
     });
@@ -81,9 +81,10 @@ fn multi_memories_contract() -> Vec<u8> {
 #[test]
 fn test_multiple_memories() {
     with_vm_variants(|vm_kind: VMKind| {
-        let (result, error) =
-            make_simple_contract_call_vm(&multi_memories_contract(), "hello", vm_kind);
-        assert_eq!(result.used_gas, 0);
+        let code = multi_memories_contract();
+        let (result, error) = make_simple_contract_call_vm(&code, "hello", vm_kind);
+        let expected_gas = prepaid_loading_gas(code.len());
+        assert_eq!(result.used_gas, expected_gas);
         match error {
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::WasmerCompileError { .. },
@@ -112,9 +113,10 @@ fn test_multiple_memories() {
 #[test]
 fn test_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = simple_contract();
         gas_and_error_match(
-            make_simple_contract_call_vm(&simple_contract(), "hello2", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello2", vm_kind),
+            prepaid_loading_gas(code.len()),
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -125,9 +127,12 @@ fn test_export_not_found() {
 #[test]
 fn test_empty_method() {
     with_vm_variants(|vm_kind: VMKind| {
+        // Empty method should be checked before anything that require gas.
+        // Running this test without prepaid gas to check that.
+        let code = simple_contract();
         gas_and_error_match(
-            make_simple_contract_call_vm(&simple_contract(), "", vm_kind),
-            None,
+            make_simple_contract_call_with_gas_vm(&code, "", 0, vm_kind),
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodEmptyName,
             ))),
@@ -158,7 +163,7 @@ fn test_trap_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
-            Some(47105334),
+            47105334,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         )
     })
@@ -189,7 +194,7 @@ fn test_trap_initializer() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
-            Some(47755584),
+            47755584,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     });
@@ -223,7 +228,7 @@ fn test_div_by_zero_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
-            Some(59758197),
+            59758197,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IllegalArithmetic,
             ))),
@@ -261,7 +266,7 @@ fn test_float_to_int_contract() {
         for index in 0..=3 {
             gas_and_error_match(
                 make_simple_contract_call_vm(&float_to_int_contract(index), "hello", vm_kind),
-                Some(56985576),
+                56985576,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::IllegalArithmetic,
                 ))),
@@ -300,7 +305,7 @@ fn test_indirect_call_to_null_contract() {
         }
         gas_and_error_match(
             make_simple_contract_call_vm(&indirect_call_to_null_contract(), "hello", vm_kind),
-            Some(57202326),
+            57202326,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IndirectCallToNull,
             ))),
@@ -346,7 +351,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 "hello",
                 vm_kind,
             ),
-            Some(61970826),
+            61970826,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                 WasmTrap::IncorrectCallIndirectSignature,
             ))),
@@ -369,9 +374,11 @@ fn wrong_signature_contract() -> Vec<u8> {
 #[test]
 fn test_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = wrong_signature_contract();
+        let expected_gas = prepaid_loading_gas(code.len());
         gas_and_error_match(
-            make_simple_contract_call_vm(&wrong_signature_contract(), "hello", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello", vm_kind),
+            expected_gas,
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodInvalidSignature,
             ))),
@@ -393,9 +400,10 @@ fn export_wrong_type() -> Vec<u8> {
 #[test]
 fn test_export_wrong_type() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = export_wrong_type();
         gas_and_error_match(
-            make_simple_contract_call_vm(&export_wrong_type(), "hello", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello", vm_kind),
+            prepaid_loading_gas(code.len()),
             Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             ))),
@@ -421,7 +429,7 @@ fn test_guest_panic() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&guest_panic(), "hello", vm_kind),
-            Some(315341445),
+            315341445,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
                 panic_msg: "explicit guest panic".to_string(),
             }))),
@@ -449,7 +457,7 @@ fn test_stack_overflow() {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 => gas_and_error_match(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
-                Some(63226248177),
+                63226248177,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::Unreachable,
                 ))),
@@ -493,7 +501,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
         let res = make_simple_contract_call_with_protocol_version_vm(
@@ -504,7 +512,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
 
@@ -516,7 +524,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(6789985365),
+            6789985365,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
         let res = make_simple_contract_call_with_protocol_version_vm(
@@ -527,7 +535,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         );
         gas_and_error_match(
             res,
-            Some(2745316869),
+            2745316869,
             Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     });
@@ -557,7 +565,7 @@ fn test_memory_grow() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&memory_grow(), "hello", vm_kind),
-            Some(100000000000000),
+            100000000000000,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -597,9 +605,10 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = bad_import_global("wtf");
         gas_and_error_match(
-            make_simple_contract_call_vm(&bad_import_global("wtf"), "hello", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello", vm_kind),
+            prepaid_loading_gas(code.len()),
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Instantiate),
             ))),
@@ -610,9 +619,10 @@ fn test_bad_import_1() {
 #[test]
 fn test_bad_import_2() {
     with_vm_variants(|vm_kind: VMKind| {
+        let code = bad_import_func("wtf");
         gas_and_error_match(
-            make_simple_contract_call_vm(&bad_import_func("wtf"), "hello", vm_kind),
-            None,
+            make_simple_contract_call_vm(&code, "hello", vm_kind),
+            prepaid_loading_gas(code.len()),
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::PrepareError(PrepareError::Instantiate),
             ))),
@@ -630,7 +640,7 @@ fn test_bad_import_3() {
         }.to_string();
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
-            Some(46500213),
+            46500213,
             Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
@@ -647,7 +657,7 @@ fn test_bad_import_4() {
         .to_string();
         gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("env"), "hello", vm_kind),
-            Some(45849963),
+            45849963,
             Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })),
         );
     });
@@ -676,7 +686,7 @@ fn test_initializer_no_gas() {
                 0,
                 vm_kind,
             ),
-            Some(0),
+            0,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -738,7 +748,7 @@ fn test_external_call_ok() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_vm(&external_call_contract(), "hello", vm_kind),
-            Some(321582066),
+            321582066,
             None,
         );
     });
@@ -749,7 +759,7 @@ fn test_external_call_error() {
     with_vm_variants(|vm_kind: VMKind| {
         gas_and_error_match(
             make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind),
-            Some(100),
+            100,
             Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
@@ -779,7 +789,7 @@ fn test_external_call_indirect() {
     with_vm_variants(|vm_kind: VMKind| {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
-        gas_and_error_match((outcome, err), Some(334541937), None);
+        gas_and_error_match((outcome, err), 334541937, None);
     });
 }
 
@@ -813,13 +823,13 @@ fn test_address_overflow() {
         match vm_kind {
             VMKind::Wasmer2 | VMKind::Wasmtime => gas_and_error_match(
                 actual,
-                Some(57635826),
+                57635826,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::MemoryOutOfBounds,
                 ))),
             ),
             // wasmer0 incorrectly doesn't catch overflow during address calculation
-            VMKind::Wasmer0 => gas_and_error_match(actual, Some(57635826), None),
+            VMKind::Wasmer0 => gas_and_error_match(actual, 57635826, None),
         };
     });
 }
@@ -862,14 +872,306 @@ fn test_nan_sign() {
 
         let actual = make_simple_contract_call_vm(&nan_sign(), "main", vm_kind);
         match vm_kind {
-            VMKind::Wasmer2 => gas_and_error_match(actual, Some(82291302), None),
+            VMKind::Wasmer2 => gas_and_error_match(actual, 82291302, None),
             VMKind::Wasmtime | VMKind::Wasmer0 => gas_and_error_match(
                 actual,
-                Some(82291302),
+                82291302,
                 Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                     WasmTrap::IllegalArithmetic,
                 ))),
             ),
         }
     });
+}
+
+// Check that a `GasExceeded` error is returned when there is not enough gas to
+// even load a contract.
+#[test]
+fn test_gas_exceed_loading() {
+    with_vm_variants(|vm_kind: VMKind| {
+        // Loading is the first thing that happens on the VM entrypoint that
+        // requires gas, thus attaching only 1 gas triggers the desired
+        // behavior.
+        let gas = 1;
+        let method_name = "non_empty_non_existing";
+        let actual =
+            make_simple_contract_call_with_gas_vm(&simple_contract(), method_name, gas, vm_kind);
+        gas_and_error_match(
+            actual,
+            gas, //< It is import to be non-zero gas here.
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
+        );
+    });
+}
+
+#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+mod fix_contract_loading_cost_protocol_upgrade {
+    use super::*;
+    use crate::tests::make_simple_contract_call_ex;
+
+    /// Simple contract that uses non-zero gas to execute main.
+    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+    fn almost_trivial_contract_and_exec_gas() -> (Vec<u8>, u64) {
+        let code = wat::parse_str(
+            r#"
+            (module
+                (func (export "main")
+                  i32.const 1
+                  i32.const 1
+                  i32.div_s
+                  return
+                )
+            )"#,
+        )
+        .unwrap();
+        (code, 3_291_024)
+    }
+
+    // Normal execution should be unchanged before and after.
+    #[test]
+    fn test_fn_loading_gas_protocol_upgrade() {
+        with_vm_variants(|vm_kind: VMKind| {
+            let (code, exec_gas) = almost_trivial_contract_and_exec_gas();
+            let loading_gas = prepaid_loading_gas(code.len());
+            let total_gas = exec_gas + loading_gas;
+
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version() - 1),
+                total_gas + 1,
+            );
+            gas_and_error_match(res, total_gas, None);
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version()),
+                total_gas + 1,
+            );
+            gas_and_error_match(res, total_gas, None);
+        });
+    }
+
+    // Executing with just enough gas to load the contract will fail before and
+    // after. Both charge the same amount of gas.
+    #[test]
+    fn test_fn_loading_gas_protocol_upgrade_exceed_loading() {
+        with_vm_variants(|vm_kind: VMKind| {
+            let (code, _exec_gas) = almost_trivial_contract_and_exec_gas();
+            let loading_gas = prepaid_loading_gas(code.len());
+
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version() - 1),
+                loading_gas,
+            );
+            gas_and_error_match(
+                res,
+                loading_gas,
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded,
+                ))),
+            );
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version()),
+                loading_gas,
+            );
+            gas_and_error_match(
+                res,
+                loading_gas,
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded,
+                ))),
+            );
+        });
+    }
+
+    /// Executing with enough gas to finish loading but not to execute the full
+    /// contract should have the same outcome before and after.
+    #[test]
+    fn test_fn_loading_gas_protocol_upgrade_exceed_executing() {
+        with_vm_variants(|vm_kind: VMKind| {
+            let (code, exec_gas) = almost_trivial_contract_and_exec_gas();
+            let loading_gas = prepaid_loading_gas(code.len());
+            let total_gas = exec_gas + loading_gas;
+
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version() - 1),
+                total_gas - 1,
+            );
+            gas_and_error_match(
+                res,
+                total_gas - 1,
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded,
+                ))),
+            );
+            let res = make_simple_contract_call_ex(
+                &code,
+                "main",
+                vm_kind,
+                Some(ProtocolFeature::FixContractLoadingCost.protocol_version()),
+                total_gas - 1,
+            );
+            gas_and_error_match(
+                res,
+                total_gas - 1,
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded,
+                ))),
+            );
+        });
+    }
+
+    fn function_not_defined_contract() -> Vec<u8> {
+        wat::parse_str(
+            r#"
+            (module
+              (export "hello" (func 0))
+            )"#,
+        )
+        .unwrap()
+    }
+
+    #[track_caller]
+    fn check_failed_compilation(vm_kind: VMKind, code: &[u8], expected_error: CompilationError) {
+        let new_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+        let old_version = new_version - 1;
+        {
+            let res = make_simple_contract_call_with_protocol_version_vm(
+                &code,
+                "main",
+                old_version,
+                vm_kind,
+            );
+            // This is the first property the tests check: Gas cost before
+            // compilation errors must remain zero for old versions.
+            let expected_gas = 0;
+            gas_and_error_match(
+                res,
+                expected_gas,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    expected_error.clone(),
+                ))),
+            );
+        }
+
+        {
+            let res = make_simple_contract_call_with_protocol_version_vm(
+                &code,
+                "main",
+                new_version,
+                vm_kind,
+            );
+
+            // This is the second property the tests check: Gas costs
+            // for loading gas are charged when failing during
+            // compilation.
+            let expected_gas = prepaid_loading_gas(code.len());
+            gas_and_error_match(
+                res,
+                expected_gas,
+                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    expected_error,
+                ))),
+            );
+        }
+    }
+
+    /// Failure during preparation must remain free of gas charges for old versions
+    /// but new versions must charge the loading gas.
+    #[test]
+    fn test_fn_loading_gas_protocol_upgrade_fail_preparing() {
+        with_vm_variants(|vm_kind: VMKind| {
+            // This list covers all control flows that are expected to change
+            // with the protocol feature.
+            // Having a test for every possible preparation error would be even
+            // better, to ensure triggering any of them will always remain
+            // compatible with versions before this upgrade. Unfortunately, we
+            // currently do not have tests ready to trigger each error.
+            check_failed_compilation(
+                vm_kind,
+                &function_not_defined_contract(),
+                CompilationError::PrepareError(PrepareError::Deserialization),
+            );
+            check_failed_compilation(
+                vm_kind,
+                &bad_import_global("wtf"),
+                CompilationError::PrepareError(PrepareError::Instantiate),
+            );
+            check_failed_compilation(
+                vm_kind,
+                &bad_import_func("wtf"),
+                CompilationError::PrepareError(PrepareError::Instantiate),
+            );
+            check_failed_compilation(
+                vm_kind,
+                &near_test_contracts::LargeContract {
+                    functions: 101,
+                    locals_per_function: 9901,
+                    ..Default::default()
+                }
+                .make(),
+                CompilationError::PrepareError(PrepareError::TooManyLocals),
+            );
+            let functions_number_limit: u32 = 10_000;
+            check_failed_compilation(
+                vm_kind,
+                &near_test_contracts::LargeContract {
+                    functions: functions_number_limit / 2,
+                    panic_imports: functions_number_limit / 2 + 1,
+                    ..Default::default()
+                }
+                .make(),
+                CompilationError::PrepareError(PrepareError::TooManyFunctions),
+            );
+        });
+    }
+
+    /// For compilation tests other than checked in `test_fn_loading_gas_protocol_upgrade_fail_preparing`.
+    #[test]
+    fn test_fn_loading_gas_protocol_upgrade_fail_compiling() {
+        with_vm_variants(|vm_kind: VMKind| {
+            // This triggers `WasmerCompileError` or, for wasmtime, `LinkerError`.
+            let code = multi_memories_contract();
+            let new_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
+            let old_version = new_version - 1;
+            let old_error = {
+                let (outcome, error) = make_simple_contract_call_with_protocol_version_vm(
+                    &code,
+                    "main",
+                    old_version,
+                    vm_kind,
+                );
+                assert_eq!(0, outcome.used_gas);
+                assert_eq!(0, outcome.burnt_gas);
+                error
+            };
+
+            let new_error = {
+                let (outcome, error) = make_simple_contract_call_with_protocol_version_vm(
+                    &code,
+                    "main",
+                    new_version,
+                    vm_kind,
+                );
+                let expected_gas = prepaid_loading_gas(code.len());
+                assert_eq!(expected_gas, outcome.used_gas);
+                assert_eq!(expected_gas, outcome.burnt_gas);
+                error
+            };
+
+            assert_eq!(old_error, new_error);
+        });
+    }
 }

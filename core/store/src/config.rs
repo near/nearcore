@@ -1,8 +1,14 @@
+use near_primitives::version::DbVersion;
+
+const STORE_PATH: &str = "data";
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
-    /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
-    #[serde(skip)]
-    pub read_only: bool,
+    /// Path to the database.  If relative, resolved relative to neard home
+    /// directory.  This is useful if node runs with a separate disk holding the
+    /// database.
+    #[serde(default)]
+    pub path: Option<std::path::PathBuf>,
 
     /// Collect internal storage layer statistics.
     /// Minor performance impact is expected.
@@ -39,19 +45,19 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 }
 
-const fn default_enable_statistics_export() -> bool {
+fn default_enable_statistics_export() -> bool {
     StoreConfig::const_default().enable_statistics_export
 }
 
-const fn default_max_open_files() -> u32 {
+fn default_max_open_files() -> u32 {
     StoreConfig::const_default().max_open_files
 }
 
-const fn default_col_state_cache_size() -> bytesize::ByteSize {
+fn default_col_state_cache_size() -> bytesize::ByteSize {
     StoreConfig::const_default().col_state_cache_size
 }
 
-const fn default_block_size() -> bytesize::ByteSize {
+fn default_block_size() -> bytesize::ByteSize {
     StoreConfig::const_default().block_size
 }
 
@@ -77,7 +83,7 @@ impl StoreConfig {
 
     const fn const_default() -> Self {
         Self {
-            read_only: false,
+            path: None,
             enable_statistics: false,
             enable_statistics_export: true,
             max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
@@ -86,24 +92,112 @@ impl StoreConfig {
         }
     }
 
-    pub const fn read_only() -> StoreConfig {
-        StoreConfig::const_default().with_read_only(true)
-    }
-
-    pub const fn read_write() -> StoreConfig {
-        Self::const_default()
-    }
-
-    pub const fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
-        self
-    }
-
     /// Returns cache size for given column.
     pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
         match col {
             crate::DBCol::State => self.col_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
+    }
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self::const_default()
+    }
+}
+
+// TODO(#6857): Get rid of this function.  Clients of this method should use
+// StoreOpener::get_path instead..
+pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
+    base_path.join(STORE_PATH)
+}
+
+/// Builder for opening a RocksDB database.
+///
+/// Typical usage:
+///
+/// ```ignore
+/// let store = StoreOpener::new(&near_config.config.store)
+///     .home(neard_home_dir)
+///     .open();
+/// ```
+pub struct StoreOpener<'a> {
+    /// Near home directory; path to the database is resolved relative to this
+    /// directory.
+    home_dir: &'a std::path::Path,
+
+    /// Configuration as provided by the user.
+    config: &'a StoreConfig,
+
+    /// Whether to open the storeg in read-only mode.
+    read_only: bool,
+}
+
+impl<'a> StoreOpener<'a> {
+    /// Initialises a new opener with given home directory and store config.
+    pub fn new(home_dir: &'a std::path::Path, config: &'a StoreConfig) -> Self {
+        Self { home_dir, config, read_only: false }
+    }
+
+    /// Initialises a new opener with given home directory and default config.
+    ///
+    /// This is meant for tests only.  Production code should always read store
+    /// configuration from a config file and use [`Self::new`] instead.
+    pub fn with_default_config(home_dir: &'a std::path::Path) -> Self {
+        static CONFIG: StoreConfig = StoreConfig::const_default();
+        Self::new(home_dir, &CONFIG)
+    }
+
+    /// Configure whether the database should be opened in read-only mode.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    /// Returns whether database exists.
+    ///
+    /// It performs only basic file-system-level checks and may result in false
+    /// positives if some but not all database files exist.  In particular, this
+    /// is not a guarantee that the database can be opened without an error.
+    pub fn check_if_exists(&self) -> bool {
+        // TODO(mina86): Add some more checks.  At least check if CURRENT file
+        // exists.
+        std::fs::canonicalize(&self.get_path()).is_ok()
+    }
+
+    /// Returns path to the underlying RocksDB database.
+    ///
+    /// Does not check whether the database actually exists.  It merely
+    /// constructs the path where the database would be if it existed.
+    pub fn get_path(&self) -> std::path::PathBuf {
+        self.home_dir.join(self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)))
+    }
+
+    /// Returns version of the database; or `None` if it does not exist.
+    pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
+        std::fs::canonicalize(self.get_path())
+            .ok()
+            .map(|path| crate::RocksDB::get_version(&path))
+            .transpose()
+    }
+
+    /// Opens the RocksDB database.
+    ///
+    /// Panics on failure.
+    // TODO(mina86): Change it to return Result.
+    pub fn open(&self) -> crate::Store {
+        let path = self.get_path();
+        if std::fs::canonicalize(&path).is_ok() {
+            tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
+        } else if self.read_only {
+            tracing::error!(target: "near", path=%path.display(), "Database does not exist");
+            panic!("Failed to open non-existent the database");
+        } else {
+            tracing::info!(target: "near", path=%path.display(), "Creating new RocksDB database");
+        }
+        let db = crate::RocksDB::open(&path, &self.config, self.read_only)
+            .expect("Failed to open the database");
+        crate::Store::new(std::sync::Arc::new(db))
     }
 }

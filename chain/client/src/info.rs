@@ -10,7 +10,9 @@ use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
 use near_primitives::time::{Clock, Instant};
-use near_primitives::types::{AccountId, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochHeight, Gas, NumBlocks, ShardId,
+};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
@@ -75,32 +77,48 @@ impl InfoHelper {
         }
     }
 
-    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas) {
+    pub fn chunk_processed(&mut self, shard_id: ShardId, gas_used: Gas, balance_burnt: Balance) {
         metrics::TGAS_USAGE_HIST
             .with_label_values(&[&format!("{}", shard_id)])
             .observe(gas_used as f64 / TERAGAS);
+        metrics::BALANCE_BURNT.inc_by(balance_burnt as f64);
     }
 
     pub fn chunk_skipped(&mut self, shard_id: ShardId) {
         metrics::CHUNK_SKIPPED_TOTAL.with_label_values(&[&format!("{}", shard_id)]).inc();
     }
 
-    pub fn block_processed(&mut self, gas_used: Gas, num_chunks: u64) {
+    pub fn block_processed(
+        &mut self,
+        gas_used: Gas,
+        num_chunks: u64,
+        gas_price: Balance,
+        total_supply: Balance,
+        last_final_block_height: BlockHeight,
+        last_final_ds_block_height: BlockHeight,
+        epoch_height: EpochHeight,
+    ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
         self.gas_used += gas_used;
+        metrics::GAS_USED.inc_by(gas_used as f64);
+        metrics::BLOCKS_PROCESSED.inc();
+        metrics::CHUNKS_PROCESSED.inc_by(num_chunks);
+        metrics::GAS_PRICE.set(gas_price as f64);
+        metrics::TOTAL_SUPPLY.set(total_supply as f64);
+        metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
+        metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
+        metrics::EPOCH_HEIGHT.set(epoch_height as i64);
     }
 
     pub fn info(
         &mut self,
-        genesis_height: BlockHeight,
         head: &Tip,
         sync_status: &SyncStatus,
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
         validator_epoch_stats: Vec<ValidatorProductionStats>,
-        epoch_height: EpochHeight,
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
     ) {
@@ -113,7 +131,7 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head, genesis_height));
+        let sync_status_log = Some(display_sync_status(sync_status, head));
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -173,13 +191,16 @@ impl InfoHelper {
         (metrics::IS_VALIDATOR.set(is_validator as i64));
         (metrics::RECEIVED_BYTES_PER_SECOND.set(network_info.received_bytes_per_sec as i64));
         (metrics::SENT_BYTES_PER_SECOND.set(network_info.sent_bytes_per_sec as i64));
-        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
-        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
-        (metrics::EPOCH_HEIGHT.set(epoch_height as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
+
+        // TODO: Deprecated.
+        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
+        // TODO: Deprecated.
+        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
+        // TODO: Deprecated.
+        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
@@ -237,11 +258,7 @@ impl InfoHelper {
     }
 }
 
-pub fn display_sync_status(
-    sync_status: &SyncStatus,
-    head: &Tip,
-    genesis_height: BlockHeight,
-) -> String {
+pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -249,12 +266,12 @@ pub fn display_sync_status(
         SyncStatus::EpochSync { epoch_ord } => {
             format!("[EPOCH: {:>5}] Getting to a recent epoch", epoch_ord)
         }
-        SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent = if *highest_height <= genesis_height {
+        SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
+            let percent = if highest_height <= start_height {
                 0.0
             } else {
-                (((min(current_height, highest_height) - genesis_height) * 100) as f64)
-                    / ((highest_height - genesis_height) as f64)
+                (((min(current_height, highest_height) - start_height) * 100) as f64)
+                    / ((highest_height - start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading headers {:.2}% ({} left; at {})",
@@ -264,12 +281,12 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::BodySync { current_height, highest_height } => {
-            let percent = if *highest_height <= genesis_height {
+        SyncStatus::BodySync { start_height, current_height, highest_height } => {
+            let percent = if highest_height <= start_height {
                 0.0
             } else {
-                ((current_height - genesis_height) * 100) as f64
-                    / ((highest_height - genesis_height) as f64)
+                ((current_height - start_height) * 100) as f64
+                    / ((highest_height - start_height) as f64)
             };
             format!(
                 "#{:>8} Downloading blocks {:.2}% ({} left; at {})",

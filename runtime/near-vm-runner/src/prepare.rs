@@ -74,8 +74,10 @@ fn wasmparser_decode(
 }
 
 fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
-    let (function_count, local_count) =
-        wasmparser_decode(code).map_err(|_| PrepareError::Deserialization)?;
+    let (function_count, local_count) = wasmparser_decode(code).map_err(|e| {
+        tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+        PrepareError::Deserialization
+    })?;
     // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
     // of this check is important. In the past we first validated the entire module and only then
     // verified that the limit is not exceeded. While it would be more efficient to check for this
@@ -131,8 +133,10 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        let module = parity_wasm::deserialize_buffer(original_code)
-            .map_err(|_| PrepareError::Deserialization)?;
+        let module = parity_wasm::deserialize_buffer(original_code).map_err(|e| {
+            tracing::debug!(err=?e, "parity_wasm failed decoding a contract");
+            PrepareError::Deserialization
+        })?;
         Ok(ContractModule { module, config })
     }
 
@@ -288,8 +292,10 @@ mod pwasm_12 {
 
     impl<'a> ContractModule<'a> {
         fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-            let module = elements::deserialize_buffer(original_code)
-                .map_err(|_| PrepareError::Deserialization)?;
+            let module = elements::deserialize_buffer(original_code).map_err(|e| {
+                tracing::debug!(err=?e, "parity_wasm_41 failed decoding a contract");
+                PrepareError::Deserialization
+            })?;
             Ok(ContractModule { module, config })
         }
 

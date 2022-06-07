@@ -3,6 +3,13 @@ env:
   RUSTFLAGS: -D warnings
 
 steps:
+  - label: "protobuf backward compatibility"
+    command: |
+      buf breaking --against '.git#branch=master'
+    timeout: 30
+    agents:
+    - "rust=1.61.0"
+
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux

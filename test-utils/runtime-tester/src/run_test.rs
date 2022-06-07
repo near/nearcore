@@ -11,7 +11,6 @@ use near_crypto::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
-use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
@@ -50,7 +49,7 @@ impl Scenario {
         } else {
             let tempdir = tempfile::tempdir()
                 .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = create_store(&nearcore::get_store_path(tempdir.path()));
+            let store = near_store::StoreOpener::with_default_config(tempdir.path()).open();
             (Some(tempdir), store)
         };
 
@@ -63,7 +62,6 @@ impl Scenario {
                 &genesis,
                 TrackedConfig::new_empty(),
                 runtime_config_store,
-                None,
             ))])
             .build();
 
@@ -72,7 +70,7 @@ impl Scenario {
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
-        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
         let mut runtime_stats = RuntimeStats::default();
 

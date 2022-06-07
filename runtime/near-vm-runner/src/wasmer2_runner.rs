@@ -19,7 +19,9 @@ use wasmer_compiler_singlepass::Singlepass;
 use wasmer_engine::{DeserializeError, Engine};
 use wasmer_engine_universal::{Universal, UniversalEngine, UniversalExecutableRef};
 use wasmer_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
-use wasmer_vm::{Artifact, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory};
+use wasmer_vm::{
+    Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
+};
 
 const WASMER_FEATURES: Features = Features {
     threads: WASM_FEATURES.threads,
@@ -333,27 +335,16 @@ impl Wasmer2VM {
                             .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
                     )
                     .map_err(|err| {
-                        use wasmer_engine::InstantiationError::{self, *};
-                        match err.downcast_ref::<InstantiationError>() {
-                            Some(Start(err)) => {
-                                translate_runtime_error(err.clone(), import.vmlogic)
-                            }
-                            Some(Link(e)) => {
-                                VMError::FunctionCallError(FunctionCallError::LinkError {
-                                    msg: e.to_string(),
-                                })
-                            }
-                            Some(CreateInstance(e)) => {
-                                VMError::FunctionCallError(FunctionCallError::LinkError {
-                                    msg: e.to_string(),
-                                })
-                            }
-                            Some(CpuFeature(e)) => panic!(
+                        use wasmer_engine::InstantiationError::*;
+                        match err {
+                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic),
+                            Link(e) => VMError::FunctionCallError(FunctionCallError::LinkError {
+                                msg: e.to_string(),
+                            }),
+                            CpuFeature(e) => panic!(
                                 "host doesn't support the CPU features needed to run contracts: {}",
                                 e
                             ),
-                            // TODO: make this a static invariant.
-                            None => panic!("this ought to be unreachable"),
                         }
                     })?;
                 // SAFETY: being called immediately after instantiation.
@@ -379,18 +370,19 @@ impl Wasmer2VM {
                     // SAFETY: we double-checked the signature, and all of the remaining arguments
                     // come from an exported function definition which must be valid since it comes
                     // from wasmer itself.
-                    wasmer_vm::wasmer_call_trampoline(
-                        function.vmctx,
-                        trampoline,
-                        function.address,
-                        [].as_mut_ptr() as *mut _,
-                    )
-                    .map_err(|e| {
-                        translate_runtime_error(
-                            wasmer_engine::RuntimeError::from_trap(e),
-                            import.vmlogic,
+                    instance
+                        .invoke_function(
+                            function.vmctx,
+                            trampoline,
+                            function.address,
+                            [].as_mut_ptr() as *mut _,
                         )
-                    })?;
+                        .map_err(|e| {
+                            translate_runtime_error(
+                                wasmer_engine::RuntimeError::from_trap(e),
+                                import.vmlogic,
+                            )
+                        })?;
                 } else {
                     panic!("signature should've already been checked by `get_entrypoint_index`")
                 }
@@ -516,27 +508,6 @@ impl crate::runner::VM for Wasmer2VM {
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult {
-        let _span = tracing::debug_span!(
-            target: "vm",
-            "run_wasmer2",
-            "code.len" = code.code().len(),
-            %method_name
-        )
-        .entered();
-
-        if method_name.is_empty() {
-            let error = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ));
-            return VMResult::nop_outcome(error);
-        }
-        let artifact =
-            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
-        let artifact = match into_vm_result(artifact) {
-            Ok(it) => it,
-            Err(err) => return VMResult::nop_outcome(err),
-        };
-
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -555,12 +526,28 @@ impl crate::runner::VM for Wasmer2VM {
             &mut memory,
             current_protocol_version,
         );
-        // TODO: charge this before artifact is loaded
-        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-            let error = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-            return VMResult::abort(logic, error);
+
+        let result = logic.before_loading_executable(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
+        }
+
+        let artifact =
+            cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
+        let artifact = match into_vm_result(artifact) {
+            Ok(it) => it,
+            Err(err) => {
+                return VMResult::abort(logic, err);
+            }
+        };
+
+        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
         let import = imports::wasmer2::build(
             vmmemory,
@@ -569,8 +556,11 @@ impl crate::runner::VM for Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            // TODO: This should return an outcome to account for loading cost
-            return VMResult::nop_outcome(e);
+            return VMResult::abort_but_nop_outcome_in_old_protocol(
+                logic,
+                e,
+                current_protocol_version,
+            );
         }
         match self.run_method(&artifact, import, method_name) {
             Ok(()) => VMResult::ok(logic),

@@ -4,7 +4,8 @@
 
 ### Protocol Changes
 
-* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672)
+* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672).
+* Stabilized `alt_bn128_g1_multiexp`, `alt_bn128_g1_sum`, `alt_bn128_pairing_check` host functions [#6813](https://github.com/near/nearcore/pull/6813).
 
 ### Non-protocol Changes
 
@@ -15,6 +16,10 @@
 * Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
 * Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
 * Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
+* Added `path` option to `StoreConfig` which makes location to the
+  RocksDB configurable via `config.json` file (at `store.path` path)
+  rather than being hard-coded to `data` directory in neard home
+  directory [#6938](https://github.com/near/nearcore/pull/6938)
 
 ## 1.26.0 [2022-05-18]
 
