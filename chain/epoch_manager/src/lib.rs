@@ -852,7 +852,6 @@ impl EpochManager {
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
-    #[allow(clippy::wrong_self_convention)]
     pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?;
         self.is_next_block_in_next_epoch(&block_info)

@@ -84,7 +84,7 @@ fn precompilation_cost(
     let use_file_store = true;
     if use_file_store {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
+        let store = near_store::StoreOpener::with_default_config(workdir.path()).open();
         cache_store1 = Arc::new(StoreCompiledContractCache { store });
         cache = Some(cache_store1.as_ref());
     } else {
@@ -156,7 +156,7 @@ pub(crate) fn compile_single_contract_cost(
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
 
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
+    let store = near_store::StoreOpener::with_default_config(workdir.path()).open();
     let cache = Arc::new(StoreCompiledContractCache { store });
 
     measure_contract(vm_kind, metric, &contract, Some(cache.as_ref()))

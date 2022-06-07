@@ -1,17 +1,54 @@
 use crate::network_protocol::PeerInfo;
-use crate::types::ROUTED_MESSAGE_TTL;
-use near_crypto::{KeyType, PublicKey, SecretKey};
+use crate::types::{Blacklist, ROUTED_MESSAGE_TTL};
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
-use std::net::SocketAddr;
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::Arc;
 use std::time::Duration;
+
+/// How much height horizon to give to consider peer up to date.
+pub const HIGHEST_PEER_HORIZON: u64 = 5;
+
+/// Maximum amount of routes to store for each account id.
+pub const MAX_ROUTES_TO_STORE: usize = 5;
+
+/// ValidatorEndpoints are the endpoints that peers should connect to, to send messages to this
+/// validator. Validator will sign the endpoints and broadcast them to the network.
+/// For a static setup (a static IP, or a list of relay nodes with static IPs) use PublicAddrs.
+/// For a dynamic setup (with a single dynamic/ephemeral IP), use TrustedStunServers.
+#[derive(Clone)]
+pub enum ValidatorEndpoints {
+    /// Single public address of this validator, or a list of public addresses of trusted nodes
+    /// willing to route messages to this validator. Validator will connect to the listed relay
+    /// nodes on startup.
+    PublicAddrs(Vec<SocketAddr>),
+    /// Addresses of the format "<domain/ip>:<port>" of STUN servers.
+    /// The IP of the validator will be determined dynamically by querying all the STUN servers on
+    /// the list.
+    TrustedStunServers(Vec<String>),
+}
+
+#[derive(Clone)]
+pub struct ValidatorConfig {
+    pub signer: Arc<dyn ValidatorSigner>,
+    pub endpoints: ValidatorEndpoints,
+}
+
+impl ValidatorConfig {
+    pub fn account_id(&self) -> AccountId {
+        self.signer.validator_id().clone()
+    }
+}
 
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
-    pub account_id: Option<AccountId>,
-    pub addr: Option<SocketAddr>,
+    pub node_addr: Option<SocketAddr>,
+    pub node_key: SecretKey,
+    pub validator: Option<ValidatorConfig>,
+
     pub boot_nodes: Vec<PeerInfo>,
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: Duration,
@@ -55,9 +92,8 @@ pub struct NetworkConfig {
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: Duration,
-    /// Peers on blacklist by IP:Port.
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Vec<String>,
+    pub blacklist: Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -68,15 +104,104 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
+    pub fn new(
+        cfg: crate::config_json::Config,
+        node_key: SecretKey,
+        validator_signer: Option<Arc<dyn ValidatorSigner>>,
+        archive: bool,
+    ) -> Self {
+        Self {
+            node_key,
+            validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
+                signer: signer.clone(),
+                endpoints: if cfg.public_addrs.len() > 0 {
+                    ValidatorEndpoints::PublicAddrs(
+                        cfg.public_addrs
+                            .into_iter()
+                            .map(|addr| addr.parse().expect("Failed to parse SocketAddr"))
+                            .collect(),
+                    )
+                } else {
+                    ValidatorEndpoints::TrustedStunServers(cfg.trusted_stun_servers)
+                },
+            }),
+            node_addr: match cfg.addr.as_str() {
+                "" => None,
+                addr => Some(addr.parse().expect("Failed to parse SocketAddr")),
+            },
+            boot_nodes: if cfg.boot_nodes.is_empty() {
+                vec![]
+            } else {
+                cfg.boot_nodes
+                    .split(',')
+                    .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
+                    .collect()
+            },
+            whitelist_nodes: (|| -> Vec<_> {
+                let w = &cfg.whitelist_nodes;
+                if w.is_empty() {
+                    return vec![];
+                }
+                let mut peers = vec![];
+                for peer in w.split(',') {
+                    let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
+                    if peer.addr.is_none() {
+                        panic!("whitelist_nodes are required to specify both PeerId and IP:port")
+                    }
+                    peers.push(peer);
+                }
+                peers
+            }()),
+            handshake_timeout: cfg.handshake_timeout,
+            reconnect_delay: cfg.reconnect_delay,
+            bootstrap_peers_period: Duration::from_secs(60),
+            max_num_peers: cfg.max_num_peers,
+            minimum_outbound_peers: cfg.minimum_outbound_peers,
+            ideal_connections_lo: cfg.ideal_connections_lo,
+            ideal_connections_hi: cfg.ideal_connections_hi,
+            peer_recent_time_window: cfg.peer_recent_time_window,
+            safe_set_size: cfg.safe_set_size,
+            archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
+            ban_window: cfg.ban_window,
+            max_send_peers: 512,
+            peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
+            peer_stats_period: Duration::from_secs(5),
+            ttl_account_id_router: cfg.ttl_account_id_router,
+            routed_message_ttl: ROUTED_MESSAGE_TTL,
+            max_routes_to_store: MAX_ROUTES_TO_STORE,
+            highest_peer_horizon: HIGHEST_PEER_HORIZON,
+            push_info_period: Duration::from_millis(100),
+            blacklist: cfg
+                .blacklist
+                .iter()
+                .map(|e| e.parse().expect("failed to parse blacklist"))
+                .collect(),
+            outbound_disabled: false,
+            archive,
+        }
+    }
+
+    pub fn node_id(&self) -> PeerId {
+        PeerId::new(self.node_key.public_key())
+    }
+
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let public_key = secret_key.public_key();
+        let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
+        let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
+        let account_id = seed.parse().unwrap();
+        let validator = ValidatorConfig {
+            signer: Arc::new(InMemoryValidatorSigner::from_seed(
+                account_id,
+                KeyType::ED25519,
+                seed,
+            )),
+            endpoints: ValidatorEndpoints::PublicAddrs(vec![node_addr]),
+        };
         NetworkConfig {
-            public_key,
-            secret_key,
-            account_id: Some(seed.parse().unwrap()),
-            addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
+            node_addr: Some(node_addr),
+            node_key,
+            validator: Some(validator),
             boot_nodes: vec![],
             whitelist_nodes: vec![],
             handshake_timeout: Duration::from_secs(60),
@@ -98,13 +223,13 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: Duration::from_millis(100),
-            blacklist: vec![],
+            blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
         }
     }
 
-    pub fn verify(&self) -> Result<(), anyhow::Error> {
+    pub fn verify(&self) -> anyhow::Result<()> {
         if !(self.ideal_connections_lo <= self.ideal_connections_hi) {
             anyhow::bail!(
                 "Invalid ideal_connections values. lo({}) > hi({}).",

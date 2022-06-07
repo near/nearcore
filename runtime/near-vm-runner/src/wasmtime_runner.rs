@@ -189,13 +189,6 @@ impl crate::runner::VM for WasmtimeVM {
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult {
-        let _span = tracing::debug_span!(
-            target: "vm",
-            "run_wasmtime",
-            "code.len" = code.code().len(),
-            %method_name
-        )
-        .entered();
         let mut config = default_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
