@@ -51,12 +51,16 @@ pub struct Config {
     /// If empty, will use the same port as the addr, and will introspect on the listener.
     pub external_address: String,
     /// Comma separated list of nodes to connect to.
+    /// Examples:
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@nearnode.com:24567
     pub boot_nodes: String,
     /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
     /// the whitelist are accepted even if the limit of the inbound connection has been reached.
-    /// For each whitelisted node specifying both PeerId and IP:port is required:
-    /// Example:
+    /// For each whitelisted node specifying both PeerId and one of IP:port or Host:port is required:
+    /// Examples:
     ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
+    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@nearnode.com:24567
     #[serde(default)]
     pub whitelist_nodes: String,
     /// Maximum number of active peers. Hard limit.
