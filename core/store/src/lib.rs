@@ -149,8 +149,9 @@ impl Store {
         self.storage.write(transaction).map_err(io::Error::from)
     }
 
-    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
-        self.storage.as_rocksdb()
+    /// If the storage is backed by disk, flushes any in-memory data to disk.
+    pub fn flush(&self) -> io::Result<()> {
+        self.storage.flush().map_err(io::Error::from)
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {

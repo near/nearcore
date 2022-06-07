@@ -120,6 +120,7 @@ impl Indexer {
             self.view_client.clone(),
             self.client.clone(),
             self.indexer_config.clone(),
+            self.near_config.config.store.clone(),
             sender,
         ));
         receiver
