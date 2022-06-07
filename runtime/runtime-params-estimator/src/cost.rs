@@ -584,7 +584,7 @@ pub enum Cost {
     /// Estimates the executable loading part of `wasm_contract_loading_bytes`
     /// which is charged for each byte in a contract when it is loaded as an
     /// executable.
-    /// 
+    ///
     /// This cost also has to cover the reading of the code from the database.
     /// So technically, it covers code loading from database and also executable
     /// loading. But it is still charged right before executable loading because
@@ -594,9 +594,9 @@ pub enum Cost {
     /// Estimation: See `ContractLoadingBase`.
     ContractLoadingPerByte,
     /// Estimates the storage loading part of `wasm_contract_loading_bytes`.
-    /// 
+    ///
     /// See comment on `ContractLoadingPerByte` why these are combined.
-    /// 
+    ///
     /// Estimation: Measure the cost difference of two transactions calling a
     /// trivial smart contract method, where one contract has a large data
     /// section and the other contract is very small. Divide the difference in

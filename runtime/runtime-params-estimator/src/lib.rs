@@ -701,10 +701,12 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     (base, per_byte)
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let small_code = generate_data_only_contract(0);
+    let vm_config = VMConfig::test();
+
+    let small_code = generate_data_only_contract(0, &vm_config);
     let small_cost = fn_cost_in_contract(ctx, "main", &small_code);
 
-    let large_code = generate_data_only_contract(4_000_000);
+    let large_code = generate_data_only_contract(4_000_000, &vm_config);
     let large_cost = fn_cost_in_contract(ctx, "main", &large_code);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
