@@ -67,7 +67,6 @@ dependencies = [
  "actix-codec",
  "actix-rt",
  "actix-service",
- "actix-tls",
  "actix-utils",
  "ahash",
  "base64 0.13.0",
@@ -202,7 +201,6 @@ dependencies = [
  "actix-rt",
  "actix-server",
  "actix-service",
- "actix-tls",
  "actix-utils",
  "actix-web-codegen",
  "ahash",
@@ -2622,6 +2620,7 @@ dependencies = [
  "rayon",
  "tar",
  "tempfile",
+ "tokio",
  "tracing",
 ]
 
@@ -2696,6 +2695,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "chrono",
+ "crossbeam-channel",
  "delay-detector",
  "enum-map",
  "insta",
@@ -3334,7 +3334,6 @@ name = "near-telemetry"
 version = "0.0.0"
 dependencies = [
  "actix",
- "actix-web",
  "awc",
  "futures",
  "near-metrics",
@@ -4820,6 +4819,7 @@ dependencies = [
  "sha256",
  "tempfile",
  "tracing-span-tree",
+ "tracing-subscriber",
  "walrus",
  "wat",
 ]
@@ -5282,6 +5282,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-store",
+ "near-test-contracts",
  "nearcore",
  "node-runtime",
  "once_cell",

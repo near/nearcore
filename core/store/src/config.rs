@@ -1,11 +1,15 @@
 use near_primitives::version::DbVersion;
 
-// TODO(mina86): This is pub only because recompress-storage needs this value.
-// Refactor code so that this can be private.
-pub const STORE_PATH: &str = "data";
+const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StoreConfig {
+    /// Path to the database.  If relative, resolved relative to neard home
+    /// directory.  This is useful if node runs with a separate disk holding the
+    /// database.
+    #[serde(default)]
+    pub path: Option<std::path::PathBuf>,
+
     /// Collect internal storage layer statistics.
     /// Minor performance impact is expected.
     #[serde(default)]
@@ -41,19 +45,19 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 }
 
-const fn default_enable_statistics_export() -> bool {
+fn default_enable_statistics_export() -> bool {
     StoreConfig::const_default().enable_statistics_export
 }
 
-const fn default_max_open_files() -> u32 {
+fn default_max_open_files() -> u32 {
     StoreConfig::const_default().max_open_files
 }
 
-const fn default_col_state_cache_size() -> bytesize::ByteSize {
+fn default_col_state_cache_size() -> bytesize::ByteSize {
     StoreConfig::const_default().col_state_cache_size
 }
 
-const fn default_block_size() -> bytesize::ByteSize {
+fn default_block_size() -> bytesize::ByteSize {
     StoreConfig::const_default().block_size
 }
 
@@ -79,6 +83,7 @@ impl StoreConfig {
 
     const fn const_default() -> Self {
         Self {
+            path: None,
             enable_statistics: false,
             enable_statistics_export: true,
             max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
@@ -102,15 +107,8 @@ impl Default for StoreConfig {
     }
 }
 
-// TODO(#6857): Make this method in StoreOpener.  This way caller won’t need to
-// resolve path to the storage.
-pub fn store_path_exists<P: AsRef<std::path::Path>>(path: P) -> bool {
-    std::fs::canonicalize(path).is_ok()
-}
-
-// TODO(#6857): Get rid of this function.  Clients of this method should not
-// care about path of the storage instead letting StoreOpener figure that one
-// out.
+// TODO(#6857): Get rid of this function.  Clients of this method should use
+// StoreOpener::get_path instead..
 pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
     base_path.join(STORE_PATH)
 }
@@ -125,22 +123,9 @@ pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
 ///     .open();
 /// ```
 pub struct StoreOpener<'a> {
-    /// Near home directory.
-    ///
-    /// If `path` is relative, it is resolved relative to this home directory.
-    /// On the other hand, if `path` is absolute, `home` is effecively ignored.
-    ///
-    /// If home directory is not given (i.e. this field is `None`), current
-    /// working directory is assumed.
-    home: Option<&'a std::path::Path>,
-
-    /// The path relative to home directory where the storage resides.
-    ///
-    /// It is `STORE_PATH` by default but can be overwriten with arbitrary
-    /// absolute path for the cases where code needs to point at the storage
-    /// directory directly without relation to tho home directory
-    // TODO(#6857): Remove cases where this field is needed.
-    path: Option<&'a std::path::Path>,
+    /// Near home directory; path to the database is resolved relative to this
+    /// directory.
+    home_dir: &'a std::path::Path,
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
@@ -150,18 +135,18 @@ pub struct StoreOpener<'a> {
 }
 
 impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given store configuration.
-    pub fn new(config: &'a StoreConfig) -> Self {
-        Self { path: None, home: None, config: config, read_only: false }
+    /// Initialises a new opener with given home directory and store config.
+    pub fn new(home_dir: &'a std::path::Path, config: &'a StoreConfig) -> Self {
+        Self { home_dir, config, read_only: false }
     }
 
-    /// Initialises a new opener using default store configuration.
+    /// Initialises a new opener with given home directory and default config.
     ///
     /// This is meant for tests only.  Production code should always read store
     /// configuration from a config file and use [`Self::new`] instead.
-    pub fn with_default_config() -> Self {
+    pub fn with_default_config(home_dir: &'a std::path::Path) -> Self {
         static CONFIG: StoreConfig = StoreConfig::const_default();
-        Self::new(&CONFIG)
+        Self::new(home_dir, &CONFIG)
     }
 
     /// Configure whether the database should be opened in read-only mode.
@@ -170,28 +155,15 @@ impl<'a> StoreOpener<'a> {
         self
     }
 
-    /// Specifies neard home directory.
+    /// Returns whether database exists.
     ///
-    /// By default, the database lives in a `data` directory inside of the home
-    /// directory.
-    pub fn home(mut self, home: &'a std::path::Path) -> Self {
-        self.home = Some(home);
-        self
-    }
-
-    /// Specifies path to the database.
-    ///
-    /// You should avoid using this method instead setting [`Self::home`] on
-    /// relying on the opener resolving path to the storage relative to the near
-    /// home direcotry.
-    ///
-    /// If the path is absolute, it points at the database.  Otherwise, it is
-    /// resolved relative to home dir (which is set via [`Self::home`] method.
-    ///
-    /// TODO(#6857): Get rid of this method.
-    pub fn path(mut self, path: &'a std::path::Path) -> Self {
-        self.path = Some(path);
-        self
+    /// It performs only basic file-system-level checks and may result in false
+    /// positives if some but not all database files exist.  In particular, this
+    /// is not a guarantee that the database can be opened without an error.
+    pub fn check_if_exists(&self) -> bool {
+        // TODO(mina86): Add some more checks.  At least check if CURRENT file
+        // exists.
+        std::fs::canonicalize(&self.get_path()).is_ok()
     }
 
     /// Returns path to the underlying RocksDB database.
@@ -199,8 +171,7 @@ impl<'a> StoreOpener<'a> {
     /// Does not check whether the database actually exists.  It merely
     /// constructs the path where the database would be if it existed.
     pub fn get_path(&self) -> std::path::PathBuf {
-        let path = self.path.unwrap_or(std::path::Path::new(STORE_PATH));
-        self.home.map(|home| home.join(path)).unwrap_or_else(|| path.to_owned())
+        self.home_dir.join(self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)))
     }
 
     /// Returns version of the database; or `None` if it does not exist.

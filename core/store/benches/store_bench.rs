@@ -17,7 +17,7 @@ fn benchmark_write_then_read_successful(
     col: DBCol,
 ) {
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-    let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+    let store = StoreOpener::with_default_config(tmp_dir.path()).open();
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 

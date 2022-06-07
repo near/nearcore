@@ -11,16 +11,13 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::db::RocksDB;
-use near_store::migrations::{
-    get_store_version, migrate_28_to_29, migrate_29_to_30, set_store_version,
-};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
 use near_store::{DBCol, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -96,7 +93,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
 /// Other than regular database errors, returns an error if the database has
 /// unsupported version: either too far in the past or a future version.
 fn apply_store_migrations_if_exists(
-    store_opener: &near_store::StoreOpener,
+    store_opener: &StoreOpener,
     near_config: &NearConfig,
 ) -> anyhow::Result<bool> {
     let db_version = match store_opener.get_version_if_exists()? {
@@ -205,7 +202,7 @@ fn apply_store_migrations_if_exists(
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let opener = StoreOpener::new(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener.open();
     if !exists {
@@ -251,18 +248,12 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone());
+    let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
@@ -293,8 +284,7 @@ pub fn start_with_config_and_synchronization(
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
+    let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
@@ -389,30 +379,38 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_dir = home_dir.join(near_store::STORE_PATH);
-    anyhow::ensure!(
-        near_store::store_path_exists(&src_dir),
-        "{}: source storage doesn’t exist",
-        src_dir.display()
-    );
-    let db_version = get_store_version(&src_dir)?;
-    anyhow::ensure!(
-        db_version == near_primitives::version::DB_VERSION,
-        "{}: expected DB version {} but got {}",
-        src_dir.display(),
-        near_primitives::version::DB_VERSION,
-        db_version
-    );
+    let src_opener = StoreOpener::new(home_dir, &config.store).read_only(true);
+    let src_path = src_opener.get_path();
+    if let Some(db_version) = src_opener.get_version_if_exists()? {
+        anyhow::ensure!(
+            db_version == near_primitives::version::DB_VERSION,
+            "{}: expected DB version {} but got {}",
+            src_path.display(),
+            near_primitives::version::DB_VERSION,
+            db_version
+        );
+    } else {
+        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
+    }
 
+    let mut dst_config = config.store.clone();
+    dst_config.path = Some(opts.dest_dir);
+    // Note: opts.dest_dir is resolved relative to current working directory
+    // (since it’s a command line option) which is why we set home to cwd.
+    let cwd = std::env::current_dir()?;
+    let dst_opener = StoreOpener::new(&cwd, &dst_config);
+    let dst_path = dst_opener.get_path();
     anyhow::ensure!(
-        !near_store::store_path_exists(&opts.dest_dir),
+        !dst_opener.check_if_exists(),
         "{}: directory already exists",
-        opts.dest_dir.display()
+        dst_path.display()
     );
 
-    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    // TODO(#6857): Don’t use .path().
-    let src_store = StoreOpener::new(&config.store).read_only(true).path(&src_dir).open();
+    info!(target: "recompress",
+          src = %src_path.display(), dest = %dst_path.display(),
+          "Recompressing database");
+
+    let src_store = src_opener.open();
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -420,7 +418,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         anyhow::ensure!(
             tip.is_some(),
             "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
-            src_dir.display(),
+            src_path.display(),
             std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
         );
         tip.map(|tip| tip.height)
@@ -428,8 +426,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    // TODO(#6857): Don’t use .path().
-    let dst_store = StoreOpener::new(&config.store).path(&opts.dest_dir).open();
+    let dst_store = dst_opener.open();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
@@ -493,6 +490,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
+    info!(target: "recompress", dest = %dst_path.display(), "Database recompressed");
     Ok(())
 }

@@ -28,21 +28,13 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store = near_store::StoreOpener::with_default_config()
-            .read_only(read_only)
-            .home(&home_dir)
-            .open();
+        let store =
+            near_store::StoreOpener::with_default_config(&home_dir).read_only(read_only).open();
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
-        let runtime = NightshadeRuntime::with_config(
-            &home_dir,
-            store,
-            &near_config,
-            None,
-            near_config.client_config.max_gas_burnt_view,
-        );
+        let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config);
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =

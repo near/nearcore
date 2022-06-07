@@ -189,13 +189,6 @@ impl crate::runner::VM for WasmtimeVM {
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult {
-        let _span = tracing::debug_span!(
-            target: "vm",
-            "run_wasmtime",
-            "code.len" = code.code().len(),
-            %method_name
-        )
-        .entered();
         let mut config = default_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
@@ -205,15 +198,6 @@ impl crate::runner::VM for WasmtimeVM {
             self.config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
-            Ok(code) => code,
-            Err(err) => return VMResult::nop_outcome(VMError::from(err)),
-        };
-        let module = match Module::new(&engine, prepared_code) {
-            Ok(module) => module,
-            Err(err) => return VMResult::nop_outcome(err.into_vm_error()),
-        };
-        let mut linker = Linker::new(&engine);
         let memory_copy = memory.0;
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
@@ -225,25 +209,34 @@ impl crate::runner::VM for WasmtimeVM {
             current_protocol_version,
         );
 
-        // TODO: charge this before preparing contract
-        if logic.add_contract_loading_fee(code.code().len() as u64).is_err() {
-            let err = VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ));
-            return VMResult::abort(logic, err);
+        let result = logic.before_loading_executable(
+            method_name,
+            current_protocol_version,
+            code.code().len(),
+        );
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
+        }
+
+        let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
+            Ok(code) => code,
+            Err(err) => return VMResult::abort(logic, VMError::from(err)),
+        };
+        let module = match Module::new(&engine, prepared_code) {
+            Ok(module) => module,
+            Err(err) => return VMResult::abort(logic, err.into_vm_error()),
+        };
+        let mut linker = Linker::new(&engine);
+
+        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        if let Err(e) = result {
+            return VMResult::abort(logic, e);
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
         imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
-        // TODO: While fixing other loading cost, check this before loading contract
-        if method_name.is_empty() {
-            let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodEmptyName,
-            ));
-            return VMResult::nop_outcome(err);
-        }
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
@@ -252,24 +245,33 @@ impl crate::runner::VM for WasmtimeVM {
                             VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodInvalidSignature,
                             ));
-                        // TODO: This should return an outcome to account for loading cost
-                        return VMResult::nop_outcome(err);
+                        return VMResult::abort_but_nop_outcome_in_old_protocol(
+                            logic,
+                            err,
+                            current_protocol_version,
+                        );
                     }
                 }
                 _ => {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    // TODO: This should return an outcome to account for loading cost
-                    return VMResult::nop_outcome(err);
+                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        logic,
+                        err,
+                        current_protocol_version,
+                    );
                 }
             },
             None => {
                 let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodNotFound,
                 ));
-                // TODO: This should return an outcome to account for loading cost
-                return VMResult::nop_outcome(err);
+                return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    logic,
+                    err,
+                    current_protocol_version,
+                );
             }
         }
         match linker.instantiate(&mut store, &module) {
@@ -285,8 +287,11 @@ impl crate::runner::VM for WasmtimeVM {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    // TODO: This should return an outcome to account for loading cost
-                    VMResult::nop_outcome(err)
+                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        logic,
+                        err,
+                        current_protocol_version,
+                    );
                 }
             },
             Err(err) => VMResult::abort(logic, err.into_vm_error()),

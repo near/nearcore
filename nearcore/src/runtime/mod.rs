@@ -144,20 +144,14 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn with_config(
-        home_dir: &Path,
-        store: Store,
-        config: &NearConfig,
-        trie_viewer_state_size_limit: Option<u64>,
-        max_gas_burnt_view: Option<Gas>,
-    ) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
         Self::new(
             home_dir,
             store,
             &config.genesis,
             TrackedConfig::from_config(&config.client_config),
-            trie_viewer_state_size_limit,
-            max_gas_burnt_view,
+            config.client_config.trie_viewer_state_size_limit,
+            config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
         )
@@ -221,7 +215,6 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-        gc_num_epochs_to_keep: Option<u64>,
     ) -> Self {
         Self::new(
             home_dir,
@@ -231,7 +224,7 @@ impl NightshadeRuntime {
             None,
             None,
             Some(runtime_config_store),
-            gc_num_epochs_to_keep.unwrap_or(DEFAULT_GC_NUM_EPOCHS_TO_KEEP),
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         )
     }
 
@@ -242,7 +235,6 @@ impl NightshadeRuntime {
             genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
-            None,
         )
     }
 
@@ -2138,7 +2130,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-            let store = near_store::StoreOpener::with_default_config().home(dir.path()).open();
+            let store = near_store::StoreOpener::with_default_config(dir.path()).open();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
