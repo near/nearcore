@@ -63,8 +63,10 @@ impl MockNetworkConfig {
     }
 }
 
+pub const MOCK_DEFAULT_NETWORK_DELAY: Duration = Duration::from_millis(100);
+
 fn default_delay() -> Duration {
-    Duration::from_millis(100)
+    MOCK_DEFAULT_NETWORK_DELAY
 }
 
 impl Default for MockNetworkConfig {
