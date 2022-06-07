@@ -24,7 +24,7 @@ memoffset = "0.6"
 loupe = "0.1"
 once_cell = "1.5.2"
 parity-wasm = { version = "0.42", default-features = false }
-wasmtime = { version = "0.33.0", default-features = false, features = ["cranelift"], optional = true }
+wasmtime = { version = "0.34.2", default-features = false, features = ["cranelift"], optional = true }
 anyhow = { version = "1.0.19", optional = true }
 near-cache = { path = "../../utils/near-cache" }
 near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
