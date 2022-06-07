@@ -15,8 +15,8 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkRequests, NetworkResponses};
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
-    ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
+    Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -90,7 +90,7 @@ fn setup_network_node(
             client_config.clone(),
             chain_genesis.clone(),
             runtime.clone(),
-            PeerId::new(config.public_key.clone()),
+            config.node_id(),
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
@@ -99,7 +99,7 @@ fn setup_network_node(
         )
         .0;
         let view_client_actor = start_view_client(
-            config.account_id.clone(),
+            config.validator.as_ref().map(|v| v.account_id()),
             chain_genesis.clone(),
             runtime.clone(),
             network_adapter,
@@ -107,8 +107,7 @@ fn setup_network_node(
             adv,
         );
 
-        let routing_table_addr =
-            start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
+        let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
 
         PeerManagerActor::new(
             store.clone(),
@@ -552,15 +551,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist = config
+        let blacklist: Blacklist = config
             .blacklist
             .iter()
-            .map(|x| {
-                if let Some(x) = x {
-                    self.test_config[*x].addr().to_string()
-                } else {
-                    "127.0.0.1".to_string()
-                }
+            .map(|x| match x {
+                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
+                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =

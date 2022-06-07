@@ -650,8 +650,9 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     costs
 }
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let small_code = generate_data_only_contract(0);
-    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize);
+    let vm_config = VMConfig::test();
+    let small_code = generate_data_only_contract(0, &vm_config);
+    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
     let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
