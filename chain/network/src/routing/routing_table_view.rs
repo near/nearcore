@@ -1,5 +1,5 @@
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::schema;
+use crate::store;
 use itertools::Itertools;
 use lru::LruCache;
 use near_network_primitives::time;
@@ -25,7 +25,7 @@ pub struct RoutingTableView {
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
-    store: schema::Store,
+    store: store::Store,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -41,7 +41,7 @@ pub(crate) enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(store: schema::Store) -> Self {
+    pub fn new(store: store::Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
         Self {
@@ -128,9 +128,7 @@ impl RoutingTableView {
         self.account_peers.put(account_id.clone(), announce_account.clone());
 
         // Add account to store
-        let mut update = self.store.new_update();
-        update.set::<schema::AccountAnnouncements>(&account_id, &announce_account);
-        if let Err(e) = update.commit() {
+        if let Err(e) = self.store.set_account_announcement(&account_id, &announce_account) {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
         }
     }
@@ -194,7 +192,7 @@ impl RoutingTableView {
         if let Some(announce_account) = self.account_peers.get(account_id) {
             return Some(announce_account.clone());
         }
-        match self.store.get::<schema::AccountAnnouncements>(&account_id) {
+        match self.store.get_account_announcement(&account_id) {
             Err(e) => {
                 warn!(target: "network", "Error loading announce account from store: {:?}", e);
                 None

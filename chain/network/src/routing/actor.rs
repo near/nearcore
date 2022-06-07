@@ -1,8 +1,8 @@
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
-use crate::schema;
 use crate::stats::metrics;
+use crate::store;
 use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
@@ -33,7 +33,7 @@ pub struct Actor {
     // TODO: Reimplement GraphWithCache to GraphWithCache(Arc<RwLock<GraphWithCacheInner>>),
     // to enforce the constraint above.
     graph: Arc<RwLock<routing::GraphWithCache>>,
-    store: routing::ComponentStore,
+    store: store::Store,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
     /// List of Peers to ban
@@ -48,7 +48,7 @@ pub struct Actor {
 impl Actor {
     pub fn new(
         clock: time::Clock,
-        store: schema::Store,
+        store: store::Store,
         graph: Arc<RwLock<routing::GraphWithCache>>,
     ) -> Self {
         let my_peer_id = graph.read().my_peer_id();
@@ -56,7 +56,7 @@ impl Actor {
             clock,
             my_peer_id,
             graph,
-            store: routing::ComponentStore::new(store),
+            store,
             peer_reachable_at: Default::default(),
             peers_to_ban: Default::default(),
             edge_validator_requests_in_progress: 0,

@@ -1,4 +1,4 @@
-use crate::schema;
+use crate::store;
 use anyhow::bail;
 use near_network_primitives::time;
 use near_network_primitives::types::{
@@ -16,16 +16,6 @@ use tracing::{debug, error, info};
 #[cfg(test)]
 #[path = "peer_store_test.rs"]
 mod test;
-
-fn save_peer_state(
-    store: &mut schema::Store,
-    peer_id: &PeerId,
-    peer_state: &KnownPeerState,
-) -> anyhow::Result<()> {
-    let mut update = store.new_update();
-    update.set::<schema::Peers>(peer_id, peer_state);
-    Ok(update.commit()?)
-}
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -55,7 +45,7 @@ impl VerifiedPeer {
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
-    store: schema::Store,
+    store: store::Store,
     peer_states: HashMap<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
@@ -67,10 +57,10 @@ pub struct PeerStore {
 impl PeerStore {
     pub(crate) fn new(
         clock: &time::Clock,
-        store: schema::Store,
+        store: store::Store,
         boot_nodes: &[PeerInfo],
         blacklist: Blacklist,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         // A mapping from `PeerId` to `KnownPeerState`.
         let mut peerid_2_state = HashMap::default();
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
@@ -91,9 +81,7 @@ impl PeerStore {
             let entry = match addr_2_peer.entry(peer_addr) {
                 Entry::Occupied(entry) => {
                     // There is already a different peer_id with this address.
-                    error!(target: "network", "Two boot nodes have the same address {:?}", entry.key());
-                    continue;
-                    // TODO: add panic!, `boot_nodes` list is wrong
+                    anyhow::bail!("Two boot nodes have the same address {:?}", entry.key());
                 }
                 Entry::Vacant(entry) => entry,
             };
@@ -104,9 +92,7 @@ impl PeerStore {
 
         let mut peers_to_keep = vec![];
         let mut peers_to_delete = vec![];
-        for x in store.iter::<schema::Peers>() {
-            let (peer_id, peer_state) = x?;
-
+        for (peer_id, peer_state) in store.list_peer_states()? {
             // If it’s already banned, keep it banned.  Otherwise, it’s not connected.
             let status = if peer_state.status.is_banned() {
                 peer_state.status
@@ -184,7 +170,7 @@ impl PeerStore {
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = clock.now_utc();
         entry.status = KnownPeerStatus::Connected;
-        save_peer_state(&mut self.store, &peer_info.id, entry)
+        Ok(self.store.set_peer_state(&peer_info.id, entry)?)
     }
 
     pub(crate) fn peer_disconnected(
@@ -195,10 +181,11 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
             peer_state.status = KnownPeerStatus::NotConnected;
-            save_peer_state(&mut self.store, peer_id, peer_state)
+            self.store.set_peer_state(peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
+        Ok(())
     }
 
     pub(crate) fn peer_ban(
@@ -211,33 +198,33 @@ impl PeerStore {
             let now = clock.now_utc();
             peer_state.last_seen = now;
             peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
-            save_peer_state(&mut self.store, peer_id, peer_state)
+            self.store.set_peer_state(peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
+        Ok(())
     }
 
     /// Deletes peers from the internal cache and the persistent store.
     fn delete_peers(&mut self, peer_ids: &[PeerId]) -> anyhow::Result<()> {
-        let mut update = self.store.new_update();
         for peer_id in peer_ids {
             if let Some(peer_state) = self.peer_states.remove(peer_id) {
                 if let Some(addr) = peer_state.peer_info.addr {
                     self.addr_peers.remove(&addr);
                 }
             }
-            update.delete::<schema::Peers>(&peer_id);
         }
-        Ok(update.commit()?)
+        Ok(self.store.delete_peer_states(peer_ids)?)
     }
 
     pub(crate) fn peer_unban(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
-            save_peer_state(&mut self.store, &peer_id, peer_state)
+            self.store.set_peer_state(&peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
+        Ok(())
     }
 
     /// Find a random subset of peers based on filter.
@@ -302,10 +289,10 @@ impl PeerStore {
     }
 
     fn touch(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
-        match self.peer_states.get(peer_id) {
-            Some(peer_state) => save_peer_state(&mut self.store, &peer_id, peer_state),
-            None => Ok(()),
-        }
+        Ok(match self.peer_states.get(peer_id) {
+            Some(peer_state) => self.store.set_peer_state(&peer_id, peer_state)?,
+            None => (),
+        })
     }
 
     /// Create new pair between peer_info.id and peer_addr removing
@@ -470,5 +457,7 @@ pub fn iter_peers_from_store<F>(store: near_store::Store, f: F)
 where
     F: Fn((PeerId, KnownPeerState)),
 {
-    schema::Store::new(store).iter::<schema::Peers>().for_each(|x| f(x.unwrap()));
+    for x in store::Store::new(store).list_peer_states().unwrap() {
+        f(x)
+    }
 }

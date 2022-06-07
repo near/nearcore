@@ -9,9 +9,9 @@ use crate::private_actix::{
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
-use crate::schema;
 use crate::stats::metrics;
 use crate::stats::metrics::{NetworkMetrics, PARTIAL_ENCODED_CHUNK_REQUEST_DELAY};
+use crate::store;
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
@@ -39,7 +39,6 @@ use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
-use near_store::Store;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -303,12 +302,12 @@ impl Actor for PeerManagerActor {
 
 impl PeerManagerActor {
     pub fn new(
-        store: Store,
+        store: near_store::Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
     ) -> anyhow::Result<Self> {
-        let store = schema::Store::new(store);
+        let store = store::Store::new(store);
         let clock = time::Clock::real();
         let peer_store =
             PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone())
@@ -1153,8 +1152,7 @@ impl PeerManagerActor {
             .connected_peers
             .iter()
             .filter(|(_, p)| {
-                now - p.last_time_received_message
-                    < self.config.peer_recent_time_window
+                now - p.last_time_received_message < self.config.peer_recent_time_window
             })
             .collect();
         // Sort by established time.

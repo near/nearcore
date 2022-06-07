@@ -1,3 +1,6 @@
+/// Schema module defines a type-safe access to the DB.
+/// It is a concise definition of key and value types
+/// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_network_primitives::time;
 use near_network_primitives::types as primitives;

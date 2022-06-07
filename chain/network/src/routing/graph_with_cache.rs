@@ -39,10 +39,6 @@ impl GraphWithCache {
     pub fn total_active_edges(&self) -> u64 {
         self.graph.total_active_edges()
     }
-    #[allow(dead_code)]
-    pub fn compute_total_active_edges(&self) -> u64 {
-        self.graph.compute_total_active_edges()
-    }
     pub fn edges(&self) -> &HashMap<EdgeKey, Edge> {
         &self.edges
     }

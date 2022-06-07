@@ -1,5 +1,6 @@
 use crate::routing;
-use crate::schema;
+use crate::store;
+use crate::store::testonly::Component;
 use crate::tests::data;
 use crate::tests::util;
 use near_crypto::Signature;
@@ -15,18 +16,10 @@ fn edge(p0: &PeerId, p1: &PeerId, nonce: u64) -> Edge {
     Edge::new(p0.clone(), p1.clone(), nonce, Signature::default(), Signature::default())
 }
 
-impl routing::Component {
-    fn normal(mut self) -> Self {
-        self.peers.sort();
-        self.edges.sort_by_key(|e| e.key().clone());
-        self
-    }
-}
-
 struct RoutingTableTest {
     clock: time::FakeClock,
     rng: util::Rng,
-    store: schema::Store,
+    store: store::Store,
     graph: Arc<RwLock<routing::GraphWithCache>>,
     // This is the system runner attached to the given test's system thread.
     // Allows to create actors within the test.
@@ -53,27 +46,23 @@ impl RoutingTableTest {
         let mut rng = util::make_rng(87927345);
         let clock = time::FakeClock::default();
         let me = data::make_peer_id(&mut rng);
-        let store = schema::Store::new(create_test_store());
+        let store = store::Store::new(create_test_store());
 
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(me.clone())));
         Self { rng, clock, graph, store, _system: actix::System::new() }
-    }
-
-    fn component_store(&self) -> routing::ComponentStore {
-        routing::ComponentStore::new(self.store.clone())
     }
 
     fn new_actor(&self) -> routing::actor::Actor {
         routing::actor::Actor::new(self.clock.clock(), self.store.clone(), self.graph.clone())
     }
 
-    fn check(&mut self, want_mem: Vec<Edge>, want_db: Vec<routing::Component>) {
+    fn check(&mut self, want_mem: Vec<Edge>, want_db: Vec<Component>) {
         let got_mem: HashMap<_, _> = self.graph.read().edges().clone().into_iter().collect();
         let want_mem: HashMap<_, _> = want_mem.into_iter().map(|e| (e.key().clone(), e)).collect();
         assert_eq!(got_mem, want_mem);
 
         let got_db: HashSet<_> =
-            self.component_store().snapshot().into_iter().map(|c| c.normal()).collect();
+            self.store.list_components().into_iter().map(|c| c.normal()).collect();
         let want_db: HashSet<_> = want_db.into_iter().map(|c| c.normal()).collect();
         assert_eq!(got_db, want_db);
     }
@@ -118,10 +107,7 @@ fn one_edge() {
 
     // Update RT with pruning unreachable for 1s. p1 should be moved to DB.
     actor.update_routing_table(Some(test.clock.now() - SEC));
-    test.check(
-        vec![],
-        vec![routing::Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }],
-    );
+    test.check(vec![], vec![Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }]);
 }
 
 #[test]
@@ -141,7 +127,7 @@ fn load_component() {
     actor.update_routing_table(Some(test.clock.now()));
     test.check(
         vec![],
-        vec![routing::Component {
+        vec![Component {
             edges: vec![e1.clone(), e2.clone(), e3.clone()],
             peers: vec![p1.clone(), p2.clone()],
         }],
@@ -163,10 +149,7 @@ fn components_nonces_are_tracked_in_storage() {
     let e1 = edge(&test.me(), &p1, 2);
     actor.add_verified_edges(vec![e1.clone()]);
     actor.update_routing_table(Some(test.clock.now()));
-    test.check(
-        vec![],
-        vec![routing::Component { edges: vec![e1.clone()], peers: vec![p1.clone()] }],
-    );
+    test.check(vec![], vec![Component { edges: vec![e1.clone()], peers: vec![p1.clone()] }]);
 
     // Add an active unreachable edge, which also should get pruned.
     let p2 = test.make_peer();
@@ -177,8 +160,8 @@ fn components_nonces_are_tracked_in_storage() {
     test.check(
         vec![],
         vec![
-            routing::Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
-            routing::Component { edges: vec![e23.clone()], peers: vec![p2.clone(), p3.clone()] },
+            Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
+            Component { edges: vec![e23.clone()], peers: vec![p2.clone(), p3.clone()] },
         ],
     );
 
@@ -195,9 +178,9 @@ fn components_nonces_are_tracked_in_storage() {
     test.check(
         vec![],
         vec![
-            routing::Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
-            routing::Component { edges: vec![e23.clone()], peers: vec![p2.clone(), p3.clone()] },
-            routing::Component { edges: vec![e4.clone()], peers: vec![p4.clone()] },
+            Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
+            Component { edges: vec![e23.clone()], peers: vec![p2.clone(), p3.clone()] },
+            Component { edges: vec![e4.clone()], peers: vec![p4.clone()] },
         ],
     );
 
@@ -208,8 +191,8 @@ fn components_nonces_are_tracked_in_storage() {
     test.check(
         vec![],
         vec![
-            routing::Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
-            routing::Component {
+            Component { edges: vec![e1.clone()], peers: vec![p1.clone()] },
+            Component {
                 edges: vec![e4.clone(), e23.clone(), e34.clone()],
                 peers: vec![p2.clone(), p3.clone(), p4.clone()],
             },
