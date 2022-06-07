@@ -141,6 +141,12 @@ impl Edge {
         Edge(Arc::new(edge))
     }
 
+    pub fn with_removal_info(self, ri: Option<(bool, Signature)>) -> Edge {
+        let mut edge = self.0.as_ref().clone();
+        edge.removal_info = ri;
+        Edge(Arc::new(edge))
+    }
+
     fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key().0, &self.key().1, self.nonce())
     }

@@ -2,6 +2,7 @@
 /// It is a concise definition of key and value types
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::Signature;
 use near_network_primitives::time;
 use near_network_primitives::types as primitives;
 use near_primitives::account::id::{AccountId, ParseAccountError};
@@ -9,10 +10,9 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
 use thiserror::Error;
 
-// RoutingTableView storage schema.
-
 pub struct AccountIdFormat;
-impl Format<AccountId> for AccountIdFormat {
+impl Format for AccountIdFormat {
+    type T = AccountId;
     fn to_vec(a: &AccountId) -> Vec<u8> {
         a.as_ref().as_bytes().into()
     }
@@ -20,17 +20,6 @@ impl Format<AccountId> for AccountIdFormat {
         std::str::from_utf8(a).map_err(Error::Utf8)?.parse().map_err(Error::AccountId)
     }
 }
-
-pub struct AccountAnnouncements;
-impl Column for AccountAnnouncements {
-    const COL: DBCol = DBCol::AccountAnnouncements;
-    type Key = AccountId;
-    type KeyFormat = AccountIdFormat;
-    type Value = AnnounceAccount;
-    type ValueFormat = Borsh;
-}
-
-// PeerStore storage schema.
 
 #[derive(BorshSerialize, BorshDeserialize)]
 enum KnownPeerStatus {
@@ -41,8 +30,8 @@ enum KnownPeerStatus {
     Banned(primitives::ReasonForBan, u64),
 }
 
-impl KnownPeerStatus {
-    fn new(s: primitives::KnownPeerStatus) -> Self {
+impl From<primitives::KnownPeerStatus> for KnownPeerStatus {
+    fn from(s: primitives::KnownPeerStatus) -> Self {
         match s {
             primitives::KnownPeerStatus::Unknown => Self::Unknown,
             primitives::KnownPeerStatus::NotConnected => Self::NotConnected,
@@ -52,12 +41,15 @@ impl KnownPeerStatus {
             }
         }
     }
-    fn parse(self) -> primitives::KnownPeerStatus {
-        match self {
-            Self::Unknown => primitives::KnownPeerStatus::Unknown,
-            Self::NotConnected => primitives::KnownPeerStatus::NotConnected,
-            Self::Connected => primitives::KnownPeerStatus::Connected,
-            Self::Banned(r, t) => primitives::KnownPeerStatus::Banned(
+}
+
+impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
+    fn from(s: KnownPeerStatus) -> primitives::KnownPeerStatus {
+        match s {
+            KnownPeerStatus::Unknown => primitives::KnownPeerStatus::Unknown,
+            KnownPeerStatus::NotConnected => primitives::KnownPeerStatus::NotConnected,
+            KnownPeerStatus::Connected => primitives::KnownPeerStatus::Connected,
+            KnownPeerStatus::Banned(r, t) => primitives::KnownPeerStatus::Banned(
                 r,
                 time::Utc::from_unix_timestamp_nanos(t as i128).unwrap(),
             ),
@@ -66,7 +58,7 @@ impl KnownPeerStatus {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-struct KnownPeerState {
+pub struct KnownPeerState {
     peer_info: primitives::PeerInfo,
     status: KnownPeerStatus,
     /// UNIX timestamps in nanos.
@@ -74,77 +66,96 @@ struct KnownPeerState {
     last_seen: u64,
 }
 
-impl KnownPeerState {
-    fn new(s: &primitives::KnownPeerState) -> Self {
+impl BorshRepr for KnownPeerState {
+    type T = primitives::KnownPeerState;
+    fn to_repr(s: &primitives::KnownPeerState) -> Self {
         Self {
             peer_info: s.peer_info.clone(),
-            status: KnownPeerStatus::new(s.status.clone()),
+            status: s.status.clone().into(),
             first_seen: s.first_seen.unix_timestamp_nanos() as u64,
             last_seen: s.last_seen.unix_timestamp_nanos() as u64,
         }
     }
 
-    fn parse(self) -> Result<primitives::KnownPeerState, Error> {
+    fn from_repr(s: KnownPeerState) -> Result<primitives::KnownPeerState, Error> {
         Ok(primitives::KnownPeerState {
-            peer_info: self.peer_info,
-            status: self.status.parse(),
-            first_seen: time::Utc::from_unix_timestamp_nanos(self.first_seen as i128)
+            peer_info: s.peer_info,
+            status: s.status.into(),
+            first_seen: time::Utc::from_unix_timestamp_nanos(s.first_seen as i128)
                 .map_err(Error::Time)?,
-            last_seen: time::Utc::from_unix_timestamp_nanos(self.last_seen as i128)
+            last_seen: time::Utc::from_unix_timestamp_nanos(s.last_seen as i128)
                 .map_err(Error::Time)?,
         })
     }
 }
 
-pub struct KnownPeerStateFormat;
-impl Format<primitives::KnownPeerState> for KnownPeerStateFormat {
-    fn to_vec(a: &primitives::KnownPeerState) -> Vec<u8> {
-        Borsh::to_vec(&KnownPeerState::new(a))
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct Edge {
+    key: (PeerId, PeerId),
+    nonce: u64,
+    signature0: Signature,
+    signature1: Signature,
+    removal_info: Option<(bool, Signature)>,
+}
+
+impl BorshRepr for Edge {
+    type T = primitives::Edge;
+
+    fn to_repr(e: &Self::T) -> Self {
+        Self {
+            key: e.key().clone(),
+            nonce: e.nonce(),
+            signature0: e.signature0().clone(),
+            signature1: e.signature1().clone(),
+            removal_info: e.removal_info().cloned(),
+        }
     }
-    fn from_slice(a: &[u8]) -> Result<primitives::KnownPeerState, Error> {
-        <Borsh as Format<KnownPeerState>>::from_slice(a)?.parse()
+    fn from_repr(e: Self) -> Result<Self::T, Error> {
+        Ok(primitives::Edge::new(e.key.0, e.key.1, e.nonce, e.signature0, e.signature1)
+            .with_removal_info(e.removal_info))
     }
+}
+
+/////////////////////////////////////////////
+// Columns
+
+pub struct AccountAnnouncements;
+impl Column for AccountAnnouncements {
+    const COL: DBCol = DBCol::AccountAnnouncements;
+    type Key = AccountIdFormat;
+    type Value = Borsh<AnnounceAccount>;
 }
 
 pub struct Peers;
 impl Column for Peers {
     const COL: DBCol = DBCol::Peers;
-    type Key = PeerId;
-    type KeyFormat = Borsh;
-    type Value = primitives::KnownPeerState;
-    type ValueFormat = KnownPeerStateFormat;
+    type Key = Borsh<PeerId>;
+    type Value = KnownPeerState;
 }
-
-// Routing storage schema
 
 pub struct PeerComponent;
 impl Column for PeerComponent {
     const COL: DBCol = DBCol::PeerComponent;
-    type Key = PeerId;
-    type KeyFormat = Borsh;
-    type Value = u64;
-    type ValueFormat = Borsh;
+    type Key = Borsh<PeerId>;
+    type Value = Borsh<u64>;
 }
 
 pub struct ComponentEdges;
 impl Column for ComponentEdges {
     const COL: DBCol = DBCol::ComponentEdges;
-    type Key = u64;
-    type KeyFormat = U64LE;
-    type Value = Vec<primitives::Edge>;
-    type ValueFormat = Borsh;
+    type Key = U64LE;
+    type Value = Vec<Edge>;
 }
 
 pub struct LastComponentNonce;
 impl Column for LastComponentNonce {
     const COL: DBCol = DBCol::LastComponentNonce;
-    type Key = ();
-    type KeyFormat = Borsh;
-    type Value = u64;
-    type ValueFormat = Borsh;
+    type Key = Borsh<()>;
+    type Value = Borsh<u64>;
 }
 
 ////////////////////////////////////////////////////
+// Storage
 
 // Parsing error.
 #[derive(Error, Debug)]
@@ -161,13 +172,54 @@ pub enum Error {
     Time(time::error::ComponentRange),
 }
 
-pub trait Format<T> {
-    fn to_vec(a: &T) -> Vec<u8>;
-    fn from_slice(a: &[u8]) -> Result<T, Error>;
+pub trait Format {
+    type T;
+    fn to_vec(a: &Self::T) -> Vec<u8>;
+    fn from_slice(a: &[u8]) -> Result<Self::T, Error>;
+}
+
+pub trait BorshRepr: BorshSerialize + BorshDeserialize {
+    type T;
+    fn to_repr(a: &Self::T) -> Self;
+    fn from_repr(s: Self) -> Result<Self::T, Error>;
+}
+
+impl<R: BorshRepr> Format for R {
+    type T = R::T;
+    fn to_vec(a: &Self::T) -> Vec<u8> {
+        R::to_repr(a).try_to_vec().unwrap()
+    }
+    fn from_slice(a: &[u8]) -> Result<Self::T, Error> {
+        R::from_repr(R::try_from_slice(a).map_err(Error::IO)?)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct Borsh<T: BorshSerialize + BorshDeserialize>(T);
+
+impl<T: BorshSerialize + BorshDeserialize + Clone> BorshRepr for Borsh<T> {
+    type T = T;
+    fn to_repr(a: &T) -> Self {
+        Self(a.clone())
+    }
+    fn from_repr(a: Self) -> Result<T, Error> {
+        Ok(a.0)
+    }
+}
+
+impl<R: BorshRepr> BorshRepr for Vec<R> {
+    type T = Vec<R::T>;
+    fn to_repr(a: &Self::T) -> Vec<R> {
+        a.iter().map(R::to_repr).collect()
+    }
+    fn from_repr(a: Vec<R>) -> Result<Self::T, Error> {
+        a.into_iter().map(R::from_repr).collect()
+    }
 }
 
 pub struct U64LE;
-impl Format<u64> for U64LE {
+impl Format for U64LE {
+    type T = u64;
     fn to_vec(a: &u64) -> Vec<u8> {
         a.to_le_bytes().into()
     }
@@ -176,22 +228,10 @@ impl Format<u64> for U64LE {
     }
 }
 
-pub struct Borsh;
-impl<T: BorshSerialize + BorshDeserialize> Format<T> for Borsh {
-    fn to_vec(a: &T) -> Vec<u8> {
-        a.try_to_vec().unwrap()
-    }
-    fn from_slice(a: &[u8]) -> Result<T, Error> {
-        T::try_from_slice(a).map_err(Error::IO)
-    }
-}
-
 pub trait Column {
     const COL: DBCol;
-    type Key;
-    type KeyFormat: Format<Self::Key>;
-    type Value;
-    type ValueFormat: Format<Self::Value>;
+    type Key: Format;
+    type Value: Format;
 }
 
 #[derive(Clone)]
@@ -206,26 +246,30 @@ impl Store {
     pub fn new_update(&mut self) -> StoreUpdate {
         StoreUpdate(self.0.store_update())
     }
-    pub fn iter<C: Column>(&self) -> impl Iterator<Item = Result<(C::Key, C::Value), Error>> + '_ {
-        self.0
-            .iter(C::COL)
-            .map(|(k, v)| Ok((C::KeyFormat::from_slice(&k)?, C::ValueFormat::from_slice(&v)?)))
+    pub fn iter<C: Column>(
+        &self,
+    ) -> impl Iterator<Item = Result<(<C::Key as Format>::T, <C::Value as Format>::T), Error>> + '_
+    {
+        self.0.iter(C::COL).map(|(k, v)| Ok((C::Key::from_slice(&k)?, C::Value::from_slice(&v)?)))
     }
-    pub fn get<C: Column>(&self, k: &C::Key) -> Result<Option<C::Value>, Error> {
-        let v = self.0.get(C::COL, C::KeyFormat::to_vec(k).as_ref()).map_err(Error::IO)?;
+    pub fn get<C: Column>(
+        &self,
+        k: &<C::Key as Format>::T,
+    ) -> Result<Option<<C::Value as Format>::T>, Error> {
+        let v = self.0.get(C::COL, C::Key::to_vec(k).as_ref()).map_err(Error::IO)?;
         Ok(match v {
-            Some(v) => Some(C::ValueFormat::from_slice(&v)?),
+            Some(v) => Some(C::Value::from_slice(&v)?),
             None => None,
         })
     }
 }
 
 impl StoreUpdate {
-    pub fn set<C: Column>(&mut self, k: &C::Key, v: &C::Value) {
-        self.0.set(C::COL, C::KeyFormat::to_vec(k).as_ref(), C::ValueFormat::to_vec(v).as_ref())
+    pub fn set<C: Column>(&mut self, k: &<C::Key as Format>::T, v: &<C::Value as Format>::T) {
+        self.0.set(C::COL, C::Key::to_vec(k).as_ref(), C::Value::to_vec(v).as_ref())
     }
-    pub fn delete<C: Column>(&mut self, k: &C::Key) {
-        self.0.delete(C::COL, C::KeyFormat::to_vec(k).as_ref())
+    pub fn delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
+        self.0.delete(C::COL, C::Key::to_vec(k).as_ref())
     }
     pub fn commit(self) -> Result<(), Error> {
         self.0.commit().map_err(Error::IO)
