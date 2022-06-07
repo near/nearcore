@@ -7,12 +7,13 @@ use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use tracing::debug;
 
-#[path = "schema.rs"]
 mod schema;
 
 pub use schema::Error;
 
-#[derive(Clone)]
+/// Store allows for performing synchronous atomic operations on the DB.
+/// In particular it doesn't implement Clone and requires &mut self for
+/// methods writing to the DB.
 pub struct Store(schema::Store);
 
 impl Store {
@@ -125,7 +126,7 @@ pub mod testonly {
     use super::*;
     use std::collections::HashMap;
 
-    #[derive(Debug, Hash, PartialEq, Eq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub struct Component {
         pub peers: Vec<PeerId>,
         pub edges: Vec<Edge>,
@@ -140,7 +141,7 @@ pub mod testonly {
     impl Component {
         pub fn normal(mut self) -> Self {
             self.peers.sort();
-            self.edges.sort_by_key(|e| e.key().clone());
+            self.edges.sort_by(|a, b| a.key().cmp(b.key()));
             self
         }
     }

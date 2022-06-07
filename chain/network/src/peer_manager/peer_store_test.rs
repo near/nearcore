@@ -151,9 +151,10 @@ fn dont_handle_address_change() {
 #[test]
 fn check_add_peers_overriding() {
     let clock = time::FakeClock::default();
-    let store = store::Store::new(create_test_store());
+    let store = create_test_store();
     let mut peer_store =
-        PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+        PeerStore::new(&clock.clock(), store::Store::new(store.clone()), &[], Default::default())
+            .unwrap();
 
     // Five peers: A, B, C, D, X, T
     let peers_id = (0..6).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
@@ -228,7 +229,9 @@ fn check_add_peers_overriding() {
     assert!(check_integrity(&peer_store));
 
     // Check we are able to recover from store previous signed connection
-    let peer_store_2 = PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+    let peer_store_2 =
+        PeerStore::new(&clock.clock(), store::Store::new(store.clone()), &[], Default::default())
+            .unwrap();
     assert!(check_exist(&peer_store_2, &peers_id[0], Some((addrs[0], TrustLevel::Indirect))));
     assert!(check_integrity(&peer_store_2));
 }
@@ -244,12 +247,17 @@ fn check_ignore_blacklisted_peers() {
     }
 
     let ids = (0..6).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
-    let store = store::Store::new(create_test_store());
+    let store = create_test_store();
 
     // Populate store with three peers.
     {
-        let mut peer_store =
-            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+        let mut peer_store = PeerStore::new(
+            &clock.clock(),
+            store::Store::new(store.clone()),
+            &[],
+            Default::default(),
+        )
+        .unwrap();
         peer_store
             .add_indirect_peers(
                 &clock.clock(),
@@ -267,8 +275,13 @@ fn check_ignore_blacklisted_peers() {
     // Peers without address aren’t saved but make sure the rest are read
     // correctly.
     {
-        let peer_store =
-            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+        let peer_store = PeerStore::new(
+            &clock.clock(),
+            store::Store::new(store.clone()),
+            &[],
+            Default::default(),
+        )
+        .unwrap();
         assert_peers(&peer_store, &[&ids[1], &ids[2]]);
     }
 
@@ -276,7 +289,8 @@ fn check_ignore_blacklisted_peers() {
     {
         let blacklist: Blacklist =
             ["127.0.0.1:2", "127.0.0.1:5"].iter().map(|e| e.parse().unwrap()).collect();
-        let mut peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist).unwrap();
+        let mut peer_store =
+            PeerStore::new(&clock.clock(), store::Store::new(store), &[], blacklist).unwrap();
         // Peer 127.0.0.1:2 is removed since it's blacklisted.
         assert_peers(&peer_store, &[&ids[1]]);
 

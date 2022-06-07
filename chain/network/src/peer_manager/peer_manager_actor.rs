@@ -311,19 +311,26 @@ impl PeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
     ) -> anyhow::Result<Self> {
-        let store = store::Store::new(store);
         let clock = time::Clock::real();
-        let peer_store =
-            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone())
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store = PeerStore::new(
+            &clock,
+            store::Store::new(store.clone()),
+            &config.boot_nodes,
+            config.blacklist.clone(),
+        )
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network", len = peer_store.len(), boot_nodes = config.boot_nodes.len(), "Found known peers");
         debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
 
         let my_peer_id = config.node_id();
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
-        let routing_table_addr =
-            routing::Actor::new(clock.clone(), store.clone(), network_graph.clone()).start();
-        let routing_table_view = RoutingTableView::new(store);
+        let routing_table_addr = routing::Actor::new(
+            clock.clone(),
+            store::Store::new(store.clone()),
+            network_graph.clone(),
+        )
+        .start();
+        let routing_table_view = RoutingTableView::new(store::Store::new(store.clone()));
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
 

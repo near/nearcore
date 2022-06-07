@@ -10,6 +10,9 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
 use thiserror::Error;
 
+#[cfg(test)]
+mod tests;
+
 pub struct AccountIdFormat;
 impl Format for AccountIdFormat {
     type T = AccountId;
@@ -58,7 +61,7 @@ impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct KnownPeerState {
+pub struct KnownPeerStateRepr {
     peer_info: primitives::PeerInfo,
     status: KnownPeerStatus,
     /// UNIX timestamps in nanos.
@@ -66,7 +69,7 @@ pub struct KnownPeerState {
     last_seen: u64,
 }
 
-impl BorshRepr for KnownPeerState {
+impl BorshRepr for KnownPeerStateRepr {
     type T = primitives::KnownPeerState;
     fn to_repr(s: &primitives::KnownPeerState) -> Self {
         Self {
@@ -77,7 +80,7 @@ impl BorshRepr for KnownPeerState {
         }
     }
 
-    fn from_repr(s: KnownPeerState) -> Result<primitives::KnownPeerState, Error> {
+    fn from_repr(s: Self) -> Result<primitives::KnownPeerState, Error> {
         Ok(primitives::KnownPeerState {
             peer_info: s.peer_info,
             status: s.status.into(),
@@ -90,7 +93,7 @@ impl BorshRepr for KnownPeerState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct Edge {
+pub struct EdgeRepr {
     key: (PeerId, PeerId),
     nonce: u64,
     signature0: Signature,
@@ -98,7 +101,7 @@ pub struct Edge {
     removal_info: Option<(bool, Signature)>,
 }
 
-impl BorshRepr for Edge {
+impl BorshRepr for EdgeRepr {
     type T = primitives::Edge;
 
     fn to_repr(e: &Self::T) -> Self {
@@ -130,7 +133,7 @@ pub struct Peers;
 impl Column for Peers {
     const COL: DBCol = DBCol::Peers;
     type Key = Borsh<PeerId>;
-    type Value = KnownPeerState;
+    type Value = KnownPeerStateRepr;
 }
 
 pub struct PeerComponent;
@@ -144,7 +147,7 @@ pub struct ComponentEdges;
 impl Column for ComponentEdges {
     const COL: DBCol = DBCol::ComponentEdges;
     type Key = U64LE;
-    type Value = Vec<Edge>;
+    type Value = Vec<EdgeRepr>;
 }
 
 pub struct LastComponentNonce;
@@ -194,6 +197,7 @@ impl<R: BorshRepr> Format for R {
     }
 }
 
+/// This is a wrapper which doesn't change the borsh encoding.
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct Borsh<T: BorshSerialize + BorshDeserialize>(T);
 
