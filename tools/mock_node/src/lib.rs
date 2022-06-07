@@ -208,7 +208,7 @@ impl MockPeerManagerActor {
         network_start_height: BlockHeight,
         target_height: BlockHeight,
         block_production_delay: Duration,
-        network_config: MockNetworkConfig,
+        network_config: &MockNetworkConfig,
     ) -> Self {
         // for now, we only simulate one peer
         // we will add more complicated network config in the future

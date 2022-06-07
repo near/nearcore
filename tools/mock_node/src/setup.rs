@@ -75,7 +75,7 @@ fn setup_mock_peer_manager_actor(
         network_start_height,
         target_height,
         block_production_delay,
-        network_config.clone(),
+        network_config,
     )
 }
 
