@@ -6,7 +6,7 @@ This test consists of two parts:
 Init your own localnet:
 
 ```shell
-./target/releas/neard --home ~/.near_tmp init --chain-id localnet --num-shards=5
+./target/release/neard --home ~/.near_tmp init --chain-id localnet --num-shards=5
 ```
 
 
