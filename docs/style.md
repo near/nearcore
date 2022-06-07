@@ -106,7 +106,8 @@ saves keystrokes. If the value is used exactly once, we just want to be
 consistent. Additional benefit of early deref is reduced scope of borrow.
 
 Note that for some *big* `Copy` types, notably `CryptoHash`, we sometimes use
-references for performance reasons.
+references for performance reasons. As a rule of thumb, `T` is considered *big* if
+`size_of::<T>() > 2 * size_of::<usize>()`.
 
 ### Import Granularity
 
