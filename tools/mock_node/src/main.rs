@@ -7,7 +7,7 @@ use actix::System;
 use anyhow::Context;
 use clap::Parser;
 use mock_node::setup::setup_mock_node;
-use mock_node::GetChainTargetBlockHeight;
+use mock_node::{GetChainTargetBlockHeight, MockNetworkConfig};
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
 use near_client::{GetBlock, Status};
@@ -57,8 +57,8 @@ struct Cli {
     /// generate a temporary directory
     client_home_dir: Option<PathBuf>,
     /// Simulated network delay (in ms)
-    #[clap(short = 'd', long, default_value = "100")]
-    network_delay: u64,
+    #[clap(short = 'd', long)]
+    network_delay: Option<u64>,
     /// If specified, the binary will set up client home dir before starting the
     /// client node so head of the client chain will be the specified height
     /// when the client starts. The given height must be the last block in an
@@ -104,7 +104,18 @@ fn main() -> anyhow::Result<()> {
             tempdir.path()
         }
     };
-    let network_delay = Duration::from_millis(args.network_delay);
+
+    let mock_config_path = home_dir.join("mock.json");
+    let mut network_config = if mock_config_path.exists() {
+        MockNetworkConfig::from_file(&mock_config_path).with_context(|| {
+            format!("Error loading mock config from {}", mock_config_path.display())
+        })?
+    } else {
+        MockNetworkConfig::default()
+    };
+    if let Some(delay) = args.network_delay {
+        network_config.response_delay = Duration::from_millis(delay);
+    }
 
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
@@ -113,7 +124,7 @@ fn main() -> anyhow::Result<()> {
             Path::new(&client_home_dir),
             home_dir,
             near_config,
-            network_delay,
+            &network_config,
             client_height,
             network_height,
             args.target_height,
