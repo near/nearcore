@@ -160,18 +160,23 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
 
     // Client::process_partial_encoded_chunk should not return an error
     // if the chunk is based on a missing block.
-    let result = client
-        .process_partial_encoded_chunk(MaybeValidated::from(PartialEncodedChunk::V2(mock_chunk)));
+    let result = client.process_partial_encoded_chunk(
+        MaybeValidated::from(PartialEncodedChunk::V2(mock_chunk)),
+        Arc::new(|_| {}),
+    );
     match result {
-        Ok(accepted_blocks) => assert!(accepted_blocks.is_empty()),
+        Ok(()) => {
+            let accepted_blocks = client.finish_blocks_in_processing();
+            assert!(accepted_blocks.is_empty());
+        }
         Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),
     }
 
     // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
     // a missing block.
-    let result = client.process_partial_encoded_chunk_forward(mock_forward);
+    let result = client.process_partial_encoded_chunk_forward(mock_forward, Arc::new(|_| {}));
     assert_matches!(
-        result,
-        Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+        result.unwrap_err(),
+        near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk)
     );
 }

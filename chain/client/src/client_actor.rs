@@ -1383,8 +1383,9 @@ impl ClientActor {
     }
 
     fn try_process_unfinished_blocks(&mut self) {
-        let accepted_blocks =
+        let (accepted_blocks, _errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback());
+        // TODO: log the errors
         self.process_accepted_blocks(accepted_blocks);
     }
 

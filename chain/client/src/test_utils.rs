@@ -49,6 +49,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
@@ -1324,16 +1325,20 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        self.clients[id]
-            .start_process_block(MaybeValidated::from(block), provenance, Arc::new(|_| {}))
-            .unwrap();
-        let mut accepted_blocks = vec![];
-        accepted_blocks.extend(self.clients[id].finish_blocks_in_processing());
+        let mut accepted_blocks =
+            self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         if should_run_catchup {
-            run_catchup(&mut self.clients[id], &vec![]).unwrap();
-            accepted_blocks.extend(self.clients[id].finish_blocks_in_processing());
+            accepted_blocks.extend(run_catchup(&mut self.clients[id], &vec![]).unwrap());
         }
+        self.process_accepted_blocks_recursive(id, accepted_blocks, should_produce_chunk);
+    }
 
+    pub fn process_accepted_blocks_recursive(
+        &mut self,
+        id: usize,
+        mut accepted_blocks: Vec<AcceptedBlock>,
+        should_produce_chunk: bool,
+    ) {
         while !accepted_blocks.is_empty() {
             for accepted_block in accepted_blocks.drain(..) {
                 self.clients[id].on_block_accepted_with_optional_chunk_produce(
@@ -1683,7 +1688,7 @@ pub fn create_chunk(
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<(), Error> {
+) -> Result<Vec<AcceptedBlock>, Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1732,5 +1737,5 @@ pub fn run_catchup(
             }
         }
     }
-    Ok(())
+    Ok(client.finish_blocks_in_processing())
 }

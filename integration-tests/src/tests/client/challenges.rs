@@ -59,7 +59,7 @@ fn test_block_with_challenges() {
         block.mut_header().resign(&*signer);
     }
 
-    let (_, result) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+    let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
 }
 
@@ -135,7 +135,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
         .is_err());
 
-    let (_, result) = env.clients[0].start_process_block(b2.into(), Provenance::SYNC);
+    let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
     let mut last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
     if let NetworkRequests::Block { .. } = last_message {
@@ -472,8 +472,8 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
-    let (_, tip) = client.start_process_block(block.into(), Provenance::NONE);
-    assert!(tip.is_err());
+    let result = client.process_block_test(block.into(), Provenance::NONE);
+    assert!(result.is_err());
 
     let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
 
@@ -505,7 +505,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             client.chain.mut_store()
         )
         .is_err());
-    let (_, result) = client.start_process_block(block.clone().into(), Provenance::NONE);
+    let result = client.process_block_test(block.clone().into(), Provenance::NONE);
     // We have declined block with invalid chunk.
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
@@ -528,7 +528,10 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         &vec![merkle_paths[0].clone()],
     );
     assert!(env.clients[1]
-        .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
+        .process_partial_encoded_chunk(
+            MaybeValidated::from(partial_encoded_chunk),
+            Arc::new(|_| {})
+        )
         .is_ok());
     env.process_block(1, block, Provenance::NONE);
 
@@ -696,7 +699,7 @@ fn test_challenge_in_different_epoch() {
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header().height();
-        let (_, result) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         match run_catchup(&mut env.clients[0], &vec![]) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
@@ -704,6 +707,7 @@ fn test_challenge_in_different_epoch() {
                         accepted_block.hash,
                         accepted_block.status,
                         accepted_block.provenance,
+                        Arc::new(|_| {}),
                     );
                 }
             }

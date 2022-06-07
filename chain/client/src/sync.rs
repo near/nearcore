@@ -1659,11 +1659,12 @@ mod test {
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
-        let _ = env.clients[1].start_process_block(
-            MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
-            Provenance::NONE,
-            Arc::new(|_| {}),
-        );
+        let _ = env.clients[1]
+            .process_block_test(
+                MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
+                Provenance::NONE,
+            )
+            .unwrap();
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);

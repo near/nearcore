@@ -1564,23 +1564,26 @@ impl Chain {
         me: &Option<AccountId>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: ApplyChunkCallback,
-    ) -> Vec<AcceptedBlock> {
+    ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let mut accepted_blocks = vec![];
-        while let Ok(block_apply_chunk_result) = self.apply_chunks_receiver.try_recv() {
+        let mut errors = HashMap::new();
+        while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
             match self.postprocess_block(
                 me,
-                block_apply_chunk_result,
+                block_hash,
+                apply_result,
                 block_processing_artifacts,
                 apply_chunks_done_callback.clone(),
             ) {
-                // TODO: handle errors here
-                // For now, let's just ignore the error. These errors get dropped eventually
-                // anyways (except some logging or debug_assert in client actor)
-                Err(_e) => {}
-                Ok(accepted_block) => accepted_blocks.push(accepted_block),
+                Err(e) => {
+                    errors.insert(block_hash, e);
+                }
+                Ok(accepted_block) => {
+                    accepted_blocks.push(accepted_block);
+                }
             }
         }
-        accepted_blocks
+        (accepted_blocks, errors)
     }
 
     /// This function is for test only (TODO: mark is with #[cfg(test)], we can't do that now
@@ -1603,7 +1606,11 @@ impl Chain {
             Arc::new(|_| {}),
         )?;
         self.blocks_in_processing.wait_for_block(&block_hash).unwrap();
-        Ok(self.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {})))
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {}));
+        // This is in test, we should never get errors when postprocessing blocks
+        debug_assert!(errors.is_empty());
+        Ok(accepted_blocks)
     }
 
     /// Wait for all blocks that started processing to be ready for postprocessing
@@ -1982,11 +1989,11 @@ impl Chain {
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,
-        block_apply_chunk_result: BlockApplyChunksResult,
+        block_hash: CryptoHash,
+        apply_results: Vec<Result<ApplyChunkResult, Error>>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: ApplyChunkCallback,
     ) -> Result<AcceptedBlock, Error> {
-        let (block_hash, apply_results) = block_apply_chunk_result;
         let (block, block_preprocess_info) =
             self.blocks_in_processing.remove(&block_hash).expect(&format!(
                 "block {:?} finished applying chunks but not in blocks_in_processing pool",

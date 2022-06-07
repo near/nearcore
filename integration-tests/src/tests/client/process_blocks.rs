@@ -988,40 +988,15 @@ fn client_sync_headers() {
     });
 }
 
-fn produce_blocks(client: &mut Client, num: u64) {
-    for i in 1..num {
-        let b = client.produce_block(i).unwrap().unwrap();
-        let (mut accepted_blocks, _) = client.start_process_block(b.into(), Provenance::PRODUCED);
-        let more_accepted_blocks = run_catchup(client, &vec![]).unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
-        for accepted_block in accepted_blocks {
-            client.on_block_accepted(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-            );
-        }
-    }
-}
-
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
-    let store = create_test_store();
-    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.transaction_validity_period = 10;
-    let mut client = setup_client(
-        store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
-        Some("test1".parse().unwrap()),
-        false,
-        network_adapter,
-        chain_genesis,
-        TEST_SEED,
-    );
+    let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+    genesis.config.transaction_validity_period = 10;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -1030,13 +1005,15 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
-            block_hash: *client.chain.genesis().hash(),
+            block_hash: *env.clients[0].chain.genesis().hash(),
             actions: vec![],
         },
     );
-    produce_blocks(&mut client, 12);
+    for i in 1..12 {
+        env.produce_block(0, i);
+    }
     assert_eq!(
-        client.process_tx(tx, false, false),
+        env.clients[0].process_tx(tx, false, false),
         NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
     );
     let tx2 = SignedTransaction::new(
@@ -1051,7 +1028,7 @@ fn test_process_invalid_tx() {
         },
     );
     assert_eq!(
-        client.process_tx(tx2, false, false),
+        env.clients[0].process_tx(tx2, false, false),
         NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
     );
 }
@@ -1082,10 +1059,10 @@ fn test_time_attack() {
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
     b1.mut_header().resign(&signer);
 
-    let _ = client.start_process_block(b1.into(), Provenance::NONE);
+    let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
     let b2 = client.produce_block(2).unwrap().unwrap();
-    assert!(client.start_process_block(b2.into(), Provenance::PRODUCED).1.is_ok());
+    let _ = client.process_block_test(b2.into(), Provenance::PRODUCED).unwrap();
 }
 
 // TODO: use real runtime for this test
@@ -1126,14 +1103,8 @@ fn test_invalid_approvals() {
         .collect();
     b1.mut_header().resign(&signer);
 
-    let (_, tip) = client.start_process_block(b1.into(), Provenance::NONE);
-    match tip {
-        Err(e) => match e {
-            Error::InvalidApprovals => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
-    }
+    let result = client.process_block_test(b1.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
 }
 
 #[test]
@@ -1169,25 +1140,19 @@ fn test_invalid_gas_price() {
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
     b1.mut_header().resign(&signer);
 
-    let (_, result) = client.start_process_block(b1.into(), Provenance::NONE);
-    match result {
-        Err(e) => match e {
-            Error::InvalidGasPrice => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", result),
-    }
+    let res = client.process_block_test(b1.into(), Provenance::NONE);
+    assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
 }
 
 #[test]
 fn test_invalid_height_too_large() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
-    let _ = env.clients[0].start_process_block(b1.clone().into(), Provenance::PRODUCED);
+    let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
-    let (_, res) = env.clients[0].start_process_block(b2.into(), Provenance::NONE);
+    let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
@@ -1201,7 +1166,7 @@ fn test_invalid_height_too_old() {
     for i in 5..30 {
         env.produce_block(0, i);
     }
-    let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
@@ -1221,7 +1186,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash([1; 32]));
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         match res {
             Err(Error::EpochOutOfBounds(epoch_id)) => {
                 assert_eq!(&epoch_id, block.header().epoch_id())
@@ -1234,7 +1199,7 @@ fn test_bad_orphan() {
         let mut block = env.clients[0].produce_block(7).unwrap().unwrap();
         block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().get_mut().init();
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
@@ -1259,7 +1224,7 @@ fn test_bad_orphan() {
         }
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidChunkHeadersRoot);
     }
     {
@@ -1269,7 +1234,7 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().inner_rest.approvals = vec![Some(some_signature)];
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
 
         assert_matches!(res.unwrap_err(), Error::Orphan);
     }
@@ -1292,7 +1257,7 @@ fn test_bad_orphan() {
         }
         block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::Orphan);
     }
     {
@@ -1301,11 +1266,10 @@ fn test_bad_orphan() {
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().get_mut().inner_lite.height += 2000;
         block.mut_header().resign(&*signer);
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
     }
-    let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
-    assert!(res.is_ok());
+    env.clients[0].process_block_test(block.into(), Provenance::NONE).unwrap();
 }
 
 #[test]
@@ -1372,10 +1336,10 @@ fn test_bad_chunk_mask() {
             block
                 .mut_header()
                 .resign(&*clients[block_producer].validator_signer.as_ref().unwrap().clone());
-            let (_, res1) =
-                clients[chunk_producer].start_process_block(block.clone().into(), Provenance::NONE);
-            let (_, res2) =
-                clients[block_producer].start_process_block(block.clone().into(), Provenance::NONE);
+            let res1 =
+                clients[chunk_producer].process_block_test(block.clone().into(), Provenance::NONE);
+            let res2 =
+                clients[block_producer].process_block_test(block.clone().into(), Provenance::NONE);
             assert_eq!(res1.is_err(), mess_with_chunk_mask);
             assert_eq!(res2.is_err(), mess_with_chunk_mask);
         }
@@ -1605,8 +1569,7 @@ fn test_process_block_after_state_sync() {
         .apply_state_part(0, chunk_extra.state_root(), PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
-    let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::PRODUCED);
-    assert!(res.is_ok());
+    env.clients[0].process_block_test(block.into(), Provenance::PRODUCED).unwrap();
 }
 
 #[test]
@@ -1753,7 +1716,7 @@ fn test_not_resync_old_blocks() {
     for i in 2..epoch_length {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(block.hash()).is_err());
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
@@ -1795,6 +1758,7 @@ fn test_gc_tail_update() {
             &None,
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
+            Arc::new(|_| {}),
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -1899,14 +1863,8 @@ fn test_invalid_block_root() {
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
     b1.mut_header().resign(&signer);
-    let (_, tip) = env.clients[0].start_process_block(b1.into(), Provenance::NONE);
-    match tip {
-        Err(e) => match e {
-            Error::InvalidBlockMerkleRoot => {}
-            _ => assert!(false, "wrong error: {}", e),
-        },
-        _ => assert!(false, "succeeded, tip: {:?}", tip),
-    }
+    let res = env.clients[0].process_block_test(b1.into(), Provenance::NONE);
+    assert_matches!(res.unwrap_err(), Error::InvalidBlockMerkleRoot);
 }
 
 #[test]
@@ -2123,10 +2081,9 @@ fn test_not_process_height_twice() {
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
     invalid_block.mut_header().resign(&validator_signer);
-    let (accepted_blocks, res) =
-        env.clients[0].start_process_block(invalid_block.into(), Provenance::NONE);
+    let accepted_blocks =
+        env.clients[0].process_block_test(invalid_block.into(), Provenance::NONE).unwrap();
     assert!(accepted_blocks.is_empty());
-    assert_matches!(res, Ok(None));
 }
 
 #[test]
@@ -2139,8 +2096,8 @@ fn test_block_height_processed_orphan() {
     orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
     orphan_block.mut_header().resign(&validator_signer);
     let block_height = orphan_block.header().height();
-    let (_, tip) = env.clients[0].start_process_block(orphan_block.into(), Provenance::NONE);
-    assert_matches!(tip.unwrap_err(), Error::Orphan);
+    let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
+    assert_matches!(res.unwrap_err(), Error::Orphan);
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
@@ -2194,9 +2151,9 @@ fn test_validate_chunk_extra() {
         if i == 3 {
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
         } else {
-            let (_, res) =
-                env.clients[0].start_process_block(last_block.clone().into(), Provenance::NONE);
-            assert_matches!(res, Ok(Some(_)));
+            let _ = env.clients[0]
+                .process_block_test(last_block.clone().into(), Provenance::NONE)
+                .unwrap();
         }
     }
 
@@ -2225,7 +2182,7 @@ fn test_validate_chunk_extra() {
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
-        let (_, res) = env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
     }
 
@@ -2238,7 +2195,8 @@ fn test_validate_chunk_extra() {
         .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks();
+    env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
+    let accepted_blocks = env.clients[0].finish_blocks_in_processing();
     assert_eq!(accepted_blocks.len(), 2);
     for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
         if i == 0 {
@@ -2247,6 +2205,7 @@ fn test_validate_chunk_extra() {
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
+                Arc::new(|_| {}),
             );
         }
     }
@@ -2295,8 +2254,7 @@ fn test_gas_price_change_no_chunk() {
     }
     env.clients[0].produce_block(21).unwrap().unwrap();
     let block = env.clients[0].produce_block(22).unwrap().unwrap();
-    let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
-    assert!(res.is_ok());
+    let _ = env.clients[0].process_block_test(block.into(), Provenance::NONE).unwrap();
 }
 
 #[test]
@@ -2664,8 +2622,7 @@ fn test_wasmer2_upgrade() {
             env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
         let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
         set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
+        env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
     // Re-run the transaction.
@@ -2847,9 +2804,7 @@ fn test_epoch_protocol_version_change() {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
         }
         for j in 0..2 {
-            let (_, res) =
-                env.clients[j].start_process_block(block.clone().into(), Provenance::NONE);
-            res.unwrap();
+            env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
             run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
@@ -2986,8 +2941,7 @@ fn test_fork_receipt_ids() {
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
-        let (_, res) = env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
+        env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
     let transaction_execution_outcome =
@@ -3033,8 +2987,7 @@ fn test_fork_execution_outcome() {
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
-        let (_, res) = env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
+        env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
     let transaction_execution_outcome =
@@ -3147,7 +3100,7 @@ fn test_header_version_downgrade() {
         *block.mut_header() = header;
         block
     };
-    let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+    let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert!(!res.is_ok());
 }
 
@@ -3482,9 +3435,8 @@ fn test_catchup_no_sharding_change() {
     // functions
     for h in 1..20 {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
-        let (_, res) =
-            env.clients[0].start_process_block(block.clone().into(), Provenance::PRODUCED);
-        res.unwrap();
+        let _ =
+            env.clients[0].process_block_test(block.clone().into(), Provenance::PRODUCED).unwrap();
         assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos(), vec![]);
         assert_eq!(
             env.clients[0].chain.store().get_blocks_to_catchup(block.header().prev_hash()).unwrap(),
@@ -3795,7 +3747,7 @@ mod access_key_nonce_range_tests {
             .shards_mgr
             .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
             .unwrap();
-        let (_, res) = env.clients[0].start_process_block(block.into(), Provenance::NONE);
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
     }
 
@@ -3896,34 +3848,26 @@ mod access_key_nonce_range_tests {
             env.process_block(0, block, Provenance::PRODUCED);
         }
 
-        env.clients[1].start_process_block(blocks[0].clone().into(), Provenance::NONE).1.unwrap();
+        let _ =
+            env.clients[1].process_block_test(blocks[0].clone().into(), Provenance::NONE).unwrap();
         // process blocks 1, 2 successfully
         for i in 1..3 {
-            let (_, res) =
-                env.clients[1].start_process_block(blocks[i].clone().into(), Provenance::NONE);
+            let res = env.clients[1].process_block_test(blocks[i].clone().into(), Provenance::NONE);
+            assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
             run_catchup(&mut env.clients[1], &vec![]).unwrap();
-            assert_matches!(res, Err(e) => {
-                assert_matches!(e, near_chain::Error::ChunksMissing(_));
-            });
             env.process_partial_encoded_chunks_requests(1);
         }
 
         // process blocks 3 to 15 without processing missing chunks
         // block 3 will be put into the blocks_with_missing_chunks pool
-        let (_, res) =
-            env.clients[1].start_process_block(blocks[3].clone().into(), Provenance::NONE);
-        assert_matches!(res, Err(e) => {
-            assert_matches!(e, near_chain::Error::ChunksMissing(_));
-        });
+        let res = env.clients[1].process_block_test(blocks[3].clone().into(), Provenance::NONE);
+        assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
         // remove the missing chunk request from the network queue because we want to process it later
         let missing_chunk_request = env.network_adapters[1].pop().unwrap();
         // block 4-20 will be put to the orphan pool
         for i in 4..20 {
-            let (_, res) =
-                env.clients[1].start_process_block(blocks[i].clone().into(), Provenance::NONE);
-            assert_matches!(res, Err(e) => {
-                assert_matches!(e, near_chain::Error::Orphan);
-            });
+            let res = env.clients[1].process_block_test(blocks[i].clone().into(), Provenance::NONE);
+            assert_matches!(res.unwrap_err(), near_chain::Error::Orphan);
         }
         // check that block 4-2+NUM_ORPHAN_ANCESTORS_CHECK requested partial encoded chunks already
         for i in 4..3 + NUM_ORPHAN_ANCESTORS_CHECK {
@@ -4055,8 +3999,9 @@ mod access_key_nonce_range_tests {
             let mut next_blocks: Vec<_> = (3 * i..3 * i + 3).collect();
             next_blocks.shuffle(&mut rng);
             for ind in next_blocks {
-                let (_, _) = env.clients[1]
-                    .start_process_block(blocks[ind].clone().into(), Provenance::NONE);
+                let _ = env.clients[1]
+                    .process_block_test(blocks[ind].clone().into(), Provenance::NONE)
+                    .unwrap();
                 run_catchup(&mut env.clients[1], &vec![]).unwrap();
                 while let Some(request) = env.network_adapters[1].pop() {
                     // process the chunk request some times, otherwise keep it in the queue
@@ -4260,9 +4205,9 @@ mod storage_usage_fix_tests {
                 ProtocolFeature::FixStorageUsage.protocol_version(),
             );
 
-            let (_, res) =
-                env.clients[0].start_process_block(block.clone().into(), Provenance::NONE);
-            assert!(res.is_ok());
+            let _ =
+                env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+            env.clients[0].finish_blocks_in_processing();
             run_catchup(&mut env.clients[0], &vec![]).unwrap();
 
             let root = *env.clients[0]

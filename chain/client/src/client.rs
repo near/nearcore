@@ -3,7 +3,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use near_primitives::time::Clock;
@@ -742,6 +741,18 @@ impl Client {
         }
     }
 
+    pub fn process_block_test(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<AcceptedBlock>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        assert!(!self.chain.wait_for_all_block_in_processing());
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}));
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
@@ -814,13 +825,13 @@ impl Client {
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_callback: ApplyChunkCallback,
-    ) -> Vec<AcceptedBlock> {
+    ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, near_chain::Error>) {
         let me = self
             .validator_signer
             .as_ref()
             .map(|validator_signer| validator_signer.validator_id().clone());
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        let accepted_blocks = self.chain.postprocess_ready_blocks(
+        let res = self.chain.postprocess_ready_blocks(
             &me,
             &mut block_processing_artifacts,
             apply_chunks_done_callback,
@@ -830,13 +841,14 @@ impl Client {
         if last_time_head_updated >= self.last_time_head_progress_made {
             self.last_time_head_progress_made = last_time_head_updated;
         }
-        accepted_blocks
+        res
     }
 
+    /// only used in test
     pub fn finish_blocks_in_processing(&mut self) -> Vec<AcceptedBlock> {
         let mut accepted_blocks = vec![];
         while !self.chain.wait_for_all_block_in_processing() {
-            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {})));
+            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {})).0);
         }
         accepted_blocks
     }
@@ -1354,7 +1366,6 @@ impl Client {
     }
 
     /// Check if any block with missing chunks is ready to be processed
-    #[must_use]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
         apply_chunks_done_callback: ApplyChunkCallback,
