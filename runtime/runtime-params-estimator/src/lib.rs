@@ -668,20 +668,19 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    // X values below 1M have a rather high variance. Therefore, use one small X
+    // value and two larger values to fit a curve that gets the slope about
+    // right.
     let xs = [1, 1_000_000, 4_000_000];
     let ys: Vec<GasCost> = xs
         .iter()
         .map(|&arg_len| inner_action_function_call_per_byte(ctx, arg_len as usize))
         .collect();
 
-    let negative_base_tolerance = 0u64;
-    let rel_factor_tolerance = 0.001;
     let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
         &xs,
         &ys,
-        &LeastSquaresTolerance::default()
-            .base_abs_nn_tolerance(negative_base_tolerance)
-            .factor_rel_nn_tolerance(rel_factor_tolerance),
+        &LeastSquaresTolerance::default().factor_rel_nn_tolerance(0.001),
         ctx.config.debug,
     );
     per_byte
@@ -711,7 +710,7 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
         return base_byte_cost;
     }
 
-    let (base, per_byte) = crate::function_call::function_call_cost_per_code_byte(ctx.config);
+    let (base, per_byte) = crate::function_call::contract_loading_cost(ctx.config);
     ctx.cached.contract_loading_base_per_byte = Some((base.clone(), per_byte.clone()));
     (base, per_byte)
 }
