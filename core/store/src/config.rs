@@ -123,11 +123,9 @@ pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
 ///     .open();
 /// ```
 pub struct StoreOpener<'a> {
-    /// Near home directory.
-    ///
-    /// Path to the database is resolved relative to this directory.  If it’s
-    /// not given current working directory is assumed.
-    home: Option<&'a std::path::Path>,
+    /// Near home directory; path to the database is resolved relative to this
+    /// directory.
+    home_dir: &'a std::path::Path,
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
@@ -137,32 +135,23 @@ pub struct StoreOpener<'a> {
 }
 
 impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given store configuration.
-    pub fn new(config: &'a StoreConfig) -> Self {
-        Self { home: None, config: config, read_only: false }
+    /// Initialises a new opener with given home directory and store config.
+    pub fn new(home_dir: &'a std::path::Path, config: &'a StoreConfig) -> Self {
+        Self { home_dir, config, read_only: false }
     }
 
-    /// Initialises a new opener using default store configuration.
+    /// Initialises a new opener with given home directory and default config.
     ///
     /// This is meant for tests only.  Production code should always read store
     /// configuration from a config file and use [`Self::new`] instead.
-    pub fn with_default_config() -> Self {
+    pub fn with_default_config(home_dir: &'a std::path::Path) -> Self {
         static CONFIG: StoreConfig = StoreConfig::const_default();
-        Self::new(&CONFIG)
+        Self::new(home_dir, &CONFIG)
     }
 
     /// Configure whether the database should be opened in read-only mode.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
-        self
-    }
-
-    /// Specifies neard home directory.
-    ///
-    /// By default, the database lives in a `data` directory inside of the home
-    /// directory.
-    pub fn home(mut self, home: &'a std::path::Path) -> Self {
-        self.home = Some(home);
         self
     }
 
@@ -182,8 +171,7 @@ impl<'a> StoreOpener<'a> {
     /// Does not check whether the database actually exists.  It merely
     /// constructs the path where the database would be if it existed.
     pub fn get_path(&self) -> std::path::PathBuf {
-        let path = self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH));
-        self.home.map_or_else(|| path.to_owned(), |home| home.join(path))
+        self.home_dir.join(self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)))
     }
 
     /// Returns version of the database; or `None` if it does not exist.

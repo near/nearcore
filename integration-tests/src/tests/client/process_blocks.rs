@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_primitives::config::VMConfig;
 use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
@@ -14,7 +15,8 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance, RuntimeAdapter,
+    Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
+    RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
@@ -1793,10 +1795,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(
             &None,
             *sync_block.hash(),
-            &mut |_| {},
-            &mut |_| {},
-            &mut |_| {},
-            &mut |_| {},
+            &mut BlockProcessingArtifact::default(),
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -3501,6 +3500,8 @@ fn test_deploy_cost_increased() {
 
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
+    // Run code through preparation for validation. (Deploying will succeed either way).
+    near_vm_runner::prepare::prepare_contract(&test_contract, &VMConfig::test()).unwrap();
 
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 5;

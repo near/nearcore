@@ -278,12 +278,8 @@ pub(crate) trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        None
-    }
-    fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
-    }
+    fn flush(&self) -> Result<(), DBError>;
+    fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
@@ -384,8 +380,8 @@ impl Database for RocksDB {
         Ok(self.db.write(batch)?)
     }
 
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        Some(self)
+    fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -467,6 +463,14 @@ impl Database for TestDB {
             };
         }
         Ok(())
+    }
+
+    fn flush(&self) -> Result<(), DBError> {
+        Ok(())
+    }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        None
     }
 }
 
@@ -661,11 +665,6 @@ impl RocksDB {
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(DBError::from)
     }
-
-    /// Synchronously flush all Memtables to SST files on disk
-    pub fn flush(&self) -> Result<(), DBError> {
-        self.db.flush().map_err(DBError::from)
-    }
 }
 
 fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
@@ -814,7 +813,7 @@ mod tests {
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -835,7 +834,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

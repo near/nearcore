@@ -11,7 +11,6 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -203,7 +202,7 @@ fn apply_store_migrations_if_exists(
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let opener = StoreOpener::new(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener.open();
     if !exists {
@@ -254,7 +253,7 @@ pub fn start_with_config_and_synchronization(
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone());
+    let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
@@ -285,8 +284,7 @@ pub fn start_with_config_and_synchronization(
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
+    let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
@@ -381,7 +379,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_opener = StoreOpener::new(&config.store).home(home_dir).read_only(true);
+    let src_opener = StoreOpener::new(home_dir, &config.store).read_only(true);
     let src_path = src_opener.get_path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
@@ -400,7 +398,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = StoreOpener::new(&dst_config).home(&cwd);
+    let dst_opener = StoreOpener::new(&cwd, &dst_config);
     let dst_path = dst_opener.get_path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),

@@ -19,13 +19,12 @@ use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use nearcore::config;
 use nearcore::config::NearConfig;
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     config.network_config.verify().context("start_with_config")?;
-    let node_id = PeerId::new(config.network_config.public_key.clone());
+    let node_id = config.network_config.node_id();
     let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());

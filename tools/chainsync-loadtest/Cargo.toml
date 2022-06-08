@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 default-run = "chainsync-loadtest"
 
@@ -20,7 +20,7 @@ dirs = "3"
 futures = "0.3"
 log = "0.4"
 openssl-probe = "0.1.4"
-parking_lot = "0.11.2"
+parking_lot = "0.12.1"
 rand = "0.8"
 tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 

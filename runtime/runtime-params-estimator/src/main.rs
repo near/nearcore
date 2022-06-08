@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
         let store =
-            near_store::StoreOpener::new(&near_config.config.store).home(&state_dump_path).open();
+            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
             Arc::new(near_config.genesis),
@@ -275,7 +275,7 @@ fn main_docker(
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
+    let tag = "rust-1.61.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
