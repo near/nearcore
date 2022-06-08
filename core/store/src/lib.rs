@@ -54,6 +54,24 @@ pub struct Store {
 }
 
 impl Store {
+    /// Initialises a new opener with given home directory and store config.
+    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
+        StoreOpener::new(home_dir, config)
+    }
+
+    /// Initialises a new opener for temporary store.
+    ///
+    /// This is meant for tests only.  It **panics** if a temporary directory
+    /// cannot be created.
+    ///
+    /// Caller must hold the temporary directory returned as first element of
+    /// the tuple while the store is open.
+    pub fn tmp_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        let dir = tempfile::tempdir().unwrap();
+        let opener = Self::opener(dir.path(), &StoreConfig::DEFAULT);
+        (dir, opener)
+    }
+
     pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }

@@ -2074,13 +2074,11 @@ mod test {
 
     impl TestEnv {
         pub fn new(
-            prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             has_reward: bool,
         ) -> Self {
             Self::new_with_tracking(
-                prefix,
                 validators,
                 epoch_length,
                 TrackedConfig::new_empty(),
@@ -2089,14 +2087,12 @@ mod test {
         }
 
         pub fn new_with_minimum_stake_divisor(
-            prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             has_reward: bool,
             stake_divisor: u64,
         ) -> Self {
             Self::new_with_tracking_and_minimum_stake_divisor(
-                prefix,
                 validators,
                 epoch_length,
                 TrackedConfig::new_empty(),
@@ -2106,14 +2102,12 @@ mod test {
         }
 
         pub fn new_with_tracking(
-            prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             tracked_config: TrackedConfig,
             has_reward: bool,
         ) -> Self {
             Self::new_with_tracking_and_minimum_stake_divisor(
-                prefix,
                 validators,
                 epoch_length,
                 tracked_config,
@@ -2123,15 +2117,14 @@ mod test {
         }
 
         fn new_with_tracking_and_minimum_stake_divisor(
-            prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
             tracked_config: TrackedConfig,
             has_reward: bool,
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
-            let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-            let store = near_store::StoreOpener::with_default_config(dir.path()).open();
+            let (dir, opener) = Store::tmp_opener();
+            let store = opener.open();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
@@ -2330,7 +2323,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2436,8 +2429,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_stake_change", vec![validators.clone()], 2, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2478,12 +2470,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_stake_change_multiple_times",
-            vec![validators.clone()],
-            4,
-            false,
-        );
+        let mut env = TestEnv::new(vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2587,12 +2574,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_stake_change_multiple_times",
-            vec![validators.clone()],
-            5,
-            false,
-        );
+        let mut env = TestEnv::new(vec![validators.clone()], 5, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2631,8 +2613,7 @@ mod test {
         let validators = (0..2)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let env =
-            TestEnv::new("verify_validator_signature_failure", vec![validators.clone()], 2, true);
+        let env = TestEnv::new(vec![validators.clone()], 2, true);
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
@@ -2664,7 +2645,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2684,7 +2665,7 @@ mod test {
             .unwrap();
         let root_node =
             env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
-        let mut new_env = TestEnv::new("test_state_sync", vec![validators], 2, false);
+        let mut new_env = TestEnv::new(vec![validators], 2, false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2761,8 +2742,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_get_validator_info", vec![validators.clone()], 2, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2910,7 +2890,6 @@ mod test {
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
         let mut env = TestEnv::new_with_tracking(
-            "test_validator_get_validator_info",
             vec![validators.clone(), vec![validators[0].clone()]],
             2,
             TrackedConfig::Accounts(vec![validators[1].clone()]),
@@ -2984,12 +2963,8 @@ mod test {
 
     #[test]
     fn test_challenges() {
-        let mut env = TestEnv::new(
-            "test_challenges",
-            vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]],
-            2,
-            true,
-        );
+        let mut env =
+            TestEnv::new(vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]], 2, true);
         env.step(
             vec![vec![]],
             vec![true],
@@ -3033,7 +3008,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 3, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 3, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3123,7 +3098,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 5, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 5, false);
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3174,7 +3149,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_challenges", vec![validators], 5, false);
+        let mut env = TestEnv::new(vec![validators], 5, false);
         env.step(
             vec![vec![]],
             vec![true],
@@ -3217,7 +3192,6 @@ mod test {
             .collect::<Vec<_>>();
         let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
             TestEnv::new_with_minimum_stake_divisor(
-                "test_fishermen_stake",
                 vec![validators.clone()],
                 4,
                 false,
@@ -3226,7 +3200,7 @@ mod test {
                 20000,
             )
         } else {
-            TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false)
+            TestEnv::new(vec![validators.clone()], 4, false)
         };
         let block_producers: Vec<_> = validators
             .iter()
@@ -3294,7 +3268,6 @@ mod test {
             .collect::<Vec<_>>();
         let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
             TestEnv::new_with_minimum_stake_divisor(
-                "test_fishermen_unstake",
                 vec![validators.clone()],
                 2,
                 false,
@@ -3303,7 +3276,7 @@ mod test {
                 20000,
             )
         } else {
-            TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false)
+            TestEnv::new(vec![validators.clone()], 2, false)
         };
         let block_producers: Vec<_> = validators
             .iter()
@@ -3360,8 +3333,7 @@ mod test {
         let epoch_length = 40;
         let validators =
             (0..num_nodes).map(|i| format!("test{}", i + 1).parse().unwrap()).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_reward", vec![validators.clone()], epoch_length, true);
+        let mut env = TestEnv::new(vec![validators.clone()], epoch_length, true);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3393,8 +3365,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_delete_account", vec![validators.clone()], 4, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3443,7 +3414,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_proposal_deduped", vec![validators.clone()], 4, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3468,7 +3439,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_proposal_deduped", vec![validators.clone()], 4, false);
+        let mut env = TestEnv::new(vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))

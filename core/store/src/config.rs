@@ -46,19 +46,19 @@ pub struct StoreConfig {
 }
 
 fn default_enable_statistics_export() -> bool {
-    StoreConfig::const_default().enable_statistics_export
+    StoreConfig::DEFAULT.enable_statistics_export
 }
 
 fn default_max_open_files() -> u32 {
-    StoreConfig::const_default().max_open_files
+    StoreConfig::DEFAULT.max_open_files
 }
 
 fn default_col_state_cache_size() -> bytesize::ByteSize {
-    StoreConfig::const_default().col_state_cache_size
+    StoreConfig::DEFAULT.col_state_cache_size
 }
 
 fn default_block_size() -> bytesize::ByteSize {
-    StoreConfig::const_default().block_size
+    StoreConfig::DEFAULT.block_size
 }
 
 impl StoreConfig {
@@ -81,16 +81,14 @@ impl StoreConfig {
     /// then.
     const DEFAULT_BLOCK_SIZE: bytesize::ByteSize = bytesize::ByteSize::kib(16);
 
-    const fn const_default() -> Self {
-        Self {
-            path: None,
-            enable_statistics: false,
-            enable_statistics_export: true,
-            max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
-            col_state_cache_size: Self::DEFAULT_COL_STATE_CACHE_SIZE,
-            block_size: Self::DEFAULT_BLOCK_SIZE,
-        }
-    }
+    pub const DEFAULT: Self = Self {
+        path: None,
+        enable_statistics: false,
+        enable_statistics_export: true,
+        max_open_files: Self::DEFAULT_MAX_OPEN_FILES,
+        col_state_cache_size: Self::DEFAULT_COL_STATE_CACHE_SIZE,
+        block_size: Self::DEFAULT_BLOCK_SIZE,
+    };
 
     /// Returns cache size for given column.
     pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
@@ -103,7 +101,7 @@ impl StoreConfig {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self::const_default()
+        Self::DEFAULT
     }
 }
 
@@ -118,14 +116,16 @@ pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
 /// Typical usage:
 ///
 /// ```ignore
-/// let store = StoreOpener::new(&near_config.config.store)
+/// let store = Store::opener(&near_config.config.store)
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
 pub struct StoreOpener<'a> {
-    /// Near home directory; path to the database is resolved relative to this
-    /// directory.
-    home_dir: &'a std::path::Path,
+    /// Path to the database.
+    ///
+    /// This is resolved from nearcore home directory and store configuration
+    /// passed to [`Store::opener`].
+    path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
@@ -136,17 +136,10 @@ pub struct StoreOpener<'a> {
 
 impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
-    pub fn new(home_dir: &'a std::path::Path, config: &'a StoreConfig) -> Self {
-        Self { home_dir, config, read_only: false }
-    }
-
-    /// Initialises a new opener with given home directory and default config.
-    ///
-    /// This is meant for tests only.  Production code should always read store
-    /// configuration from a config file and use [`Self::new`] instead.
-    pub fn with_default_config(home_dir: &'a std::path::Path) -> Self {
-        static CONFIG: StoreConfig = StoreConfig::const_default();
-        Self::new(home_dir, &CONFIG)
+    pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
+        let path =
+            home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
+        Self { path, config, read_only: false }
     }
 
     /// Configure whether the database should be opened in read-only mode.
@@ -168,15 +161,14 @@ impl<'a> StoreOpener<'a> {
 
     /// Returns path to the underlying RocksDB database.
     ///
-    /// Does not check whether the database actually exists.  It merely
-    /// constructs the path where the database would be if it existed.
-    pub fn get_path(&self) -> std::path::PathBuf {
-        self.home_dir.join(self.config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)))
+    /// Does not check whether the database actually exists.
+    pub fn get_path(&self) -> &std::path::Path {
+        &self.path
     }
 
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
-        std::fs::canonicalize(self.get_path())
+        std::fs::canonicalize(&self.path)
             .ok()
             .map(|path| crate::RocksDB::get_version(&path))
             .transpose()
@@ -187,16 +179,15 @@ impl<'a> StoreOpener<'a> {
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
     pub fn open(&self) -> crate::Store {
-        let path = self.get_path();
-        if std::fs::canonicalize(&path).is_ok() {
-            tracing::info!(target: "near", path=%path.display(), "Opening RocksDB database");
+        if std::fs::canonicalize(&self.path).is_ok() {
+            tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
         } else if self.read_only {
-            tracing::error!(target: "near", path=%path.display(), "Database does not exist");
+            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
             panic!("Failed to open non-existent the database");
         } else {
-            tracing::info!(target: "near", path=%path.display(), "Creating new RocksDB database");
+            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
         }
-        let db = crate::RocksDB::open(&path, &self.config, self.read_only)
+        let db = crate::RocksDB::open(&self.path, &self.config, self.read_only)
             .expect("Failed to open the database");
         crate::Store::new(std::sync::Arc::new(db))
     }
