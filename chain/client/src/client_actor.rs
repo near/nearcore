@@ -18,7 +18,7 @@ use near_chain::chain::{
 };
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
+use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     byzantine_assert, near_chain_primitives, ApplyChunkCallback, Block, BlockHeader,
     BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
@@ -1384,7 +1384,7 @@ impl ClientActor {
 
     fn try_process_unfinished_blocks(&mut self) {
         let (accepted_blocks, _errors) =
-            self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback());
+            self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
         // TODO: log the errors
         self.process_accepted_blocks(accepted_blocks);
     }
@@ -1453,20 +1453,14 @@ impl ClientActor {
     }
 
     /// Process all blocks that were accepted by calling other relevant services.
-    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<AcceptedBlock>) {
+    fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
         let _span = tracing::debug_span!(
             target: "client",
             "process_accepted_blocks",
             num_blocks = accepted_blocks.len())
         .entered();
         for accepted_block in accepted_blocks {
-            self.client.on_block_accepted(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                self.get_apply_chunks_done_callback(),
-            );
-            let block = self.client.chain.get_block(&accepted_block.hash).unwrap().clone();
+            let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
             let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
             let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
 

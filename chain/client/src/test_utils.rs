@@ -49,7 +49,6 @@ use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
-use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
@@ -70,6 +69,38 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 
 const TEST_SEED: RngSeed = [3; 32];
+
+impl Client {
+    pub fn process_block_test(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        assert!(!self.chain.wait_for_all_block_in_processing());
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
+    pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
+        let mut accepted_blocks = vec![];
+        while !self.chain.wait_for_all_block_in_processing() {
+            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+        }
+        accepted_blocks
+    }
+
+    pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
+        if let Ok(_) = self.chain.wait_for_block_in_processing(hash) {
+            let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            assert!(errors.is_empty());
+            return accepted_blocks;
+        }
+        vec![]
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<AccountId>>,
@@ -1325,31 +1356,12 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        let mut accepted_blocks =
-            self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
+        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
         if should_run_catchup {
-            accepted_blocks.extend(run_catchup(&mut self.clients[id], &vec![]).unwrap());
+            run_catchup(&mut self.clients[id], &vec![]).unwrap();
         }
-        self.process_accepted_blocks_recursive(id, accepted_blocks, should_produce_chunk);
-    }
-
-    pub fn process_accepted_blocks_recursive(
-        &mut self,
-        id: usize,
-        mut accepted_blocks: Vec<AcceptedBlock>,
-        should_produce_chunk: bool,
-    ) {
-        while !accepted_blocks.is_empty() {
-            for accepted_block in accepted_blocks.drain(..) {
-                self.clients[id].on_block_accepted_with_optional_chunk_produce(
-                    accepted_block.hash,
-                    accepted_block.status,
-                    accepted_block.provenance,
-                    !should_produce_chunk,
-                    Arc::new(|_| {}),
-                );
-            }
-            accepted_blocks = self.clients[id].finish_blocks_in_processing();
+        while !self.clients[id].chain.wait_for_all_block_in_processing() {
+            self.clients[id].postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
         }
     }
 
@@ -1417,6 +1429,7 @@ impl TestEnv {
             self.clients[id]
                 .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
                 .unwrap();
+            self.clients[id].finish_blocks_in_processing();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1688,7 +1701,7 @@ pub fn create_chunk(
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<AcceptedBlock>, Error> {
+) -> Result<Vec<CryptoHash>, Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();

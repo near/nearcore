@@ -51,7 +51,8 @@ use near_store::{DBCol, ShardTries, StoreUpdate};
 use near_primitives::state_record::StateRecord;
 
 use crate::block_processing_utils::{
-    ApplyChunkCallback, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    ApplyChunkCallback, BlockNotInPoolError, BlockPreprocessInfo, BlockProcessingArtifact,
+    BlocksInProcessing,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
@@ -1617,6 +1618,13 @@ impl Chain {
     /// Returns true if there are new blocks that are ready
     pub fn wait_for_all_block_in_processing(&self) -> bool {
         self.blocks_in_processing.wait_for_all_block()
+    }
+
+    pub fn wait_for_block_in_processing(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(), BlockNotInPoolError> {
+        self.blocks_in_processing.wait_for_block(hash)
     }
 
     /// Process challenge to invalidate chain. This is done between blocks to unroll the chain as

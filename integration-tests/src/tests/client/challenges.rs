@@ -700,19 +700,7 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        match run_catchup(&mut env.clients[0], &vec![]) {
-            Ok(accepted_blocks) => {
-                for accepted_block in accepted_blocks {
-                    env.clients[0].on_block_accepted(
-                        accepted_block.hash,
-                        accepted_block.status,
-                        accepted_block.provenance,
-                        Arc::new(|_| {}),
-                    );
-                }
-            }
-            Err(e) => panic!("error in catching up: {}", e),
-        }
+        run_catchup(&mut env.clients[0], &vec![]).unwrap();
         let len = network_adapter.requests.write().unwrap().len();
         for _ in 0..len {
             match network_adapter

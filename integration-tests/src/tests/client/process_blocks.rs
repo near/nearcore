@@ -2198,17 +2198,6 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
     let accepted_blocks = env.clients[0].finish_blocks_in_processing();
     assert_eq!(accepted_blocks.len(), 2);
-    for (i, accepted_block) in accepted_blocks.into_iter().enumerate() {
-        if i == 0 {
-            assert_eq!(&accepted_block.hash, block1.hash());
-            env.clients[0].on_block_accepted(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                Arc::new(|_| {}),
-            );
-        }
-    }
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
@@ -3999,9 +3988,14 @@ mod access_key_nonce_range_tests {
             let mut next_blocks: Vec<_> = (3 * i..3 * i + 3).collect();
             next_blocks.shuffle(&mut rng);
             for ind in next_blocks {
-                let _ = env.clients[1]
-                    .process_block_test(blocks[ind].clone().into(), Provenance::NONE)
-                    .unwrap();
+                let _ = env.clients[1].start_process_block(
+                    blocks[ind].clone().into(),
+                    Provenance::NONE,
+                    Arc::new(|_| {}),
+                );
+                if rng.gen_bool(0.5) {
+                    env.clients[1].finish_block_in_processing(blocks[ind].hash());
+                }
                 run_catchup(&mut env.clients[1], &vec![]).unwrap();
                 while let Some(request) = env.network_adapters[1].pop() {
                     // process the chunk request some times, otherwise keep it in the queue
@@ -4014,12 +4008,15 @@ mod access_key_nonce_range_tests {
                     }
                 }
             }
+            env.clients[1].finish_blocks_in_processing();
         }
         // process the remaining chunk requests
         while let Some(request) = env.network_adapters[1].pop() {
             env.process_partial_encoded_chunk_request(1, request);
             num_requests += 1;
         }
+
+        env.clients[1].finish_blocks_in_processing();
 
         assert_eq!(env.clients[1].chain.head().unwrap().height, 21);
         // Check each chunk is only requested once.

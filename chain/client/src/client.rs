@@ -13,7 +13,7 @@ use near_chain::chain::{
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
-use near_chain::types::{AcceptedBlock, LatestKnown};
+use near_chain::types::LatestKnown;
 use near_chain::{
     ApplyChunkCallback, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
     ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
@@ -741,18 +741,6 @@ impl Client {
         }
     }
 
-    pub fn process_block_test(
-        &mut self,
-        block: MaybeValidated<Block>,
-        provenance: Provenance,
-    ) -> Result<Vec<AcceptedBlock>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
-        assert!(!self.chain.wait_for_all_block_in_processing());
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}));
-        assert!(errors.is_empty());
-        Ok(accepted_blocks)
-    }
-
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
@@ -825,32 +813,35 @@ impl Client {
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_callback: ApplyChunkCallback,
-    ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, near_chain::Error>) {
+        should_produce_chunk: bool,
+    ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let me = self
             .validator_signer
             .as_ref()
             .map(|validator_signer| validator_signer.validator_id().clone());
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        let res = self.chain.postprocess_ready_blocks(
+        let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
             &me,
             &mut block_processing_artifacts,
-            apply_chunks_done_callback,
+            apply_chunks_done_callback.clone(),
         );
         self.process_block_processing_artifact(block_processing_artifacts);
+        let accepted_blocks_hashes =
+            accepted_blocks.iter().map(|accepted_block| accepted_block.hash.clone()).collect();
+        for accepted_block in accepted_blocks {
+            self.on_block_accepted_with_optional_chunk_produce(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+                !should_produce_chunk,
+                apply_chunks_done_callback.clone(),
+            );
+        }
         let last_time_head_updated = self.chain.get_last_time_head_updated();
         if last_time_head_updated >= self.last_time_head_progress_made {
             self.last_time_head_progress_made = last_time_head_updated;
         }
-        res
-    }
-
-    /// only used in test
-    pub fn finish_blocks_in_processing(&mut self) -> Vec<AcceptedBlock> {
-        let mut accepted_blocks = vec![];
-        while !self.chain.wait_for_all_block_in_processing() {
-            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {})).0);
-        }
-        accepted_blocks
+        (accepted_blocks_hashes, errors)
     }
 
     pub(crate) fn process_block_processing_artifact(
