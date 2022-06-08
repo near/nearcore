@@ -35,7 +35,7 @@ pub(crate) fn transaction_cost(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
 ) -> GasCost {
     let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0);
+    let (gas_cost, _ext_costs) = transaction_cost_ext(ctx, block_size, make_transaction, 0, false);
     gas_cost
 }
 
@@ -45,6 +45,7 @@ pub(crate) fn transaction_cost_ext(
     block_size: usize,
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     block_latency: usize,
+    allow_failures: bool,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let measurement_overhead = overhead_per_measured_block(ctx, block_latency);
 
@@ -63,8 +64,8 @@ pub(crate) fn transaction_cost_ext(
         blocks
     };
 
-    let measurements = testbed.measure_blocks(blocks, block_latency);
-    let measurements =
+    let measurements = testbed.measure_blocks(blocks, block_latency, allow_failures);
+    let mut measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
     aggregate_per_block_measurements(
@@ -116,7 +117,7 @@ pub(crate) fn fn_cost_count(
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
     let (gas_cost, ext_costs) =
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }
@@ -181,7 +182,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks, 0);
+        let measurements = testbed.measure_blocks(blocks, 0, false);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()
@@ -247,7 +248,7 @@ pub(crate) fn fn_cost_in_contract(
         blocks
     };
 
-    let mut measurements = testbed.measure_blocks(blocks, 0);
+    let mut measurements = testbed.measure_blocks(blocks, 0, false);
     measurements.drain(0..ctx.config.warmup_iters_per_block);
 
     let (gas_cost, _ext_costs) =

@@ -81,9 +81,8 @@ impl<'c> Testbed<'c> {
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
         block_latency: usize,
+        allow_failures: bool,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
-        let allow_failures = false;
-
         let mut res = Vec::with_capacity(blocks.len());
 
         for block in blocks {

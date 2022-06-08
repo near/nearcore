@@ -84,9 +84,11 @@ pub enum Cost {
     /// for all costs of calling a function that are already known on the caller
     /// side.
     ///
-    /// Estimation: Measure the cost to execute a transaction with an empty
-    /// function with no arguments. Subtract the receipt creating cost from
-    /// that, as that is already charged separately.
+    /// Estimation: Measure the cost to execute a transaction with a call to the
+    /// method "". This is a hack to abort measurement before loading the
+    /// executable, which is a cost measured and charged separately. Subtract
+    /// the receipt creating cost from that, as that is already charged
+    /// separately.
     ActionFunctionCallBase,
     /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
     /// the incremental cost for each byte of the method name and method
