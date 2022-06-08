@@ -20,7 +20,6 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
-use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -50,8 +49,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     }))
     .start();
     let net_config = NetworkConfig::from_seed(seed, port);
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(net_config.public_key), store.clone());
+    let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
 
     PeerManagerActor::new(
         store,

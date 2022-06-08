@@ -149,8 +149,9 @@ impl Store {
         self.storage.write(transaction).map_err(io::Error::from)
     }
 
-    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
-        self.storage.as_rocksdb()
+    /// If the storage is backed by disk, flushes any in-memory data to disk.
+    pub fn flush(&self) -> io::Result<()> {
+        self.storage.flush().map_err(io::Error::from)
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -240,7 +241,7 @@ impl StoreUpdate {
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
     /// Deletes the given key from the database.

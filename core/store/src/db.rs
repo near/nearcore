@@ -278,12 +278,8 @@ pub(crate) trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        None
-    }
-    fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
-    }
+    fn flush(&self) -> Result<(), DBError>;
+    fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
@@ -357,7 +353,7 @@ impl Database for RocksDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Ok(Some(old_value)) = self.get(col, &key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     batch.put_cf(self.cf_handle(col), key, value);
@@ -384,8 +380,8 @@ impl Database for RocksDB {
         Ok(self.db.write(batch)?)
     }
 
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        Some(self)
+    fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -446,7 +442,7 @@ impl Database for TestDB {
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
                         if let Some(old_value) = db[col].get(&key) {
-                            assert_no_ovewrite(col, &key, &value, &*old_value)
+                            assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
                     db[col].insert(key, value);
@@ -468,9 +464,17 @@ impl Database for TestDB {
         }
         Ok(())
     }
+
+    fn flush(&self) -> Result<(), DBError> {
+        Ok(())
+    }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        None
+    }
 }
 
-fn assert_no_ovewrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
     assert_eq!(
         value, old_value,
         "\
@@ -661,11 +665,6 @@ impl RocksDB {
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(DBError::from)
     }
-
-    /// Synchronously flush all Memtables to SST files on disk
-    pub fn flush(&self) -> Result<(), DBError> {
-        self.db.flush().map_err(DBError::from)
-    }
 }
 
 fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
@@ -814,7 +813,7 @@ mod tests {
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -835,7 +834,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

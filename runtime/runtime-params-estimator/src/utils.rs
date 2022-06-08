@@ -6,9 +6,9 @@ use crate::transaction_builder::TransactionBuilder;
 
 use std::collections::HashMap;
 
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
-use near_vm_logic::ExtCosts;
+use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -195,6 +195,57 @@ pub(crate) fn fn_cost_with_setup(
     (total_cost - base_cost) / count
 }
 
+/// Estimates the cost to call `method`, on given contract.
+///
+/// Used for costs that specifically need to deploy a contract first. Note that
+/// this causes the contract to be deployed once in every iteration. Therefore,
+/// whenever possible, prefer to add a method to the generic test contract.
+///
+/// The no-op function call cost is NOT subtracted.
+pub(crate) fn fn_cost_in_contract(
+    ctx: &mut EstimatorContext,
+    method: &str,
+    code: &[u8],
+    block_size: usize,
+) -> GasCost {
+    let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+    let mut testbed = ctx.testbed();
+
+    let chosen_accounts = {
+        let tb = testbed.transaction_builder();
+        std::iter::repeat_with(|| tb.random_unused_account()).take(n_blocks).collect::<Vec<_>>()
+    };
+
+    for account in &chosen_accounts {
+        let tb = testbed.transaction_builder();
+        let setup = vec![Action::DeployContract(DeployContractAction { code: code.to_vec() })];
+        let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
+
+        testbed.process_block(vec![setup_tx], 0);
+    }
+
+    let blocks = {
+        let mut blocks = Vec::with_capacity(n_blocks);
+        for account in chosen_accounts {
+            let tb = testbed.transaction_builder();
+            let mut block = Vec::new();
+            for _ in 0..block_size {
+                let tx = tb.transaction_from_function_call(account.clone(), method, Vec::new());
+                block.push(tx);
+            }
+            blocks.push(block);
+        }
+        blocks
+    };
+
+    let mut measurements = testbed.measure_blocks(blocks, 0);
+    measurements.drain(0..ctx.config.warmup_iters_per_block);
+
+    let (gas_cost, _ext_costs) =
+        aggregate_per_block_measurements(ctx.config, block_size, measurements);
+    gas_cost
+}
+
 pub(crate) fn aggregate_per_block_measurements(
     config: &Config,
     block_size: usize,
@@ -265,8 +316,6 @@ pub(crate) fn percentiles(
         .into_iter()
         .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
         .map(move |idx| costs[idx].clone())
-    // .collect::<Vec<_>>()
-    // .into_iter()
 }
 
 /// Get account id from its index.
@@ -287,12 +336,21 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
 }
 
 /// Create a WASM module that is empty except for a main method and a single data entry with n characters
-pub(crate) fn generate_data_only_contract(data_size: usize) -> Vec<u8> {
+pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -> Vec<u8> {
     // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
     let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
-    let wat_code = format!("(module (data \"{payload}\") (func (export \"main\")))");
-    wat::parse_str(wat_code).unwrap()
+    let wat_code = format!(
+        r#"(module 
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    );
+    let wasm = wat::parse_str(wat_code).unwrap();
+    // Validate generated code is valid.
+    near_vm_runner::prepare::prepare_contract(&wasm, config).unwrap();
+    wasm
 }
 
 #[cfg(test)]
