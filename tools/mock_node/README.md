@@ -57,3 +57,34 @@ $  cargo r -r -p mock-node --  ~/.near ~/mock_node_home_dir --target-height 6092
 ```
 Without `--starting_height`, the binary will not modify the client home dir before starting the mock node. Therefore, 
 the mock node will start from the chain head stored in the client dir.
+
+## Mock Network Configuration
+
+Certain details around how the mock network behaves can be configured with the file `mock.json` in the chain history
+home directory. Currently, the only supported configuration options tell how long to wait before replying to requests
+(the same as the --network_delay flag), and how often to send unrequested blocks and chunk part requests. By default,
+no such unrequested messages are sent, but the following config file will have the mock code produce unrequested
+blocks every 100 milliseconds, and chunk part requests every 50 milliseconds.
+
+```json
+{
+    "response_delay": {
+        "secs": 0,
+        "nanos": 100000000
+    },
+    "incoming_requests": {
+        "block": {
+            "interval": {
+                "secs": 0,
+                "nanos": 100000000
+            }
+        },
+        "chunk_request": {
+            "interval": {
+                "secs": 0,
+                "nanos": 50000000
+            }
+        }
+    }
+}
+```
