@@ -62,6 +62,7 @@ impl TestBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub(crate) fn get_wasm(&self) -> &[u8] {
         self.code.code()
     }
