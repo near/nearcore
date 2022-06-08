@@ -208,6 +208,42 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
+    /// Collect incoming receipts for shard `shard_id` from
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
+    /// This is because the chunks for the shard are empty for the blocks in between,
+    /// so the receipts from these blocks are propagated
+    fn get_incoming_receipts_for_shard(
+        &self,
+        shard_id: ShardId,
+        mut block_hash: CryptoHash,
+        last_chunk_height_included: BlockHeight,
+    ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        let mut ret = vec![];
+
+        loop {
+            let header = self.get_block_header(&block_hash)?;
+
+            if header.height() < last_chunk_height_included {
+                panic!("get_incoming_receipts_for_shard failed");
+            }
+
+            if header.height() == last_chunk_height_included {
+                break;
+            }
+
+            let prev_hash = *header.prev_hash();
+
+            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
+                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
+            } else {
+                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+            }
+
+            block_hash = prev_hash;
+        }
+
+        Ok(ret)
+    }
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -1125,8 +1161,10 @@ struct ChainStoreCacheUpdate {
     processed_block_heights: HashSet<BlockHeight>,
 }
 
-pub struct ChainStoreUpdateImpl<T> {
-    chain_store: T,
+/// Provides layer to update chain without touching the underlying database.
+/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+pub struct ChainStoreUpdate<'a> {
+    chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1151,10 +1189,6 @@ pub struct ChainStoreUpdateImpl<T> {
     challenged_blocks: HashSet<CryptoHash>,
 }
 
-/// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub type ChainStoreUpdate<'a> = ChainStoreUpdateImpl<&'a mut ChainStore>;
-
 impl<'a> ChainStoreUpdate<'a> {
     pub fn new(chain_store: &'a mut ChainStore) -> Self {
         ChainStoreUpdate {
@@ -1178,52 +1212,6 @@ impl<'a> ChainStoreUpdate<'a> {
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
         }
-    }
-
-    /// Collect incoming receipts for shard `shard_id` from
-    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
-    /// This is because the chunks for the shard are empty for the blocks in between,
-    /// so the receipts from these blocks are propagated
-    pub fn get_incoming_receipts_for_shard(
-        &self,
-        shard_id: ShardId,
-        mut block_hash: CryptoHash,
-        last_chunk_height_included: BlockHeight,
-    ) -> Result<Vec<ReceiptProofResponse>, Error> {
-        let mut ret = vec![];
-
-        loop {
-            let header = self.get_block_header(&block_hash)?;
-
-            if header.height() < last_chunk_height_included {
-                panic!("get_incoming_receipts_for_shard failed");
-            }
-
-            if header.height() == last_chunk_height_included {
-                break;
-            }
-
-            let prev_hash = *header.prev_hash();
-
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
-            }
-
-            block_hash = prev_hash;
-        }
-
-        Ok(ret)
-    }
-
-    /// WARNING
-    ///
-    /// Usually ChainStoreUpdate has some uncommitted changes
-    /// and chain_store don't have access to them until they become committed.
-    /// Make sure you're doing it right.
-    pub fn get_chain_store(&mut self) -> &mut ChainStore {
-        self.chain_store
     }
 }
 
@@ -3027,62 +3015,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store.tail = self.tail;
 
         Ok(())
-    }
-}
-
-impl Into<SavedStoreUpdate> for ChainStoreUpdate<'_> {
-    fn into(self) -> SavedStoreUpdate {
-        SavedStoreUpdate {
-            chain_store: (),
-            store_updates: self.store_updates,
-            chain_store_cache_update: self.chain_store_cache_update,
-            head: self.head,
-            tail: self.tail,
-            chunk_tail: self.chunk_tail,
-            fork_tail: self.fork_tail,
-            header_head: self.header_head,
-            final_head: self.final_head,
-            largest_target_height: self.largest_target_height,
-            trie_changes: self.trie_changes,
-            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
-            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
-            add_blocks_to_catchup: self.add_blocks_to_catchup,
-            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
-            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
-            add_state_dl_infos: self.add_state_dl_infos,
-            remove_state_dl_infos: self.remove_state_dl_infos,
-            challenged_blocks: self.challenged_blocks,
-        }
-    }
-}
-
-/// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
-/// applying block in other thread
-pub type SavedStoreUpdate = ChainStoreUpdateImpl<()>;
-
-impl SavedStoreUpdate {
-    pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {
-        ChainStoreUpdate {
-            chain_store,
-            store_updates: self.store_updates,
-            chain_store_cache_update: self.chain_store_cache_update,
-            head: self.head,
-            tail: self.tail,
-            chunk_tail: self.chunk_tail,
-            fork_tail: self.fork_tail,
-            header_head: self.header_head,
-            final_head: self.final_head,
-            largest_target_height: self.largest_target_height,
-            trie_changes: self.trie_changes,
-            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
-            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
-            add_blocks_to_catchup: self.add_blocks_to_catchup,
-            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
-            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
-            add_state_dl_infos: self.add_state_dl_infos,
-            remove_state_dl_infos: self.remove_state_dl_infos,
-            challenged_blocks: self.challenged_blocks,
-        }
     }
 }
 

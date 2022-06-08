@@ -28,8 +28,9 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store =
-            near_store::StoreOpener::with_default_config(&home_dir).read_only(read_only).open();
+        let store = near_store::StoreOpener::new(&home_dir, &near_config.config.store)
+            .read_only(read_only)
+            .open();
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
