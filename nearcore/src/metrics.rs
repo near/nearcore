@@ -1,4 +1,4 @@
-use near_metrics::{try_create_histogram_vec, HistogramVec};
+use near_metrics::{linear_buckets, try_create_histogram_vec, HistogramVec};
 use once_cell::sync::Lazy;
 
 pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
@@ -6,7 +6,7 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         "near_apply_chunk_delay_seconds",
         "Time to process a chunk. Gas used by the chunk is a metric label, rounded up to 100 teragas.",
         &["tgas_ceiling"],
-        Some(prometheus::linear_buckets(0.0, 0.05, 50).unwrap()),
+        Some(linear_buckets(0.0, 0.05, 50).unwrap()),
     )
     .unwrap()
 });

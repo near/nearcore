@@ -1,6 +1,6 @@
 use near_metrics::{
-    try_create_histogram, try_create_histogram_vec, try_create_int_counter, try_create_int_gauge,
-    Histogram, HistogramVec, IntCounter, IntGauge,
+    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_gauge, Histogram, HistogramVec, IntCounter, IntGauge,
 };
 use once_cell::sync::Lazy;
 
@@ -55,7 +55,7 @@ pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         "near_block_chunks_request_delay_seconds",
         "Delay between receiving a block and requesting its chunks",
         &["shard_id"],
-        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -64,7 +64,7 @@ pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         "near_chunk_receive_delay_seconds",
         "Delay between requesting and receiving a chunk.",
         &["shard_id"],
-        Some(prometheus::exponential_buckets(0.001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
