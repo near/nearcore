@@ -991,13 +991,13 @@ fn client_sync_headers() {
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
-    let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.transaction_validity_period = 10;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -1336,12 +1336,17 @@ fn test_bad_chunk_mask() {
             block
                 .mut_header()
                 .resign(&*clients[block_producer].validator_signer.as_ref().unwrap().clone());
-            let res1 =
-                clients[chunk_producer].process_block_test(block.clone().into(), Provenance::NONE);
-            let res2 =
-                clients[block_producer].process_block_test(block.clone().into(), Provenance::NONE);
-            assert_eq!(res1.is_err(), mess_with_chunk_mask);
-            assert_eq!(res2.is_err(), mess_with_chunk_mask);
+            let res1 = clients[chunk_producer]
+                .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
+            let res2 = clients[block_producer]
+                .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
+            if !mess_with_chunk_mask {
+                res1.unwrap();
+                res2.unwrap();
+            } else {
+                res1.unwrap_err();
+                res2.unwrap_err();
+            }
         }
     }
 }
@@ -2152,7 +2157,7 @@ fn test_validate_chunk_extra() {
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
         } else {
             let _ = env.clients[0]
-                .process_block_test(last_block.clone().into(), Provenance::NONE)
+                .process_block_test_no_produce_chunk(last_block.clone().into(), Provenance::NONE)
                 .unwrap();
         }
     }
@@ -2746,7 +2751,7 @@ fn test_epoch_protocol_version_change() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = PROTOCOL_VERSION;
+    genesis.config.protocol_version = PROTOCOL_VERSION - 1;
     let genesis_height = genesis.config.genesis_height;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
@@ -2790,7 +2795,7 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
+            set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION);
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2802,7 +2807,7 @@ fn test_epoch_protocol_version_change() {
         .runtime_adapter
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
-    assert_eq!(protocol_version, PROTOCOL_VERSION + 1);
+    assert_eq!(protocol_version, PROTOCOL_VERSION);
 }
 
 /// Final state should be consistent when a node switches between forks in the following scenario

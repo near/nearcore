@@ -83,6 +83,18 @@ impl Client {
         Ok(accepted_blocks)
     }
 
+    pub fn process_block_test_no_produce_chunk(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        assert!(!self.chain.wait_for_all_block_in_processing());
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), false);
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while !self.chain.wait_for_all_block_in_processing() {
