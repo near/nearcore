@@ -682,10 +682,12 @@ fn test_nan_sign() {
 // even load a contract.
 #[test]
 fn test_gas_exceed_loading() {
-    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
-        Err: Exceeded the prepaid gas.
-    "#]]);
+    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(expect![[
+        r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
+            Err: Exceeded the prepaid gas.
+        "#
+    ]]);
 }
 
 // Call the "gas" host function with unreasonably large values, trying to force

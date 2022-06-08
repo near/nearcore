@@ -5,7 +5,7 @@ use near_primitives::{
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
-use near_vm_logic::{mocks::mock_external::MockedExternal, VMContext};
+use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext};
 use std::collections::HashSet;
 use std::fmt::Write;
 
@@ -32,7 +32,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),
-        protocol_features: &[],
+        protocol_versions: vec![PROTOCOL_VERSION],
         skip: HashSet::new(),
         opaque_error: false,
         opaque_outcome: false,
@@ -42,7 +42,7 @@ pub(crate) fn test_builder() -> TestBuilder {
 pub(crate) struct TestBuilder {
     code: ContractCode,
     context: VMContext,
-    protocol_features: &'static [ProtocolFeature],
+    protocol_versions: Vec<ProtocolVersion>,
     method: String,
     skip: HashSet<VMKind>,
     opaque_error: bool,
@@ -60,6 +60,10 @@ impl TestBuilder {
     pub(crate) fn wasm(mut self, wasm: &[u8]) -> Self {
         self.code = ContractCode::new(wasm.to_vec(), None);
         self
+    }
+
+    pub(crate) fn get_wasm(&self) -> &[u8] {
+        self.code.code()
     }
 
     pub(crate) fn method(mut self, method: &str) -> Self {
@@ -99,11 +103,30 @@ impl TestBuilder {
         self
     }
 
-    pub(crate) fn protocol_features(
-        mut self,
-        protocol_features: &'static [ProtocolFeature],
-    ) -> Self {
-        self.protocol_features = protocol_features;
+    /// Run  the necessary tests to check protocol upgrades for the given
+    /// features.
+    ///
+    /// Tricky. Given `[feat1, feat2, feat3]`, this will run *four* tests for
+    /// protocol versions `[feat1 - 1, feat2 - 1, feat3 - 1, PROTOCOL_VERSION]`.
+    ///
+    /// When using this method with `n` features, be sure to pass `n + 1`
+    /// expectations to the `expects` method. For nightly features, you can
+    /// `cfg` the relevant features and expect.
+    pub(crate) fn protocol_features(self, protocol_features: &'static [ProtocolFeature]) -> Self {
+        let mut protocol_versions = Vec::new();
+        for feat in protocol_features {
+            protocol_versions.push(feat.protocol_version() - 1)
+        }
+        protocol_versions.push(PROTOCOL_VERSION);
+
+        self.protocol_versions(protocol_versions)
+    }
+
+    /// Run the tests for each protocol version.
+    ///
+    /// Generally you should call `protocol_features` instead.
+    pub(crate) fn protocol_versions(mut self, protocol_versions: Vec<ProtocolVersion>) -> Self {
+        self.protocol_versions = protocol_versions;
         self
     }
 
@@ -114,21 +137,15 @@ impl TestBuilder {
     pub(crate) fn expects(self, wants: &[expect_test::Expect]) {
         let runtime_config_store = RuntimeConfigStore::new(None);
 
-        let mut protocol_versions = Vec::new();
-        for feat in self.protocol_features {
-            protocol_versions.push(feat.protocol_version() - 1)
-        }
-        protocol_versions.push(PROTOCOL_VERSION);
         assert_eq!(
             wants.len(),
-            protocol_versions.len(),
-            "specified {} features but only {} expectation ({} + 1 needed)",
-            self.protocol_features.len(),
+            self.protocol_versions.len(),
+            "specified {} protocol versions but only {} expectation",
+            self.protocol_versions.len(),
             wants.len(),
-            self.protocol_features.len()
         );
 
-        for (want, &protocol_version) in wants.iter().zip(&protocol_versions) {
+        for (want, &protocol_version) in wants.iter().zip(&self.protocol_versions) {
             let mut results = vec![];
             for vm_kind in [VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
