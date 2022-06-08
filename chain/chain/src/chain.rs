@@ -2111,7 +2111,6 @@ impl Chain {
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
-        // TODO: move apply_chunks_preprocessing from ChainUpdate to Chain
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
             block,
