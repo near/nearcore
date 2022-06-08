@@ -140,9 +140,7 @@ impl RuntimeTestbed {
 
     /// Flushes RocksDB memtable
     pub fn flush_db_write_buffer(&mut self) {
-        let store = self.tries.get_store();
-        let rocksdb = store.get_rocksdb().unwrap();
-        rocksdb.flush().unwrap();
+        self.tries.get_store().flush().unwrap();
     }
 
     pub fn store(&mut self) -> Store {

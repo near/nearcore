@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use criterion::Criterion;
 use flate2::read::GzDecoder;
 use mock_node::setup::setup_mock_node;
-use mock_node::GetChainTargetBlockHeight;
+use mock_node::{GetChainTargetBlockHeight, MockNetworkConfig};
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_chain_configs::GenesisValidationMode;
 use near_client::GetBlock;
@@ -93,20 +93,20 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
             near_config.validator_signer = None;
             near_config.client_config.min_num_peers = 1;
             let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
-            near_config.network_config.public_key = signer.public_key;
-            near_config.network_config.secret_key = signer.secret_key;
+            near_config.network_config.node_key = signer.secret_key;
             near_config.client_config.tracked_shards =
                 (0..near_config.genesis.config.shard_layout.num_shards()).collect();
             (setup_actix(), near_config, home)
         },
         |(sys, near_config, home)| {
             let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
+            let network_config = MockNetworkConfig::with_delay(Duration::from_millis(100));
             let servers = block_on_interruptible(&sys, async move {
                 let (mock_network, _client, view_client, servers) = setup_mock_node(
                     tempdir.path(),
                     home.as_path(),
                     near_config,
-                    Duration::from_millis(100),
+                    &network_config,
                     0,
                     None,
                     target_height,

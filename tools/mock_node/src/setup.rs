@@ -1,6 +1,6 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::MockPeerManagerActor;
+use crate::{MockNetworkConfig, MockPeerManagerActor};
 use actix::{Actor, Addr, Arbiter, Recipient};
 use anyhow::Context;
 use near_chain::ChainStoreUpdate;
@@ -12,7 +12,6 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
-use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -46,8 +45,9 @@ fn setup_mock_peer_manager_actor(
     genesis_config: &GenesisConfig,
     chain_genesis: &ChainGenesis,
     block_production_delay: Duration,
+    client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
-    network_delay: Duration,
+    network_config: &MockNetworkConfig,
     target_height: Option<BlockHeight>,
     save_trie_changes: bool,
 ) -> MockPeerManagerActor {
@@ -70,10 +70,11 @@ fn setup_mock_peer_manager_actor(
         client_addr,
         genesis_config,
         chain,
+        client_start_height,
         network_start_height,
         target_height,
         block_production_delay,
-        network_delay,
+        network_config,
     )
 }
 
@@ -96,7 +97,7 @@ pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
     config: NearConfig,
-    network_delay: Duration,
+    network_config: &MockNetworkConfig,
     client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
@@ -114,7 +115,7 @@ pub fn setup_mock_node(
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone());
+    let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::default();
 
@@ -265,6 +266,7 @@ pub fn setup_mock_node(
     let client_actor1 = client_actor.clone();
     let genesis_config = config.genesis.config.clone();
     let archival = config.client_config.archive;
+    let network_config = network_config.clone();
     let mock_network_actor =
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
@@ -273,8 +275,9 @@ pub fn setup_mock_node(
                 &genesis_config,
                 &chain_genesis,
                 block_production_delay,
+                client_start_height,
                 network_start_height,
-                network_delay,
+                &network_config,
                 target_height,
                 !archival,
             )
@@ -301,6 +304,7 @@ pub fn setup_mock_node(
 #[cfg(test)]
 mod tests {
     use crate::setup::setup_mock_node;
+    use crate::MockNetworkConfig;
     use actix::{Actor, System};
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
@@ -411,12 +415,13 @@ mod tests {
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
+        let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
             let (_mock_network, _client, view_client, _) = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,
-                Duration::from_millis(10),
+                &network_config,
                 10,
                 None,
                 None,
