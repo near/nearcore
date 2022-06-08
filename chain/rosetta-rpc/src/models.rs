@@ -582,8 +582,8 @@ pub(crate) struct MempoolTransactionResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MetadataRequest {
     // Rosetta Spec optionally provides, but we don't have any use for it:
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub metadata: Option<serde_json::Value>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub metadata: Option<serde_json::Value>,
 }
 
 /// The network_identifier specifies which network a particular object is

@@ -1642,8 +1642,7 @@ pub fn create_chunk(
             *chunk.header.height_included_mut() = next_height;
         }
     }
-    let block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+    let block_merkle_tree = client.chain.store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
@@ -1695,11 +1694,8 @@ pub fn run_catchup(
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                let saved_store_update =
-                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
-                blocks_catch_up_state
-                    .processed_blocks
-                    .insert(msg.block_hash, (saved_store_update, results));
+                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
+                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }

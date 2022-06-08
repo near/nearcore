@@ -38,7 +38,17 @@ pub fn run(
 ) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
-        runtime.run(
+        let span = tracing::debug_span!(
+            target: "vm",
+            "run",
+            "code.len" = code.code().len(),
+            %method_name,
+            ?vm_kind,
+            burnt_gas = tracing::field::Empty,
+        )
+        .entered();
+
+        let res = runtime.run(
             code,
             method_name,
             ext,
@@ -47,7 +57,10 @@ pub fn run(
             promise_results,
             current_protocol_version,
             cache,
-        )
+        );
+
+        span.record("burnt_gas", &res.outcome().burnt_gas);
+        res
     } else {
         panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
     }

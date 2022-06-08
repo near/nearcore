@@ -70,9 +70,8 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store = near_store::StoreOpener::new(&near_config.config.store)
+        let store = near_store::StoreOpener::new(home_dir, &near_config.config.store)
             .read_only(!readwrite)
-            .home(home_dir)
             .open();
         match self {
             StateViewerSubCommand::Peers => peers(store),
@@ -115,11 +114,24 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
+    /// List of account IDs to dump.
+    /// Note: validators will always be dumped.
+    /// If not set, all account IDs will be dumped.
+    #[clap(long)]
+    account_ids: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
+        dump_state(
+            self.height,
+            self.stream,
+            self.file,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+        );
     }
 }
 

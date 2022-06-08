@@ -584,7 +584,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
+    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
