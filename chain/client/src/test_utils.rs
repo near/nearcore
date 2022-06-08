@@ -71,16 +71,33 @@ pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 const TEST_SEED: RngSeed = [3; 32];
 
 impl Client {
+    /// Unlike Client::start_process_block, which returns before the block finishes processing
+    /// This function waits until the block is processed.
+    /// `should_produce_chunk`: Normally, if a block is accepted, client will try to produce
+    ///                         chunks for the next block if it is the chunk producer.
+    ///                         If `should_produce_chunk` is set to false, client will skip the
+    ///                         chunk production. This is useful in tests that need to tweak
+    ///                         the produced chunk content.
+    fn process_block_sync_with_produce_chunk_options(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        should_produce_chunk: bool,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        assert!(!self.chain.wait_for_all_block_in_processing());
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
     pub fn process_block_test(
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
-        assert!(!self.chain.wait_for_all_block_in_processing());
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
-        assert!(errors.is_empty());
-        Ok(accepted_blocks)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
     }
 
     pub fn process_block_test_no_produce_chunk(
@@ -88,13 +105,10 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
-        assert!(!self.chain.wait_for_all_block_in_processing());
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), false);
-        assert!(errors.is_empty());
-        Ok(accepted_blocks)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
     }
 
+    /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while !self.chain.wait_for_all_block_in_processing() {
@@ -103,6 +117,8 @@ impl Client {
         accepted_blocks
     }
 
+    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(_) = self.chain.wait_for_block_in_processing(hash) {
             let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
@@ -1368,7 +1384,13 @@ impl TestEnv {
         should_run_catchup: bool,
         should_produce_chunk: bool,
     ) {
-        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
+        self.clients[id]
+            .process_block_sync_with_produce_chunk_options(
+                MaybeValidated::from(block),
+                provenance,
+                should_produce_chunk,
+            )
+            .unwrap();
         if should_run_catchup {
             run_catchup(&mut self.clients[id], &vec![]).unwrap();
         }
@@ -1426,7 +1448,6 @@ impl TestEnv {
     }
 
     /// Send the PartialEncodedChunkRequest to the target client, get response and process the response
-    /// TODO: fix testing
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         id: usize,
@@ -1441,7 +1462,6 @@ impl TestEnv {
             self.clients[id]
                 .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
                 .unwrap();
-            self.clients[id].finish_blocks_in_processing();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }

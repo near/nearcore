@@ -1972,6 +1972,9 @@ impl Chain {
         Ok(())
     }
 
+    /// Applying chunks async by starting the work at the rayon thread pool
+    /// `apply_chunks_done_marker`: a marker that will be set to true once applying chunks is finished
+    /// `apply_chunks_done_callback`: a callback that will be called once applying chunks is finished
     fn async_apply_chunks(
         &self,
         block_hash: CryptoHash,
@@ -1994,6 +1997,9 @@ impl Chain {
         });
     }
 
+    /// Run postprocessing on this block, which stores the block on chain.
+    /// Check that if accepting the block unlocks any orphans in the orphan pool and start
+    /// the processing of those blocks.
     fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,

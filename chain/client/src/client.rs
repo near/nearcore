@@ -741,6 +741,10 @@ impl Client {
         }
     }
 
+    /// Start the processing of a block. Note that this function will return before
+    /// the full processing is finished because applying chunks is done asynchronously
+    /// in the rayon thread pool.
+    /// `apply_chunks_done_callback`: a callback that will be called when applying chunks is finished.
     pub fn start_process_block(
         &mut self,
         block: MaybeValidated<Block>,
@@ -810,6 +814,8 @@ impl Client {
         result
     }
 
+    /// Check if there are any blocks that has finished applying chunks, run post processing on these
+    /// blocks.
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_callback: ApplyChunkCallback,
@@ -844,6 +850,10 @@ impl Client {
         (accepted_blocks_hashes, errors)
     }
 
+    /// Process the result of block processing from chain, finish the steps that can't be done
+    /// in chain, including
+    ///  - sending challenges
+    ///  - requesting missing chunks
     pub(crate) fn process_block_processing_artifact(
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
