@@ -70,8 +70,7 @@ fn compute_function_call_cost(
     warmup_repeats: u64,
     contract: &ContractCode,
 ) -> GasCost {
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = near_store::StoreOpener::with_default_config(workdir.path()).open();
+    let store = near_store::test_utils::create_test_store();
     let cache_store = Arc::new(StoreCompiledContractCache { store });
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let protocol_version = ProtocolVersion::MAX;
