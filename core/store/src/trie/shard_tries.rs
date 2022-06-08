@@ -363,10 +363,10 @@ impl KeyForStateChanges {
         key
     }
 
-    pub fn find_iter<'a: 'b, 'b>(
+    pub fn find_iter<'a>(
         &'a self,
-        store: &'b Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
+        store: &'a Store,
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'a {
         let prefix_len = Self::estimate_prefix_len();
         debug_assert!(self.0.len() >= prefix_len);
         store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
@@ -379,10 +379,10 @@ impl KeyForStateChanges {
         )
     }
 
-    pub fn find_exact_iter<'a: 'b, 'b>(
+    pub fn find_exact_iter<'a>(
         &'a self,
-        store: &'b Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'b {
+        store: &'a Store,
+    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'a {
         let prefix_len = Self::estimate_prefix_len();
         let trie_key_len = self.0.len() - prefix_len;
         self.find_iter(store).filter_map(move |change| {
