@@ -753,6 +753,7 @@ fn gas_overflow_indirect_call() {
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost_protocol_upgrade {
     use super::*;
+    use crate::tests::prepaid_loading_gas;
 
     static ALMOST_TRIVIAL_CONTRACT: &str = r#"
 (module
@@ -784,9 +785,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
     // after. Both charge the same amount of gas.
     #[test]
     fn test_fn_loading_gas_protocol_upgrade_exceed_loading() {
-        test_builder()
-            .wat(ALMOST_TRIVIAL_CONTRACT)
-            .gas(44115963)
+        let tb = test_builder().wat(ALMOST_TRIVIAL_CONTRACT);
+        let loading_cost = prepaid_loading_gas(tb.get_wasm().len());
+        tb
+            .gas(loading_cost)
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
@@ -804,30 +806,21 @@ mod fix_contract_loading_cost_protocol_upgrade {
     /// contract should have the same outcome before and after.
     #[test]
     fn test_fn_loading_gas_protocol_upgrade_exceed_executing() {
-        test_builder()
-            .wat(ALMOST_TRIVIAL_CONTRACT)
-            .gas(47406986)
+        let tb = test_builder().wat(ALMOST_TRIVIAL_CONTRACT);
+        let loading_cost = prepaid_loading_gas(tb.get_wasm().len());
+        tb
+            .gas(loading_cost + 884037)
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406986 used gas 47406986
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
                     Err: Exceeded the prepaid gas.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406986 used gas 47406986
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
                     Err: Exceeded the prepaid gas.
                 "#]],
             ]);
-    }
-
-    fn function_not_defined_contract() -> Vec<u8> {
-        wat::parse_str(
-            r#"
-            (module
-              (export "hello" (func 0))
-            )"#,
-        )
-        .unwrap()
     }
 
     /// Failure during preparation must remain free of gas charges for old versions
@@ -842,7 +835,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
         // currently do not have tests ready to trigger each error.
 
         test_builder()
-            .wasm(&function_not_defined_contract())
+            .wat(r#"(module (export "hello" (func 0)))"#)
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
