@@ -1694,11 +1694,8 @@ pub fn run_catchup(
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                let saved_store_update =
-                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
-                blocks_catch_up_state
-                    .processed_blocks
-                    .insert(msg.block_hash, (saved_store_update, results));
+                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
+                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }
