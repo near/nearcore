@@ -486,10 +486,11 @@ pub(crate) async fn get_block_if_final(
         }
         _ => false,
     };
-    let block = view_client_addr
-        .send(near_client::GetBlock(block_id.clone()))
-        .await?
-        .map_err(|get_block_error| errors::ErrorKind::InternalError(get_block_error.to_string()))?;
+    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+        Ok(block) => block,
+        Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
+        Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
+    };
     // if block height is larger than the last final block height, then the block is not final
     if block.header.height > final_block.header.height {
         return Ok(None);
