@@ -179,7 +179,7 @@ impl TestBuilder {
                 };
                 if let Some(err) = res.error() {
                     let mut err = err.to_string();
-                    assert!(err.len() < 1000, "errors should be bounded in size");
+                    assert!(err.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
                     if self.opaque_error {
                         err = "...".to_string();
                     }
