@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use near_primitives::state_patch::StatePatch;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
@@ -1165,7 +1165,7 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        state_patch: Option<StatePatch>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -1413,7 +1413,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: StatePatch) {
+    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
         for record in state_patch.into_records() {
             match record {
                 StateRecord::Account { account_id, account } => {

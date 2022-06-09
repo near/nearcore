@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
-use near_primitives::state_patch::StatePatch;
 use num_rational::Rational;
 use tracing::debug;
 
@@ -656,7 +656,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         generate_storage_proof: bool,
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
-        _state_patch: Option<StatePatch>,
+        _state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];

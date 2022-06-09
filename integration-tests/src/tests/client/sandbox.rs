@@ -6,8 +6,8 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::Account;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::serialize::{from_base64, to_base64};
-use near_primitives::state_patch::StatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -82,7 +82,7 @@ fn test_patch_state() {
     let (mut env, _signer) = test_setup();
 
     let state = env.query_state("test0".parse().unwrap());
-    env.clients[0].chain.patch_state(StatePatch::new(vec![StateRecord::Data {
+    env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Data {
         account_id: "test0".parse().unwrap(),
         data_key: from_base64(&state[0].key).unwrap(),
         value: b"world".to_vec(),
@@ -100,7 +100,7 @@ fn test_patch_account() {
     let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
     test1.set_amount(10);
 
-    env.clients[0].chain.patch_state(StatePatch::new(vec![StateRecord::Account {
+    env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Account {
         account_id: "test1".parse().unwrap(),
         account: test1,
     }]));

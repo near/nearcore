@@ -6,7 +6,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
-use near_primitives::state_patch::StatePatch;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -454,7 +454,7 @@ pub struct Chain {
     /// place in the database. Instead, we will include this "bonus changes" in
     /// the next block we'll be processing, keeping them in this field in the
     /// meantime.
-    pending_state_patch: Option<StatePatch>,
+    pending_state_patch: Option<SandboxStatePatch>,
 }
 
 impl ChainAccess for Chain {
@@ -1967,7 +1967,7 @@ impl Chain {
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         challenges: &mut Vec<ChallengeBody>,
-        state_patch: Option<StatePatch>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<
         (
             Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
@@ -3272,7 +3272,7 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-        mut state_patch: Option<StatePatch>,
+        mut state_patch: Option<SandboxStatePatch>,
     ) -> Result<
         Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
         Error,
@@ -4161,7 +4161,7 @@ impl Chain {
 
 /// Sandbox node specific operations
 impl Chain {
-    pub fn patch_state(&mut self, patch: StatePatch) {
+    pub fn patch_state(&mut self, patch: SandboxStatePatch) {
         match &mut self.pending_state_patch {
             None => self.pending_state_patch = Some(patch),
             Some(pending) => pending.merge(patch),
