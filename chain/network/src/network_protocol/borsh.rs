@@ -82,24 +82,11 @@ impl From<HandshakeAutoDes> for Handshake {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingTableUpdate {
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) accounts: Vec<AnnounceAccount>,
+pub(super) struct RoutingTableUpdate {
+    pub edges: Vec<Edge>,
+    pub accounts: Vec<AnnounceAccount>,
 }
 
-impl RoutingTableUpdate {
-    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new() }
-    }
-
-    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts }
-    }
-
-    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts }
-    }
-}
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
@@ -128,7 +115,7 @@ impl std::error::Error for HandshakeFailureReason {}
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
-pub enum PeerMessage {
+pub(super) enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.

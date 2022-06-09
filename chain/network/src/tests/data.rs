@@ -151,6 +151,8 @@ pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
             }
             e
         },
+        // TODO
+        validators: vec![],
     }
 }
 

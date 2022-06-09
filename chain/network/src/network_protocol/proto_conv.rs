@@ -1,8 +1,14 @@
 /// Contains protobuf <-> network_protocol conversions.
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate};
+use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
+use crate::network_protocol::{
+    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    AccountKeySignedPayload, SignedValidator, Validator, PeerAddr
+};
+use near_primitives::account::id::{ParseAccountError};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_network_primitives::time;
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
 };
@@ -13,8 +19,10 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use protobuf::MessageField as MF;
+use protobuf::{Message as _, MessageField as MF};
 use thiserror::Error;
+use std::net::{IpAddr,SocketAddr};
+use protobuf::well_known_types::timestamp::{Timestamp as ProtoTimestamp};
 
 #[derive(Error, Debug)]
 #[error("[{idx}]: {source}")]
@@ -46,6 +54,13 @@ fn try_from_required<'a, X, Y: TryFrom<&'a X>>(
     x: &'a MF<X>,
 ) -> Result<Y, ParseRequiredError<Y::Error>> {
     x.as_ref().ok_or(ParseRequiredError::Missing)?.try_into().map_err(ParseRequiredError::Other)
+}
+
+fn map_from_required<'a, X, Y, E>(
+    x: &'a MF<X>,
+    f:impl FnOnce(&'a X) -> Result<Y,E>,
+) -> Result<Y, ParseRequiredError<E>> {
+    f(x.as_ref().ok_or(ParseRequiredError::Missing)?).map_err(ParseRequiredError::Other)
 }
 
 impl From<&CryptoHash> for proto::CryptoHash {
@@ -331,12 +346,207 @@ impl TryFrom<&proto::AnnounceAccount> for AnnounceAccount {
 
 //////////////////////////////////////////
 
+pub type ParseSignatureError = borsh::maybestd::io::Error;
+
+impl From<&near_crypto::Signature> for proto::Signature {
+    fn from(x: &near_crypto::Signature) -> Self {
+        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+    }
+}
+
+impl TryFrom<&proto::Signature> for near_crypto::Signature {
+    type Error = ParseSignatureError;
+    fn try_from(x: &proto::Signature) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
+    }
+}
+//////////////////////////////////////////
+
+#[derive(Error,Debug)]
+pub enum ParseSocketAddrError {
+    #[error("invalid IP")]
+    InvalidIP,
+    #[error("invalid port")]
+    InvalidPort,
+}
+
+impl From<&SocketAddr> for proto::SocketAddr {
+    fn from(x:&SocketAddr) -> Self {
+        Self {
+            ip: match x.ip() {
+                IpAddr::V4(ip) => ip.octets().to_vec(),
+                IpAddr::V6(ip) => ip.octets().to_vec(),
+            },
+            port: x.port() as u32,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::SocketAddr> for SocketAddr {
+    type Error = ParseSocketAddrError;
+    fn try_from(x:&proto::SocketAddr) -> Result<Self,Self::Error> {
+        let ip = match x.ip.len() {
+            4 => IpAddr::from(<[u8;4]>::try_from(&x.ip[..]).unwrap()),
+            16 => IpAddr::from(<[u8;16]>::try_from(&x.ip[..]).unwrap()),
+            _ => { return Err(Self::Error::InvalidIP) }, 
+        };
+        let port = u16::try_from(x.port).map_err(|_|Self::Error::InvalidPort)?;
+        Ok(SocketAddr::new(ip,port))
+    }
+}
+
+#[derive(Error,Debug)]
+pub enum ParsePeerAddrError {
+    #[error("addr: {0}")]
+    Addr(ParseRequiredError<ParseSocketAddrError>),
+    #[error("peer_id: {0}")]
+    PeerId(ParsePeerIdError),
+}
+
+impl From<&PeerAddr> for proto::PeerAddr {
+    fn from(x:&PeerAddr) -> Self {
+        Self {
+            addr: MF::some((&x.addr).into()),
+            peer_id: MF::from_option(x.peer_id.as_ref().map(Into::into)),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::PeerAddr> for PeerAddr {
+    type Error = ParsePeerAddrError;
+    fn try_from(x:&proto::PeerAddr) -> Result<Self,Self::Error> {
+        Ok(Self {
+            addr: try_from_required(&x.addr).map_err(Self::Error::Addr)?,
+            peer_id: x.peer_id.as_ref().map(|p|p.try_into()).transpose().map_err(Self::Error::PeerId)?,
+        })
+    }
+}
+
+type ParseTimestampError = time::error::ComponentRange;
+
+fn utc_to_proto(x:&time::Utc) -> ProtoTimestamp {
+    ProtoTimestamp {
+        seconds: x.unix_timestamp(),
+        // x.nanosecond() is guaranteed to be in range [0,10^9).
+        nanos: x.nanosecond() as i32,
+        ..Default::default()
+    }
+}
+
+fn utc_from_proto(x:&ProtoTimestamp) -> Result<time::Utc,ParseTimestampError> {
+    time::Utc::from_unix_timestamp_nanos(
+        (x.seconds as i128 * 1_000_000_000) + (x.nanos as i128)
+    )
+}
+
+// TODO: currently a direct conversion Validator <-> proto::AccountKeyPayload is implemented.
+// When more variants are available, consider whether to introduce an intermediate
+// AccountKeyPayload enum.
+impl From<&Validator> for proto::AccountKeyPayload {
+    fn from(x:&Validator) -> Self {
+        Self {
+            payload_type: Some(ProtoPT::Validator(proto::Validator{
+                account_id: x.account_id.to_string(),
+                peers: x.peers.iter().map(Into::into).collect(), 
+                epoch_id: MF::some((&x.epoch_id.0).into()),
+                timestamp: MF::some(utc_to_proto(&x.timestamp)),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Error,Debug)]
+pub enum ParseValidatorError {
+    #[error("bad payload type")]
+    BadPayloadType,
+    #[error("account_id: {0}")]
+    AccountId(ParseAccountError),
+    #[error("peers: {0}")]
+    Peers(ParseVecError<ParsePeerAddrError>),
+    #[error("epoch_id: {0}")]
+    EpochId(ParseRequiredError<ParseCryptoHashError>),
+    #[error("timestamp: {0}")]
+    Timestamp(ParseRequiredError<ParseTimestampError>),
+}
+
+impl TryFrom<&proto::AccountKeyPayload> for Validator {
+    type Error = ParseValidatorError;
+    fn try_from(x:&proto::AccountKeyPayload) -> Result<Self,Self::Error> {
+        let x = match x.payload_type.as_ref().ok_or(Self::Error::BadPayloadType)? {
+            ProtoPT::Validator(v) => v,
+            #[allow(unreachable_patterns)]
+            _ => { return Err(Self::Error::BadPayloadType) },
+        };
+        Ok(Self{
+            account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
+            peers: try_from_vec(&x.peers).map_err(Self::Error::Peers)?,
+            epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),
+            timestamp: map_from_required(&x.timestamp,utc_from_proto).map_err(Self::Error::Timestamp)?,
+        })
+    }
+}
+
+// TODO: I took this number out of thin air,
+// determine a reasonable limit later.
+const VALIDATOR_PAYLOAD_MAX_BYTES : usize = 10000;
+
+#[derive(Error,Debug)]
+pub enum ParseSignedValidatorError {
+    #[error("payload too large: {0}B")]
+    PayloadTooLarge(usize),
+    #[error("decode: {0}")]
+    Decode(protobuf::Error),
+    #[error("validator: {0}")]
+    Validator(ParseValidatorError),
+    #[error("signature: {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl From<&SignedValidator> for proto::AccountKeySignedPayload {
+    fn from(x:&SignedValidator) -> Self {
+        Self{
+            payload: (&x.payload.payload).clone(),
+            signature: MF::some((&x.payload.signature).into()),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::AccountKeySignedPayload> for SignedValidator {
+    type Error = ParseSignedValidatorError;
+    fn try_from(x:&proto::AccountKeySignedPayload) -> Result<Self,Self::Error> {
+        // We definitely should tolerate unknown fields, so that we can do
+        // backward compatible changes. We also need to limit the total
+        // size of the payload, to prevent large message attacks.
+        // TODO: is this the right place to do this check? Should we do the same while encoding?
+        // An alternative would be to do this check in the business logic of PeerManagerActor,
+        // probably together with signature validation. The amount of memory a node
+        // maintains per vaidator should be bounded.
+        if x.payload.len() > VALIDATOR_PAYLOAD_MAX_BYTES {
+            return Err(Self::Error::PayloadTooLarge(x.payload.len()));
+        }
+        let validator = proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        Ok(Self {
+            validator: (&validator).try_into().map_err(Self::Error::Validator)?,
+            payload: AccountKeySignedPayload {
+                payload: x.payload.clone(),
+                signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
+            },
+        })
+    }
+}
+
 impl From<&RoutingTableUpdate> for proto::RoutingTableUpdate {
     fn from(x: &RoutingTableUpdate) -> Self {
         Self {
             edges: x.edges.iter().map(Into::into).collect(),
             accounts: x.accounts.iter().map(Into::into).collect(),
-            ..Self::default()
+            validators: x.validators.iter().map(Into::into).collect(),
+            ..Default::default()
         }
     }
 }
@@ -347,6 +557,8 @@ pub enum ParseRoutingTableUpdateError {
     Edges(ParseVecError<ParseEdgeError>),
     #[error("accounts {0}")]
     Accounts(ParseVecError<ParseAnnounceAccountError>),
+    #[error("validators {0}")]
+    Validators(ParseVecError<ParseSignedValidatorError>),
 }
 
 impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
@@ -355,6 +567,7 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
         Ok(Self {
             edges: try_from_vec(&x.edges).map_err(Self::Error::Edges)?,
             accounts: try_from_vec(&x.accounts).map_err(Self::Error::Accounts)?,
+            validators: try_from_vec(&x.validators).map_err(Self::Error::Validators)?,
         })
     }
 }
