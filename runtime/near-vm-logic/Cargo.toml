@@ -45,4 +45,4 @@ protocol_feature_fix_contract_loading_cost = [
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
-sandbox = ["tracing"]
+sandbox = ["tracing", "near-primitives/sandbox"]

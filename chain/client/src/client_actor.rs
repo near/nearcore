@@ -384,7 +384,7 @@ impl ClientActor {
             NetworkClientMessages::Sandbox(sandbox_msg) => {
                 return match sandbox_msg {
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
-                        self.client.chain.patch_state(state);
+                        self.client.chain.patch_state(near_primitives::sandbox_state_patch::SandboxStatePatch::new(state));
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
