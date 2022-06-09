@@ -3,7 +3,7 @@ use near_primitives::checked_feature;
 use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, BorshSerialize)]
+#[derive(Clone, Copy, Debug, Hash, BorshSerialize, PartialEq, Eq)]
 // Note, that VMKind is part of serialization protocol, so we cannor remove entries
 // from this list if particular VM reached publically visible networks.
 //
