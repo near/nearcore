@@ -694,8 +694,8 @@ fn test_gas_exceed_loading() {
 // overflow
 #[test]
 fn gas_overflow_direct_call() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let direct_call = wat::parse_str(
+    test_builder()
+        .wat(
             r#"
 (module
   (import "env" "gas" (func $gas (param i32)))
@@ -703,25 +703,18 @@ fn gas_overflow_direct_call() {
     (call $gas (i32.const 0xffff_ffff)))
 )"#,
         )
-        .unwrap();
-
-        let actual = make_simple_contract_call_vm(&direct_call, "main", vm_kind);
-        gas_and_error_match(
-            actual,
-            100000000000000,
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                HostError::GasLimitExceeded,
-            ))),
-        );
-    });
+        .expect(expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+        "#]]);
 }
 
 // Call the "gas" host function indirectly with unreasonably large values,
 // trying to force overflow.
 #[test]
 fn gas_overflow_indirect_call() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let indirect_call = wat::parse_str(
+    test_builder()
+        .wat(
             r#"
 (module
   (import "env" "gas" (func $gas (param i32)))
@@ -737,17 +730,10 @@ fn gas_overflow_indirect_call() {
       (i32.const 0)))
 )"#,
         )
-        .unwrap();
-
-        let actual = make_simple_contract_call_vm(&indirect_call, "main", vm_kind);
-        gas_and_error_match(
-            actual,
-            100000000000000,
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                HostError::GasLimitExceeded,
-            ))),
-        );
-    });
+        .expect(expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+        "#]]);
 }
 
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
