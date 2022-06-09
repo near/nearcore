@@ -63,6 +63,7 @@ fn test_block_with_challenges() {
     assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
 }
 
+/// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
 #[test]
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -100,13 +101,13 @@ fn test_invalid_chunk_state() {
         let store = env.clients[0].chain.mut_store();
         let mut store_update = store.store_update();
         *chunk_extra.state_root_mut() = CryptoHash::default();
-        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), *chunk_extra);
         store_update.commit().unwrap();
     }
 
     let block = env.clients[0].produce_block(4).unwrap().unwrap();
     let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
-    assert_matches!(result.unwrap_err().kind(), ErrorKind::InvalidChunkState(_));
+    assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
 }
 
 #[test]
