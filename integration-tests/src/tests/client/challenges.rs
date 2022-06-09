@@ -100,7 +100,7 @@ fn test_invalid_chunk_state() {
         let store = env.clients[0].chain.mut_store();
         let mut store_update = store.store_update();
         *chunk_extra.state_root_mut() = CryptoHash::default();
-        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), *chunk_extra);
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
         store_update.commit().unwrap();
     }
 
