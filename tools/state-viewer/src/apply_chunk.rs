@@ -20,6 +20,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::cmp::Ord;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tracing::warn;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
@@ -44,7 +45,7 @@ fn get_incoming_receipts(
     }
 
     let mut chunks =
-        chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap().clone()).collect::<Vec<_>>();
+        chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap()).collect::<Vec<_>>();
     chunks.sort_by(|left, right| left.shard_id().cmp(&right.shard_id()));
 
     for chunk in chunks {
@@ -61,7 +62,7 @@ fn get_incoming_receipts(
         // for testing purposes, shuffle the receipts the same way it's done normally so we can compare the state roots
         receipt_proofs.shuffle(&mut rng);
     }
-    let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), receipt_proofs)];
+    let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
         shard_id,
         *prev_hash,
@@ -460,7 +461,6 @@ mod test {
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-            None,
         ));
         let chain_genesis = ChainGenesis::test();
 
@@ -531,14 +531,13 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-            None,
         ));
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit

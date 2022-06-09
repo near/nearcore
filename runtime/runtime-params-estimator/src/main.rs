@@ -5,9 +5,7 @@ use clap::Parser;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::create_store;
 use near_vm_runner::internal::VMKind;
-use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::utils::read_resource;
 use runtime_params_estimator::{
@@ -120,7 +118,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     if state_dump_path.read_dir()?.next().is_none() {
-        let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+        let contract_code = read_resource(if cfg!(feature = "nightly") {
             "test-contract/res/nightly_small_contract.wasm"
         } else {
             "test-contract/res/stable_small_contract.wasm"
@@ -143,9 +141,10 @@ fn main() -> anyhow::Result<()> {
         )
         .expect("failed to init config");
 
-        let near_config = load_config(&state_dump_path, GenesisValidationMode::Full)
+        let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store = create_store(&get_store_path(&state_dump_path));
+        let store =
+            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
             Arc::new(near_config.genesis),
@@ -200,6 +199,13 @@ fn main() -> anyhow::Result<()> {
 
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
+    } else {
+        use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
@@ -227,7 +233,7 @@ fn main() -> anyhow::Result<()> {
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
-        state_dump_path: state_dump_path.clone(),
+        state_dump_path: state_dump_path,
         metric,
         vm_kind,
         costs_to_measure,
@@ -269,7 +275,7 @@ fn main_docker(
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
+    let tag = "rust-1.61.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
@@ -296,8 +302,8 @@ fn main_docker(
         buf.push_str(" --features required");
 
         // Also add nightly protocol features to docker build if they are enabled.
-        #[cfg(feature = "nightly_protocol_features")]
-        buf.push_str(",nightly_protocol_features");
+        #[cfg(feature = "nightly")]
+        buf.push_str(",nightly");
         #[cfg(feature = "nightly_protocol")]
         buf.push_str(",nightly_protocol");
 

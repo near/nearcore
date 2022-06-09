@@ -1,10 +1,38 @@
 <html>
 
+<head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        $(document).ready(() => {
+            $.ajax({
+                type: "GET",
+                url: "/status",
+                success: data => {
+                    $('.js-chain').text(data.chain_id);
+                    $('.js-protocol').text(data.protocol_version);
+                    $('.js-binary').text(JSON.stringify(data.version));
+
+                },
+                dataType: "json",
+                contentType: "application/json; charset=utf-8",
+            });
+        });
+    </script>
+</head>
+
 <body>
-    <h1><a href="/debug/last_blocks">Last blocks</a></h1>
-    <h1><a href="/debug/network_info">Network info</a></h1>
-    <h1><a href="/debug/epoch_info">Epoch info</a></h1>
-    <h1><a href="/debug/chain_n_chunk_info">Chain & Chunk info</a></h1>
+    <h3>
+        <p>Chain: <span class="js-chain"></span></p>
+        <p>Protocol: <span class="js-protocol"></span></p>
+        <p>Binary: <span class="js-binary"></span></p>
+
+    </h3>
+
+    <h1><a href="/debug/pages/last_blocks">Last blocks</a></h1>
+    <h1><a href="/debug/pages/network_info">Network info</a></h1>
+    <h1><a href="/debug/pages/epoch_info">Epoch info</a></h1>
+    <h1><a href="/debug/pages/chain_n_chunk_info">Chain & Chunk info</a></h1>
+    <h1><a href="/debug/pages/sync">Sync info</a></h1>
 </body>
 
 </html>

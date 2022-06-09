@@ -3,6 +3,13 @@ env:
   RUSTFLAGS: -D warnings
 
 steps:
+  - label: "protobuf backward compatibility"
+    command: |
+      buf breaking --against '.git#branch=master'
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
@@ -28,7 +35,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --features nightly_protocol,nightly_protocol_features,test_features -p 'integration-tests'
+      cargo test --features nightly,test_features -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -40,7 +47,7 @@ steps:
       docker rm -f $(docker ps --filter "publish=6379" -q) | true
       docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
-      cargo test --workspace --features nightly_protocol,nightly_protocol_features,test_features -p '*' --exclude 'integration-tests*'
+      cargo test --workspace --features nightly,test_features -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -59,7 +66,7 @@ steps:
       cargo check -p neard --features test_features
       cargo check -p neard --features sandbox
 
-      cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
+      cargo build -p neard --bin neard --features nightly
       cd pytest
       python3 -m pip install --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py
@@ -133,19 +140,6 @@ steps:
       python3 tests/sanity/db_migration.py
     branches: "!master !beta !stable"
     timeout: 30
-    agents:
-    - "distro=amazonlinux"
-
-  - label: "runtime params estimate"
-    command: |
-      source ~/.cargo/env && set -eux
-      cd runtime/runtime-params-estimator/test-contract
-      ./build.sh
-      cd ..
-      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
-
-    branches: "!master !beta !stable"
-    timeout: 60
     agents:
     - "distro=amazonlinux"
 

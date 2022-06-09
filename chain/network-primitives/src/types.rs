@@ -21,6 +21,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use serde::Serialize;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
@@ -34,9 +35,9 @@ pub use crate::network_protocol::{
     RoutedMessageBody, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
-pub use crate::blacklist::Blacklist;
-pub use crate::config::NetworkConfig;
-
+pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
+pub use crate::config::{NetworkConfig, ValidatorConfig, ValidatorEndpoints};
+pub use crate::config_json::Config as ConfigJSON;
 pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -83,7 +84,7 @@ pub struct AccountIdOrPeerTrackingShard {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash, Serialize)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),

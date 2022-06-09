@@ -46,7 +46,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::LastEdge(edge.clone()),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
-        PeerMessage::ResponseUpdateNonce(edge.clone()),
+        PeerMessage::ResponseUpdateNonce(edge),
         PeerMessage::PeersRequest,
         PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect()),
@@ -60,7 +60,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
         PeerMessage::EpochSyncRequest(epoch_id.clone()),
         PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate)),
-        PeerMessage::EpochSyncFinalizationRequest(epoch_id.clone()),
+        PeerMessage::EpochSyncFinalizationRequest(epoch_id),
         // TODO: EpochSyncFinalizationResponse
         // TODO: RoutingTableSyncV2,
     ];

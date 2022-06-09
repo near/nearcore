@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use near_primitives::types::AccountId;
-
 #[derive(Debug, Clone)]
 pub struct RpcBroadcastTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
@@ -53,58 +51,6 @@ pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }
 
-impl RpcBroadcastTransactionRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        let signed_transaction = crate::utils::parse_signed_transaction(value)?;
-        Ok(Self { signed_transaction })
-    }
-}
-
-impl RpcTransactionStatusCommonRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        if let Ok((hash, account_id)) = crate::utils::parse_params::<(
-            near_primitives::hash::CryptoHash,
-            AccountId,
-        )>(value.clone())
-        {
-            let transaction_info = TransactionInfo::TransactionId { hash, account_id };
-            Ok(Self { transaction_info })
-        } else {
-            let signed_transaction = crate::utils::parse_signed_transaction(value)?;
-            let transaction_info = TransactionInfo::Transaction(signed_transaction);
-            Ok(Self { transaction_info })
-        }
-    }
-}
-
-impl From<near_client_primitives::types::TxStatusError> for RpcTransactionError {
-    fn from(error: near_client_primitives::types::TxStatusError) -> Self {
-        match error {
-            near_client_primitives::types::TxStatusError::ChainError(err) => {
-                Self::InternalError { debug_info: format!("{:?}", err) }
-            }
-            near_client_primitives::types::TxStatusError::MissingTransaction(
-                requested_transaction_hash,
-            ) => Self::UnknownTransaction { requested_transaction_hash },
-            near_client_primitives::types::TxStatusError::InvalidTx(context) => {
-                Self::InvalidTransaction { context }
-            }
-            near_client_primitives::types::TxStatusError::InternalError(debug_info) => {
-                Self::InternalError { debug_info }
-            }
-            near_client_primitives::types::TxStatusError::TimeoutError => Self::TimeoutError,
-        }
-    }
-}
-
-impl From<near_primitives::views::FinalExecutionOutcomeViewEnum> for RpcTransactionResponse {
-    fn from(
-        final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
-    ) -> Self {
-        Self { final_execution_outcome }
-    }
-}
-
 impl From<RpcTransactionError> for crate::errors::RpcError {
     fn from(error: RpcTransactionError) -> Self {
         let error_data = match &error {
@@ -133,11 +79,5 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
         };
 
         Self::new_internal_or_handler_error(Some(error_data), error_data_value)
-    }
-}
-
-impl From<actix::MailboxError> for RpcTransactionError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { debug_info: error.to_string() }
     }
 }

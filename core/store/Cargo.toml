@@ -5,20 +5,21 @@ license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
-bytesize = "1.1"
+bytesize = { version = "1.1", features = ["serde"] }
 derive_more = "0.99.3"
 elastic-array = "0.11"
+enum-map = "2.1.0"
 rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 num_cpus = "1.11"
 rand = "0.7"
-strum = { version = "0.20", features = ["derive"] }
+strum = { version = "0.24", features = ["derive"] }
 fs2 = "0.4"
 tracing = "0.1.13"
 borsh = "0.9"
@@ -31,6 +32,7 @@ near-crypto = { path = "../crypto" }
 near-o11y = { path = "../o11y" }
 near-primitives = { path = "../primitives" }
 near-metrics = { path = "../metrics" }
+near-cache = { path = "../../utils/near-cache" }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
@@ -53,7 +55,7 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_chunk_only_producers = []
 nightly_protocol = []
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
 ]

@@ -47,6 +47,68 @@ idioms usually reflect learned truths, which might not be immediately obvious.
 This section documents all micro-rules which are not otherwise enforced by
 `rustfmt`.
 
+### Avoid `AsRef::as_ref`
+
+When you have some concrete type, prefer `.as_str`, `.as_bytes`, `.as_path` over
+generic `.as_ref`. Only use `.as_ref` when the type in question is a generic
+`T: AsRef<U>`.
+
+
+```rust
+// GOOD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_str())
+       .increment()
+}
+
+// BAD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_ref())
+       .increment()
+}
+```
+
+Note that `Option::as_ref`, `Result::as_ref` are great, use do use them!
+
+**Rationale:** readability and churn-resistance. There might be more than one
+`AsRef<U>` implementation for a given type (with different `U`s). If a new
+implementation is added, some of the `.as_ref()` calls might break. See also
+https://github.com/rust-lang/rust/issues/62586.
+
+
+### Avoid references to `Copy`-types
+
+Various generic APIs in Rust often return references to data (`&T`). When `T` is
+a small `Copy` type like `i32`, you end up with `&i32` while many API expect
+`i32`, so dereference has to happen _somewhere_. Prefer dereferencing as early
+as possible, typically in a pattern:
+
+```rust
+// GOOD
+fn compute(map: HashMap<&'str, i32>) {
+    if let Some(&value) = map.get("key") {
+        process(value)
+    }
+}
+fn process(value: i32) { ... }
+
+// BAD
+fn compute(map: HashMap<&'str, i32>) {
+    if let Some(value) = map.get("key") {
+        process(*value)
+    }
+}
+fn process(value: i32) { ... }
+```
+
+**Rationale:** if the value is used multiple times, dereferencing in the pattern
+saves keystrokes. If the value is used exactly once, we just want to be
+consistent. Additional benefit of early deref is reduced scope of borrow.
+
+Note that for some *big* `Copy` types, notably `CryptoHash`, we sometimes use
+references for performance reasons. As a rule of thumb, `T` is considered *big* if
+`size_of::<T>() > 2 * size_of::<usize>()`.
+
 ### Import Granularity
 
 Group import by module, but not deeper:
@@ -105,6 +167,34 @@ use crate::types::KnownPeerState;
 **Rationale:** Consistency, ease of automatic enforcement. Today stable rustfmt
 can't split imports into groups automatically, and doing that manually
 consistently is a chore.
+
+### Derives
+
+When deriving an implementation of a trait, specify a full path to the traits provided by the
+external libraries:
+
+```rust
+// GOOD
+#[derive(Copy, Clone, serde::Serialize, thiserror::Error, strum::Display)]
+struct Grapefruit;
+
+// BAD
+use serde::Serialize;
+use thiserror::Error;
+use strum::Display;
+
+#[derive(Copy, Clone, Serialize, Error, Display)]
+struct Banana;
+```
+
+As an exception to this rule, it is okay to use either style when the derived trait already
+includes the name of the library (as would be the case for `borsh::BorshSerialize`.)
+
+**Rationale:** Specifying a full path to the externally provided derivations here makes it
+straightforward to differentiate between the built-in derivations and those provided by the
+external crates. The surprise factor for derivations sharing a name with the standard
+library traits (`Display`) is reduced and it also acts as natural mechanism to tell apart names
+prone to collision (`Serialize`), all without needing to look up the list of imports.
 
 ## Documentation
 

@@ -22,7 +22,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
 };
-use near_primitives::utils::generate_random_string;
+use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -101,10 +101,6 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
-/// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
-/// Maximum amount of routes to store for each account id.
-pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
@@ -125,9 +121,6 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
-
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
@@ -156,129 +149,6 @@ pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
-
-/// Maximum number of active peers. Hard limit.
-fn default_max_num_peers() -> u32 {
-    40
-}
-/// Minimum outbound connections a peer should have to avoid eclipse attacks.
-fn default_minimum_outbound_connections() -> u32 {
-    5
-}
-/// Lower bound of the ideal number of connections.
-fn default_ideal_connections_lo() -> u32 {
-    30
-}
-/// Upper bound of the ideal number of connections.
-fn default_ideal_connections_hi() -> u32 {
-    35
-}
-/// Peers which last message is was within this period of time are considered active recent peers.
-fn default_peer_recent_time_window() -> Duration {
-    Duration::from_secs(600)
-}
-/// Number of peers to keep while removing a connection.
-/// Used to avoid disconnecting from peers we have been connected since long time.
-fn default_safe_set_size() -> u32 {
-    20
-}
-/// Lower bound of the number of connections to archival peers to keep
-/// if we are an archival node.
-fn default_archival_peer_connections_lower_bound() -> u32 {
-    10
-}
-/// Time to persist Accounts Id in the router without removing them in seconds.
-fn default_ttl_account_id_router() -> Duration {
-    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
-}
-/// Period to check on peer status
-fn default_peer_stats_period() -> Duration {
-    Duration::from_secs(5)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Network {
-    /// Address to listen for incoming connections.
-    pub addr: String,
-    /// Address to advertise to peers for them to connect.
-    /// If empty, will use the same port as the addr, and will introspect on the listener.
-    pub external_address: String,
-    /// Comma separated list of nodes to connect to.
-    pub boot_nodes: String,
-    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
-    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
-    /// For each whitelisted node specifying both PeerId and IP:port is required:
-    /// Example:
-    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
-    #[serde(default)]
-    pub whitelist_nodes: String,
-    /// Maximum number of active peers. Hard limit.
-    #[serde(default = "default_max_num_peers")]
-    pub max_num_peers: u32,
-    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-    #[serde(default = "default_minimum_outbound_connections")]
-    pub minimum_outbound_peers: u32,
-    /// Lower bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_lo")]
-    pub ideal_connections_lo: u32,
-    /// Upper bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_hi")]
-    pub ideal_connections_hi: u32,
-    /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
-    #[serde(default = "default_peer_recent_time_window")]
-    pub peer_recent_time_window: Duration,
-    /// Number of peers to keep while removing a connection.
-    /// Used to avoid disconnecting from peers we have been connected since long time.
-    #[serde(default = "default_safe_set_size")]
-    pub safe_set_size: u32,
-    /// Lower bound of the number of connections to archival peers to keep
-    /// if we are an archival node.
-    #[serde(default = "default_archival_peer_connections_lower_bound")]
-    pub archival_peer_connections_lower_bound: u32,
-    /// Handshake timeout.
-    pub handshake_timeout: Duration,
-    /// Duration before trying to reconnect to a peer.
-    pub reconnect_delay: Duration,
-    /// Skip waiting for peers before starting node.
-    pub skip_sync_wait: bool,
-    /// Ban window for peers who misbehave.
-    pub ban_window: Duration,
-    /// List of addresses that will not be accepted as valid neighbors.
-    /// It can be IP:Port or IP (to blacklist all connections coming from this address).
-    #[serde(default)]
-    pub blacklist: Vec<String>,
-    /// Time to persist Accounts Id in the router without removing them in seconds.
-    #[serde(default = "default_ttl_account_id_router")]
-    pub ttl_account_id_router: Duration,
-    /// Period to check on peer status
-    #[serde(default = "default_peer_stats_period")]
-    pub peer_stats_period: Duration,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network {
-            addr: "0.0.0.0:24567".to_string(),
-            external_address: "".to_string(),
-            boot_nodes: "".to_string(),
-            whitelist_nodes: "".to_string(),
-            max_num_peers: default_max_num_peers(),
-            minimum_outbound_peers: default_minimum_outbound_connections(),
-            ideal_connections_lo: default_ideal_connections_lo(),
-            ideal_connections_hi: default_ideal_connections_hi(),
-            peer_recent_time_window: default_peer_recent_time_window(),
-            safe_set_size: default_safe_set_size(),
-            archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
-            handshake_timeout: Duration::from_secs(20),
-            reconnect_delay: Duration::from_secs(60),
-            skip_sync_wait: false,
-            ban_window: Duration::from_secs(3 * 60 * 60),
-            blacklist: vec![],
-            ttl_account_id_router: default_ttl_account_id_router(),
-            peer_stats_period: default_peer_stats_period(),
-        }
-    }
-}
 
 /// Serde default only supports functions without parameters.
 fn default_reduce_wait_for_missing_block() -> Duration {
@@ -428,7 +298,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: Network,
+    pub network: near_network_primitives::types::ConfigJSON,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
@@ -472,7 +342,7 @@ impl Default for Config {
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
-            network: Network::default(),
+            network: Default::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -486,7 +356,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
-            store: near_store::StoreConfig::read_write(),
+            store: near_store::StoreConfig::default(),
         }
     }
 }
@@ -702,67 +572,12 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
             },
-            network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
-                account_id: validator_signer.as_ref().map(|vs| vs.validator_id().clone()),
-                addr: if config.network.addr.is_empty() {
-                    None
-                } else {
-                    Some(config.network.addr.parse().unwrap())
-                },
-                boot_nodes: if config.network.boot_nodes.is_empty() {
-                    vec![]
-                } else {
-                    config
-                        .network
-                        .boot_nodes
-                        .split(',')
-                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
-                        .collect()
-                },
-                whitelist_nodes: (|| -> Vec<_> {
-                    let w = &config.network.whitelist_nodes;
-                    if w.is_empty() {
-                        return vec![];
-                    }
-                    let mut peers = vec![];
-                    for peer in w.split(',') {
-                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
-                        if peer.addr.is_none() {
-                            panic!(
-                                "whitelist_nodes are required to specify both PeerId and IP:port"
-                            )
-                        }
-                        peers.push(peer);
-                    }
-                    peers
-                }()),
-                handshake_timeout: config.network.handshake_timeout,
-                reconnect_delay: config.network.reconnect_delay,
-                bootstrap_peers_period: Duration::from_secs(60),
-                max_num_peers: config.network.max_num_peers,
-                minimum_outbound_peers: config.network.minimum_outbound_peers,
-                ideal_connections_lo: config.network.ideal_connections_lo,
-                ideal_connections_hi: config.network.ideal_connections_hi,
-                peer_recent_time_window: config.network.peer_recent_time_window,
-                safe_set_size: config.network.safe_set_size,
-                archival_peer_connections_lower_bound: config
-                    .network
-                    .archival_peer_connections_lower_bound,
-                ban_window: config.network.ban_window,
-                max_send_peers: 512,
-                peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
-                peer_stats_period: Duration::from_secs(5),
-                ttl_account_id_router: config.network.ttl_account_id_router,
-                routed_message_ttl: ROUTED_MESSAGE_TTL,
-                max_routes_to_store: MAX_ROUTES_TO_STORE,
-                highest_peer_horizon: HIGHEST_PEER_HORIZON,
-                push_info_period: Duration::from_millis(100),
-                blacklist: config.network.blacklist,
-                outbound_disabled: false,
-                archive: config.archive,
-            },
+            network_config: NetworkConfig::new(
+                config.network,
+                network_key_pair.secret_key,
+                validator_signer.clone(),
+                config.archive,
+            ),
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -798,7 +613,7 @@ impl NearConfig {
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
-            self.network_config.secret_key.clone(),
+            self.network_config.node_key.clone(),
         );
         network_signer
             .write_to_file(&dir.join(&self.config.node_key_file))
@@ -1127,10 +942,10 @@ pub fn init_configs(
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
-                num_block_producer_seats_per_shard: vec![
-                    NUM_BLOCK_PRODUCER_SEATS;
-                    num_shards as usize
-                ],
+                num_block_producer_seats_per_shard: get_num_seats_per_shard(
+                    num_shards,
+                    NUM_BLOCK_PRODUCER_SEATS,
+                ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
@@ -1152,7 +967,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: signer.account_id.clone(),
+                protocol_treasury_account: signer.account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
@@ -1210,7 +1025,7 @@ pub fn create_testnet_configs_from_seeds(
     let genesis = Genesis::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
-        vec![num_validator_seats; num_shards as usize],
+        get_num_seats_per_shard(num_shards, num_validator_seats),
         shard_layout,
     );
     let mut configs = vec![];

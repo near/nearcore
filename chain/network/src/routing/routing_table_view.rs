@@ -1,19 +1,17 @@
 use crate::routing::route_back_cache::RouteBackCache;
 use itertools::Itertools;
 use lru::LruCache;
-use near_network_primitives::types::{Edge, PeerIdOrHash, Ping, Pong};
+use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::Clock;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
@@ -37,12 +35,6 @@ pub struct RoutingTableView {
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
     route_nonce: LruCache<PeerId, usize>,
-    /// Ping received by nonce.
-    ping_info: LruCache<usize, (Ping, usize)>,
-    /// Ping received by nonce.
-    pong_info: LruCache<usize, (Pong, usize)>,
-    /// List of pings sent for which we haven't received any pong yet.
-    waiting_pong: LruCache<PeerId, LruCache<usize, Instant>>,
 }
 
 #[derive(Debug)]
@@ -64,9 +56,6 @@ impl RoutingTableView {
             route_back: RouteBackCache::default(),
             store,
             route_nonce: LruCache::new(ROUND_ROBIN_NONCE_CACHE_SIZE),
-            ping_info: LruCache::new(PING_PONG_CACHE_SIZE),
-            pong_info: LruCache::new(PING_PONG_CACHE_SIZE),
-            waiting_pong: LruCache::new(PING_PONG_CACHE_SIZE),
         }
     }
 
@@ -173,51 +162,6 @@ impl RoutingTableView {
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
         self.route_back.get(&hash).map_or(false, |value| value == peer_id)
-    }
-
-    pub(crate) fn add_ping(&mut self, ping: Ping) {
-        let cnt = self.ping_info.get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
-
-        self.ping_info.put(ping.nonce as usize, (ping, cnt + 1));
-    }
-
-    /// Return time of the round trip of ping + pong
-    pub(crate) fn add_pong(&mut self, pong: Pong) -> Option<f64> {
-        let mut res = None;
-
-        if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
-            res = nonces.pop(&(pong.nonce as usize)).map(|sent| {
-                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
-            });
-        }
-
-        let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
-
-        self.pong_info.put(pong.nonce as usize, (pong, (cnt + 1)));
-
-        res
-    }
-
-    // for unit tests
-    pub(crate) fn sending_ping(&mut self, nonce: usize, target: PeerId) {
-        let entry = if let Some(entry) = self.waiting_pong.get_mut(&target) {
-            entry
-        } else {
-            self.waiting_pong.put(target.clone(), LruCache::new(10));
-            self.waiting_pong.get_mut(&target).unwrap()
-        };
-
-        entry.put(nonce, Clock::instant());
-    }
-
-    /// Fetch `ping_info` and `pong_info` for units tests.
-    pub(crate) fn fetch_ping_pong(
-        &self,
-    ) -> (
-        impl Iterator<Item = (&usize, &(Ping, usize))> + ExactSizeIterator,
-        impl Iterator<Item = (&usize, &(Pong, usize))> + ExactSizeIterator,
-    ) {
-        (self.ping_info.iter(), self.pong_info.iter())
     }
 
     pub(crate) fn info(&self) -> RoutingTableInfo {

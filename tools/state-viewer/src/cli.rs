@@ -7,8 +7,8 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{create_store_with_config, Store};
-use nearcore::{get_store_path, load_config, NearConfig};
+use near_store::Store;
+use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -70,9 +70,9 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store_path = get_store_path(home_dir);
-        let store_config = &near_config.config.store.clone().with_read_only(!readwrite);
-        let store = create_store_with_config(&store_path, store_config);
+        let store = near_store::StoreOpener::new(home_dir, &near_config.config.store)
+            .read_only(!readwrite)
+            .open();
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -114,11 +114,24 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
+    /// List of account IDs to dump.
+    /// Note: validators will always be dumped.
+    /// If not set, all account IDs will be dumped.
+    #[clap(long)]
+    account_ids: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        dump_state(self.height, self.stream, self.file, home_dir, near_config, store);
+        dump_state(
+            self.height,
+            self.stream,
+            self.file,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+        );
     }
 }
 
@@ -141,11 +154,22 @@ pub struct ChainCmd {
     start_index: BlockHeight,
     #[clap(long)]
     end_index: BlockHeight,
+    // If true, show the full hash (block hash and chunk hash) when printing.
+    // If false, show only first couple chars.
+    #[clap(long)]
+    show_full_hashes: bool,
 }
 
 impl ChainCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        print_chain(self.start_index, self.end_index, home_dir, near_config, store);
+        print_chain(
+            self.start_index,
+            self.end_index,
+            home_dir,
+            near_config,
+            store,
+            self.show_full_hashes,
+        );
     }
 }
 

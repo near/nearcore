@@ -1,6 +1,7 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, ErrorKind};
+use crate::{Block, ChainStoreAccess, Error};
+use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
 use near_logger_utils::init_test_logger;
@@ -31,16 +32,16 @@ fn build_chain() {
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to
     // run the test twice: once with default features and once with
-    // ‘nightly_protocol_features’ feature enabled:
+    // ‘nightly’ feature enabled:
     //
     //     cargo install cargo-insta
-    //     cargo insta test --accept -p near-chain -- tests::simple_chain::build_chain
-    //     cargo insta test --accept -p near-chain --features nightly_protocol_features -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain                    -- tests::simple_chain::build_chain
+    //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
-    if cfg!(feature = "nightly_protocol") {
-        insta::assert_display_snapshot!(hash, @"8F4vXPPNevoQXVGdwKAZQfzzxhSyqWp3xJiik4RMUKSk");
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"7Db9S56zVuTKvYGnHXvsJYH6CvQBBEm2TC7Y3S85SZps");
     } else {
-        insta::assert_display_snapshot!(hash, @"DcfBcEHCh9Jd3gbgU8KNuP9kcN4WxyfonpMAq7jAmgaC");
+        insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
     }
 
     for i in 1..5 {
@@ -56,7 +57,7 @@ fn build_chain() {
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = Block::empty(prev, &*signer);
+        let block = Block::empty(&prev, &*signer);
         let tip = chain.process_block_test(&None, block).unwrap();
         assert_eq!(tip.unwrap().height, i as u64);
     }
@@ -66,10 +67,10 @@ fn build_chain() {
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
-    if cfg!(feature = "nightly_protocol") {
-        insta::assert_display_snapshot!(hash, @"DrW7MsRaFhEdjQcxjqrTXvNmQ1eptgURQ7RUTeZnrBXC");
+    if cfg!(feature = "nightly") {
+        insta::assert_display_snapshot!(hash, @"HbPMs5o1Twqb7ZqrrhaCGawwZbYJVaPHZ7tfoihcnYxc");
     } else {
-        insta::assert_display_snapshot!(hash, @"5DDPykKCvGKTpSi5YSgzw8UY5BB18JaxNs5218hWwfN7");
+        insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
     }
 }
 
@@ -77,7 +78,7 @@ fn build_chain() {
 fn build_chain_with_orhpans() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()];
+    let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], &*signer);
         blocks.push(block);
@@ -105,20 +106,20 @@ fn build_chain_with_orhpans() {
         CryptoHash::default(),
         None,
     );
-    assert_eq!(chain.process_block_test(&None, block).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
+    assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
     );
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err().kind(),
-        ErrorKind::Orphan
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
+        Error::Orphan
     );
     let res = chain.process_block_test(&None, blocks.pop().unwrap());
     assert_eq!(res.unwrap().unwrap().height, 10);
-    assert_eq!(
-        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err().kind(),
-        ErrorKind::BlockKnown(BlockKnownError::KnownInStore)
+    assert_matches!(
+        chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
+        Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 
@@ -127,8 +128,8 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(genesis, &*signer);
-    let b2 = Block::empty_with_height(genesis, 2, &*signer);
+    let b1 = Block::empty(&genesis, &*signer);
+    let b2 = Block::empty_with_height(&genesis, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
@@ -148,11 +149,11 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = Block::empty_with_height(genesis, 1, &*signer);
+    let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
-    let c_1 = Block::empty_with_height(genesis, 1, &*signer);
+    let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
     let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
@@ -227,7 +228,7 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = Block::empty(genesis, &*signer);
+    let b1 = Block::empty(&genesis, &*signer);
     let b2 = Block::empty_with_height(&b1, 2, &*signer);
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b3, 4, &*signer);
@@ -237,9 +238,9 @@ fn next_blocks() {
     let b4_hash = *b4.hash();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b2_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), &b3_hash);
-    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), &b4_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
+    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
 }

@@ -1,3 +1,4 @@
+use near_metrics::exponential_buckets;
 use once_cell::sync::Lazy;
 
 pub static PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME: Lazy<near_metrics::HistogramVec> =
@@ -14,7 +15,7 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME: Lazy<near_metrics::His
                 "the data out."
             ),
             &["method", "success"],
-            Some(prometheus::exponential_buckets(0.001, 2.0, 16).unwrap()),
+            Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
         )
         .unwrap()
     });

@@ -46,7 +46,7 @@ fn test_deploy_max_size_contract() {
     // Create test account
     let transaction_result = node_user
         .create_account(
-            account_id.clone(),
+            account_id,
             test_contract_id.clone(),
             node.signer().public_key(),
             token_balance,
@@ -57,6 +57,8 @@ fn test_deploy_max_size_contract() {
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);
+    // Rune code through preparation for validation. (Deploying will succeed either way).
+    near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config).unwrap();
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
