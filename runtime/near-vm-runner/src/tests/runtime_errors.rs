@@ -904,6 +904,66 @@ fn test_gas_exceed_loading() {
     });
 }
 
+// Call the "gas" host function with unreasonably large values, trying to force
+// overflow
+#[test]
+fn gas_overflow_direct_call() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let direct_call = wat::parse_str(
+            r#"
+(module
+  (import "env" "gas" (func $gas (param i32)))
+  (func (export "main")
+    (call $gas (i32.const 0xffff_ffff)))
+)"#,
+        )
+        .unwrap();
+
+        let actual = make_simple_contract_call_vm(&direct_call, "main", vm_kind);
+        gas_and_error_match(
+            actual,
+            100000000000000,
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                HostError::GasLimitExceeded,
+            ))),
+        );
+    });
+}
+
+// Call the "gas" host function indirectly with unreasonably large values,
+// trying to force overflow.
+#[test]
+fn gas_overflow_indirect_call() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let indirect_call = wat::parse_str(
+            r#"
+(module
+  (import "env" "gas" (func $gas (param i32)))
+  (type $gas_ty (func (param i32)))
+
+  (table 1 anyfunc)
+  (elem (i32.const 0) $gas)
+
+  (func (export "main")
+    (call_indirect
+      (type $gas_ty)
+      (i32.const 0xffff_ffff)
+      (i32.const 0)))
+)"#,
+        )
+        .unwrap();
+
+        let actual = make_simple_contract_call_vm(&indirect_call, "main", vm_kind);
+        gas_and_error_match(
+            actual,
+            100000000000000,
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                HostError::GasLimitExceeded,
+            ))),
+        );
+    });
+}
+
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost_protocol_upgrade {
     use super::*;

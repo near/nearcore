@@ -8,7 +8,7 @@ steps:
       buf breaking --against '.git#branch=master'
     timeout: 30
     agents:
-    - "rust=1.61.0"
+    - "distro=amazonlinux"
 
   - label: "cargo test integration-tests*"
     command: |
