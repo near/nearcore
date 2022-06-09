@@ -58,24 +58,16 @@ pub struct DefaultSubscriberGuard<S> {
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
-// Doesn't define ERROR and WARN levels, because the highest level of spans in the codebase is INFO.
 #[derive(Copy, Clone, Debug, clap::ArgEnum)]
 pub enum OpenTelemetryLevel {
     OFF,
-    INFO,
     DEBUG,
     TRACE,
 }
 
-impl Default for OpenTelemetryLevel {
-    fn default() -> Self {
-        OpenTelemetryLevel::OFF
-    }
-}
-
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, arg_enum, default_value = "off")]
@@ -185,7 +177,6 @@ where
 fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
     match config.opentelemetry {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
-        OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
     }

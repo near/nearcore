@@ -225,7 +225,6 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
-        let _span = tracing::trace_span!(target: "network", "send_message_with_encoding").entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -1056,10 +1055,6 @@ impl Handler<SendMessage> for PeerActor {
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         let span =
             tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
-        // TODO: Consider using `add_link`.
-        // The "follows" relationship better represents code execution being passed between
-        // different async systems, but needs a good visualization in the UI to make it convenient
-        // to use.
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
