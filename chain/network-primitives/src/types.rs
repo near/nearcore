@@ -9,6 +9,7 @@
 /// NOTE:
 /// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
+use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::SecretKey;
@@ -24,9 +25,10 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
@@ -176,12 +178,99 @@ impl KnownPeerState {
     }
 }
 
+// Exists here for testing purposes. Usually implmented by tokio::net::TcpStream
+// but mocked out in tools/mock_node
+pub trait TcpStream: AsyncRead + AsyncWrite + Sync + Send + Unpin {
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+    fn peer_addr(&self) -> io::Result<SocketAddr>;
+}
+
+#[async_trait]
+pub trait TcpListener {
+    async fn accept(&self) -> io::Result<(Box<dyn TcpStream>, SocketAddr)>;
+}
+
+#[async_trait]
+pub trait TcpSys: Send {
+    // The reason this is here is that the peer manager code does
+    // actix::spawn(async move { bind().await })
+    // so the type providing this trait can only have static references.
+    // Also won't do to have TcpSys: Clone and clone() it since then we can't have a Box<dyn TcpSys>
+    fn sys(&self) -> Box<dyn TcpSys>;
+
+    async fn bind(&mut self, addr: SocketAddr) -> io::Result<Box<dyn TcpListener>>;
+
+    async fn connect(&mut self, addr: SocketAddr) -> io::Result<Box<dyn TcpStream>>;
+}
+
+impl TcpStream for tokio::net::TcpStream {
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.local_addr()
+    }
+
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        self.peer_addr()
+    }
+}
+
+#[async_trait]
+impl TcpListener for tokio::net::TcpListener {
+    async fn accept(&self) -> io::Result<(Box<dyn TcpStream>, SocketAddr)> {
+        let (stream, addr) = self.accept().await?;
+        Ok((Box::new(stream), addr))
+    }
+}
+
+// Provides "real" implementations of the TCP traits defined here
+pub struct Tcp;
+
+#[async_trait]
+impl TcpSys for Tcp {
+    fn sys(&self) -> Box<dyn TcpSys> {
+        Box::new(Tcp {})
+    }
+
+    async fn bind(&mut self, addr: SocketAddr) -> io::Result<Box<dyn TcpListener>> {
+        let l = tokio::net::TcpListener::bind(addr).await?;
+        Ok(Box::new(l))
+    }
+
+    async fn connect(&mut self, addr: SocketAddr) -> io::Result<Box<dyn TcpStream>> {
+        let s = tokio::net::TcpStream::connect(addr).await?;
+        Ok(Box::new(s))
+    }
+}
+
+impl Tcp {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 /// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(Message, Debug)]
+#[derive(Message)]
 #[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
-    pub stream: TcpStream,
+    pub stream: Box<dyn TcpStream>,
+}
+
+fn addr_debug(addr: io::Result<SocketAddr>) -> String {
+    match &addr {
+        Ok(a) => format!("{:?}", a),
+        Err(_) => format!("{:?}", addr),
+    }
+}
+
+impl Debug for InboundTcpConnect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "InboundTcpConnect ({} -> {})",
+            addr_debug(self.stream.local_addr()),
+            addr_debug(self.stream.peer_addr())
+        )
+    }
 }
 
 #[cfg(feature = "deepsize_feature")]
@@ -193,7 +282,7 @@ impl deepsize::DeepSizeOf for InboundTcpConnect {
 
 impl InboundTcpConnect {
     /// Method to create a new InboundTcpConnect message from a TCP stream
-    pub fn new(stream: TcpStream) -> InboundTcpConnect {
+    pub fn new(stream: Box<dyn TcpStream>) -> InboundTcpConnect {
         InboundTcpConnect { stream }
     }
 }

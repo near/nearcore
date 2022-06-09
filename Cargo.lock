@@ -3057,6 +3057,7 @@ dependencies = [
  "actix",
  "anyhow",
  "assert_matches",
+ "async-trait",
  "borsh",
  "bytes",
  "bytesize",
@@ -3104,6 +3105,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "borsh",
  "chrono",
  "deepsize",

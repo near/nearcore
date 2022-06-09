@@ -31,7 +31,7 @@ use near_network_primitives::types::{
     Pong, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo, TcpStream, TcpSys};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -52,7 +52,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -215,6 +214,7 @@ pub struct PeerManagerActor {
     whitelist_nodes: Vec<WhitelistNode>,
     /// test-only, defaults to () (a noop counter).
     ping_counter: Box<dyn PingCounter>,
+    net: Box<dyn TcpSys>,
 }
 
 // test-only
@@ -234,8 +234,9 @@ impl Actor for PeerManagerActor {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let peer_manager_addr = ctx.address();
 
+            let mut n = self.net.sys();
             actix::spawn(async move {
-                match TcpListener::bind(server_addr).await {
+                match n.bind(server_addr).await {
                     Ok(listener) => loop {
                         if let Ok((conn, client_addr)) = listener.accept().await {
                             peer_manager_addr.do_send(
@@ -305,6 +306,24 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_net(
+            store,
+            config,
+            client_addr,
+            view_client_addr,
+            routing_table_addr,
+            Box::new(near_network_primitives::types::Tcp::new()),
+        )
+    }
+
+    pub fn new_with_net(
+        store: Store,
+        config: NetworkConfig,
+        client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
+        routing_table_addr: Addr<RoutingTableActor>,
+        net: Box<dyn TcpSys>,
+    ) -> anyhow::Result<Self> {
         let peer_store =
             PeerStore::new(store.clone(), &config.boot_nodes, config.blacklist.clone())
                 .map_err(|e| anyhow::Error::msg(e.to_string()))?;
@@ -343,6 +362,7 @@ impl PeerManagerActor {
             adv_helper: AdvHelper::default(),
             whitelist_nodes,
             ping_counter: Box::new(()),
+            net,
         })
     }
 
@@ -798,7 +818,7 @@ impl PeerManagerActor {
     fn try_connect_peer(
         &self,
         recipient: Addr<Self>,
-        stream: TcpStream,
+        stream: Box<dyn TcpStream>,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
         partial_edge_info: Option<PartialEdgeInfo>,
@@ -1960,7 +1980,8 @@ impl PeerManagerActor {
             // Why exactly a second? It was hard-coded in a library we used
             // before, so we keep it to preserve behavior. Removing the timeout
             // completely was observed to break stuff for real on the testnet.
-            tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
+            let mut n = self.net.sys();
+            tokio::time::timeout(Duration::from_secs(1), async move { n.connect(addr).await })
                 .into_actor(self)
                 .then(move |res, act, ctx| match res {
                     Ok(res) => match res {

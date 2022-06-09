@@ -260,6 +260,7 @@ impl PeerHandle {
         let cfg = Arc::new(cfg);
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
 
+        let stream: Box<dyn near_network_primitives::types::TcpStream> = Box::new(stream);
         let cfg_ = cfg.clone();
         let actix = ActixSystem::spawn(move || {
             let my_addr = stream.local_addr().unwrap();

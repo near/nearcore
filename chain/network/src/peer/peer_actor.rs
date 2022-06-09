@@ -19,7 +19,7 @@ use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo, TcpStream,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
-type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
+type WriteHalf = tokio::io::WriteHalf<Box<dyn TcpStream>>;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
