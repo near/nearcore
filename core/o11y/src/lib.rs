@@ -65,9 +65,15 @@ pub enum OpenTelemetryLevel {
     TRACE,
 }
 
+impl Default for OpenTelemetryLevel {
+    fn default() -> Self {
+        OpenTelemetryLevel::OFF
+    }
+}
+
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Parser)]
+#[derive(Debug, Default, Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, arg_enum, default_value = "off")]
