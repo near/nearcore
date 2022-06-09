@@ -3078,6 +3078,7 @@ dependencies = [
  "near-stable-hasher",
  "near-store",
  "once_cell",
+ "opentelemetry",
  "parking_lot 0.12.1",
  "protobuf 3.0.2",
  "protobuf-codegen",
@@ -3091,6 +3092,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -3104,6 +3106,7 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
+ "opentelemetry",
  "serde",
  "strum",
  "tokio",

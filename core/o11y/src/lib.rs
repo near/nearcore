@@ -58,13 +58,20 @@ pub struct DefaultSubscriberGuard<S> {
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
+#[derive(Copy, Clone, Debug, clap::ArgEnum)]
+pub enum OpenTelemetryLevel {
+    OFF,
+    DEBUG,
+    TRACE,
+}
+
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
-    #[clap(long)]
-    opentelemetry: bool,
+    #[clap(long, arg_enum, default_value = "off")]
+    opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
     #[clap(long, arg_enum, default_value = "auto")]
@@ -162,9 +169,17 @@ where
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
-    let filter = if config.opentelemetry { LevelFilter::DEBUG } else { LevelFilter::OFF };
+    let filter = get_opentelemetry_filter(config);
     let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
     layer
+}
+
+fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
+    match config.opentelemetry {
+        OpenTelemetryLevel::OFF => LevelFilter::OFF,
+        OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
+        OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
+    }
 }
 
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.

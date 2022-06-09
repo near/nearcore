@@ -246,6 +246,14 @@ pub enum PeerManagerRequest {
     UnregisterPeer,
 }
 
+/// Messages from PeerManager to Peer with a tracing Context.
+#[derive(Message, Debug)]
+#[rtype(result = "()")]
+pub struct PeerManagerRequestWithContext {
+    pub msg: PeerManagerRequest,
+    pub context: opentelemetry::Context,
+}
+
 #[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
