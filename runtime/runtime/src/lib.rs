@@ -1173,6 +1173,10 @@ impl Runtime {
             num_transactions = transactions.len())
         .entered();
 
+        if state_patch.is_some() && !cfg!(feature = "sandbox") {
+            panic!("Can only patch state in sandbox mode");
+        }
+
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
