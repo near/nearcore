@@ -4161,6 +4161,8 @@ impl Chain {
 
 /// Sandbox node specific operations
 impl Chain {
+    // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
+    // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
         match &mut self.pending_state_patch {
             None => self.pending_state_patch = Some(patch),
