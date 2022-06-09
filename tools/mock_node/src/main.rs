@@ -7,7 +7,7 @@ use actix::System;
 use anyhow::Context;
 use clap::Parser;
 use mock_node::setup::setup_mock_node;
-use mock_node::{GetChainTargetBlockHeight, MockNetworkConfig};
+use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
 use near_client::{GetBlock, Status};
@@ -120,7 +120,7 @@ fn main() -> anyhow::Result<()> {
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
     run_actix(async move {
-        let (mock_network, client, view_client, _) = setup_mock_node(
+        let (client, view_client, _, target_height) = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
@@ -147,8 +147,6 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         });
-
-        let target_height = mock_network.send(GetChainTargetBlockHeight).await.unwrap();
 
         // Wait until the client reach target_height.
         wait_or_timeout(
