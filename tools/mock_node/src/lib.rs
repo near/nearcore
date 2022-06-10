@@ -392,22 +392,6 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
     }
 }
 
-#[derive(actix::Message, Debug)]
-#[rtype(result = "u64")]
-pub struct GetChainTargetBlockHeight;
-
-impl Handler<GetChainTargetBlockHeight> for MockPeerManagerActor {
-    type Result = u64;
-
-    fn handle(
-        &mut self,
-        _msg: GetChainTargetBlockHeight,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.target_height
-    }
-}
-
 /// This class provides access a pre-generated chain history
 struct ChainHistoryAccess {
     chain: Chain,

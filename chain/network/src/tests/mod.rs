@@ -1,10 +1,10 @@
 mod actix;
-mod data;
+pub mod data;
 mod network_protocol;
 mod peer_actor;
 mod peer_communication;
 mod stream;
-mod util;
+pub mod util;
 
 mod cache;
 mod cache_edges;
