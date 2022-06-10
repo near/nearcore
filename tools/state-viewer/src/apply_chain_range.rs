@@ -30,6 +30,7 @@ pub const TGAS: u64 = 1024 * 1024 * 1024 * 1024;
 
 struct ProgressReporter {
     cnt: AtomicU64,
+    // Timestamp to make relative measurements of block processing speed (in ms)
     ts: AtomicU64,
     all: u64,
     skipped: AtomicU64,
