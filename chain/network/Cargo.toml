@@ -17,7 +17,7 @@ actix = "0.13.0"
 anyhow = "1.0.55"
 chrono = "0.4.4"
 crossbeam-channel = "0.5"
-parking_lot = "0.11.2"
+parking_lot = "0.12.1"
 borsh = { version = "0.9", features = ["rc"] }
 bytes = "1"
 bytesize = "1.1"

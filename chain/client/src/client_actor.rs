@@ -384,7 +384,7 @@ impl ClientActor {
             NetworkClientMessages::Sandbox(sandbox_msg) => {
                 return match sandbox_msg {
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
-                        self.client.chain.patch_state(state);
+                        self.client.chain.patch_state(near_primitives::sandbox_state_patch::SandboxStatePatch::new(state));
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
@@ -699,7 +699,6 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                warn!("state header looking for {:?}", block.hash());
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
@@ -2152,13 +2151,8 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
-            let saved_store_update = blocks_catch_up_state
-                .scheduled_blocks
-                .remove(&msg.block_hash)
-                .expect("block caught up, but is not in processing");
-            blocks_catch_up_state
-                .processed_blocks
-                .insert(msg.block_hash, (saved_store_update, msg.results));
+            assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
+            blocks_catch_up_state.processed_blocks.insert(msg.block_hash, msg.results);
         } else {
             panic!("block catch up processing result from unknown sync hash");
         }
