@@ -6,7 +6,7 @@
 use actix::System;
 use anyhow::Context;
 use clap::Parser;
-use mock_node::setup::setup_mock_node;
+use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
@@ -120,7 +120,7 @@ fn main() -> anyhow::Result<()> {
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
     run_actix(async move {
-        let (client, view_client, _, target_height) = setup_mock_node(
+        let MockNode { client, view_client, target_height, .. } = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
