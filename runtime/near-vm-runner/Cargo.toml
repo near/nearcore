@@ -64,6 +64,7 @@ wasm-smith = "0.10"
 assert_matches = "1.3"
 wat = "1.0.40"
 base64 = "0.13"
+expect-test = "1.3.0"
 
 [features]
 # all vms enabled for now

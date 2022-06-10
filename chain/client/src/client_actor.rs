@@ -384,7 +384,7 @@ impl ClientActor {
             NetworkClientMessages::Sandbox(sandbox_msg) => {
                 return match sandbox_msg {
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
-                        self.client.chain.patch_state(state);
+                        self.client.chain.patch_state(near_primitives::sandbox_state_patch::SandboxStatePatch::new(state));
                         NetworkClientResponses::NoResponse
                     }
                     near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
@@ -699,7 +699,6 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                warn!("state header looking for {:?}", block.hash());
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
