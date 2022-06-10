@@ -26,7 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) deploy_contract_base: Option<GasCost>,
     pub(crate) noop_function_call_cost: Option<GasCost>,
     pub(crate) storage_read_base: Option<GasCost>,
-    pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
+    pub(crate) contract_loading_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
