@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "near-mainnet-res"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "near-account-id",
  "near-chain-configs",
