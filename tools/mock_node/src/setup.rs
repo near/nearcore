@@ -40,27 +40,15 @@ fn setup_runtime(
 }
 
 fn setup_mock_peer_manager_actor(
-    runtime: Arc<NightshadeRuntime>,
+    chain: Chain,
     client_addr: Recipient<NetworkClientMessages>,
     genesis_config: &GenesisConfig,
-    chain_genesis: &ChainGenesis,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
     network_config: &MockNetworkConfig,
-    target_height: Option<BlockHeight>,
-    save_trie_changes: bool,
+    target_height: BlockHeight,
 ) -> MockPeerManagerActor {
-    let chain = Chain::new_for_view_client(
-        runtime,
-        chain_genesis,
-        DoomslugThresholdMode::NoApprovals,
-        save_trie_changes,
-    )
-    .unwrap();
-    let chain_height = chain.head().unwrap().height;
-    let target_height = min(target_height.unwrap_or(chain_height), chain_height);
-
     let network_start_height = match network_start_height {
         None => target_height,
         Some(0) => chain.genesis_block().header().height(),
@@ -78,6 +66,17 @@ fn setup_mock_peer_manager_actor(
     )
 }
 
+pub struct MockNode {
+    // client under test
+    pub client: Addr<ClientActor>,
+    // view client under test
+    pub view_client: Addr<ViewClientActor>,
+    // RPC servers started by the client
+    pub servers: Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
+    // target height actually available to sync to in the chain history database
+    pub target_height: BlockHeight,
+}
+
 /// Setup up a mock node, including setting up
 /// a MockPeerManagerActor and a ClientActor and a ViewClientActor
 /// `client_home_dir`: home dir for the new client
@@ -91,8 +90,7 @@ fn setup_mock_peer_manager_actor(
 ///                  use the height from the chain head in storage
 /// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
 ///
-/// Returns an actix::Addr handle to each of the actors spawned, plus a Vec of Servers representing
-/// the ports that the mock node is currently listening on.
+/// Returns a struct representing the node under test
 pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
@@ -102,12 +100,7 @@ pub fn setup_mock_node(
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
     in_memory_storage: bool,
-) -> (
-    Addr<MockPeerManagerActor>,
-    Addr<ClientActor>,
-    Addr<ViewClientActor>,
-    Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
-) {
+) -> MockNode {
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
     let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
@@ -241,7 +234,7 @@ pub fn setup_mock_node(
     }
 
     let block_production_delay = config.client_config.min_block_production_delay;
-    let (client_actor, _) = start_client(
+    let (client, _) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
         client_runtime.clone(),
@@ -263,47 +256,56 @@ pub fn setup_mock_node(
     );
 
     let arbiter = Arbiter::new();
-    let client_actor1 = client_actor.clone();
+    let client1 = client.clone();
     let genesis_config = config.genesis.config.clone();
     let archival = config.client_config.archive;
     let network_config = network_config.clone();
+
+    let chain = Chain::new_for_view_client(
+        mock_network_runtime,
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        !archival,
+    )
+    .unwrap();
+    let chain_height = chain.head().unwrap().height;
+    let target_height = min(target_height.unwrap_or(chain_height), chain_height);
+
     let mock_network_actor =
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
-                mock_network_runtime,
-                client_actor1.recipient(),
+                chain,
+                client1.recipient(),
                 &genesis_config,
-                &chain_genesis,
                 block_production_delay,
                 client_start_height,
                 network_start_height,
                 &network_config,
                 target_height,
-                !archival,
             )
         });
-    network_adapter.set_recipient(mock_network_actor.clone().recipient());
+    network_adapter.set_recipient(mock_network_actor.recipient());
 
     // for some reason, with "test_features", start_http requires PeerManagerActor,
     // we are not going to run start_mock_network with test_features, so let's disable that for now
     #[cfg(not(feature = "test_features"))]
-    let server = config.rpc_config.map(|rpc_config| {
+    let servers = config.rpc_config.map(|rpc_config| {
         near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config,
-            client_actor.clone(),
+            client.clone(),
             view_client.clone(),
         )
     });
     #[cfg(feature = "test_features")]
-    let server = None;
+    let servers = None;
 
-    (mock_network_actor, client_actor, view_client, server)
+    MockNode { client, view_client, servers, target_height }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::setup::setup_mock_node;
+    use crate::setup::{setup_mock_node, MockNode};
     use crate::MockNetworkConfig;
     use actix::{Actor, System};
     use futures::{future, FutureExt};
@@ -417,7 +419,7 @@ mod tests {
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
-            let (_mock_network, _client, view_client, _) = setup_mock_node(
+            let MockNode { view_client, .. } = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,
