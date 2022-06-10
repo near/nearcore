@@ -780,7 +780,7 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 mod tests {
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{DBCol, StoreConfig, StoreOpener, StoreStatistics};
+    use crate::{DBCol, Store, StoreConfig, StoreStatistics};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -805,15 +805,15 @@ mod tests {
 
     #[test]
     fn test_prewrite_check() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::default(), false).unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
+        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::DEFAULT, false).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
+        let (_tmp_dir, opener) = Store::tmp_opener();
+        let store = opener.open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -833,8 +833,8 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config(tmp_dir.path()).open();
+        let (_tmp_dir, opener) = Store::tmp_opener();
+        let store = opener.open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
