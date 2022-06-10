@@ -2305,17 +2305,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
 
 [[package]]
-name = "lazy-static-include"
-version = "3.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e559d5071cbb9743796593a892d96a7cc411d90aad711f57cc7dcbbf3893c10c"
-dependencies = [
- "lazy_static",
- "manifest-dir-macros",
- "syn",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2506,18 +2495,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "manifest-dir-macros"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f08150cf2bab1fc47c2196f4f41173a27fcd0f684165e5458c0046b53a472e2f"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -2945,7 +2922,6 @@ dependencies = [
  "actix-web",
  "easy-ext",
  "futures",
- "lazy-static-include",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3052,6 +3028,16 @@ version = "0.0.0"
 dependencies = [
  "near-o11y",
  "tracing",
+]
+
+[[package]]
+name = "near-mainnet-res"
+version = "0.1.0"
+dependencies = [
+ "near-account-id",
+ "near-chain-configs",
+ "near-primitives",
+ "serde_json",
 ]
 
 [[package]]
@@ -3496,7 +3482,6 @@ dependencies = [
  "hyper",
  "hyper-tls",
  "indicatif",
- "lazy-static-include",
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
@@ -3507,6 +3492,7 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-logger-utils",
+ "near-mainnet-res",
  "near-metrics",
  "near-network",
  "near-network-primitives",

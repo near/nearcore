@@ -13,9 +13,8 @@ use near_network::test_utils::open_port;
 use near_network::test_utils::test_features::make_peer_manager_routing_table_addr_pair;
 use near_primitives::types::NumBlocks;
 
-pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> = Lazy::new(|| {
-    GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"))
-});
+pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> =
+    Lazy::new(|| GenesisConfig::from_json(include_str!("../res/genesis_config.json")));
 
 pub enum NodeType {
     Validator,
