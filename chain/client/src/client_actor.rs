@@ -699,7 +699,6 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                warn!("state header looking for {:?}", block.hash());
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
