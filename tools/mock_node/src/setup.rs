@@ -33,7 +33,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::StoreOpener::new(home_dir, &config.config.store).open()
+        near_store::Store::opener(home_dir, &config.config.store).open()
     };
 
     Arc::new(NightshadeRuntime::from_config(home_dir, store, config))

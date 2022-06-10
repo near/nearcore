@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::{DBCol, Store, StoreOpener};
+use near_store::{DBCol, Store};
 use std::time::{Duration, Instant};
 
 /// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then
@@ -16,8 +16,8 @@ fn benchmark_write_then_read_successful(
     max_value_size: usize,
     col: DBCol,
 ) {
-    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-    let store = StoreOpener::with_default_config(tmp_dir.path()).open();
+    let (_tmp_dir, opener) = Store::tmp_opener();
+    let store = opener.open();
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 
