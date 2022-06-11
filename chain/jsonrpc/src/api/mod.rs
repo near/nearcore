@@ -25,6 +25,12 @@ pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
 }
 
+impl RpcRequest for () {
+    fn parse(_: Option<Value>) -> Result<Self, RpcParseError> {
+        Ok(())
+    }
+}
+
 pub trait RpcFrom<T> {
     fn rpc_from(_: T) -> Self;
 }
@@ -73,7 +79,7 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
     }
 }
 
-fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
+pub(crate) fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
     if let Some(value) = value {
         serde_json::from_value(value)
             .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))
