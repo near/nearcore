@@ -1955,12 +1955,7 @@ impl Client {
                             })
                             .collect::<Vec<&str>>();
 
-                        let chunk_status =
-                            if block_info.chunks_completed.len() == block_info.chunk_hashes.len() {
-                                chunk_status.join("")
-                            } else {
-                                chunk_status.join("")
-                            };
+                        let chunk_status = chunk_status.join("");
 
                         let in_progress_str = match block_info.in_progress_for {
                             Some(duration) => format!("in progress for {:?}", duration),
