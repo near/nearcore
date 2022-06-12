@@ -18,7 +18,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
 use near_network::types::{
     FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
@@ -1927,12 +1927,6 @@ impl Client {
     // Returns detailed information about the upcoming blocks in the form of printables.
     pub fn detailed_upcoming_blocks_info_as_printable(&self) -> Result<String, Error> {
         let height_status_map = self.detailed_upcoming_blocks_info()?;
-        let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
-        };
 
         // Returns a status line for each block - also prints what is happening to its chunks.
         let next_blocks_log = height_status_map
@@ -1961,11 +1955,11 @@ impl Client {
                             })
                             .collect::<Vec<&str>>();
 
-                        let chunk_status_color =
+                        let chunk_status =
                             if block_info.chunks_completed.len() == block_info.chunk_hashes.len() {
-                                paint(ansi_term::Colour::Green, Some(chunk_status.join("")))
+                                chunk_status.join("")
                             } else {
-                                paint(ansi_term::Colour::White, Some(chunk_status.join("")))
+                                chunk_status.join("")
                             };
 
                         let in_progress_str = match block_info.in_progress_for {
@@ -1979,7 +1973,7 @@ impl Client {
 
                         format!(
                             "{} {} {} Chunks:({}))",
-                            entry.0, in_progress_str, in_orphan_str, chunk_status_color,
+                            entry.0, in_progress_str, in_orphan_str, chunk_status,
                         )
                     })
                     .collect::<Vec<String>>();

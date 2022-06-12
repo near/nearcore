@@ -110,8 +110,6 @@ pub struct ClientConfig {
     pub min_num_peers: usize,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
-    /// Enable coloring of the logs
-    pub log_summary_style: LogSummaryStyle,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Epoch length.
@@ -208,7 +206,6 @@ impl ClientConfig {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive,
-            log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,
             view_client_throttle_period: Duration::from_secs(1),

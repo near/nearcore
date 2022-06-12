@@ -1,6 +1,6 @@
 use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::ClientConfig;
 use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -51,8 +51,6 @@ pub struct InfoHelper {
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
     telemetry_actor: Addr<TelemetryActor>,
-    /// Log coloring enabled
-    log_summary_style: LogSummaryStyle,
 }
 
 impl InfoHelper {
@@ -73,7 +71,6 @@ impl InfoHelper {
             gas_used: 0,
             telemetry_actor,
             validator_signer,
-            log_summary_style: client_config.log_summary_style,
         }
     }
 
@@ -122,16 +119,9 @@ impl InfoHelper {
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
     ) {
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
-        };
-
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head));
+        let sync_status_log = display_sync_status(sync_status, head);
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -142,13 +132,13 @@ impl InfoHelper {
             )
         });
 
-        let network_info_log = Some(format!(
+        let network_info_log = format!(
             " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
             s(network_info.num_connected_peers),
             PrettyNumber::bytes_per_sec(network_info.received_bytes_per_sec),
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
-        ));
+        );
 
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
@@ -161,7 +151,7 @@ impl InfoHelper {
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         let blocks_info_log =
-            Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
+            format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used));
 
         let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
             let proc = self
@@ -176,12 +166,11 @@ impl InfoHelper {
 
         info!(
             target: "stats", "{}{}{}{}{}",
-            paint(ansi_term::Colour::Yellow, sync_status_log),
-            paint(ansi_term::Colour::White, validator_info_log),
-            paint(ansi_term::Colour::Cyan, network_info_log),
-            paint(ansi_term::Colour::Green, blocks_info_log),
-            paint(ansi_term::Colour::Blue, machine_info_log),
-        );
+            sync_status_log,
+            validator_info_log.unwrap_or_default(),
+            network_info_log,
+            blocks_info_log,
+            machine_info_log.unwrap_or_default());
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
