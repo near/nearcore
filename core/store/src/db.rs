@@ -278,12 +278,8 @@ pub(crate) trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        None
-    }
-    fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
-    }
+    fn flush(&self) -> Result<(), DBError>;
+    fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
@@ -384,8 +380,8 @@ impl Database for RocksDB {
         Ok(self.db.write(batch)?)
     }
 
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        Some(self)
+    fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -467,6 +463,14 @@ impl Database for TestDB {
             };
         }
         Ok(())
+    }
+
+    fn flush(&self) -> Result<(), DBError> {
+        Ok(())
+    }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        None
     }
 }
 
@@ -660,11 +664,6 @@ impl RocksDB {
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(DBError::from)
-    }
-
-    /// Synchronously flush all Memtables to SST files on disk
-    pub fn flush(&self) -> Result<(), DBError> {
-        self.db.flush().map_err(DBError::from)
     }
 }
 

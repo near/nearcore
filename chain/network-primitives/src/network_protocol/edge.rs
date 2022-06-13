@@ -43,6 +43,11 @@ impl Edge {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
     }
 
+    pub fn with_removal_info(mut self, ri: Option<(bool, Signature)>) -> Edge {
+        Arc::make_mut(&mut self.0).removal_info = ri;
+        self
+    }
+
     pub fn key(&self) -> &(PeerId, PeerId) {
         &self.0.key
     }
@@ -138,12 +143,6 @@ impl Edge {
         let hash = edge.hash();
         let signature = sk.sign(hash.as_ref());
         edge.removal_info = Some((me, signature));
-        Edge(Arc::new(edge))
-    }
-
-    pub fn with_removal_info(self, ri: Option<(bool, Signature)>) -> Edge {
-        let mut edge = self.0.as_ref().clone();
-        edge.removal_info = ri;
         Edge(Arc::new(edge))
     }
 

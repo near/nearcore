@@ -8,7 +8,7 @@ steps:
       buf breaking --against '.git#branch=master'
     timeout: 30
     agents:
-    - "rust=1.61.0"
+    - "distro=amazonlinux"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -140,19 +140,6 @@ steps:
       python3 tests/sanity/db_migration.py
     branches: "!master !beta !stable"
     timeout: 30
-    agents:
-    - "distro=amazonlinux"
-
-  - label: "runtime params estimate"
-    command: |
-      source ~/.cargo/env && set -eux
-      cd runtime/runtime-params-estimator/test-contract
-      ./build.sh
-      cd ..
-      cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
-
-    branches: "!master !beta !stable"
-    timeout: 60
     agents:
     - "distro=amazonlinux"
 

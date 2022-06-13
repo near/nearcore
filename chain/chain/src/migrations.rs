@@ -19,7 +19,7 @@ fn is_first_epoch_with_protocol_version(
 /// Check that block is the first one with existing chunk for the given shard in the chain with its protocol version.
 /// We assume that current block contain the chunk for shard with the given id.
 pub fn check_if_block_is_first_with_chunk_of_version(
-    chain_store: &mut dyn ChainStoreAccess,
+    chain_store: &dyn ChainStoreAccess,
     runtime_adapter: &dyn RuntimeAdapter,
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,

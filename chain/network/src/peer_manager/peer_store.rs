@@ -288,6 +288,7 @@ impl PeerStore {
         self.delete_peers(&to_remove)
     }
 
+    /// Copies the in-mem state of the peer to DB.
     fn touch(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
         Ok(match self.peer_states.get(peer_id) {
             Some(peer_state) => self.store.set_peer_state(&peer_id, peer_state)?,

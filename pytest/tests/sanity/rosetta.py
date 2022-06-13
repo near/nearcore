@@ -133,8 +133,14 @@ class RosettaExecResult:
             while True:
                 try:
                     block = self._rpc.get_block(block_id=self._block_id)
-                except RuntimeError:
-                    block = None
+                except requests.exceptions.HTTPError as ex:
+                    res = ex.response
+                    try:
+                        if res.status_code == 500 and res.json()['code'] == 404:
+                            break
+                    except:
+                        pass
+                    raise
                 if not block:
                     break
                 for tx in block['transactions']:
@@ -178,10 +184,7 @@ class RosettaRPC:
                                headers={'content-type': 'application/json'},
                                data=json.dumps(data, indent=True))
         result.raise_for_status()
-        data = result.json()
-        if 'code' in result:
-            raise RuntimeError(f'Got error from {path}:\n{json.dumps(data)}')
-        return data
+        return result.json()
 
     def exec_operations(self, signer: key.Key,
                         *operations) -> RosettaExecResult:
@@ -292,16 +295,17 @@ class RosettaRPC:
         def fetch(block_id: BlockIdentifier) -> JsonDict:
             block_id = block_identifier(block_id)
             block = self.rpc('/block', block_identifier=block_id)['block']
+
             # Order of transactions on the list is not guaranteed so normalise
             # it by sorting by hash.
-            if block:
-                block.get('transactions', []).sort(
-                    key=lambda tx: tx['transaction_identifier']['hash'])
+            # TODO(mina86): Verify that this is still true.
+            block.get(
+                'transactions',
+                []).sort(key=lambda tx: tx['transaction_identifier']['hash'])
+
             return block
 
         block = fetch(block_id)
-        if not block:
-            return block
 
         # Verify that fetching block by index and hash produce the same result
         # as well as getting individual transactions produce the same object as
@@ -505,19 +509,19 @@ class RosettaTestCase(unittest.TestCase):
         block_1_id = block_1['block_identifier']
         trans_1_id = 'block:' + block_1_id['hash']
 
-        def test(want_code, callback, *args, **kw) -> JsonDict:
+        def test(want_code, callback, *args, **kw) -> None:
             with self.assertRaises(requests.exceptions.HTTPError) as err:
                 callback(*args, **kw)
             self.assertEqual(500, err.exception.response.status_code)
             resp = err.exception.response.json()
             self.assertFalse(resp['retriable'])
             self.assertEqual(want_code, resp['code'])
-            return resp
 
         # Query for non-existent blocks
-        bogus_block_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
-        self.assertIsNone(self.rosetta.get_block(block_id=bogus_block_hash))
-
+        test(404, self.rosetta.get_block, block_id=123456789)
+        test(400, self.rosetta.get_block, block_id=-123456789)
+        bogus_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
+        test(404, self.rosetta.get_block, block_id=bogus_hash)
         test(400, self.rosetta.get_block, block_id='malformed-hash')
 
         # Query for non-existent transactions

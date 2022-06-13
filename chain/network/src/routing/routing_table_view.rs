@@ -15,7 +15,7 @@ const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 
-pub struct RoutingTableView {
+pub(crate) struct RoutingTableView {
     /// PeerId associated for every known account id.
     account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -187,7 +187,7 @@ impl RoutingTableView {
         self.account_peers.iter().map(|(_k, v)| v)
     }
 
-    /// Get account announce from
+    /// Get AnnounceAccount for the given AccountId.
     pub(crate) fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.get(account_id) {
             return Some(announce_account.clone());

@@ -117,9 +117,8 @@ pub enum PeerManagerMessageRequest {
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
-
     /// TEST-ONLY allows for modifying the internal routing table.
     SetRoutingTable(crate::test_utils::SetRoutingTable),
     /// TEST-ONLY allows for fetching the internal routing table.
@@ -159,8 +158,7 @@ pub enum PeerManagerMessageResponse {
     InboundTcpConnect(()),
     Unregister(()),
     Ban(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(()),
     /// TEST-ONLY
     SetRoutingTable(()),

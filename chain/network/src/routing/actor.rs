@@ -25,10 +25,12 @@ use tracing::warn;
 /// We use store for following reasons:
 ///   - store removed edges to disk
 ///   - we currently don't store active edges to disk
-pub struct Actor {
+pub(crate) struct Actor {
     clock: time::Clock,
     my_peer_id: PeerId,
-    // Graph is locked for writes only by this Actor, and only to update a bunch of edges.
+    // routing::Actor is the only actor which is allowed to update the Graph.
+    // Other actors (namely PeerManagerActor) are supposed to have read-only access to it.
+    // Graph is locked for writes only to update a bunch of edges.
     // You must not put expensive computations under the lock and/or DB access.
     // TODO: Reimplement GraphWithCache to GraphWithCache(Arc<RwLock<GraphWithCacheInner>>),
     // to enforce the constraint above.
@@ -66,7 +68,8 @@ impl Actor {
 
     /// Add several edges to the current view of the network.
     /// These edges are assumed to have been verified at this point.
-    /// Return list of edges added. Requires DB access.
+    /// Each edge actually represents a "version" of an edge, identified by Edge.nonce.
+    /// Returns a list of edges (versions) which were not previously observed. Requires DB access.
     ///
     /// Everytime we remove an edge we store all edges removed at given time to disk.
     /// If new edge comes comes that is adjacent to a peer that has been previously removed,
@@ -172,6 +175,12 @@ impl Actor {
         edges
     }
 
+    /// update_routing_table
+    /// 1. recomputes the routing table (if needed)
+    /// 2. bumps peer_reachable_at to now() for peers which are still reachable.
+    /// 3. prunes peers which are unreachable `prune_unreachable_since`.
+    /// Returns the new routing table and the pruned edges - adjacent to the pruned peers.
+    /// Should be called periodically.
     pub fn update_routing_table(
         &mut self,
         mut prune_unreachable_since: Option<time::Instant>,

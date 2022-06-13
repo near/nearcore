@@ -107,6 +107,19 @@ impl GasCost {
         tolerance: &LeastSquaresTolerance,
         verbose: bool,
     ) -> (Self, Self) {
+        if verbose {
+            eprintln!("Least squares input:");
+            eprint!("[");
+            for x in xs {
+                eprint!("{x},");
+            }
+            eprintln!("] * x =");
+            eprint!("[");
+            for y in ys {
+                eprint!("{},", y.to_gas());
+            }
+            eprintln!("]");
+        }
         match least_squares_method_gas_cost_pos_neg(xs, ys, verbose) {
             Ok(res) => res,
             Err((mut pos, neg)) => {
@@ -294,10 +307,7 @@ fn least_squares_method_gas_cost_pos_neg(
             );
         }
         GasMetric::Time => {
-            t = least_squares_method(
-                xs,
-                &ys.iter().map(|gas_cost| gas_cost.time_ns.to_u64().unwrap()).collect::<Vec<_>>(),
-            );
+            t = least_squares_method(xs, &ys.iter().map(GasCost::to_gas).collect::<Vec<_>>());
         }
     }
 
@@ -312,7 +322,7 @@ fn least_squares_method_gas_cost_pos_neg(
     let (pos_w_factor, neg_w_factor) = split_pos_neg(w.1);
 
     let neg_base = GasCost {
-        time_ns: neg_t_base,
+        time_ns: neg_t_base / GAS_IN_NS,
         instructions: neg_i_base,
         io_r_bytes: neg_r_base,
         io_w_bytes: neg_w_base,
@@ -320,7 +330,7 @@ fn least_squares_method_gas_cost_pos_neg(
         uncertain,
     };
     let neg_factor = GasCost {
-        time_ns: neg_t_factor,
+        time_ns: neg_t_factor / GAS_IN_NS,
         instructions: neg_i_factor,
         io_r_bytes: neg_r_factor,
         io_w_bytes: neg_w_factor,
@@ -328,7 +338,7 @@ fn least_squares_method_gas_cost_pos_neg(
         uncertain,
     };
     let pos_base = GasCost {
-        time_ns: pos_t_base,
+        time_ns: pos_t_base / GAS_IN_NS,
         instructions: pos_i_base,
         io_r_bytes: pos_r_base,
         io_w_bytes: pos_w_base,
@@ -336,7 +346,7 @@ fn least_squares_method_gas_cost_pos_neg(
         uncertain,
     };
     let pos_factor = GasCost {
-        time_ns: pos_t_factor,
+        time_ns: pos_t_factor / GAS_IN_NS,
         instructions: pos_i_factor,
         io_r_bytes: pos_r_factor,
         io_w_bytes: pos_w_factor,
@@ -345,12 +355,14 @@ fn least_squares_method_gas_cost_pos_neg(
     };
 
     if neg_base.to_gas() == 0 && neg_factor.to_gas() == 0 {
+        if verbose {
+            eprintln!("Least-squares output: {pos_base:?} + N * {pos_factor:?}",);
+        }
         Ok((pos_base, pos_factor))
     } else {
         if verbose {
             eprintln!(
-                "Least-squares had negative parameters: ({:?} - {:?}) + N * ({:?} - {:?})",
-                pos_base, neg_base, pos_factor, neg_factor
+                "Least-squares had negative parameters: ({pos_base:?} - {neg_base:?}) + N * ({pos_factor:?} - {neg_factor:?})",
             );
         }
         Err(((pos_base, pos_factor), (neg_base, neg_factor)))
@@ -394,7 +406,14 @@ impl fmt::Debug for GasCost {
                     self.io_w_bytes.to_f64().unwrap()
                 )
             }
-            GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.time_ns.to_integer()), f),
+            GasMetric::Time => {
+                if self.time_ns >= 1.into() {
+                    fmt::Debug::fmt(&Duration::from_nanos(self.time_ns.round().to_integer()), f)
+                } else {
+                    // Sometimes, dividing costs yields results smaller than one ns.
+                    write!(f, "{}ps", (self.time_ns * 1000).to_integer())
+                }
+            }
         }
     }
 }
@@ -570,6 +589,20 @@ mod tests {
         check_uncertainty(&xs, &ys, Default::default(), false);
         check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_time_below_ns() {
+        let xs = [1, 2, 3];
+
+        let ys = [
+            GasCost::new_time_based(Ratio::new(11, 10)),
+            GasCost::new_time_based(Ratio::new(12, 10)),
+            GasCost::new_time_based(Ratio::new(13, 10)),
+        ];
+
+        let expected = Ok((GasCost::new_time_based(1), GasCost::new_time_based(Ratio::new(1, 10))));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
     }
 
     #[test]

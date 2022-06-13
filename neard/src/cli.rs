@@ -466,6 +466,7 @@ impl RunCmd {
             }))
             .await;
             actix::System::current().stop();
+            opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");

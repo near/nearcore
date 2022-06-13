@@ -8,13 +8,24 @@ use std::collections::HashSet;
 use tracing::debug;
 
 mod schema;
+#[cfg(test)]
+pub mod testonly;
 
-pub use schema::Error;
+/// Opaque error type representing storage errors.
+///
+/// Invariant: any store error is a critical operational operational error
+/// which signals about data corruption. It wouldn't be wrong to replace all places /// where the error originates with outright panics.
+///
+/// If you have an error condition which needs to be handled somehow, it should be
+/// some *other* error type.
+#[derive(thiserror::Error, Debug)]
+#[error("{0}")]
+pub(crate) struct Error(schema::Error);
 
 /// Store allows for performing synchronous atomic operations on the DB.
 /// In particular it doesn't implement Clone and requires &mut self for
 /// methods writing to the DB.
-pub struct Store(schema::Store);
+pub(crate) struct Store(schema::Store);
 
 impl Store {
     pub fn new(s: near_store::Store) -> Self {
@@ -34,6 +45,7 @@ impl Store {
 /// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce if there
 ///                          exists one it belongs to.
 impl Store {
+    /// Inserts (account_id,aa) to the AccountAnnouncements column.
     pub fn set_account_announcement(
         &mut self,
         account_id: &AccountId,
@@ -41,44 +53,55 @@ impl Store {
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();
         update.set::<schema::AccountAnnouncements>(account_id, aa);
-        update.commit()
+        update.commit().map_err(Error)
     }
 
+    /// Fetches row with key account_id from the AccountAnnouncements column.
     pub fn get_account_announcement(
         &self,
         account_id: &AccountId,
     ) -> Result<Option<AnnounceAccount>, Error> {
-        self.0.get::<schema::AccountAnnouncements>(account_id)
+        self.0.get::<schema::AccountAnnouncements>(account_id).map_err(Error)
     }
 
+    /// Atomically stores a graph component consisting of <peers> and <edges>
+    /// to the DB. On completion, all peers are considered members of the new component
+    /// (even if they were members of a different component so far).
+    /// The name (even though technically correct) is misleading, because the <edges> do
+    /// NOT have to constitute a CONNECTED component. I'm not fixing that because
+    /// the whole routing table in the current form is scheduled for deprecation.
     pub fn push_component(
         &mut self,
         peers: &HashSet<PeerId>,
         edges: &Vec<Edge>,
     ) -> Result<(), Error> {
-        debug!(target: "network", "push_component: We are going to remove the following peers: {}", peers.len());
-        let component = self.0.get::<schema::LastComponentNonce>(&())?.unwrap_or(0) + 1;
+        debug!(target: "network", "push_component: moving {} peers from memory to DB", peers.len());
+        let component =
+            self.0.get::<schema::LastComponentNonce>(&()).map_err(Error)?.unwrap_or(0) + 1;
         let mut update = self.0.new_update();
         update.set::<schema::LastComponentNonce>(&(), &component);
         update.set::<schema::ComponentEdges>(&component, &edges);
         for peer_id in peers {
             update.set::<schema::PeerComponent>(peer_id, &component);
         }
-        update.commit()
+        update.commit().map_err(Error)
     }
 
+    /// Reads and deletes from DB the component that <peer_id> is a member of.
+    /// Returns Ok(vec![]) if peer_id is not a member of any component.
     pub fn pop_component(&mut self, peer_id: &PeerId) -> Result<Vec<Edge>, Error> {
         // Fetch the component assigned to the peer.
-        let component = match self.0.get::<schema::PeerComponent>(peer_id)? {
+        let component = match self.0.get::<schema::PeerComponent>(peer_id).map_err(Error)? {
             Some(c) => c,
-            _ => return Ok(vec![]),
+            None => return Ok(vec![]),
         };
-        let edges = self.0.get::<schema::ComponentEdges>(&component)?.unwrap_or(vec![]);
+        let edges =
+            self.0.get::<schema::ComponentEdges>(&component).map_err(Error)?.unwrap_or(vec![]);
         let mut update = self.0.new_update();
         update.delete::<schema::ComponentEdges>(&component);
         let mut peers_checked = HashSet::new();
         for edge in &edges {
-            let key = edge.key().clone();
+            let key = edge.key();
             for peer_id in [&key.0, &key.1] {
                 if !peers_checked.insert(peer_id.clone()) {
                     // Store doesn't accept 2 mutations modifying the same row in a single
@@ -87,19 +110,20 @@ impl Store {
                     // the number of lookups.
                     continue;
                 }
-                match self.0.get::<schema::PeerComponent>(&peer_id)? {
+                match self.0.get::<schema::PeerComponent>(&peer_id).map_err(Error)? {
                     Some(c) if c == component => update.delete::<schema::PeerComponent>(&peer_id),
                     _ => {}
                 }
             }
         }
-        update.commit()?;
+        update.commit().map_err(Error)?;
         Ok(edges)
     }
 }
 
 // PeerStore storage.
 impl Store {
+    /// Inserts (peer_id,peer_state) to Peers column.
     pub fn set_peer_state(
         &mut self,
         peer_id: &PeerId,
@@ -107,78 +131,18 @@ impl Store {
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();
         update.set::<schema::Peers>(peer_id, peer_state);
-        update.commit()
+        update.commit().map_err(Error)
     }
 
+    /// Deletes rows with keys in <peers> from Peers column.
     pub fn delete_peer_states(&mut self, peers: &[PeerId]) -> Result<(), Error> {
         let mut update = self.0.new_update();
         peers.iter().for_each(|p| update.delete::<schema::Peers>(p));
-        update.commit()
+        update.commit().map_err(Error)
     }
 
+    /// Reads the whole Peers column.
     pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
-        self.0.iter::<schema::Peers>().collect()
-    }
-}
-
-#[cfg(test)]
-pub mod testonly {
-    use super::*;
-    use std::collections::HashMap;
-
-    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-    pub struct Component {
-        pub peers: Vec<PeerId>,
-        pub edges: Vec<Edge>,
-    }
-
-    impl Default for Component {
-        fn default() -> Self {
-            Self { peers: vec![], edges: vec![] }
-        }
-    }
-
-    impl Component {
-        pub fn normal(mut self) -> Self {
-            self.peers.sort();
-            self.edges.sort_by(|a, b| a.key().cmp(b.key()));
-            self
-        }
-    }
-
-    impl Store {
-        /// Reads all the components from the database.
-        /// Panics if any of the invariants has been violated.
-        pub fn list_components(&self) -> Vec<Component> {
-            let edges: HashMap<_, _> =
-                self.0.iter::<schema::ComponentEdges>().map(|x| x.unwrap()).collect();
-            let peers: HashMap<_, _> =
-                self.0.iter::<schema::PeerComponent>().map(|x| x.unwrap()).collect();
-            let lcn: HashMap<(), _> =
-                self.0.iter::<schema::LastComponentNonce>().map(|x| x.unwrap()).collect();
-            // all component nonces should be <= LastComponentNonce
-            let lcn = lcn.get(&()).unwrap_or(&0);
-            for (c, _) in &edges {
-                assert!(c <= lcn);
-            }
-            for (_, c) in &peers {
-                assert!(c <= lcn);
-            }
-            // Each edge has to be incident to at least one peer in the same component.
-            for (c, es) in &edges {
-                for e in es {
-                    let key = e.key();
-                    assert!(peers.get(&key.0) == Some(c) || peers.get(&key.1) == Some(c));
-                }
-            }
-            let mut cs = HashMap::<u64, Component>::new();
-            for (c, es) in edges {
-                cs.entry(c).or_default().edges = es;
-            }
-            for (p, c) in peers {
-                cs.entry(c).or_default().peers.push(p);
-            }
-            cs.into_iter().map(|(_, v)| v).collect()
-        }
+        self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
     }
 }

@@ -1,6 +1,27 @@
+/// Time module provides a non-global clock, which should be passed
+/// as an argument to functions which need to read the current time.
+/// In particular try to avoid storing the clock instances in the objects.
+/// Functions which use system clock directly are non-hermetic, which
+/// makes them effectively non-deterministic and hard to test.
+///
+/// Clock provides 2 types of time reads:
+/// 1. now() (aka POSIX CLOCK_MONOTONIC, aka time::Instant)
+///    time as perceived by the machine making the measurement.
+///    The subsequent calls to now() are guaranteed to return monotonic
+///    results. It should be used for measuring the latency of operations
+///    as observed by the machine. The time::Instant itself doesn't
+///    translate to any specific timestamp, so it is not meaningful for
+///    anyone other than the machine doing the measurement.
+/// 2. utc_now() (aka POSIX CLOCK_REALTIME, aka time::Utc)
+///    expected to approximate the (global) UTC time.
+///    There is NO guarantee that the subsequent reads will be monotonic,
+///    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
+///    during NTP sync. Should be used whenever you need to communicate a timestamp
+///    over the network, or store it for later use. Remember that clocks
+///    of different machines are not perfectly synchronized, and in extreme
+///    cases can be totally skewed.
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 pub use time::error;
 
 // TODO: consider wrapping these types to prevent interactions
@@ -39,17 +60,20 @@ enum ClockInner {
 pub struct Clock(ClockInner);
 
 impl Clock {
+    /// Constructor of the real clock. Use it in production code.
+    /// Preferrably construct it directly in the main() function,
+    /// so that it can be faked out in every other function.
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
-    /// current time according to the monotonic clock
+    /// Current time according to the monotonic clock.
     pub fn now(&self) -> Instant {
         match &self.0 {
             ClockInner::Real => Instant::now(),
             ClockInner::Fake(fake) => fake.now(),
         }
     }
-    /// current time according to the system/walltime clock
+    /// Current time according to the system/walltime clock.
     pub fn now_utc(&self) -> Utc {
         match &self.0 {
             ClockInner::Real => Utc::now_utc(),
@@ -68,26 +92,31 @@ struct FakeClockInner {
 pub struct FakeClock(Arc<RwLock<FakeClockInner>>);
 
 impl FakeClock {
+    /// Constructor of a fake clock. Use it in tests.
+    /// It allows for manually moving the time forward (via advance())
+    /// and arbitrarly setting the UTC time in runtime.
+    /// Use FakeClock::clock() when calling prod code from tests.
+    // TODO: add support for auto-advancing the clock at each read.
     pub fn new(utc: Utc) -> Self {
         Self(Arc::new(RwLock::new(FakeClockInner { utc, mono: *FAKE_CLOCK_MONO_START })))
     }
     pub fn now(&self) -> Instant {
-        self.0.read().mono
+        self.0.read().unwrap().mono
     }
     pub fn now_utc(&self) -> Utc {
-        self.0.read().utc
+        self.0.read().unwrap().utc
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
     }
     pub fn advance(&self, d: Duration) {
         assert!(d >= Duration::ZERO);
-        let mut c = self.0.write();
+        let mut c = self.0.write().unwrap();
         c.mono += d;
         c.utc += d;
     }
     pub fn set_utc(&self, utc: Utc) {
-        self.0.write().utc = utc;
+        self.0.write().unwrap().utc = utc;
     }
 }
 

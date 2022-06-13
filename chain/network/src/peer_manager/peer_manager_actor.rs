@@ -92,7 +92,7 @@ const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
-
+/// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Contains information relevant to a connected peer.
@@ -119,11 +119,8 @@ struct ConnectedPeer {
 
 #[derive(Default)]
 struct AdvHelper {
-    #[cfg(feature = "test_features")]
     adv_disable_edge_propagation: bool,
-    #[cfg(feature = "test_features")]
     adv_disable_edge_signature_verification: bool,
-    #[cfg(feature = "test_features")]
     adv_disable_edge_pruning: bool,
 }
 
@@ -523,6 +520,7 @@ impl PeerManagerActor {
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             new_edges.push(edge);
+            // TODO: do we really need this limit?
             if self.clock.now() - start >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
@@ -1877,7 +1875,6 @@ impl PeerManagerActor {
         }
     }
 
-    #[cfg(feature = "test_features")]
     #[perf]
     fn handle_msg_set_adv_options(&mut self, msg: crate::test_utils::SetAdvOptions) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
@@ -2168,7 +2165,6 @@ impl PeerManagerActor {
                 self.handle_msg_ban(msg);
                 PeerManagerMessageResponse::Ban(())
             }
-            #[cfg(feature = "test_features")]
             PeerManagerMessageRequest::SetAdvOptions(msg) => {
                 self.handle_msg_set_adv_options(msg);
                 PeerManagerMessageResponse::SetAdvOptions(())
