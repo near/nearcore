@@ -213,12 +213,13 @@ message Validator {
 // Accounts provides a mapping AccountId -> PeerId, providing knowledge
 // about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
+  reserved 3;
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
   // Information about the validators to broadcast.
   // Contains AccountKeyPayload.validator.
-  repeated AccountKeySignedPayload validators = 3;
+  repeated AccountKeySignedPayload validators = 4;
 }
 
 // TODO: document it.

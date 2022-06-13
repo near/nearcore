@@ -38,9 +38,9 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
     type Error = ParseRoutingTableUpdateError;
     fn try_from(x: &proto::RoutingTableUpdate) -> Result<Self, Self::Error> {
         Ok(Self {
-            edges: try_from_vec(&x.edges).map_err(Self::Error::Edges)?,
-            accounts: try_from_vec(&x.accounts).map_err(Self::Error::Accounts)?,
-            validators: try_from_vec(&x.validators).map_err(Self::Error::Validators)?,
+            edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
+            accounts: try_from_slice(&x.accounts).map_err(Self::Error::Accounts)?,
+            validators: try_from_slice(&x.validators).map_err(Self::Error::Validators)?,
         })
     }
 }
@@ -248,13 +248,13 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::PeersRequest(_) => PeerMessage::PeersRequest,
             ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(
-                try_from_vec(&pr.peers).map_err(Self::Error::PeersResponse)?,
+                try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
             ),
             ProtoMT::BlockHeadersRequest(bhr) => PeerMessage::BlockHeadersRequest(
-                try_from_vec(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,
+                try_from_slice(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,
             ),
             ProtoMT::BlockHeadersResponse(bhr) => PeerMessage::BlockHeaders(
-                try_from_vec(&bhr.block_headers).map_err(Self::Error::BlockHeadersResponse)?,
+                try_from_slice(&bhr.block_headers).map_err(Self::Error::BlockHeadersResponse)?,
             ),
             ProtoMT::BlockRequest(br) => PeerMessage::BlockRequest(
                 try_from_required(&br.block_hash).map_err(Self::Error::BlockRequest)?,

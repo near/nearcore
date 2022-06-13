@@ -1,5 +1,5 @@
 use super::*;
-use crate::tests::data;
+use crate::network_protocol::testonly as data;
 use crate::tests::util;
 
 #[test]

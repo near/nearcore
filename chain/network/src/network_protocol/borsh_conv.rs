@@ -75,15 +75,15 @@ impl From<&mem::HandshakeFailureReason> for net::HandshakeFailureReason {
 
 //////////////////////////////////////////
 
-impl From<&net::RoutingTableUpdate> for mem::RoutingTableUpdate {
-    fn from(x: &net::RoutingTableUpdate) -> Self {
-        Self { edges: x.edges.clone(), accounts: x.accounts.clone(), validators: vec![] }
+impl From<net::RoutingTableUpdate> for mem::RoutingTableUpdate {
+    fn from(x: net::RoutingTableUpdate) -> Self {
+        Self { edges: x.edges, accounts: x.accounts, validators: vec![] }
     }
 }
 
-impl From<&mem::RoutingTableUpdate> for net::RoutingTableUpdate {
-    fn from(x: &mem::RoutingTableUpdate) -> Self {
-        Self { edges: x.edges.clone(), accounts: x.accounts.clone() }
+impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
+    fn from(x: mem::RoutingTableUpdate) -> Self {
+        Self { edges: x.edges, accounts: x.accounts }
     }
 }
 
@@ -107,7 +107,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             }
             net::PeerMessage::LastEdge(e) => mem::PeerMessage::LastEdge(e),
             net::PeerMessage::SyncRoutingTable(rtu) => {
-                mem::PeerMessage::SyncRoutingTable((&rtu).into())
+                mem::PeerMessage::SyncRoutingTable(rtu.into())
             }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
             net::PeerMessage::ResponseUpdateNonce(e) => mem::PeerMessage::ResponseUpdateNonce(e),
@@ -150,7 +150,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             }
             mem::PeerMessage::LastEdge(e) => net::PeerMessage::LastEdge(e),
             mem::PeerMessage::SyncRoutingTable(rtu) => {
-                net::PeerMessage::SyncRoutingTable((&rtu).into())
+                net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
             mem::PeerMessage::ResponseUpdateNonce(e) => net::PeerMessage::ResponseUpdateNonce(e),

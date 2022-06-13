@@ -50,7 +50,7 @@ impl TryFrom<&proto::AccountKeyPayload> for Validator {
         };
         Ok(Self {
             account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
-            peers: try_from_vec(&x.peers).map_err(Self::Error::Peers)?,
+            peers: try_from_slice(&x.peers).map_err(Self::Error::Peers)?,
             epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,
@@ -60,8 +60,11 @@ impl TryFrom<&proto::AccountKeyPayload> for Validator {
 
 //////////////////////////////////////////
 
-// TODO: I took this number out of thin air,
-// determine a reasonable limit later.
+// TODO(CPR-74): I took this number out of thin air,
+// determine a reasonable limit later. Calibrate before starting
+// using SignedValidator. Also possibly should be moved
+// to business logic, which actually stores those structs (see TODO
+// below).
 const VALIDATOR_PAYLOAD_MAX_BYTES: usize = 10000;
 
 #[derive(thiserror::Error, Debug)]
@@ -92,7 +95,7 @@ impl TryFrom<&proto::AccountKeySignedPayload> for SignedValidator {
         // We definitely should tolerate unknown fields, so that we can do
         // backward compatible changes. We also need to limit the total
         // size of the payload, to prevent large message attacks.
-        // TODO: is this the right place to do this check? Should we do the same while encoding?
+        // TODO(CPR-74): is this the right place to do this check? Should we do the same while encoding?
         // An alternative would be to do this check in the business logic of PeerManagerActor,
         // probably together with signature validation. The amount of memory a node
         // maintains per vaidator should be bounded.

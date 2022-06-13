@@ -1,4 +1,4 @@
-/// Conversion functions for Hanshake messages.
+/// Conversion functions for `Handshake` messages.
 use super::*;
 
 use crate::network_protocol::proto;

@@ -1,7 +1,7 @@
+use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::store;
 use crate::store::testonly::Component;
-use crate::tests::data;
 use crate::tests::util;
 use near_crypto::Signature;
 use near_network_primitives::time;

@@ -9,8 +9,8 @@ pub struct ParseVecError<E> {
     source: E,
 }
 
-pub fn try_from_vec<'a, X, Y: TryFrom<&'a X>>(
-    xs: &'a Vec<X>,
+pub fn try_from_slice<'a, X, Y: TryFrom<&'a X>>(
+    xs: &'a [X],
 ) -> Result<Vec<Y>, ParseVecError<Y::Error>> {
     let mut ys = vec![];
     for (idx, x) in xs.iter().enumerate() {

@@ -103,7 +103,6 @@ pub struct PeersResponse {
 /// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
@@ -228,7 +227,6 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 }
 
 // TODO(#1313): Use Box
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkResponses")]

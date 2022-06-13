@@ -2,8 +2,11 @@
 mod borsh;
 mod borsh_conv;
 mod proto_conv;
+
 #[cfg(test)]
-pub mod testonly;
+pub(crate) mod testonly;
+#[cfg(test)]
+mod tests;
 
 mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));

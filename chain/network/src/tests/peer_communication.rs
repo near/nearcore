@@ -1,6 +1,6 @@
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::tests::data;
-use crate::tests::peer_actor::{PeerConfig, PeerHandle, Response};
+use crate::peer::testonly::{PeerConfig, PeerHandle, Response};
 use crate::tests::stream::Stream;
 use crate::tests::util::make_rng;
 use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
@@ -87,7 +87,10 @@ async fn test_peer_communication(
     assert_eq!(Response::BlockHeaders(want), inbound.recv().await);
 
     // SyncRoutingTable
-    let want = data::make_routing_table(&mut rng);
+    let mut want = data::make_routing_table(&mut rng, &clock.clock());
+    // TODO: validators field is supported only in proto encoding.
+    // Remove this line once borsh support is removed.
+    want.validators = vec![];
     outbound.send(PeerMessage::SyncRoutingTable(want.clone())).await;
     assert_eq!(Response::RoutingTable(want), inbound.recv().await);
 
