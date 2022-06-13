@@ -245,7 +245,6 @@ impl PeerHandle {
             .addr
             .send(SendMessage { message, context: Span::current().context() })
             .await
-        context: Span::current().context(),
         .unwrap();
     }
 
