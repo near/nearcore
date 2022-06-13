@@ -1,6 +1,6 @@
-use crate::estimator_context::Testbed;
+use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
-use crate::utils::{aggregate_per_block_measurements, percentiles};
+use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_primitives::hash::hash;
 use near_primitives::types::TrieCacheMode;
 use near_store::{TrieCachingStorage, TrieStorage};
@@ -11,11 +11,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static SINK: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) fn write_node(
-    testbed: &mut Testbed,
+    ctx: &mut EstimatorContext,
     warmup_iters: usize,
     measured_iters: usize,
     final_key_len: usize,
 ) -> GasCost {
+    let block_latency = 0;
+    let overhead = overhead_per_measured_block(ctx, block_latency);
+    let mut testbed = ctx.testbed();
     let tb = testbed.transaction_builder();
     // Prepare a long chain in the trie
     let signer = tb.random_account();
@@ -42,17 +45,19 @@ pub(crate) fn write_node(
             .map(|value| vec![tb.account_insert_key(signer.clone(), key.as_bytes(), *value)])
             .take(measured_iters + warmup_iters),
     );
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
+    let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
         testbed.config,
         1,
         short_key_results[warmup_iters..].to_vec(),
+        Some(overhead.clone()),
     );
     let (cost_long_key, ext_cost_long_key) = aggregate_per_block_measurements(
         testbed.config,
         1,
         long_key_results[warmup_iters..].to_vec(),
+        Some(overhead),
     );
     let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
         - ext_cost_short_key[&ExtCosts::touching_trie_node];
@@ -67,11 +72,14 @@ pub(crate) fn write_node(
 }
 
 pub(crate) fn read_node_from_db(
-    testbed: &mut Testbed,
+    ctx: &mut EstimatorContext,
     warmup_iters: usize,
     measured_iters: usize,
     final_key_len: usize,
 ) -> GasCost {
+    let block_latency = 0;
+    let overhead = overhead_per_measured_block(ctx, block_latency);
+    let mut testbed = ctx.testbed();
     let tb = testbed.transaction_builder();
     // Prepare a long chain in the trie
     let signer = tb.random_account();
@@ -92,17 +100,19 @@ pub(crate) fn read_node_from_db(
         iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key)])
             .take(measured_iters + warmup_iters),
     );
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
+    let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
         testbed.config,
         1,
         short_key_results[warmup_iters..].to_vec(),
+        Some(overhead.clone()),
     );
     let (cost_long_key, ext_cost_long_key) = aggregate_per_block_measurements(
         testbed.config,
         1,
         long_key_results[warmup_iters..].to_vec(),
+        Some(overhead),
     );
     let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
         - ext_cost_short_key[&ExtCosts::touching_trie_node];

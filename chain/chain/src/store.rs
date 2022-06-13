@@ -1962,30 +1962,30 @@ impl<'a> ChainStoreUpdate<'a> {
                 let chunk = self.get_chunk(&chunk_hash)?.clone();
                 debug_assert_eq!(chunk.cloned_header().height_created(), height);
                 for transaction in chunk.transactions() {
-                    self.gc_col(DBCol::Transactions, &transaction.get_hash().into());
+                    self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
                 for receipt in chunk.receipts() {
-                    self.gc_col(DBCol::Receipts, &receipt.get_hash().into());
+                    self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
                 }
 
                 // 2. Delete chunk_hash-indexed data
-                let chunk_header_hash = chunk_hash.clone().into();
-                self.gc_col(DBCol::Chunks, &chunk_header_hash);
-                self.gc_col(DBCol::PartialChunks, &chunk_header_hash);
-                self.gc_col(DBCol::InvalidChunks, &chunk_header_hash);
+                let chunk_hash = chunk_hash.as_bytes();
+                self.gc_col(DBCol::Chunks, chunk_hash);
+                self.gc_col(DBCol::PartialChunks, chunk_hash);
+                self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
 
             let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
             for _header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
-                //self.gc_col(DBCol::BlockHeader, &header_hash.into());
+                //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
             }
 
             // 4. Delete chunks_tail-related data
-            let key = &index_to_bytes(height).to_vec();
-            self.gc_col(DBCol::ChunkHashesByHeight, key);
-            self.gc_col(DBCol::HeaderHashesByHeight, key);
+            let key = index_to_bytes(height);
+            self.gc_col(DBCol::ChunkHashesByHeight, &key);
+            self.gc_col(DBCol::HeaderHashesByHeight, &key);
         }
         self.update_chunk_tail(min_chunk_height);
         Ok(())
@@ -2019,12 +2019,12 @@ impl<'a> ChainStoreUpdate<'a> {
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
                 for chunk_hash in chunk_hashes {
-                    let chunk_header_hash = chunk_hash.into();
-                    self.gc_col(DBCol::PartialChunks, &chunk_header_hash);
+                    let chunk_hash = chunk_hash.as_bytes();
+                    self.gc_col(DBCol::PartialChunks, chunk_hash);
                     // Data in DBCol::InvalidChunks isn’t technically redundant (it
                     // cannot be calculated from other data) but it is data we
                     // don’t need for anything so it can be deleted as well.
-                    self.gc_col(DBCol::InvalidChunks, &chunk_header_hash);
+                    self.gc_col(DBCol::InvalidChunks, chunk_hash);
                 }
             }
         }
@@ -2151,29 +2151,28 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // 3. Delete block_hash-indexed data
-        let block_hash_vec: Vec<u8> = block_hash.as_ref().into();
-        self.gc_col(DBCol::Block, &block_hash_vec);
-        self.gc_col(DBCol::BlockExtra, &block_hash_vec);
-        self.gc_col(DBCol::NextBlockHashes, &block_hash_vec);
-        self.gc_col(DBCol::ChallengedBlocks, &block_hash_vec);
-        self.gc_col(DBCol::BlocksToCatchup, &block_hash_vec);
+        self.gc_col(DBCol::Block, block_hash.as_bytes());
+        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
+        self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
+        self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
+        self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
         let storage_key = KeyForStateChanges::for_block(&block_hash);
-        let stored_state_changes: Vec<Vec<u8>> = self
+        let stored_state_changes: Vec<Box<[u8]>> = self
             .chain_store
             .store()
             .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|key| key.0.into())
+            .map(|(key, _)| key)
             .collect();
         for key in stored_state_changes {
             self.gc_col(DBCol::StateChanges, &key);
         }
-        self.gc_col(DBCol::BlockRefCount, &block_hash_vec);
+        self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block)?;
         match gc_mode {
             GCMode::StateSync { clear_block_info: false } => {}
-            _ => self.gc_col(DBCol::BlockInfo, &block_hash_vec),
+            _ => self.gc_col(DBCol::BlockInfo, block_hash.as_bytes()),
         }
-        self.gc_col(DBCol::StateDlInfos, &block_hash_vec);
+        self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
@@ -2227,17 +2226,17 @@ impl<'a> ChainStoreUpdate<'a> {
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
-        let key = index_to_bytes(height).to_vec();
+        let key = &index_to_bytes(height)[..];
         if epoch_to_hashes.is_empty() {
-            store_update.delete(DBCol::BlockPerHeight, &key);
-            self.chain_store.block_hash_per_height.pop(&key);
+            store_update.delete(DBCol::BlockPerHeight, key);
+            self.chain_store.block_hash_per_height.pop(key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, &key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(key.clone(), Arc::new(epoch_to_hashes));
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
         self.inc_gc(DBCol::BlockPerHeight);
         if self.is_height_processed(height)? {
-            self.gc_col(DBCol::ProcessedBlockHeights, &key);
+            self.gc_col(DBCol::ProcessedBlockHeights, key);
         }
         self.merge(store_update);
         Ok(())
@@ -2303,11 +2302,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 let mut outcomes_with_id = self.chain_store.get_outcomes_by_id(&outcome_id)?;
                 outcomes_with_id.retain(|outcome| &outcome.block_hash != block_hash);
                 if outcomes_with_id.is_empty() {
-                    self.gc_col(DBCol::TransactionResult, &outcome_id.as_ref().into());
+                    self.gc_col(DBCol::TransactionResult, outcome_id.as_bytes());
                 } else {
                     store_update.set_ser(
                         DBCol::TransactionResult,
-                        outcome_id.as_ref(),
+                        outcome_id.as_bytes(),
                         &outcomes_with_id,
                     )?;
                 }
@@ -2318,7 +2317,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
+    fn gc_col(&mut self, col: DBCol, key: &[u8]) {
         assert!(col.is_gc());
         let mut store_update = self.store().store_update();
         match col {
