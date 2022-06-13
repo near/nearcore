@@ -65,14 +65,18 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_mainnet_res::mainnet_restored_receipts;
+    use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
     use near_primitives::serialize::to_base;
 
     #[test]
     fn test_migration_data() {
         assert_eq!(
-            to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
-            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+            to_base(&hash(
+                serde_json::to_string(&mainnet_storage_usage_delta()).unwrap().as_bytes()
+            )),
+            "2fEgaLFBBJZqgLQEvHPsck4NS3sFzsgyKaMDqTw5HVvQ"
         );
         let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
@@ -83,8 +87,8 @@ mod tests {
     #[test]
     fn test_restored_receipts_data() {
         assert_eq!(
-            to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
-            "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
+            to_base(&hash(serde_json::to_string(&mainnet_restored_receipts()).unwrap().as_bytes())),
+            "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
         let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
