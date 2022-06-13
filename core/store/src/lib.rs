@@ -7,6 +7,7 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use once_cell::sync::Lazy;
 
 pub use columns::DBCol;
 pub use db::{
@@ -59,16 +60,18 @@ impl Store {
         StoreOpener::new(home_dir, config)
     }
 
-    /// Initialises a new opener for temporary store.
+    /// Initialises an opener for a new temporary test store.
     ///
-    /// This is meant for tests only.  It **panics** if a temporary directory
-    /// cannot be created.
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
     ///
-    /// Caller must hold the temporary directory returned as first element of
-    /// the tuple while the store is open.
-    pub fn tmp_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &StoreConfig::DEFAULT);
+        let opener = Self::opener(dir.path(), &CONFIG);
         (dir, opener)
     }
 
