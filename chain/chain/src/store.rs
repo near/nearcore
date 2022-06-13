@@ -2226,22 +2226,17 @@ impl<'a> ChainStoreUpdate<'a> {
         if hashes.is_empty() {
             epoch_to_hashes.remove(epoch_id);
         }
-        // TODO(mina86): Unfortunately, we need to convert this key to a vector
-        // because CellLruCache::pop expects `lru::KeyRef<K>: Borrow<Q>` (where
-        // `&Q` is the argument) and `K` is `Vec<u8>`.  I feel like there should
-        // be some way to be able to pass `&[u8]` (which would save us memory
-        // allocation) but for now keep `to_vec`.
-        let key = index_to_bytes(height).to_vec();
+        let key = &index_to_bytes(height)[..];
         if epoch_to_hashes.is_empty() {
-            store_update.delete(DBCol::BlockPerHeight, &key);
-            self.chain_store.block_hash_per_height.pop(&key);
+            store_update.delete(DBCol::BlockPerHeight, key);
+            self.chain_store.block_hash_per_height.pop(key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, &key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(key.clone(), Arc::new(epoch_to_hashes));
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
         self.inc_gc(DBCol::BlockPerHeight);
         if self.is_height_processed(height)? {
-            self.gc_col(DBCol::ProcessedBlockHeights, &key);
+            self.gc_col(DBCol::ProcessedBlockHeights, key);
         }
         self.merge(store_update);
         Ok(())
