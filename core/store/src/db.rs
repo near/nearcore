@@ -259,6 +259,9 @@ impl RocksDB {
 }
 
 pub struct TestDB {
+    // In order to ensure determinism when iterating over column's results
+    // a BTreeMap is used since it is an ordered map. Using a HashMap would
+    // not yield this guarantee, and therefore is discarded.
     db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
