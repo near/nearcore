@@ -24,6 +24,10 @@ impl CryptoHash {
         BorshSerialize::serialize(value, &mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl Default for CryptoHash {
