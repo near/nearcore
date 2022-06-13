@@ -11,7 +11,9 @@ use near_vm_runner_fuzz::{ArbitraryModule, create_context, find_entry_point};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
     let code = ContractCode::new(module.0.module.to_bytes(), None);
-    let _result = run_fuzz(&code, VMKind::for_protocol_version(PROTOCOL_VERSION));
+    let wasmer2 = run_fuzz(&code, VMKind::Wasmer2);
+    let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
+    assert_eq!(wasmer2, wasmtime);
 });
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {

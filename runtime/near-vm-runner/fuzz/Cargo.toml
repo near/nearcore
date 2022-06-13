@@ -21,9 +21,14 @@ near-vm-logic = { path = "../../near-vm-logic", default-features = false, featur
 near-test-contracts = { path = "../../near-test-contracts" }
 near-primitives = { path = "../../../core/primitives" }
 
-
 [[bin]]
 name = "runner"
 path = "fuzz_targets/runner.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diffrunner"
+path = "fuzz_targets/diffrunner.rs"
 test = false
 doc = false
