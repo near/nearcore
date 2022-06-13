@@ -58,9 +58,11 @@ pub struct DefaultSubscriberGuard<S> {
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
+// Doesn't define ERROR and WARN levels, because the highest level of spans in the codebase is INFO.
 #[derive(Copy, Clone, Debug, clap::ArgEnum)]
 pub enum OpenTelemetryLevel {
     OFF,
+    INFO,
     DEBUG,
     TRACE,
 }
@@ -183,6 +185,7 @@ where
 fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
     match config.opentelemetry {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
+        OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
     }
