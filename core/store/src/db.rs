@@ -8,7 +8,7 @@ use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -259,7 +259,7 @@ impl RocksDB {
 }
 
 pub struct TestDB {
-    db: RwLock<enum_map::EnumMap<DBCol, HashMap<Vec<u8>, Vec<u8>>>>,
+    db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
 pub(crate) trait Database: Sync + Send {
