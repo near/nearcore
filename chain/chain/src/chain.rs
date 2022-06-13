@@ -4054,7 +4054,7 @@ impl Chain {
     ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
     pub fn retrieve_headers(
         &self,
-        hashes: Vec<CryptoHash>,
+        hashes: &[CryptoHash],
         max_headers_returned: u64,
         max_height: Option<BlockHeight>,
     ) -> Result<Vec<BlockHeader>, Error> {

@@ -1,30 +1,32 @@
-//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
-//! components of the mock network.
+//! Implements `MockPeer`, which is the main component of the mock network.
 
-use actix::{Actor, Context, Handler, Recipient};
 use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
-use near_chain_configs::GenesisConfig;
+use near_chain::{Block, Chain, ChainStoreAccess, Error};
 use near_client::sync;
-use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
-};
+use near_crypto::{KeyType, SecretKey};
+use near_network::types::{Handshake, ParsePeerMessageError, PeerMessage};
 use near_network_primitives::types::{
-    PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerChainInfoV2, PeerInfo, RoutedMessageBody,
 };
-use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
+use nearcore::config::NearConfig;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::io;
+use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::task::JoinHandle;
 
+pub mod net;
 pub mod setup;
+
+use crate::net::{MockTcpStream, MockTcpStreamHandle};
 
 // For now this is a simple struct with one field just to leave the door
 // open for adding stuff and/or having different configs for different message types later.
@@ -79,7 +81,9 @@ impl Default for MockNetworkConfig {
 // Info related to unrequested messages we'll send to the client
 struct IncomingRequests {
     block: Option<(Duration, Block)>,
+    block_task: Option<JoinHandle<()>>,
     chunk_request: Option<(Duration, PartialEncodedChunkRequestMsg)>,
+    chunk_request_task: Option<JoinHandle<()>>,
 }
 
 // get some chunk hash to serve as the source of unrequested incoming chunks.
@@ -173,363 +177,388 @@ impl IncomingRequests {
             }
         }
 
-        Self { block, chunk_request }
+        Self { block, block_task: None, chunk_request, chunk_request_task: None }
     }
 }
 
-/// MockPeerManagerActor mocks PeerManagerActor and responds to messages from ClientActor.
-/// Instead of sending these messages out to other peers, it simulates a network and reads
-/// the needed block and chunk content from storage.
-/// MockPeerManagerActor has the following responsibilities
-/// - Responds to the requests sent from ClientActor, including
-///     BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
-/// - Sends NetworkInfo to ClientActor periodically
-/// - Simulates block production and sends the most "recent" block to ClientActor
-pub struct MockPeerManagerActor {
-    /// Client address for the node that we are testing
-    client_addr: Recipient<NetworkClientMessages>,
-    /// Access a pre-generated chain history from storage
-    chain_history_access: ChainHistoryAccess,
-    /// Current network state for the simulated network
-    network_info: NetworkInfo,
-    /// Block production speed for the network that we are simulating
-    block_production_delay: Duration,
-    /// Simulated network delay
-    network_delay: Duration,
-    /// The simulated peers will stop producing new blocks at this height
-    target_height: BlockHeight,
-    incoming_requests: IncomingRequests,
+fn retrieve_partial_encoded_chunk(
+    chain: &mut Chain,
+    request: &PartialEncodedChunkRequestMsg,
+) -> Result<PartialEncodedChunkResponseMsg, Error> {
+    let num_total_parts = chain.runtime_adapter.num_total_parts();
+    let partial_chunk = chain.mut_store().get_partial_chunk(&request.chunk_hash)?;
+    let present_parts: HashMap<u64, _> =
+        partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
+    assert_eq!(
+        present_parts.len(),
+        num_total_parts,
+        "chunk {:?} doesn't have all parts",
+        request.chunk_hash
+    );
+    let parts: Vec<_> = request
+        .part_ords
+        .iter()
+        .map(|ord| present_parts.get(ord).cloned().cloned().unwrap())
+        .collect();
+
+    // Same process for receipts as above for parts.
+    let present_receipts: HashMap<ShardId, _> =
+        partial_chunk.receipts().iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect();
+    let receipts: Vec<_> = request
+        .tracking_shards
+        .iter()
+        .map(|shard_id| present_receipts.get(shard_id).cloned().cloned().unwrap())
+        .collect();
+
+    Ok(PartialEncodedChunkResponseMsg { chunk_hash: request.chunk_hash.clone(), parts, receipts })
 }
 
-impl MockPeerManagerActor {
+struct MockConn {
+    stream: MockTcpStreamHandle,
+    got_proto_handshake: bool,
+    got_borsh_handshake: bool,
+    other_peer: Option<PeerId>,
+}
+
+/// MockPeer mocks a NEAR network peer and responds to messages from the client.
+/// Instead of sending these messages out to other peers, it simulates a network and reads
+/// the needed block and chunk content from storage.
+/// MockPeer has the following responsibilities
+/// - Responds to the requests sent from the client, including
+///     BlockRequest, BlockHeadersRequest and PartialEncodedChunkRequest
+/// - Simulates block production and sends the most "recent" block to the client
+struct MockPeer {
+    addr: SocketAddr,
+    conn: Option<MockConn>,
+    response_delay: Duration,
+    chain_id: String,
+    chain: Arc<Mutex<Chain>>,
+    key: SecretKey,
+    block_production_delay: Duration,
+    tracked_shards: Vec<ShardId>,
+    /// The simulated peers will stop producing new blocks at this height
+    target_height: BlockHeight,
+    network_start_height: BlockHeight,
+    incoming_requests: IncomingRequests,
+    send_blocks: Option<JoinHandle<()>>,
+}
+
+impl MockPeer {
     fn new(
-        client_addr: Recipient<NetworkClientMessages>,
-        genesis_config: &GenesisConfig,
-        mut chain: Chain,
+        config: &mut NearConfig,
+        mock_config: &MockNetworkConfig,
+        addr: SocketAddr,
+        chain: Arc<Mutex<Chain>>,
+        block_production_delay: Duration,
         client_start_height: BlockHeight,
         network_start_height: BlockHeight,
         target_height: BlockHeight,
-        block_production_delay: Duration,
-        network_config: &MockNetworkConfig,
     ) -> Self {
-        // for now, we only simulate one peer
-        // we will add more complicated network config in the future
-        let peer = FullPeerInfo {
-            peer_info: PeerInfo::random(),
-            chain_info: near_network_primitives::types::PeerChainInfoV2 {
-                genesis_id: GenesisId {
-                    chain_id: genesis_config.chain_id.clone(),
-                    hash: *chain.genesis().hash(),
-                },
-                height: network_start_height,
-                tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
-                archival: false,
-            },
-            partial_edge_info: PartialEdgeInfo::default(),
-        };
-        let network_info = NetworkInfo {
-            connected_peers: vec![peer.clone()],
-            num_connected_peers: 1,
-            peer_max_count: 1,
-            highest_height_peers: vec![peer],
-            sent_bytes_per_sec: 0,
-            received_bytes_per_sec: 0,
-            known_producers: vec![],
-            peer_counter: 0,
-        };
+        let key = SecretKey::from_random(KeyType::ED25519);
+        config.network_config.boot_nodes.push(PeerInfo::new(PeerId::new(key.public_key()), addr));
         let incoming_requests = IncomingRequests::new(
-            &network_config.incoming_requests,
-            &mut chain,
+            &mock_config.incoming_requests,
+            &mut chain.lock().unwrap(),
             client_start_height,
             target_height,
         );
         Self {
-            client_addr,
-            chain_history_access: ChainHistoryAccess { chain, target_height },
-            network_info,
+            addr,
+            conn: None,
+            response_delay: mock_config.response_delay,
+            chain: chain,
+            chain_id: config.genesis.config.chain_id.clone(),
+            key,
             block_production_delay,
-            network_delay: network_config.response_delay,
+            tracked_shards: (0..config.genesis.config.shard_layout.num_shards()).collect(),
             target_height,
+            network_start_height,
             incoming_requests,
+            send_blocks: None,
         }
     }
 
-    /// This function gets called periodically
-    /// When it is called, it increments peer heights by 1 and sends the block at that height
-    /// to ClientActor. In a way, it simulates peers that broadcast new blocks
-    fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        let _response =
-            self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
-        for peer in self.network_info.connected_peers.iter_mut() {
-            let current_height = peer.chain_info.height;
-            if current_height <= self.target_height {
-                if let Ok(block) =
-                    self.chain_history_access.retrieve_block_by_height(current_height)
-                {
-                    let _response = self.client_addr.do_send(NetworkClientMessages::Block(
-                        block,
-                        peer.peer_info.id.clone(),
-                        false,
-                    ));
+    fn is_connected(&self) -> bool {
+        match &self.conn {
+            // if alive() says true, it's possible that it'll become false after if neard drops the TCP stream,
+            // and then we return an error when trying to connect, saying we're already connected.
+            // but if it returns false, then it's definitely not possible that it'll become true after
+            // since we have the lock on this MockPeer. so this is best effort kinda
+            Some(c) => c.stream.alive(),
+            None => false,
+        }
+    }
+
+    fn connected(&mut self, stream: MockTcpStreamHandle) {
+        self.conn = Some(MockConn {
+            stream: stream,
+            got_proto_handshake: false,
+            got_borsh_handshake: false,
+            other_peer: None,
+        });
+    }
+
+    fn send_new_blocks(&mut self) -> JoinHandle<()> {
+        let block_production_delay = self.block_production_delay;
+        let target_height = self.target_height;
+        let chain = self.chain.clone();
+        let mut current_height = self.network_start_height;
+        let stream = self.conn.as_ref().unwrap().stream.clone();
+
+        actix::spawn(async move {
+            let mut interval = tokio::time::interval(block_production_delay);
+
+            loop {
+                interval.tick().await;
+
+                let s = match stream.get() {
+                    Some(s) => s,
+                    None => break,
+                };
+                if current_height <= target_height {
+                    if let Ok(b) = chain.lock().unwrap().get_block_by_height(current_height) {
+                        s.send_message(&PeerMessage::Block(b));
+                    }
+                    current_height += 1;
+                } else {
+                    break;
                 }
-                peer.chain_info.height = current_height + 1;
             }
-        }
-        self.network_info.highest_height_peers = self.network_info.connected_peers.clone();
-        near_performance_metrics::actix::run_later(
-            ctx,
-            self.block_production_delay,
-            move |act, ctx| {
-                act.update_peers(ctx);
-            },
-        );
-    }
-
-    fn send_unrequested_block(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        if let Some((interval, block)) = &self.incoming_requests.block {
-            let _response = self.client_addr.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                self.network_info.connected_peers[0].peer_info.id.clone(),
-                false,
-            ));
-
-            run_later(ctx, *interval, move |act, ctx| {
-                act.send_unrequested_block(ctx);
-            });
-        }
-    }
-
-    fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            let _response =
-                self.client_addr.do_send(NetworkClientMessages::PartialEncodedChunkRequest(
-                    request.clone(),
-                    // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                    // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
-                    // responsible for it.
-                    CryptoHash::default(),
-                ));
-
-            run_later(ctx, *interval, move |act, ctx| {
-                act.send_chunk_request(ctx);
-            });
-        }
-    }
-
-    fn send_incoming_requests(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        self.send_unrequested_block(ctx);
-        self.send_chunk_request(ctx);
-    }
-}
-
-impl Actor for MockPeerManagerActor {
-    type Context = Context<Self>;
-    fn started(&mut self, ctx: &mut Self::Context) {
-        // Start syncing job.
-        self.update_peers(ctx);
-
-        self.send_incoming_requests(ctx);
-    }
-}
-
-impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
-    type Result = PeerManagerMessageResponse;
-
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
-        match msg {
-            PeerManagerMessageRequest::NetworkRequests(request) => match request {
-                NetworkRequests::BlockRequest { hash, peer_id } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let block = act.chain_history_access.retrieve_block(&hash).unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::Block(block, peer_id, true));
-                    });
-                }
-                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let headers = act
-                            .chain_history_access
-                            .retrieve_block_headers(hashes.clone())
-                            .unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
-                    });
-                }
-                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let response = act
-                            .chain_history_access
-                            .retrieve_partial_encoded_chunk(&request)
-                            .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::PartialEncodedChunkResponse(
-                                response,
-                                Clock::instant(),
-                            ),
-                        );
-                    });
-                }
-                NetworkRequests::PartialEncodedChunkResponse { .. } => {}
-                NetworkRequests::Block { .. } => {}
-                NetworkRequests::StateRequestHeader { .. } => {
-                    panic!(
-                        "MockPeerManagerActor receives state sync request. \
-                            It doesn't support state sync now. Try setting start_height \
-                            and target_height to be at the same epoch to avoid state sync"
-                    );
-                }
-                _ => {
-                    panic!("MockPeerManagerActor receives unexpected message {:?}", request);
-                }
-            },
-            _ => {
-                panic!("MockPeerManagerActor receives unexpected message {:?}", msg);
-            }
-        }
-        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-    }
-}
-
-/// This class provides access a pre-generated chain history
-struct ChainHistoryAccess {
-    chain: Chain,
-    target_height: BlockHeight,
-}
-
-impl ChainHistoryAccess {
-    fn retrieve_block_headers(
-        &mut self,
-        hashes: Vec<CryptoHash>,
-    ) -> Result<Vec<BlockHeader>, Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, Some(self.target_height))
-    }
-
-    fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
-        self.chain.get_block_by_height(block_height).map(|b| b)
-    }
-
-    fn retrieve_block(&mut self, block_hash: &CryptoHash) -> Result<Block, Error> {
-        self.chain.get_block(block_hash).map(|b| b)
-    }
-
-    fn retrieve_partial_encoded_chunk(
-        &mut self,
-        request: &PartialEncodedChunkRequestMsg,
-    ) -> Result<PartialEncodedChunkResponseMsg, Error> {
-        let num_total_parts = self.chain.runtime_adapter.num_total_parts();
-        let partial_chunk = self.chain.mut_store().get_partial_chunk(&request.chunk_hash)?;
-        let present_parts: HashMap<u64, _> =
-            partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
-        assert_eq!(
-            present_parts.len(),
-            num_total_parts,
-            "chunk {:?} doesn't have all parts",
-            request.chunk_hash
-        );
-        let parts: Vec<_> = request
-            .part_ords
-            .iter()
-            .map(|ord| present_parts.get(ord).cloned().cloned().unwrap())
-            .collect();
-
-        // Same process for receipts as above for parts.
-        let present_receipts: HashMap<ShardId, _> = partial_chunk
-            .receipts()
-            .iter()
-            .map(|receipt| (receipt.1.to_shard_id, receipt))
-            .collect();
-        let receipts: Vec<_> = request
-            .tracking_shards
-            .iter()
-            .map(|shard_id| present_receipts.get(shard_id).cloned().cloned().unwrap())
-            .collect();
-
-        Ok(PartialEncodedChunkResponseMsg {
-            chunk_hash: request.chunk_hash.clone(),
-            parts,
-            receipts,
         })
     }
-}
 
-#[cfg(test)]
-mod test {
-    use crate::ChainHistoryAccess;
-    use near_chain::ChainGenesis;
-    use near_chain::{Chain, RuntimeAdapter};
-    use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
-    use near_logger_utils::init_test_logger;
-    use near_network_primitives::types::PartialEncodedChunkRequestMsg;
-    use near_primitives::types::EpochId;
-    use near_store::test_utils::create_test_store;
-    use nearcore::config::GenesisExt;
-    use std::path::Path;
-    use std::sync::Arc;
+    fn send_unrequested_block(&self) -> Option<JoinHandle<()>> {
+        match self.incoming_requests.block.clone() {
+            Some((interval, block)) => {
+                let stream = self.conn.as_ref().unwrap().stream.clone();
 
-    // build a TestEnv with one validator with 20 blocks of history, all empty
-    fn setup_mock() -> (ChainHistoryAccess, TestEnv) {
-        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let chain_genesis = ChainGenesis::from(&genesis);
-        let runtimes = vec![Arc::new(nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            create_test_store(),
-            &genesis,
-        )) as Arc<dyn RuntimeAdapter>];
-        let mut env = TestEnv::builder(chain_genesis.clone())
-            .validator_seats(1)
-            .runtime_adapters(runtimes.clone())
-            .build();
-        for i in 0..20 {
-            env.produce_block(0, i + 1);
+                Some(actix::spawn(async move {
+                    let mut interval = tokio::time::interval(interval);
+
+                    loop {
+                        interval.tick().await;
+
+                        let s = match stream.get() {
+                            Some(s) => s,
+                            None => break,
+                        };
+                        s.send_message(&PeerMessage::Block(block.clone()));
+                    }
+                }))
+            }
+            None => None,
         }
-
-        let chain = Chain::new(
-            runtimes[0].clone(),
-            &chain_genesis,
-            env.clients[0].chain.doomslug_threshold_mode,
-            true,
-        )
-        .unwrap();
-        (ChainHistoryAccess { chain, target_height: 21 }, env)
     }
 
-    #[test]
-    fn test_chain_history_access() {
-        init_test_logger();
-        let (mut chain_history_access, env) = setup_mock();
-        let blocks: Vec<_> =
-            (1..21).map(|h| env.clients[0].chain.get_block_by_height(h).unwrap()).collect();
+    fn send_chunk_request(&self) -> Option<JoinHandle<()>> {
+        match self.incoming_requests.chunk_request.clone() {
+            Some((interval, req)) => {
+                let conn = self.conn.as_ref().unwrap();
+                let stream = conn.stream.clone();
+                let key = self.key.clone();
+                let target = conn.other_peer.clone().unwrap();
 
-        for block in blocks.iter() {
-            assert_eq!(&chain_history_access.retrieve_block(block.hash()).unwrap(), block);
+                Some(actix::spawn(async move {
+                    let mut interval = tokio::time::interval(interval);
+
+                    loop {
+                        interval.tick().await;
+                        let s = match stream.get() {
+                            Some(s) => s,
+                            None => break,
+                        };
+                        s.send_routed_message(
+                            RoutedMessageBody::PartialEncodedChunkRequest(req.clone()),
+                            target.clone(),
+                            &key,
+                        );
+                    }
+                }))
+            }
+            None => None,
+        }
+    }
+
+    fn start_timers(&mut self) {
+        // this doesn't seem to be documented really, but it appears this will cancel
+        // the existing tasks if they're Some() and haven't already seen stream.get().is_none()
+        self.send_blocks = Some(self.send_new_blocks());
+        self.incoming_requests.block_task = self.send_unrequested_block();
+        self.incoming_requests.chunk_request_task = self.send_chunk_request();
+    }
+
+    fn do_handshake(&mut self, stream: &MockTcpStream, other: &Handshake) {
+        let mut conn = self.conn.as_mut().unwrap();
+        conn.got_proto_handshake = true;
+        conn.other_peer = Some(other.sender_peer_id.clone());
+
+        let hash = self.chain.lock().unwrap().genesis().hash().clone();
+        let me = PeerId::new(self.key.public_key());
+        let handshake = PeerMessage::Handshake(Handshake::new(
+            near_primitives::version::PROTOCOL_VERSION,
+            me.clone(),
+            other.sender_peer_id.clone(),
+            Some(self.addr.port()),
+            PeerChainInfoV2 {
+                genesis_id: GenesisId { chain_id: self.chain_id.clone(), hash },
+                height: self.network_start_height,
+                tracked_shards: self.tracked_shards.clone(),
+                archival: false,
+            },
+            PartialEdgeInfo::new(
+                &me,
+                &other.sender_peer_id,
+                other.partial_edge_info.nonce,
+                &self.key,
+            ),
+        ));
+        stream.send_message(&handshake);
+        self.start_timers();
+    }
+
+    fn recv(&mut self, stream: &MockTcpStream, msg: Result<PeerMessage, ParsePeerMessageError>) {
+        let msg = match msg {
+            Ok(m) => m,
+            Err(_) => {
+                let conn = self.conn.as_mut().unwrap();
+                if !conn.got_borsh_handshake {
+                    conn.got_borsh_handshake = true;
+                } else {
+                    tracing::error!(target: "mock-node", "node has unexpectedly sent more than one borsh encoded message. Dropping it...");
+                }
+                return;
+            }
+        };
+
+        if !self.conn.as_ref().unwrap().got_proto_handshake {
+            if let PeerMessage::Handshake(h) = &msg {
+                self.do_handshake(stream, h);
+            } else {
+                tracing::error!(target: "mock-node", "node sent something other than a handshake before sending the handshake. Dropping...: {:?}", &msg);
+            }
+            return;
         }
 
-        for block in blocks.iter() {
-            for chunk in block.chunks().iter() {
-                if chunk.height_included() == block.header().height() {
-                    let _partial_encoded_chunk_response = chain_history_access
-                        .retrieve_partial_encoded_chunk(&PartialEncodedChunkRequestMsg {
-                            chunk_hash: chunk.chunk_hash(),
-                            part_ords: (0..env.clients[0].runtime_adapter.num_total_parts() as u64)
-                                .collect(),
-                            tracking_shards: (0..env.clients[0]
-                                .runtime_adapter
-                                .num_shards(&EpochId::default())
-                                .unwrap())
-                                .collect(),
-                        })
-                        .unwrap();
+        tracing::debug!(target: "mock-node", "recv {}", &msg);
+        match &msg {
+            PeerMessage::Handshake(_) => {
+                tracing::error!(target: "mock-node", "node unexpectedly sent more than one handshake");
+                return;
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                match self.chain.lock().unwrap().retrieve_headers(
+                    hashes,
+                    sync::MAX_BLOCK_HEADERS,
+                    Some(self.target_height),
+                ) {
+                    Ok(headers) => {
+                        stream.send_message(&PeerMessage::BlockHeaders(headers));
+                    }
+                    Err(e) => {
+                        tracing::error!(target: "mock-node", "Can't retrieve block headers: {:?}: {:?}", hashes, e);
+                    }
+                };
+            }
+            PeerMessage::BlockRequest(hash) => match self.chain.lock().unwrap().get_block(hash) {
+                Ok(b) => {
+                    if b.header().height() <= self.target_height {
+                        stream.send_message(&PeerMessage::Block(b));
+                    }
                 }
+                Err(e) => {
+                    tracing::error!(target: "mock-node", "Can't retrieve block: {:?}: {:?}", hash, e);
+                }
+            },
+            PeerMessage::Routed(r) => match &r.body {
+                RoutedMessageBody::PartialEncodedChunkRequest(req) => {
+                    match retrieve_partial_encoded_chunk(&mut self.chain.lock().unwrap(), req) {
+                        Ok(response) => {
+                            stream.send_routed_message(
+                                RoutedMessageBody::PartialEncodedChunkResponse(response),
+                                self.conn.as_ref().unwrap().other_peer.clone().unwrap(),
+                                &self.key,
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(target: "mock-node", "Can't construct partial encoded chunk response for: {:?}: {:?}", req, e);
+                        }
+                    };
+                }
+                RoutedMessageBody::PartialEncodedChunkResponse(_) => {}
+                RoutedMessageBody::StateRequestHeader(shard, hash) => {
+                    tracing::warn!(target: "mock-node",
+                    "received state sync request ({:?}, {:?}) \
+                    It doesn't support state sync now. Try setting start_height \
+                    and target_height to be at the same epoch to avoid state sync", shard, hash);
+                }
+                _ => {
+                    tracing::warn!(target: "mock-node", "Don't know how to handle {:?}", msg);
+                }
+            },
+            PeerMessage::SyncRoutingTable(_) | PeerMessage::PeersRequest => {
+                // ignore for now
+            }
+            // TODO, although not a big deal:
+            // PeerMessage::SyncRoutingTable => { set things up so that read() on the socket gives EOF }
+            _ => {
+                tracing::warn!(target: "mock-node", "Don't know how to handle {:?}", msg);
             }
         }
+    }
+}
 
-        for block in blocks.iter() {
-            // check the retrieve block headers work. We don't check the results here since
-            // it is simply a wrapper around Chain::retrieve_block_headers
-            chain_history_access.retrieve_block_headers(vec![*block.hash()]).unwrap();
+#[derive(Clone)]
+struct MockNet {
+    peers: Vec<Arc<Mutex<MockPeer>>>,
+    used_ports: Arc<Mutex<HashSet<u16>>>,
+}
+
+impl MockNet {
+    fn new(
+        config: &mut NearConfig,
+        chain: Chain,
+        client_start_height: BlockHeight,
+        network_start_height: BlockHeight,
+        target_height: BlockHeight,
+        block_production_delay: Duration,
+        mock_config: &MockNetworkConfig,
+    ) -> Self {
+        let chain = Arc::new(Mutex::new(chain));
+        // for now, we only simulate one peer
+        // we will add more complicated network config in the future
+        Self {
+            peers: vec![Arc::new(Mutex::new(MockPeer::new(
+                config,
+                mock_config,
+                "34.150.242.72:24567".parse().unwrap(),
+                chain,
+                block_production_delay,
+                client_start_height,
+                network_start_height,
+                target_height,
+            )))],
+            used_ports: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    fn get_port(&self) -> io::Result<u16> {
+        let mut ports = self.used_ports.lock().unwrap();
+        // silly implementation but it's fine for now... Don't want to start too low
+        // because 127.0.0.1:1 looks weird...
+        for p in 60..=u16::MAX {
+            if !ports.contains(&p) {
+                ports.insert(p);
+                return Ok(p);
+            }
+        }
+        tracing::error!(target:"mock-node", "too many ports allocated!");
+        Err(io::Error::new(io::ErrorKind::AddrInUse, "no ports available"))
+    }
+
+    fn release_port(&self, port: u16) {
+        let mut ports = self.used_ports.lock().unwrap();
+        if !ports.remove(&port) {
+            tracing::warn!(target: "mock-node", "tried to release port {} which was not in use", port);
         }
     }
 }

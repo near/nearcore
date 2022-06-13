@@ -2587,6 +2587,8 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "anyhow",
+ "async-trait",
+ "bytes",
  "clap 3.1.18",
  "criterion",
  "flate2",

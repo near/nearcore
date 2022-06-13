@@ -461,7 +461,7 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
+        self.chain.retrieve_headers(&hashes, sync::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(

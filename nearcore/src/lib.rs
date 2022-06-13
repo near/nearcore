@@ -10,7 +10,8 @@ use near_chain::ChainGenesis;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
-use near_network::PeerManagerActor;
+use near_network::{PeerManagerActor, RoutingTableActor};
+use near_network_primitives::types::TcpSys;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -201,7 +202,7 @@ fn apply_store_migrations_if_exists(
     Ok(true)
 }
 
-fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
+pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let opener = Store::opener(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener.open();
@@ -246,9 +247,33 @@ pub fn start_with_config_and_synchronization(
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let store = init_and_migrate_store(home_dir, &config)?;
+    let (mut node, network_actor, routing_table_actor) = start_with_net(
+        home_dir,
+        &config,
+        shutdown_signal,
+        Box::new(near_network_primitives::types::Tcp::new()),
+    )?;
+    start_servers(&config, &mut node, network_actor, routing_table_actor);
+    node.rpc_servers.shrink_to_fit();
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
+    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
+
+    // We probably reached peak memory once on this thread, we want to see when it happens again.
+    #[cfg(feature = "performance_stats")]
+    reset_memory_usage_max();
+
+    Ok(node)
+}
+
+pub fn start_with_net(
+    home_dir: &Path,
+    config: &NearConfig,
+    shutdown_signal: Option<oneshot::Sender<()>>,
+    net: Box<dyn TcpSys>,
+) -> anyhow::Result<(NearNode, Addr<PeerManagerActor>, Addr<RoutingTableActor>)> {
+    let store = init_and_migrate_store(home_dir, config)?;
+
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
@@ -266,80 +291,82 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
-        config.client_config,
+        config.client_config.clone(),
         chain_genesis,
         runtime,
         node_id,
         network_adapter.clone(),
-        config.validator_signer,
+        config.validator_signer.clone(),
         telemetry,
         shutdown_signal,
         adv,
     );
 
-    #[allow(unused_mut)]
-    let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone().recipient();
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
-    let network_config = config.network_config;
+    let network_config = config.network_config.clone();
     let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());
-    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(
+        PeerManagerActor::new_with_net(
             store,
             network_config,
             client_actor1,
             view_client1,
-            routing_table_addr,
+            routing_table_addr2,
+            net,
         )
         .unwrap()
     });
     network_adapter.set_recipient(network_actor.clone().recipient());
 
+    Ok((
+        NearNode {
+            client: client_actor,
+            view_client,
+            rpc_servers: Vec::new(),
+            arbiters: vec![client_arbiter_handle, arbiter.handle()],
+        },
+        network_actor,
+        routing_table_addr,
+    ))
+}
+
+fn start_servers(
+    config: &NearConfig,
+    node: &mut NearNode,
+    #[allow(unused_variables)] network_actor: Addr<PeerManagerActor>,
+    #[allow(unused_variables)] routing_table_addr: Addr<near_network::RoutingTableActor>,
+) {
     #[cfg(feature = "json_rpc")]
-    if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend(near_jsonrpc::start_http(
-            rpc_config,
+    if let Some(rpc_config) = &config.rpc_config {
+        // TODO: mock out the json rpc interface too
+        node.rpc_servers.extend(near_jsonrpc::start_http(
+            rpc_config.clone(),
             config.genesis.config.clone(),
-            client_actor.clone(),
-            view_client.clone(),
+            node.client.clone(),
+            node.view_client.clone(),
             #[cfg(feature = "test_features")]
             network_actor,
             #[cfg(feature = "test_features")]
-            routing_table_addr2,
+            routing_table_addr,
         ));
     }
 
     #[cfg(feature = "rosetta_rpc")]
-    if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        rpc_servers.push((
+    if let Some(rosetta_rpc_config) = &config.rosetta_rpc_config {
+        node.rpc_servers.push((
             "Rosetta RPC",
             start_rosetta_rpc(
-                rosetta_rpc_config,
+                rosetta_rpc_config.clone(),
                 Arc::new(config.genesis.clone()),
-                client_actor.clone(),
-                view_client.clone(),
+                node.client.clone(),
+                node.view_client.clone(),
             ),
         ));
     }
-
-    rpc_servers.shrink_to_fit();
-
-    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
-
-    // We probably reached peak memory once on this thread, we want to see when it happens again.
-    #[cfg(feature = "performance_stats")]
-    reset_memory_usage_max();
-
-    Ok(NearNode {
-        client: client_actor,
-        view_client,
-        rpc_servers,
-        arbiters: vec![client_arbiter_handle, arbiter.handle()],
-    })
 }
 
 pub struct RecompressOpts {

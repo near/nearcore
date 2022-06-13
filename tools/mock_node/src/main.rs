@@ -10,7 +10,6 @@ use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
-use near_client::{GetBlock, Status};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::wait_or_timeout;
@@ -120,7 +119,7 @@ fn main() -> anyhow::Result<()> {
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
     run_actix(async move {
-        let MockNode { client, view_client, target_height, .. } = setup_mock_node(
+        let MockNode { target_height, .. } = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
@@ -138,7 +137,7 @@ fn main() -> anyhow::Result<()> {
 
                 let latency = {
                     let t = Instant::now();
-                    let _ = client.send(Status { is_health_check: false, detailed: false }).await;
+                    // TODO: implement mock HTTP server and get status here
                     t.elapsed()
                 };
 
@@ -154,10 +153,8 @@ fn main() -> anyhow::Result<()> {
             // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
             target_height * 5_000,
             || async {
-                match view_client.send(GetBlock::latest()).await {
-                    Ok(Ok(block)) if block.header.height >= target_height => ControlFlow::Break(()),
-                    _ => ControlFlow::Continue(()),
-                }
+                // TODO: implement mock HTTP server and get latest block height here
+                ControlFlow::<(), ()>::Continue(())
             },
         )
         .await
