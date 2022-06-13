@@ -806,7 +806,7 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::DEFAULT, false).unwrap();
+        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), false).unwrap();
         store.pre_write_check().unwrap()
     }
 

@@ -7,6 +7,7 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use once_cell::sync::Lazy;
 
 pub use columns::DBCol;
 pub use db::{
@@ -35,7 +36,8 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieCache, TrieCachingStorage, TrieChanges, TrieStorage, WrappedTrieChanges,
+    Trie, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    WrappedTrieChanges,
 };
 
 mod columns;
@@ -67,8 +69,9 @@ impl Store {
     /// Caller must hold the temporary directory returned as first element of
     /// the tuple while the store is open.
     pub fn tmp_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &StoreConfig::DEFAULT);
+        let opener = Self::opener(dir.path(), &CONFIG);
         (dir, opener)
     }
 

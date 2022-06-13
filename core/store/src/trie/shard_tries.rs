@@ -17,8 +17,33 @@ use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{DBCol, DBOp, DBTransaction};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
+#[derive(Default)]
+pub struct TrieCacheFactory {
+    pub capacities: HashMap<ShardUId, usize>,
+    pub shard_version: ShardVersion,
+    pub num_shards: NumShards,
+}
+
+impl TrieCacheFactory {
+    pub fn create_cache(&self, shard_uid: &ShardUId) -> TrieCache {
+        match self.capacities.get(shard_uid) {
+            Some(capacity) => TrieCache::with_capacity(*capacity),
+            None => TrieCache::new(),
+        }
+    }
+
+    pub fn create_initial_caches(&self) -> HashMap<ShardUId, TrieCache> {
+        assert_ne!(self.num_shards, 0);
+        let shards: Vec<_> = (0..self.num_shards)
+            .map(|shard_id| ShardUId { version: self.shard_version, shard_id: shard_id as u32 })
+            .collect();
+        shards.iter().map(|&shard_uid| (shard_uid, self.create_cache(&shard_uid))).collect()
+    }
+}
+
 struct ShardTriesInner {
     store: Store,
+    trie_cache_factory: TrieCacheFactory,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
@@ -29,20 +54,22 @@ struct ShardTriesInner {
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
-        shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
-    }
-
-    pub fn new(store: Store, shard_version: ShardVersion, num_shards: NumShards) -> Self {
-        assert_ne!(num_shards, 0);
-        let shards: Vec<_> = (0..num_shards)
-            .map(|shard_id| ShardUId { version: shard_version, shard_id: shard_id as u32 })
-            .collect();
+    pub fn new(store: Store, trie_cache_factory: TrieCacheFactory) -> Self {
+        let caches = trie_cache_factory.create_initial_caches();
+        let view_caches = trie_cache_factory.create_initial_caches();
         ShardTries(Arc::new(ShardTriesInner {
             store,
-            caches: RwLock::new(Self::get_new_cache(&shards)),
-            view_caches: RwLock::new(Self::get_new_cache(&shards)),
+            trie_cache_factory,
+            caches: RwLock::new(caches),
+            view_caches: RwLock::new(view_caches),
         }))
+    }
+
+    pub fn test(store: Store, num_shards: NumShards) -> Self {
+        Self::new(
+            store,
+            TrieCacheFactory { capacities: Default::default(), shard_version: 0, num_shards },
+        )
     }
 
     pub fn is_same(&self, other: &Self) -> bool {
@@ -61,7 +88,10 @@ impl ShardTries {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-            caches.entry(shard_uid).or_insert_with(TrieCache::new).clone()
+            caches
+                .entry(shard_uid)
+                .or_insert(self.0.trie_cache_factory.create_cache(&shard_uid))
+                .clone()
         };
         let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         Trie::new(store, shard_uid)
@@ -101,7 +131,10 @@ impl ShardTries {
             }
         }
         for (shard_uid, ops) in shards {
-            let cache = caches.entry(shard_uid).or_insert_with(TrieCache::new).clone();
+            let cache = caches
+                .entry(shard_uid)
+                .or_insert(self.0.trie_cache_factory.create_cache(&shard_uid))
+                .clone();
             cache.update_cache(ops);
         }
         Ok(())
