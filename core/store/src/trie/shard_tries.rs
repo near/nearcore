@@ -17,6 +17,7 @@ use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{DBCol, DBOp, DBTransaction};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
+/// Responsible for creation of trie caches, stores necessary configuration for it.
 #[derive(Default)]
 pub struct TrieCacheFactory {
     pub capacities: HashMap<ShardUId, usize>,
@@ -25,6 +26,7 @@ pub struct TrieCacheFactory {
 }
 
 impl TrieCacheFactory {
+    /// Create new cache for the given shard uid.
     pub fn create_cache(&self, shard_uid: &ShardUId) -> TrieCache {
         match self.capacities.get(shard_uid) {
             Some(capacity) => TrieCache::with_capacity(*capacity),
@@ -32,6 +34,7 @@ impl TrieCacheFactory {
         }
     }
 
+    /// Create caches on the initialization of storage structures.
     pub fn create_initial_caches(&self) -> HashMap<ShardUId, TrieCache> {
         assert_ne!(self.num_shards, 0);
         let shards: Vec<_> = (0..self.num_shards)
