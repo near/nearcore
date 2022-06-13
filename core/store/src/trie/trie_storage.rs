@@ -171,7 +171,6 @@ pub struct TrieCachingStorage {
     /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
     /// `TrieCachingStorage` is removed.
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
-    /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
