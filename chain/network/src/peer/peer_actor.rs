@@ -550,8 +550,7 @@ impl PeerActor {
             | PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::RoutingTableSyncV2(_) => {
+            | PeerMessage::EpochSyncFinalizationRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
@@ -1013,22 +1012,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         ),
                         Some(self.throttle_controller.clone()),
                     ));
-            }
-            (PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message))
-                if cfg!(feature = "protocol_feature_routing_exchange_algorithm") =>
-            {
-                // TODO(#5155) Add wrapper to be something like this for all messages.
-                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
-                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
-                //         ...
-
-                self.peer_manager_wrapper_addr.do_send(ActixMessageWrapper::new_without_size(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::IbfMessage {
-                        peer_id: self.other_peer_id().unwrap().clone(),
-                        ibf_msg: ibf_message,
-                    }),
-                    Some(self.throttle_controller.clone()),
-                ));
             }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);

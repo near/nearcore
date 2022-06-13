@@ -159,40 +159,7 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
-    RoutingTableSyncV2(RoutingSyncV2),
+    _RoutingTableSyncV2,
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingSyncV2 {
-    Version2(RoutingVersion2),
-}
-const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct PartialSync {
-    pub(crate) ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
-    pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingState {
-    PartialSync(PartialSync),
-    RequestAllEdges,
-    Done,
-    RequestMissingEdges(Vec<u64>),
-    InitializeIbf,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingVersion2 {
-    pub(crate) known_edges: u64,
-    pub(crate) seed: u64,
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) routing_state: RoutingState,
-}

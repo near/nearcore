@@ -320,27 +320,6 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-                "adv_start_routing_table_syncv2" => {
-                    let params = parse_params::<
-                        near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
-                    >(params)?;
-
-                    self.peer_manager_addr
-                        .send(
-                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::private_actix::StartRoutingTableSync {
-                                    peer_id: params.peer_id,
-                                },
-                            ),
-                        )
-                        .await
-                        .map_err(RpcError::rpc_from)?;
-                    Some(
-                        serde_json::to_value(())
-                            .map_err(|err| RpcError::serialization_error(err.to_string())),
-                    )
-                }
                 "adv_get_peer_id" => {
                     let response = self
                         .peer_manager_addr
