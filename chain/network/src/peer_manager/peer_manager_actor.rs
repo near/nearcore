@@ -10,7 +10,8 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_actor::{
     Prune, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
-use crate::routing::routing_table_view::{RoutingTableView, DELETE_PEERS_AFTER_TIME};
+use crate::routing::routing_table_view::RoutingTableView;
+use crate::routing::routing_table_view::DELETE_PEERS_AFTER_TIME;
 use crate::stats::metrics;
 use crate::stats::metrics::{NetworkMetrics, PARTIAL_ENCODED_CHUNK_REQUEST_DELAY};
 use crate::types::{
