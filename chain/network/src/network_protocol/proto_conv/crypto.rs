@@ -1,8 +1,8 @@
 /// Conversion functions for messages representing crypto primitives.
 use crate::network_protocol::proto;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{PeerId};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 
 //////////////////////////////////////////
 

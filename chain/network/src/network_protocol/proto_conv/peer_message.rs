@@ -1,22 +1,17 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
 
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::types::EpochId;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::block::{Block, BlockHeader};
-use protobuf::{MessageField as MF};
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{
-    PeerMessage, RoutingTableUpdate,
-};
-use near_network_primitives::types::{
-    RoutedMessage,
-};
+use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
+use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_network_primitives::types::RoutedMessage;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-
+use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::EpochId;
+use protobuf::MessageField as MF;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {

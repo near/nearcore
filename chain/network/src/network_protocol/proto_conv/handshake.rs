@@ -1,11 +1,11 @@
 /// Conversion functions for Hanshake messages.
 use super::*;
 
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo};
-use protobuf::{MessageField as MF};
-use near_primitives::block::{GenesisId};
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
+use near_network_primitives::types::{PeerChainInfoV2, PeerInfo};
+use near_primitives::block::GenesisId;
+use protobuf::MessageField as MF;
 
 impl From<&GenesisId> for proto::GenesisId {
     fn from(x: &GenesisId) -> Self {
@@ -183,5 +183,3 @@ impl TryFrom<&proto::HandshakeFailure> for (PeerInfo, HandshakeFailureReason) {
         Ok((pi, hfr))
     }
 }
-
-

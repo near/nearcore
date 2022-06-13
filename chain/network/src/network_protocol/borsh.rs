@@ -87,7 +87,6 @@ pub(super) struct RoutingTableUpdate {
     pub accounts: Vec<AnnounceAccount>,
 }
 
-
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {

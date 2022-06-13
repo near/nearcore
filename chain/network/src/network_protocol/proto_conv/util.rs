@@ -1,5 +1,5 @@
 /// Proto conversion utilities.
-use protobuf::{MessageField as MF};
+use protobuf::MessageField as MF;
 
 #[derive(thiserror::Error, Debug)]
 #[error("[{idx}]: {source}")]
@@ -35,7 +35,7 @@ pub fn try_from_required<'a, X, Y: TryFrom<&'a X>>(
 
 pub fn map_from_required<'a, X, Y, E>(
     x: &'a MF<X>,
-    f:impl FnOnce(&'a X) -> Result<Y,E>,
+    f: impl FnOnce(&'a X) -> Result<Y, E>,
 ) -> Result<Y, ParseRequiredError<E>> {
     f(x.as_ref().ok_or(ParseRequiredError::Missing)?).map_err(ParseRequiredError::Other)
 }

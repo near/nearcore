@@ -3,14 +3,12 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
-use near_primitives::account::id::{ParseAccountError};
-use crate::network_protocol::{
-    AccountKeySignedPayload, SignedValidator, Validator,
-};
+use crate::network_protocol::{AccountKeySignedPayload, SignedValidator, Validator};
+use near_primitives::account::id::ParseAccountError;
 use near_primitives::types::EpochId;
 use protobuf::{Message as _, MessageField as MF};
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParseValidatorError {
     #[error("bad payload type")]
     BadPayloadType,
@@ -28,11 +26,11 @@ pub enum ParseValidatorError {
 // When more variants are available, consider whether to introduce an intermediate
 // AccountKeyPayload enum.
 impl From<&Validator> for proto::AccountKeyPayload {
-    fn from(x:&Validator) -> Self {
+    fn from(x: &Validator) -> Self {
         Self {
-            payload_type: Some(ProtoPT::Validator(proto::Validator{
+            payload_type: Some(ProtoPT::Validator(proto::Validator {
                 account_id: x.account_id.to_string(),
-                peers: x.peers.iter().map(Into::into).collect(), 
+                peers: x.peers.iter().map(Into::into).collect(),
                 epoch_id: MF::some((&x.epoch_id.0).into()),
                 timestamp: MF::some(utc_to_proto(&x.timestamp)),
                 ..Default::default()
@@ -44,17 +42,18 @@ impl From<&Validator> for proto::AccountKeyPayload {
 
 impl TryFrom<&proto::AccountKeyPayload> for Validator {
     type Error = ParseValidatorError;
-    fn try_from(x:&proto::AccountKeyPayload) -> Result<Self,Self::Error> {
+    fn try_from(x: &proto::AccountKeyPayload) -> Result<Self, Self::Error> {
         let x = match x.payload_type.as_ref().ok_or(Self::Error::BadPayloadType)? {
             ProtoPT::Validator(v) => v,
             #[allow(unreachable_patterns)]
-            _ => { return Err(Self::Error::BadPayloadType) },
+            _ => return Err(Self::Error::BadPayloadType),
         };
-        Ok(Self{
+        Ok(Self {
             account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
             peers: try_from_vec(&x.peers).map_err(Self::Error::Peers)?,
             epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),
-            timestamp: map_from_required(&x.timestamp,utc_from_proto).map_err(Self::Error::Timestamp)?,
+            timestamp: map_from_required(&x.timestamp, utc_from_proto)
+                .map_err(Self::Error::Timestamp)?,
         })
     }
 }
@@ -63,9 +62,9 @@ impl TryFrom<&proto::AccountKeyPayload> for Validator {
 
 // TODO: I took this number out of thin air,
 // determine a reasonable limit later.
-const VALIDATOR_PAYLOAD_MAX_BYTES : usize = 10000;
+const VALIDATOR_PAYLOAD_MAX_BYTES: usize = 10000;
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParseSignedValidatorError {
     #[error("payload too large: {0}B")]
     PayloadTooLarge(usize),
@@ -78,8 +77,8 @@ pub enum ParseSignedValidatorError {
 }
 
 impl From<&SignedValidator> for proto::AccountKeySignedPayload {
-    fn from(x:&SignedValidator) -> Self {
-        Self{
+    fn from(x: &SignedValidator) -> Self {
+        Self {
             payload: (&x.payload.payload).clone(),
             signature: MF::some((&x.payload.signature).into()),
             ..Self::default()
@@ -89,7 +88,7 @@ impl From<&SignedValidator> for proto::AccountKeySignedPayload {
 
 impl TryFrom<&proto::AccountKeySignedPayload> for SignedValidator {
     type Error = ParseSignedValidatorError;
-    fn try_from(x:&proto::AccountKeySignedPayload) -> Result<Self,Self::Error> {
+    fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
         // We definitely should tolerate unknown fields, so that we can do
         // backward compatible changes. We also need to limit the total
         // size of the payload, to prevent large message attacks.
@@ -100,7 +99,8 @@ impl TryFrom<&proto::AccountKeySignedPayload> for SignedValidator {
         if x.payload.len() > VALIDATOR_PAYLOAD_MAX_BYTES {
             return Err(Self::Error::PayloadTooLarge(x.payload.len()));
         }
-        let validator = proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        let validator =
+            proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
         Ok(Self {
             validator: (&validator).try_into().map_err(Self::Error::Validator)?,
             payload: AccountKeySignedPayload {

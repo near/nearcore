@@ -1,17 +1,15 @@
 /// Conversion functions for the messages representing network primitives.
 use super::*;
 
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use std::net::{IpAddr,SocketAddr};
 use crate::network_protocol::proto;
-use protobuf::{MessageField as MF};
-use crate::network_protocol::{PeerAddr};
-use near_primitives::network::{AnnounceAccount};
-use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerInfo, 
-};
+use crate::network_protocol::PeerAddr;
+use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_network_primitives::types::{Edge, PartialEdgeInfo, PeerInfo};
+use near_primitives::network::AnnounceAccount;
+use protobuf::MessageField as MF;
+use std::net::{IpAddr, SocketAddr};
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParseSocketAddrError {
     #[error("invalid IP")]
     InvalidIP,
@@ -20,7 +18,7 @@ pub enum ParseSocketAddrError {
 }
 
 impl From<&SocketAddr> for proto::SocketAddr {
-    fn from(x:&SocketAddr) -> Self {
+    fn from(x: &SocketAddr) -> Self {
         Self {
             ip: match x.ip() {
                 IpAddr::V4(ip) => ip.octets().to_vec(),
@@ -34,20 +32,20 @@ impl From<&SocketAddr> for proto::SocketAddr {
 
 impl TryFrom<&proto::SocketAddr> for SocketAddr {
     type Error = ParseSocketAddrError;
-    fn try_from(x:&proto::SocketAddr) -> Result<Self,Self::Error> {
+    fn try_from(x: &proto::SocketAddr) -> Result<Self, Self::Error> {
         let ip = match x.ip.len() {
-            4 => IpAddr::from(<[u8;4]>::try_from(&x.ip[..]).unwrap()),
-            16 => IpAddr::from(<[u8;16]>::try_from(&x.ip[..]).unwrap()),
-            _ => { return Err(Self::Error::InvalidIP) }, 
+            4 => IpAddr::from(<[u8; 4]>::try_from(&x.ip[..]).unwrap()),
+            16 => IpAddr::from(<[u8; 16]>::try_from(&x.ip[..]).unwrap()),
+            _ => return Err(Self::Error::InvalidIP),
         };
-        let port = u16::try_from(x.port).map_err(|_|Self::Error::InvalidPort)?;
-        Ok(SocketAddr::new(ip,port))
+        let port = u16::try_from(x.port).map_err(|_| Self::Error::InvalidPort)?;
+        Ok(SocketAddr::new(ip, port))
     }
 }
 
 ////////////////////////////////////////
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerAddrError {
     #[error("addr: {0}")]
     Addr(ParseRequiredError<ParseSocketAddrError>),
@@ -56,7 +54,7 @@ pub enum ParsePeerAddrError {
 }
 
 impl From<&PeerAddr> for proto::PeerAddr {
-    fn from(x:&PeerAddr) -> Self {
+    fn from(x: &PeerAddr) -> Self {
         Self {
             addr: MF::some((&x.addr).into()),
             peer_id: MF::from_option(x.peer_id.as_ref().map(Into::into)),
@@ -67,10 +65,15 @@ impl From<&PeerAddr> for proto::PeerAddr {
 
 impl TryFrom<&proto::PeerAddr> for PeerAddr {
     type Error = ParsePeerAddrError;
-    fn try_from(x:&proto::PeerAddr) -> Result<Self,Self::Error> {
+    fn try_from(x: &proto::PeerAddr) -> Result<Self, Self::Error> {
         Ok(Self {
             addr: try_from_required(&x.addr).map_err(Self::Error::Addr)?,
-            peer_id: x.peer_id.as_ref().map(|p|p.try_into()).transpose().map_err(Self::Error::PeerId)?,
+            peer_id: x
+                .peer_id
+                .as_ref()
+                .map(|p| p.try_into())
+                .transpose()
+                .map_err(Self::Error::PeerId)?,
         })
     }
 }
