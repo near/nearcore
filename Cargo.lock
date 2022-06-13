@@ -3108,9 +3108,11 @@ dependencies = [
  "deepsize",
  "near-crypto",
  "near-primitives",
+ "once_cell",
  "opentelemetry",
  "serde",
  "strum",
+ "time 0.3.9",
  "tokio",
  "tracing",
 ]
