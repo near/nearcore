@@ -539,12 +539,19 @@ impl PeerManagerActor {
                 .send(RoutingTableMessages::AddVerifiedEdges { edges: new_edges })
                 .into_actor(self)
                 .map(move |response, act, _ctx| {
-                    let _span = tracing::trace_span!(target: "network", parent: &span, "broadcast_validated_edges_trigger_response").entered();
+                    let _span = tracing::trace_span!(
+                        target: "network",
+                        parent: &span,
+                        "broadcast_validated_edges_trigger_response")
+                    .entered();
                     match response {
-                        Ok(RoutingTableMessagesResponse::AddVerifiedEdgesResponse(filtered_edges)) => {
+                        Ok(RoutingTableMessagesResponse::AddVerifiedEdgesResponse(
+                            filtered_edges,
+                        )) => {
                             // Broadcast new edges to all other peers.
                             if act.adv_helper.can_broadcast_edges() {
-                                let sync_routing_table = RoutingTableUpdate::from_edges(filtered_edges);
+                                let sync_routing_table =
+                                    RoutingTableUpdate::from_edges(filtered_edges);
                                 Self::broadcast_message(
                                     network_metrics,
                                     &act.connected_peers,
@@ -609,9 +616,15 @@ impl PeerManagerActor {
                     throttle_controller,
                 ))
                 .then(move |response| {
-                    let _span = tracing::trace_span!(target: "network", parent: &span, "start_routing_table_syncv2_response").entered();
+                    let _span = tracing::trace_span!(
+                        target: "network",
+                        parent: &span,
+                        "start_routing_table_syncv2_response")
+                    .entered();
                     match response.map(|r| r.into_inner()) {
-                        Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(response)) => {
+                        Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
+                            response,
+                        )) => {
                             addr.do_send(SendMessage {
                                 message: crate::types::PeerMessage::RoutingTableSyncV2(response),
                                 context: Span::current().context(),

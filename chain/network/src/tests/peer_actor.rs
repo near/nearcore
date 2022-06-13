@@ -32,6 +32,8 @@ use std::sync::Arc;
 use std::time;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct PeerConfig {
     pub signer: InMemorySigner,
@@ -239,7 +241,12 @@ impl PeerHandle {
     }
 
     pub async fn send(&self, message: PeerMessage) {
-        self.actix.addr.send(SendMessage { message }).await.unwrap();
+        self.actix
+            .addr
+            .send(SendMessage { message, context: Span::current().context() })
+            .await
+        context: Span::current().context(),
+        .unwrap();
     }
 
     pub fn routed_message(&self, body: RoutedMessageBody, peer_id: PeerId) -> Box<RoutedMessage> {
