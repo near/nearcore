@@ -5,7 +5,7 @@ use actix::System;
 use anyhow::anyhow;
 use criterion::Criterion;
 use flate2::read::GzDecoder;
-use mock_node::setup::setup_mock_node;
+use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_chain_configs::GenesisValidationMode;
@@ -97,7 +97,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
                 let tempdir = tempfile::Builder::new().prefix("mock_node").tempdir().unwrap();
                 let network_config = MockNetworkConfig::with_delay(Duration::from_millis(100));
                 block_on_interruptible(&sys, async move {
-                    let _ = setup_mock_node(
+                    let MockNode { server, target_height, .. } = setup_mock_node(
                         tempdir.path(),
                         home.as_path(),
                         near_config,
@@ -107,23 +107,25 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
                         target_height,
                         false,
                     );
-
+                    let server = server.unwrap();
                     let started = Instant::now();
+
                     loop {
                         // TODO: make it so that we can just get notified when syncing has finished instead
                         // of asking over and over.
-                        // TODO
-                        if started.elapsed() > Duration::from_secs(2) {
-                            break;
+                        match mock_node::utils::get_latest_height(&server).await {
+                            Ok(h) => {
+                                if h >= target_height {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(target: "mock-node", "can't get latest height from RPC: {:?}", e);
+                            }
                         }
-                        // if let Ok(Ok(block)) = view_client.send(GetBlock::latest()).await {
-                        //     if block.header.height >= target_height {
-                        //         break;
-                        //     }
-                        // }
-                        // if started.elapsed() > Duration::from_secs(target_height * 5) {
-                        //     panic!("mock_node sync bench timed out with home dir {:?}, target height {:?}", &home, target_height);
-                        // }
+                        if started.elapsed() > Duration::from_secs(target_height * 5) {
+                            panic!("mock_node sync bench timed out with home dir {:?}, target height {:?}", &home, target_height);
+                        }
                     }
                 });
                 Sys { sys: Some(sys) }

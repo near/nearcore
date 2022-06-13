@@ -59,6 +59,8 @@ fn setup_mock_network(
 }
 
 pub struct MockNode {
+    // mock HTTP server that will respond to RPC/status requests
+    pub server: Option<near_jsonrpc::mock::MockHttpServer>,
     // target height actually available to sync to in the chain history database
     pub target_height: BlockHeight,
 }
@@ -238,14 +240,14 @@ pub fn setup_mock_node(
         target_height,
     );
 
-    nearcore::start_with_net(client_home_dir, &config, None, Box::new(mock)).unwrap();
+    let server = nearcore::start_mock(client_home_dir, &config, Box::new(mock)).unwrap();
 
-    MockNode { target_height }
+    MockNode { server, target_height }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::setup::setup_mock_node;
+    use crate::setup::{setup_mock_node, MockNode};
     use crate::MockNetworkConfig;
     use actix::{Actor, System};
     use futures::{future, FutureExt};
@@ -263,9 +265,24 @@ mod tests {
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config, NEAR_BASE};
     use rand::thread_rng;
+    use serde_json::Value;
     use std::ops::ControlFlow;
+    use std::str::FromStr;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
+
+    fn json_block_hash(block: &Value) -> anyhow::Result<CryptoHash> {
+        match crate::utils::json_block_header(block)?.get("hash") {
+            Some(h) => match h {
+                Value::String(s) => match CryptoHash::from_str(s) {
+                    Ok(h) => Ok(h),
+                    Err(_) => Err(anyhow::anyhow!("get_latest_block() header has bad hash: {}", h)),
+                },
+                _ => Err(anyhow::anyhow!("get_latest_block() header has bad hash: {}", h)),
+            },
+            None => Err(anyhow::anyhow!("get_latest_block() header has no hash")),
+        }
+    }
 
     // Just a test to test that the basic mocknet setup works
     // This test first starts a localnet with one validator node that generates 20 blocks
@@ -361,7 +378,7 @@ mod tests {
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
-            let _ = setup_mock_node(
+            let MockNode { server, .. } = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,
@@ -371,12 +388,27 @@ mod tests {
                 None,
                 false,
             );
+            let server = server.unwrap();
             wait_or_timeout(100, 60000, || async {
-                // TODO
-                ControlFlow::<(), ()>::Continue(())
-            })
-            .await
-            .unwrap();
+                match server.get_latest_block().await {
+                    Ok(block) => {
+                        if crate::utils::json_block_height(&block).unwrap() >= 20 {
+                            assert_eq!(
+                                *last_block.read().unwrap(),
+                                json_block_hash(&block).unwrap()
+                            );
+                            System::current().stop();
+                            ControlFlow::Break(())
+                        } else {
+                            ControlFlow::Continue(())
+                        }
+                    },
+                    Err(e) => {
+                        tracing::error!(target: "mock-node", "can't get latest height from RPC: {:?}", e);
+                        ControlFlow::Continue(())
+                    }
+                }
+            }).await.unwrap();
         })
     }
 }

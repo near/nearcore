@@ -25,6 +25,7 @@ use tokio::task::JoinHandle;
 
 pub mod net;
 pub mod setup;
+pub mod utils;
 
 use crate::net::{MockTcpStream, MockTcpStreamHandle};
 

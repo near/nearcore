@@ -35,6 +35,7 @@ use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod api;
 mod metrics;
+pub mod mock;
 
 use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};

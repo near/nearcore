@@ -265,7 +265,30 @@ pub fn start_with_config_and_synchronization(
     Ok(node)
 }
 
-pub fn start_with_net(
+// starts neard using the given mocked TCP methods and starts a mock HTTP server
+pub fn start_mock(
+    home_dir: &Path,
+    config: &NearConfig,
+    net: Box<dyn TcpSys>,
+) -> anyhow::Result<Option<near_jsonrpc::mock::MockHttpServer>> {
+    #[allow(unused_variables)]
+    let (node, network_actor, routing_table_actor) = start_with_net(home_dir, &config, None, net)?;
+    // TODO: mock rosetta RPC
+    Ok(config.rpc_config.clone().map(|rpc_config| {
+        near_jsonrpc::mock::start_http(
+            rpc_config,
+            config.genesis.config.clone(),
+            node.client.clone(),
+            node.view_client.clone(),
+            #[cfg(feature = "test_features")]
+            network_actor,
+            #[cfg(feature = "test_features")]
+            routing_table_actor,
+        )
+    }))
+}
+
+fn start_with_net(
     home_dir: &Path,
     config: &NearConfig,
     shutdown_signal: Option<oneshot::Sender<()>>,
@@ -342,7 +365,6 @@ fn start_servers(
 ) {
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = &config.rpc_config {
-        // TODO: mock out the json rpc interface too
         node.rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config.clone(),
             config.genesis.config.clone(),

@@ -18,6 +18,8 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod utils;
+
 /// Program to start a mock node, which runs a regular client in a mock network environment.
 /// The mock network simulates the entire network by replaying a pre-generated chain history
 /// from storage and responds to the client's network requests.
@@ -119,7 +121,7 @@ fn main() -> anyhow::Result<()> {
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
     run_actix(async move {
-        let MockNode { target_height, .. } = setup_mock_node(
+        let MockNode { server, target_height, .. } = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
@@ -129,6 +131,8 @@ fn main() -> anyhow::Result<()> {
             args.target_height,
             args.in_memory_storage,
         );
+        let server = server.unwrap();
+        let server2 = server.clone();
         let ping_handle = actix::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(100));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -137,7 +141,7 @@ fn main() -> anyhow::Result<()> {
 
                 let latency = {
                     let t = Instant::now();
-                    // TODO: implement mock HTTP server and get status here
+                    let _ = server2.status().await;
                     t.elapsed()
                 };
 
@@ -153,8 +157,14 @@ fn main() -> anyhow::Result<()> {
             // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
             target_height * 5_000,
             || async {
-                // TODO: implement mock HTTP server and get latest block height here
-                ControlFlow::<(), ()>::Continue(())
+                match crate::utils::get_latest_height(&server).await {
+                    Ok(height) if height >= target_height => ControlFlow::Break(()),
+                    Err(e) => {
+                        tracing::error!(target: "mock-node", "can't get latest height from RPC: {:?}", e);
+                        ControlFlow::Continue(())
+                    }
+                    _ => ControlFlow::Continue(()),
+                }
             },
         )
         .await
