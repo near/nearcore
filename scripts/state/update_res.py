@@ -26,7 +26,7 @@ def main():
         sys.exit(__doc__.rstrip())
 
 
-GENESIS_REPO_PATH = 'nearcore/res/genesis_config.json'
+GENESIS_REPO_PATH = 'chain/jsonrpc/jsonrpc-tests/res/genesis_config.json'
 REPO_FULL_PATH = pathlib.Path(__file__).resolve().parent.parent.parent
 GENESIS_FULL_PATH = REPO_FULL_PATH / GENESIS_REPO_PATH
 SCRIPT_REPO_PATH = pathlib.Path(__file__).resolve().relative_to(REPO_FULL_PATH)
