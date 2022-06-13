@@ -4,22 +4,25 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational;
 
+use crate::DoomslugThresholdMode;
 use near_chain_configs::{GenesisConfig, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -35,10 +38,7 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
-use crate::DoomslugThresholdMode;
-use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_record::StateRecord;
+pub use near_primitives::block::{Block, BlockHeader, Tip};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -609,7 +609,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -633,7 +633,7 @@ pub trait RuntimeAdapter: Send + Sync {
             false,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            state_patch,
         )
     }
 
@@ -655,7 +655,7 @@ pub trait RuntimeAdapter: Send + Sync {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(

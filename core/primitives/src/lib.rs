@@ -17,6 +17,7 @@ pub use near_primitives_core::profile;
 pub mod rand;
 pub mod receipt;
 pub mod runtime;
+pub mod sandbox_state_patch;
 pub mod serialize;
 pub mod shard_layout;
 pub mod sharding;

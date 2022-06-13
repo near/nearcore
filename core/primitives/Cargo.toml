@@ -39,6 +39,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
+sandbox = []
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_chunk_only_producers = []
 protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
