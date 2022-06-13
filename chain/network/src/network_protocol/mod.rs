@@ -25,9 +25,7 @@ use protobuf::Message as _;
 use std::fmt;
 use thiserror::Error;
 
-pub use self::borsh::{
-    PartialSync, RoutingState, RoutingSyncV2, RoutingTableUpdate, RoutingVersion2,
-};
+pub use self::borsh::RoutingTableUpdate;
 
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -107,8 +105,6 @@ pub enum PeerMessage {
     EpochSyncResponse(Box<EpochSyncResponse>),
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
-
-    RoutingTableSyncV2(RoutingSyncV2),
 }
 
 impl fmt::Display for PeerMessage {

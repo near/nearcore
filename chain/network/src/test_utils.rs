@@ -457,7 +457,6 @@ pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
 }
 
-#[cfg(feature = "test_features")]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
