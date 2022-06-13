@@ -6,10 +6,6 @@ Stores resource data which is part of the protocol stable enough to be moved out
 
 Stores genesis of mainnet.
 
-### `genesis_config.json`
-
-Genesis used for testing.
-
 ### `mainnet_restored_receipts.json`
 
 Stores receipts restored after the fix of applying chunks. See [#4248](https://github.com/near/nearcore/pull/4248) for more details.
