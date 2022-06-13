@@ -30,7 +30,9 @@ use std::fmt::Debug;
 /// Peer stats query.
 #[derive(actix::Message)]
 #[rtype(result = "PeerStatsResult")]
-pub struct QueryPeerStats {}
+pub struct QueryPeerStats {
+    pub(crate) context: opentelemetry::Context,
+}
 
 /// Peer stats result
 #[derive(Debug, actix::MessageResponse)]

@@ -100,6 +100,7 @@ pub struct GetPeerId {}
 #[rtype(result = "()")]
 pub struct SendMessage {
     pub(crate) message: PeerMessage,
+    pub(crate) context: opentelemetry::Context,
 }
 
 #[cfg(feature = "test_features")]
