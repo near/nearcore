@@ -245,7 +245,8 @@ impl PeerHandle {
             .addr
             .send(SendMessage { message, context: Span::current().context() })
             .await
-            .unwrap();
+        context: Span::current().context(),
+        .unwrap();
     }
 
     pub fn routed_message(&self, body: RoutedMessageBody, peer_id: PeerId) -> Box<RoutedMessage> {
