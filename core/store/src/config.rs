@@ -40,14 +40,14 @@ pub struct StoreConfig {
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
-    /// We're still experimented with this parameter and it seems decreasing its value can improve
+    /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     #[serde(default = "StoreConfig::default_block_size")]
     pub block_size: bytesize::ByteSize,
 
     /// Trie cache capacities
-    /// Default value: ShardUId{1, 2} -> 2 GiB.
-    /// We're still experimented with this parameter and it seems decreasing its value can improve
+    /// Default value: ShardUId {version: 1, shard_id: 2} -> 2_000_000. TODO: clarify
+    /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     #[serde(default = "StoreConfig::default_trie_cache_capacities")]
     pub trie_cache_capacities: Vec<(ShardUId, usize)>,

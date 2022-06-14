@@ -136,7 +136,7 @@ impl ShardTries {
         for (shard_uid, ops) in shards {
             let cache = caches
                 .entry(shard_uid)
-                .or_insert(self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
                 .clone();
             cache.update_cache(ops);
         }
