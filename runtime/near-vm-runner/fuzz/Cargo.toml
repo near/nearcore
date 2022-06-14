@@ -16,10 +16,11 @@ libfuzzer-sys = "0.4"
 wasm-smith = "0.10.0"
 wasmprinter = "0.2"
 
-near-vm-runner = { path = ".." }
-near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
-near-test-contracts = { path = "../../near-test-contracts" }
 near-primitives = { path = "../../../core/primitives" }
+near-test-contracts = { path = "../../near-test-contracts" }
+near-vm-errors = { path = "../../near-vm-errors" }
+near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
+near-vm-runner = { path = ".." }
 
 [[bin]]
 name = "runner"
