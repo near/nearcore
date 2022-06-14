@@ -93,7 +93,7 @@ impl ShardTries {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
-                .or_insert(self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
                 .clone()
         };
         let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
