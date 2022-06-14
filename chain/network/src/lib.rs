@@ -16,6 +16,7 @@ pub mod private_actix;
 pub(crate) mod private_actix;
 pub mod routing;
 pub(crate) mod stats;
+pub(crate) mod store;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;

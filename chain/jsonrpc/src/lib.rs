@@ -320,27 +320,6 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-                "adv_start_routing_table_syncv2" => {
-                    let params = parse_params::<
-                        near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
-                    >(params)?;
-
-                    self.peer_manager_addr
-                        .send(
-                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::private_actix::StartRoutingTableSync {
-                                    peer_id: params.peer_id,
-                                },
-                            ),
-                        )
-                        .await
-                        .map_err(RpcError::rpc_from)?;
-                    Some(
-                        serde_json::to_value(())
-                            .map_err(|err| RpcError::serialization_error(err.to_string())),
-                    )
-                }
                 "adv_get_peer_id" => {
                     let response = self
                         .peer_manager_addr
@@ -1509,18 +1488,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
-lazy_static_include::lazy_static_include_str! {
-    LAST_BLOCKS_HTML => "res/last_blocks.html",
-    DEBUG_HTML => "res/debug.html",
-    NETWORK_INFO_HTML => "res/network_info.html",
-    EPOCH_INFO_HTML => "res/epoch_info.html",
-    CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
-    SYNC_HTML => "res/sync.html",
-}
-
 #[get("/debug")]
 async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*DEBUG_HTML))
+    Ok(HttpResponse::Ok().body(include_str!("../res/debug.html")))
 }
 
 #[get("/debug/pages/{page}")]
@@ -1530,11 +1500,11 @@ async fn display_debug_html(
     let page_name = path.into_inner().0;
 
     let content = match page_name.as_str() {
-        "last_blocks" => Some(*LAST_BLOCKS_HTML),
-        "network_info" => Some(*NETWORK_INFO_HTML),
-        "epoch_info" => Some(*EPOCH_INFO_HTML),
-        "chain_n_chunk_info" => Some(*CHAIN_N_CHUNK_INFO_HTML),
-        "sync" => Some(*SYNC_HTML),
+        "last_blocks" => Some(include_str!("../res/last_blocks.html")),
+        "network_info" => Some(include_str!("../res/network_info.html")),
+        "epoch_info" => Some(include_str!("../res/epoch_info.html")),
+        "chain_n_chunk_info" => Some(include_str!("../res/chain_n_chunk_info.html")),
+        "sync" => Some(include_str!("../res/sync.html")),
         _ => None,
     };
 

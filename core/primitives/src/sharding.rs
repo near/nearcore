@@ -34,6 +34,12 @@ use std::sync::Arc;
 )]
 pub struct ChunkHash(pub CryptoHash);
 
+impl ChunkHash {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+}
+
 impl AsRef<[u8]> for ChunkHash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
