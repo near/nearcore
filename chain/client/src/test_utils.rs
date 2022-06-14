@@ -538,7 +538,7 @@ pub fn setup_mock_all_validators(
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
-            let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+            let pm = PeerManagerMock::mock(Box::new(move |msg, ctx| {
                 let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
@@ -903,9 +903,14 @@ pub fn setup_mock_all_validators(
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (_, view_client) in connectors1.read().unwrap().iter() {
-                                    view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
-                                        vec![(announce_account.clone(), None)],
-                                    ))
+                                    let view_client = view_client.clone();
+                                    let announce_account = announce_account.clone();
+                                    let fut = actix::fut::wrap_future(async move {
+                                        let _ = view_client.send(NetworkViewClientMessages::AnnounceAccount(
+                                            vec![(announce_account, None)],
+                                        )).await;
+                                    });
+                                    ctx.spawn(fut);
                                 }
                             }
                         }
