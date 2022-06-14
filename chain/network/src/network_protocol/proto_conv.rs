@@ -1,9 +1,7 @@
 /// Contains protobuf <-> network_protocol conversions.
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PeerMessage, RoutingSyncV2, RoutingTableUpdate,
-};
+use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
@@ -484,12 +482,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
-                PeerMessage::RoutingTableSyncV2(rs) => {
-                    ProtoMT::RoutingTableSyncV2(proto::RoutingSyncV2 {
-                        borsh: rs.try_to_vec().unwrap(),
-                        ..Default::default()
-                    })
-                }
             }),
             ..Default::default()
         }
@@ -501,7 +493,6 @@ pub type ParseRoutedError = borsh::maybestd::io::Error;
 pub type ParseChallengeError = borsh::maybestd::io::Error;
 pub type ParseEpochSyncResponseError = borsh::maybestd::io::Error;
 pub type ParseEpochSyncFinalizationResponseError = borsh::maybestd::io::Error;
-pub type ParseRoutingTableSyncV2Error = borsh::maybestd::io::Error;
 
 #[derive(Error, Debug)]
 pub enum ParsePeerMessageError {
@@ -543,8 +534,6 @@ pub enum ParsePeerMessageError {
     EpochSyncFinalizationRequest(ParseRequiredError<ParseCryptoHashError>),
     #[error("epoch_sync_finalization_response: {0}")]
     EpochSyncFinalizationResponse(ParseEpochSyncFinalizationResponseError),
-    #[error("routing_table_sync_v2")]
-    RoutingTableSyncV2(ParseRoutingTableSyncV2Error),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -616,10 +605,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                         .map_err(Self::Error::EpochSyncFinalizationResponse)?,
                 ))
             }
-            ProtoMT::RoutingTableSyncV2(rts) => PeerMessage::RoutingTableSyncV2(
-                RoutingSyncV2::try_from_slice(&rts.borsh)
-                    .map_err(Self::Error::RoutingTableSyncV2)?,
-            ),
         })
     }
 }
