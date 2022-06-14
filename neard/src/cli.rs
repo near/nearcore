@@ -67,13 +67,6 @@ impl NeardCmd {
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Testnet(cmd) => {
-                warn!(
-                    "The 'testnet' command has been renamed to 'localnet' \
-                           and will be removed in the future"
-                );
-                cmd.run(&home_dir);
-            }
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             NeardSubCommand::StateViewer(cmd) => {
@@ -161,13 +154,6 @@ pub(super) enum NeardSubCommand {
     /// Sets up local configuration with all necessary files (validator key, node key, genesis and
     /// config)
     Localnet(LocalnetCmd),
-    /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
-    /// release.
-    // We’re not using clap(alias = "testnet") on Localnet because we want this
-    // to be a separate subcommand with a deprecation warning.  TODO(#4372):
-    // Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(hide = true)]
-    Testnet(LocalnetCmd),
     /// View DB state.
     #[clap(name = "view-state", alias = "view_state")]
     StateViewer(StateViewerCommand),
