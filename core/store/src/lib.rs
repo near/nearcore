@@ -575,4 +575,63 @@ mod tests {
         #[cfg(feature = "no_cache")]
         panic!("no cache is enabled");
     }
+
+    /// Asserts that elements in the vector are sorted.
+    fn assert_sorted(want_count: usize, keys: Vec<Box<[u8]>>) {
+        assert_eq!(want_count, keys.len());
+        for (pos, pair) in keys.windows(2).enumerate() {
+            let (fst, snd) = (&pair[0], &pair[1]);
+            assert!(fst <= snd, "{fst:?} > {snd:?} at {pos}");
+        }
+    }
+
+    /// Checks that keys are sorted when iterating.
+    fn test_iter_order_impl(store: crate::Store, count: usize) {
+        use rand::Rng;
+
+        // An arbitrary non-rc non-insert-only column we can write data into.
+        const COLUMN: crate::DBCol = crate::DBCol::Peers;
+        assert!(!COLUMN.is_rc());
+        assert!(!COLUMN.is_insert_only());
+
+        // Fill column with random keys.  We're inserting three sets of keys.
+        // One set prefixed by "foo", second by "bar" and last by "baz".  Each
+        // set is `count` keys (for total of `3*count` keys).
+        let mut rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(0x3243f6a8885a308d);
+        let mut update = store.store_update();
+        let mut buf = [0u8; 20];
+        for prefix in [b"foo", b"bar", b"baz"] {
+            buf[..prefix.len()].clone_from_slice(prefix);
+            for _ in 0..count {
+                rng.fill(&mut buf[prefix.len()..]);
+                update.set(COLUMN, &buf, &buf);
+            }
+        }
+        update.commit().unwrap();
+
+        // Check that full scan produces keys in proper order.
+        let keys: Vec<Box<[u8]>> = store.iter(COLUMN).map(|(key, _)| key).collect();
+        assert_sorted(3 * count, keys);
+
+        let keys: Vec<Box<[u8]>> = store.iter_raw_bytes(COLUMN).map(|(key, _)| key).collect();
+        assert_sorted(3 * count, keys);
+
+        // Check that prefix scan produces keys in proper order.
+        let keys: Vec<Box<[u8]>> = store.iter_prefix(COLUMN, b"baz").map(|(key, _)| key).collect();
+        for (pos, key) in keys.iter().enumerate() {
+            assert_eq!(b"baz", &key[0..3], "Expected ‘baz’ prefix but got {key:?} at {pos}");
+        }
+        assert_sorted(count, keys);
+    }
+
+    #[test]
+    fn rocksdb_iter_order() {
+        let (_tmp_dir, opener) = crate::Store::tmp_opener();
+        test_iter_order_impl(opener.open(), 10_000);
+    }
+
+    #[test]
+    fn testdb_iter_order() {
+        test_iter_order_impl(crate::test_utils::create_test_store(), 10_000);
+    }
 }
