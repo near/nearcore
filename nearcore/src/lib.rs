@@ -7,7 +7,7 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_client::{start_client, start_view_client, ClientActor, ViewClientHandle};
 use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
@@ -230,7 +230,7 @@ fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::
 
 pub struct NearNode {
     pub client: Addr<ClientActor>,
-    pub view_client: Addr<ViewClientActor>,
+    pub view_client: ViewClientHandle,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }

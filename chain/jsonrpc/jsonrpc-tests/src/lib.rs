@@ -1,11 +1,11 @@
-use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use once_cell::sync::Lazy;
 use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
-use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
-use near_client::ViewClientActor;
+use near_client::{
+    test_utils::setup_no_network_with_validity_period_and_no_epoch_sync, ViewClientHandle,
+};
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_network::test_utils::open_port;
@@ -21,7 +21,7 @@ pub enum NodeType {
     NonValidator,
 }
 
-pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, String) {
+pub fn start_all(node_type: NodeType) -> (ViewClientHandle, String) {
     start_all_with_validity_period_and_no_epoch_sync(node_type, 100, false)
 }
 
@@ -29,7 +29,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, String) {
+) -> (ViewClientHandle, String) {
     let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
         vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
         if let NodeType::Validator = node_type {

@@ -14,7 +14,7 @@ use paperclip::actix::{
 use strum::IntoEnumIterator;
 
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, ViewClientHandle};
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
 
@@ -94,7 +94,7 @@ async fn network_list(
 async fn network_status(
     genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<ViewClientHandle>,
     body: Json<models::NetworkRequest>,
 ) -> Result<Json<models::NetworkStatusResponse>, models::Error> {
     let Json(models::NetworkRequest { network_identifier }) = body;
@@ -207,7 +207,7 @@ async fn network_options(
 async fn block_details(
     genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<ViewClientHandle>,
     body: Json<models::BlockRequest>,
 ) -> Result<Json<models::BlockResponse>, models::Error> {
     let Json(models::BlockRequest { network_identifier, block_identifier }) = body;
@@ -281,7 +281,7 @@ async fn block_details(
 async fn block_transaction_details(
     genesis: web::Data<Genesis>,
     client_addr: web::Data<Addr<ClientActor>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<ViewClientHandle>,
     body: Json<models::BlockTransactionRequest>,
 ) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
     let Json(models::BlockTransactionRequest {
@@ -330,7 +330,7 @@ async fn block_transaction_details(
 /// optional BlockIdentifier.
 async fn account_balance(
     client_addr: web::Data<Addr<ClientActor>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<ViewClientHandle>,
     body: Json<models::AccountBalanceRequest>,
 ) -> Result<Json<models::AccountBalanceResponse>, models::Error> {
     let Json(models::AccountBalanceRequest {
@@ -507,7 +507,7 @@ async fn construction_preprocess(
 /// because of the wide scope of metadata that could be required.
 async fn construction_metadata(
     client_addr: web::Data<Addr<ClientActor>>,
-    view_client_addr: web::Data<Addr<ViewClientActor>>,
+    view_client_addr: web::Data<ViewClientHandle>,
     body: Json<models::ConstructionMetadataRequest>,
 ) -> Result<Json<models::ConstructionMetadataResponse>, models::Error> {
     let Json(models::ConstructionMetadataRequest { network_identifier, options, public_keys }) =
@@ -786,7 +786,7 @@ pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: ViewClientHandle,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
     let server = HttpServer::new(move || {

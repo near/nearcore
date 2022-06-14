@@ -25,7 +25,7 @@ pub(crate) async fn fetch_status(
 /// Fetches the status to retrieve `latest_block_height` to determine if we need to fetch
 /// entire block or we already fetched this block.
 pub(crate) async fn fetch_latest_block(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
         .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
@@ -37,7 +37,7 @@ pub(crate) async fn fetch_latest_block(
 
 /// Fetches specific block by it's height
 pub(crate) async fn fetch_block_by_height(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     height: u64,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
@@ -48,7 +48,7 @@ pub(crate) async fn fetch_block_by_height(
 
 /// Fetches specific block by it's hash
 pub(crate) async fn fetch_block_by_hash(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     hash: CryptoHash,
 ) -> Result<views::BlockView, FailedToFetchData> {
     client
@@ -58,7 +58,7 @@ pub(crate) async fn fetch_block_by_hash(
 }
 
 pub(crate) async fn fetch_state_changes(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     block_hash: CryptoHash,
     epoch_id: near_primitives::types::EpochId,
 ) -> Result<HashMap<near_primitives::types::ShardId, views::StateChangesView>, FailedToFetchData> {
@@ -71,7 +71,7 @@ pub(crate) async fn fetch_state_changes(
 /// Fetch all ExecutionOutcomeWithId for current block
 /// Returns a HashMap where the key is shard id IndexerExecutionOutcomeWithOptionalReceipt
 pub(crate) async fn fetch_outcomes(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     block_hash: CryptoHash,
 ) -> Result<
     HashMap<near_primitives::types::ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>,
@@ -113,7 +113,7 @@ pub(crate) async fn fetch_outcomes(
 }
 
 async fn fetch_receipt_by_id(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     receipt_id: CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
     client
@@ -125,7 +125,7 @@ async fn fetch_receipt_by_id(
 /// Fetches single chunk (as `near_primitives::views::ChunkView`) by provided
 /// chunk hash.
 async fn fetch_single_chunk(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     chunk_hash: near_primitives::hash::CryptoHash,
 ) -> Result<views::ChunkView, FailedToFetchData> {
     client
@@ -137,7 +137,7 @@ async fn fetch_single_chunk(
 /// Fetches all chunks belonging to given block.
 /// Includes transactions and receipts in custom struct (to provide more info).
 pub(crate) async fn fetch_block_chunks(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     block: &views::BlockView,
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
     let mut futures: futures::stream::FuturesUnordered<_> = block
@@ -154,7 +154,7 @@ pub(crate) async fn fetch_block_chunks(
 }
 
 pub(crate) async fn fetch_protocol_config(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     block_hash: near_primitives::hash::CryptoHash,
 ) -> Result<near_chain_configs::ProtocolConfigView, FailedToFetchData> {
     Ok(client

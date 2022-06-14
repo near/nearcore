@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::string::ToString;
 
-use actix::Addr;
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::views::SignedTransactionView;
 
@@ -20,7 +18,7 @@ impl ExecutionToReceipts {
     /// transaction or receipt causing the execution to list of created
     /// receipts’ hashes.
     pub(crate) async fn for_block(
-        view_client_addr: Addr<near_client::ViewClientActor>,
+        view_client_addr: near_client::ViewClientHandle,
         block_hash: CryptoHash,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr

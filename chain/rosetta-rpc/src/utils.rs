@@ -1,8 +1,7 @@
-use actix::Addr;
 use futures::StreamExt;
 
 use near_chain_configs::ProtocolConfigView;
-use near_client::ViewClientActor;
+use near_client::ViewClientHandle;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{errors, models};
@@ -303,7 +302,7 @@ impl RosettaAccountBalances {
 pub(crate) async fn query_account(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -340,7 +339,7 @@ pub(crate) async fn query_account(
 pub(crate) async fn query_accounts<R>(
     block_id: &near_primitives::types::BlockReference,
     account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
@@ -371,7 +370,7 @@ pub(crate) async fn query_access_key(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
     public_key: near_crypto::PublicKey,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -411,7 +410,7 @@ pub(crate) async fn query_access_key(
 
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
         .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
@@ -466,7 +465,7 @@ where
 /// Returns `Ok(None)` if the block does not exist or is not final.
 pub(crate) async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
     let final_block = get_final_block(view_client_addr).await?;
     let is_query_by_height = match block_id {
@@ -513,7 +512,7 @@ pub(crate) async fn get_block_if_final(
 }
 
 pub(crate) async fn get_final_block(
-    view_client_addr: &Addr<ViewClientActor>,
+    view_client_addr: &ViewClientHandle,
 ) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
     view_client_addr
         .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(

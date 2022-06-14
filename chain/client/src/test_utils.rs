@@ -47,7 +47,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientHandle};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
@@ -87,7 +87,7 @@ pub fn setup(
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
-) -> (Block, ClientActor, Addr<ViewClientActor>) {
+) -> (Block, ClientActor, ViewClientHandle) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
@@ -178,7 +178,7 @@ pub fn setup_only_view(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
-) -> Addr<ViewClientActor> {
+) -> ViewClientHandle {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
@@ -249,7 +249,7 @@ pub fn setup_mock(
             Addr<ClientActor>,
         ) -> PeerManagerMessageResponse,
     >,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (Addr<ClientActor>, ViewClientHandle) {
     setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
@@ -273,9 +273,9 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
         ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (Addr<ClientActor>, ViewClientHandle) {
     let network_adapter = Arc::new(NetworkRecipient::default());
-    let mut vca: Option<Addr<ViewClientActor>> = None;
+    let mut vca: Option<ViewClientHandle> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let (_, client, view_client_addr) = setup(
             vec![validators],
@@ -415,7 +415,7 @@ impl BlockStats {
 }
 
 fn send_chunks<T, I, F>(
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>>,
     recipients: I,
     target: T,
     drop_chunks: bool,
@@ -489,7 +489,7 @@ pub fn setup_mock_all_validators(
             >,
         >,
     >,
-) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
+) -> (Block, Vec<(Addr<ClientActor>, ViewClientHandle)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 
@@ -497,7 +497,7 @@ pub fn setup_mock_all_validators(
     let genesis_time = Clock::utc();
     let mut ret = vec![];
 
-    let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+    let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
         Arc::new(RwLock::new(vec![]));
 
     // Lock the connectors so that none of the threads spawned below access them until we overwrite
@@ -1031,7 +1031,7 @@ pub fn setup_no_network(
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (Addr<ClientActor>, ViewClientHandle) {
     setup_no_network_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,
@@ -1047,7 +1047,7 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     skip_sync_wait: bool,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+) -> (Addr<ClientActor>, ViewClientHandle) {
     setup_mock_with_validity_period_and_no_epoch_sync(
         validators,
         account_id,

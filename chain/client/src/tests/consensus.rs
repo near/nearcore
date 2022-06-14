@@ -5,7 +5,7 @@ use actix::{Addr, System};
 use rand::{thread_rng, Rng};
 
 use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, ViewClientActor};
+use crate::{ClientActor, ViewClientHandle};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_logger_utils::init_integration_logger;
@@ -29,7 +29,7 @@ fn test_consensus_with_epoch_switches() {
     const HEIGHT_GOAL: u64 = 120;
 
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
         let connectors1 = connectors.clone();
 
