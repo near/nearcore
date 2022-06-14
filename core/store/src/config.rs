@@ -54,7 +54,7 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
-    /// Returns the default value for the `max_open_files` database limite.
+    /// Returns the default value for the database's `max_open_files` limit.
     ///
     /// We used to use value of 512 but we were hitting that limit often and
     /// store had to constantly close and reopen the same set of files.  Running
