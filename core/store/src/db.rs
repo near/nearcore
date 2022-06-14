@@ -811,13 +811,13 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::DEFAULT, false).unwrap();
+        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), false).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
-        let (_tmp_dir, opener) = Store::tmp_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         let store = opener.open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
-        let (_tmp_dir, opener) = Store::tmp_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         let store = opener.open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
