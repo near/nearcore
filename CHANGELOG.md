@@ -20,10 +20,13 @@
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
   directory [#6938](https://github.com/near/nearcore/pull/6938)
-* Removed `testnet` alias for `localnet` command; the alias has been
-  deprecated since 1.24 [#7033](https://github.com/near/nearcore/pull/7033)
+* Removed `testnet` alias for `localnet` command; it’s been deprecated
+  since 1.24 [#7033](https://github.com/near/nearcore/pull/7033)
 * Removed undocumented `unsafe_reset_all` and `unsafe_reset_data`
-  commands.  They were deprecated since 1.25
+  commands; they were deprecated since 1.25
+* Key files can use `private_key` field instead of `secret_key` now;
+  this improves interoperability with near cli which uses the former
+  name [#7030](https://github.com/near/nearcore/issues/7030)
 
 ## 1.26.0 [2022-05-18]
 
