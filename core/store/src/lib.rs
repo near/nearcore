@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        let (_tmp_dir, opener) = crate::Store::tmp_opener();
+        let (_tmp_dir, opener) = crate::Store::test_opener();
         test_iter_order_impl(opener.open(), 10_000);
     }
 
