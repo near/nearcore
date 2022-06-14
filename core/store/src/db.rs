@@ -429,10 +429,12 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        RocksDB::iter_with_rc_logic(
-            col,
-            self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
-        )
+        let iterator = self.db.read().unwrap()[col]
+            .range(key_prefix.to_vec()..)
+            .take_while(move |(k, _)| k.starts_with(&key_prefix))
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
+        RocksDB::iter_with_rc_logic(col, Box::new(iterator.into_iter()))
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
