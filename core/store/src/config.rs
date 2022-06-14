@@ -86,7 +86,7 @@ impl Default for StoreConfig {
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
-            block_size: bytesize::ByteSize::kib(16)
+            block_size: bytesize::ByteSize::kib(16),
         }
     }
 }
