@@ -20,6 +20,8 @@
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
   directory [#6938](https://github.com/near/nearcore/pull/6938)
+* Removed `testnet` alias for `localnet` command; the alias has been
+  deprecated since 1.24
 
 ## 1.26.0 [2022-05-18]
 
