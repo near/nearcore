@@ -47,8 +47,7 @@ pub(crate) fn transaction_cost_ext(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
-    let per_block_overhead = apply_block_cost(ctx);
-    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64 / block_size as u64;
+    let measurement_overhead = overhead_per_measured_block(ctx, block_latency);
 
     let mut testbed = ctx.testbed();
     let blocks = {
@@ -66,18 +65,25 @@ pub(crate) fn transaction_cost_ext(
     };
 
     let measurements = testbed.measure_blocks(blocks, block_latency);
-    let mut measurements =
+    let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    // The assumption is that the overhead in the measurement due to applying blocks
-    // is negligible (<1%) and can therefore be ignored. This code is here to verify .
-    for (cost, _ext) in &mut measurements {
-        if measurement_overhead.clone() * 100 >= *cost {
-            cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
-        }
-    }
+    aggregate_per_block_measurements(
+        testbed.config,
+        block_size,
+        measurements,
+        Some(measurement_overhead),
+    )
+}
 
-    aggregate_per_block_measurements(testbed.config, block_size, measurements)
+/// Returns the total measurement overhead for a measured block.
+pub(crate) fn overhead_per_measured_block(
+    ctx: &mut EstimatorContext,
+    block_latency: usize,
+) -> GasCost {
+    let per_block_overhead = apply_block_cost(ctx);
+    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64;
+    measurement_overhead
 }
 
 #[track_caller]
@@ -148,6 +154,8 @@ pub(crate) fn fn_cost_with_setup(
     count: u64,
 ) -> GasCost {
     let (total_cost, measured_count) = {
+        let block_latency = 0;
+        let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
@@ -185,7 +193,7 @@ pub(crate) fn fn_cost_with_setup(
             .collect();
 
         let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements);
+            aggregate_per_block_measurements(ctx.config, block_size, measurements, Some(overhead));
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
@@ -208,6 +216,8 @@ pub(crate) fn fn_cost_in_contract(
     code: &[u8],
     block_size: usize,
 ) -> GasCost {
+    let block_latency = 0;
+    let overhead = overhead_per_measured_block(ctx, block_latency);
     let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
 
@@ -242,7 +252,7 @@ pub(crate) fn fn_cost_in_contract(
     measurements.drain(0..ctx.config.warmup_iters_per_block);
 
     let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(ctx.config, block_size, measurements);
+        aggregate_per_block_measurements(ctx.config, block_size, measurements, Some(overhead));
     gas_cost
 }
 
@@ -250,6 +260,7 @@ pub(crate) fn aggregate_per_block_measurements(
     config: &Config,
     block_size: usize,
     measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+    overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
@@ -269,6 +280,13 @@ pub(crate) fn aggregate_per_block_measurements(
     let mut gas_cost = total / n;
     if is_high_variance(&block_costs) {
         gas_cost.set_uncertain("HIGH-VARIANCE");
+    }
+    if let Some(overhead) = overhead {
+        // The assumption is that the overhead in the measurement due to applying blocks
+        // is negligible (<1%) and can therefore be ignored. This code is here to verify .
+        if overhead / block_size as u64 * 100 >= gas_cost {
+            gas_cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
+        }
     }
     (gas_cost, total_ext_costs)
 }

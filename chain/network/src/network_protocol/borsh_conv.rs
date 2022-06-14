@@ -79,6 +79,8 @@ impl From<&mem::HandshakeFailureReason> for net::HandshakeFailureReason {
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
     DeprecatedHandshakeV2,
+    #[error("RoutingTableSyncV2 is deprecated")]
+    DeprecatedRoutingTableSyncV2,
 }
 
 impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
@@ -116,7 +118,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::EpochSyncFinalizationResponse(esfr) => {
                 mem::PeerMessage::EpochSyncFinalizationResponse(esfr)
             }
-            net::PeerMessage::RoutingTableSyncV2(rs) => mem::PeerMessage::RoutingTableSyncV2(rs),
+            net::PeerMessage::_RoutingTableSyncV2 => {
+                return Err(Self::Error::DeprecatedRoutingTableSyncV2)
+            }
         })
     }
 }
@@ -154,7 +158,6 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::EpochSyncFinalizationResponse(esfr) => {
                 net::PeerMessage::EpochSyncFinalizationResponse(esfr)
             }
-            mem::PeerMessage::RoutingTableSyncV2(rs) => net::PeerMessage::RoutingTableSyncV2(rs),
         }
     }
 }

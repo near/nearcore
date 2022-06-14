@@ -143,8 +143,7 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store =
-            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
+        let store = near_store::Store::opener(&state_dump_path, &near_config.config.store).open();
         GenesisBuilder::from_config_and_store(
             &state_dump_path,
             Arc::new(near_config.genesis),

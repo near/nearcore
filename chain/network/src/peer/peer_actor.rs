@@ -18,9 +18,11 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerType, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, StateResponseInfo, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -547,8 +549,7 @@ impl PeerActor {
             | PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::RoutingTableSyncV2(_) => {
+            | PeerMessage::EpochSyncFinalizationRequest(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
@@ -1011,22 +1012,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         Some(self.throttle_controller.clone()),
                     ));
             }
-            (PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message))
-                if cfg!(feature = "protocol_feature_routing_exchange_algorithm") =>
-            {
-                // TODO(#5155) Add wrapper to be something like this for all messages.
-                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
-                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
-                //         ...
-
-                self.peer_manager_wrapper_addr.do_send(ActixMessageWrapper::new_without_size(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::IbfMessage {
-                        peer_id: self.other_peer_id().unwrap().clone(),
-                        ibf_msg: ibf_message,
-                    }),
-                    Some(self.throttle_controller.clone()),
-                ));
-            }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
@@ -1068,7 +1053,9 @@ impl Handler<SendMessage> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
-        trace!(target: "network", "SendMessage");
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
+        span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1079,7 +1066,9 @@ impl Handler<Arc<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
-        trace!(target: "network", "SendMessage");
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
+        span.set_parent(msg.context.clone());
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.as_ref().message);
     }
@@ -1089,8 +1078,10 @@ impl Handler<QueryPeerStats> for PeerActor {
     type Result = PeerStatsResult;
 
     #[perf]
-    fn handle(&mut self, _msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
-        trace!(target: "network", "QueryPeerStats");
+    fn handle(&mut self, msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler="QueryPeerStats").entered();
+        span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
@@ -1115,12 +1106,19 @@ impl Handler<QueryPeerStats> for PeerActor {
     }
 }
 
-impl Handler<PeerManagerRequest> for PeerActor {
+impl Handler<PeerManagerRequestWithContext> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
-        trace!(target: "network", "PeerManagerRequest");
+    fn handle(
+        &mut self,
+        msg: PeerManagerRequestWithContext,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let span = tracing::trace_span!(target: "network", "handle", handler="PeerManagerRequest")
+            .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _d =
             delay_detector::DelayDetector::new(|| format!("peer manager request {:?}", msg).into());
         match msg {
