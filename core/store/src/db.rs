@@ -434,7 +434,7 @@ impl Database for TestDB {
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
             .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
             .collect::<Vec<_>>();
-        RocksDB::iter_with_rc_logic(col, Box::new(iterator.into_iter()))
+        RocksDB::iter_with_rc_logic(col, iterator.into_iter())
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
