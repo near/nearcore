@@ -2132,7 +2132,7 @@ mod test {
             has_reward: bool,
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
-            let (dir, opener) = Store::tmp_opener();
+            let (dir, opener) = Store::test_opener();
             let store = opener.open();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
