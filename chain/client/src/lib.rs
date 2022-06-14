@@ -11,6 +11,7 @@ pub use near_client_primitives::types::{
 pub use crate::client::Client;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::view_client::{start_view_client, ViewClientActor};
+pub use crate::view_client_handle::ViewClientHandle;
 
 pub mod adversarial;
 mod client;
@@ -23,3 +24,4 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 mod view_client;
+mod view_client_handle;
