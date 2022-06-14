@@ -105,12 +105,6 @@ impl Default for StoreConfig {
     }
 }
 
-// TODO(#6857): Get rid of this function.  Clients of this method should use
-// StoreOpener::get_path instead..
-pub fn get_store_path(base_path: &std::path::Path) -> std::path::PathBuf {
-    base_path.join(STORE_PATH)
-}
-
 /// Builder for opening a RocksDB database.
 ///
 /// Typical usage:
