@@ -17,9 +17,9 @@ use actix::{
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    Ban, NetworkViewClientHandle, NetworkViewClientMessages, NetworkViewClientResponses,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
+    PeerType, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -88,7 +88,7 @@ pub(crate) struct PeerActor {
     /// Addr for client to send messages related to the chain.
     client_addr: Recipient<NetworkClientMessages>,
     /// Addr for view client to send messages related to the chain.
-    view_client_addr: Recipient<NetworkViewClientMessages>,
+    view_client_addr: NetworkViewClientHandle,
     /// Tracker for requests and responses.
     tracker: Tracker,
     /// This node genesis id.
@@ -142,7 +142,7 @@ impl PeerActor {
         peer_manager_addr: Recipient<PeerManagerMessageRequest>,
         peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerManagerMessageRequest>>,
         client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: NetworkViewClientHandle,
         partial_edge_info: Option<PartialEdgeInfo>,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,

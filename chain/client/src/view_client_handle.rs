@@ -1,5 +1,6 @@
 use actix::Addr;
-use near_network_primitives::types::NetworkViewClientMessages;
+use futures::FutureExt;
+use near_network_primitives::types::{NetworkViewClientHandle, ViewClientIsDeadError};
 
 use crate::ViewClientActor;
 
@@ -37,15 +38,16 @@ impl ViewClientHandle {
     {
         self.addr.send(msg)
     }
-    pub fn do_send<M>(&self, msg: M)
-    where
-        M: actix::Message + Send + 'static,
-        M::Result: Send + 'static,
-        ViewClientActor: actix::Handler<M>,
-    {
-        self.addr.do_send(msg)
-    }
-    pub fn recipient(self) -> actix::Recipient<NetworkViewClientMessages> {
-        self.addr.recipient()
+
+    pub fn recipient(self) -> NetworkViewClientHandle {
+        NetworkViewClientHandle::new(move |msg| {
+            self.send(msg).map(|it| {
+                it.map_err(|err| match err {
+                    actix::MailboxError::Closed | actix::MailboxError::Timeout => {
+                        ViewClientIsDeadError
+                    }
+                })
+            })
+        })
     }
 }

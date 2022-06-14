@@ -26,10 +26,10 @@ use actix::{
 use anyhow::bail;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping,
-    Pong, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
-    StateResponseInfo,
+    NetworkConfig, NetworkViewClientHandle, NetworkViewClientMessages, NetworkViewClientResponses,
+    OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
+    PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
@@ -180,7 +180,7 @@ pub struct PeerManagerActor {
     /// Address of the client actor.
     client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
-    view_client_addr: Recipient<NetworkViewClientMessages>,
+    view_client_addr: NetworkViewClientHandle,
     /// Peer store that provides read/write access to peers.
     peer_store: PeerStore,
     /// Set of outbound connections that were not consolidated yet.
@@ -302,7 +302,7 @@ impl PeerManagerActor {
         store: Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: NetworkViewClientHandle,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
         let peer_store =

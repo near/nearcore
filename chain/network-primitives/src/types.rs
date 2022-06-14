@@ -22,9 +22,11 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
+use std::future::Future;
 use std::hash::Hash;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
@@ -296,6 +298,44 @@ pub enum SandboxResponse {
     SandboxPatchStateFinished(bool),
     SandboxFastForwardFinished(bool),
     SandboxFastForwardFailed(String),
+}
+
+#[derive(Clone)]
+pub struct NetworkViewClientHandle {
+    inner: Arc<
+        dyn Fn(
+                NetworkViewClientMessages,
+            ) -> std::pin::Pin<
+                Box<dyn Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>>>,
+            > + Send
+            + Sync,
+    >,
+}
+
+impl NetworkViewClientHandle {
+    pub fn new<F, Fut>(f: F) -> NetworkViewClientHandle
+    where
+        F: Fn(NetworkViewClientMessages) -> Fut + 'static + Send + Sync,
+        Fut: Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>> + 'static,
+    {
+        let inner =
+            Arc::new(move |msg| Box::pin(f(msg)) as std::pin::Pin<Box<dyn Future<Output = _>>>);
+        NetworkViewClientHandle { inner }
+    }
+
+    pub fn send(
+        &self,
+        msg: NetworkViewClientMessages,
+    ) -> impl Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>> {
+        (self.inner)(msg)
+    }
+}
+
+pub struct ViewClientIsDeadError;
+impl fmt::Display for ViewClientIsDeadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ViewClient is dead")
+    }
 }
 
 #[derive(actix::Message, strum::IntoStaticStr)]
