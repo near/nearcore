@@ -20,12 +20,20 @@ use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 /// Responsible for creation of trie caches, stores necessary configuration for it.
 #[derive(Default)]
 pub struct TrieCacheFactory {
-    pub capacities: HashMap<ShardUId, usize>,
-    pub shard_version: ShardVersion,
-    pub num_shards: NumShards,
+    capacities: HashMap<ShardUId, usize>,
+    shard_version: ShardVersion,
+    num_shards: NumShards,
 }
 
 impl TrieCacheFactory {
+    pub fn new(
+        capacities: HashMap<ShardUId, usize>,
+        shard_version: ShardVersion,
+        num_shards: NumShards,
+    ) -> Self {
+        Self { capacities, shard_version, num_shards }
+    }
+
     /// Create new cache for the given shard uid.
     pub fn create_cache(&self, shard_uid: &ShardUId) -> TrieCache {
         match self.capacities.get(shard_uid) {
@@ -69,10 +77,7 @@ impl ShardTries {
     }
 
     pub fn test(store: Store, num_shards: NumShards) -> Self {
-        Self::new(
-            store,
-            TrieCacheFactory { capacities: Default::default(), shard_version: 0, num_shards },
-        )
+        Self::new(store, TrieCacheFactory::new(Default::default(), 0, num_shards))
     }
 
     pub fn is_same(&self, other: &Self) -> bool {

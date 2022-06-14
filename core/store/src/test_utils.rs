@@ -26,8 +26,7 @@ pub fn create_tries() -> ShardTries {
 
 pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
     let store = create_test_store();
-    let trie_cache_factory =
-        TrieCacheFactory { capacities: Default::default(), shard_version, num_shards };
+    let trie_cache_factory = TrieCacheFactory::new(Default::default(), shard_version, num_shards);
     ShardTries::new(store, trie_cache_factory)
 }
 

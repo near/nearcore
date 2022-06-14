@@ -187,11 +187,11 @@ impl NightshadeRuntime {
         );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let trie_cache_factory = TrieCacheFactory {
-            capacities: trie_cache_capacities.into_iter().collect(),
-            shard_version: genesis_config.shard_layout.version(),
-            num_shards: genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
-        };
+        let trie_cache_factory = TrieCacheFactory::new(
+            trie_cache_capacities.into_iter().collect(),
+            genesis_config.shard_layout.version(),
+            genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+        );
         let tries = ShardTries::new(store.clone(), trie_cache_factory);
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
@@ -302,11 +302,11 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let trie_cache_factory = TrieCacheFactory {
-            capacities: Default::default(),
-            shard_version: genesis.config.shard_layout.version(),
+        let trie_cache_factory = TrieCacheFactory::new(
+            Default::default(),
+            genesis.config.shard_layout.version(),
             num_shards,
-        };
+        );
         let tries = ShardTries::new(store, trie_cache_factory);
         let runtime = Runtime::new();
         let runtime_config_store =
