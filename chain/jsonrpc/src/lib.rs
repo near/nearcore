@@ -19,7 +19,7 @@ use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
-    ViewClientActor,
+    ViewClientActor, ViewClientHandle,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -210,7 +210,7 @@ fn process_query_response(
 
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: ViewClientHandle,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -1531,7 +1531,7 @@ pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: ViewClientHandle,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
     #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {

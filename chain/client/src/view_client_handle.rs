@@ -1,4 +1,5 @@
 use actix::Addr;
+use near_network_primitives::types::NetworkViewClientMessages;
 
 use crate::ViewClientActor;
 
@@ -17,4 +18,34 @@ use crate::ViewClientActor;
 /// moving away from actix, and, as a first step, trying to make sure that actix
 /// types do not leak outside. This isn't a one PR worth of work though, so you
 /// are witnessing an intermediate state here!
-pub type ViewClientHandle = Addr<ViewClientActor>;
+#[derive(Clone)]
+pub struct ViewClientHandle {
+    addr: Addr<ViewClientActor>,
+}
+
+impl ViewClientHandle {
+    /// NB: This is very intentionally `pub(crate)`, don't make this public.
+    pub(crate) fn new(addr: Addr<ViewClientActor>) -> ViewClientHandle {
+        ViewClientHandle { addr }
+    }
+
+    pub fn send<M>(&self, msg: M) -> actix::prelude::Request<ViewClientActor, M>
+    where
+        M: actix::Message + Send + 'static,
+        M::Result: Send,
+        ViewClientActor: actix::Handler<M>,
+    {
+        self.addr.send(msg)
+    }
+    pub fn do_send<M>(&self, msg: M)
+    where
+        M: actix::Message + Send + 'static,
+        M::Result: Send + 'static,
+        ViewClientActor: actix::Handler<M>,
+    {
+        self.addr.do_send(msg)
+    }
+    pub fn recipient(self) -> actix::Recipient<NetworkViewClientMessages> {
+        self.addr.recipient()
+    }
+}

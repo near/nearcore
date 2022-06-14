@@ -1367,7 +1367,7 @@ pub fn start_view_client(
     adv: crate::adversarial::Controls,
 ) -> ViewClientHandle {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
-    SyncArbiter::start(config.view_client_threads, move || {
+    let addr = SyncArbiter::start(config.view_client_threads, move || {
         // ViewClientActor::start_in_arbiter(&Arbiter::current(), move |_ctx| {
         let validator_account_id1 = validator_account_id.clone();
         let runtime_adapter1 = runtime_adapter.clone();
@@ -1384,5 +1384,6 @@ pub fn start_view_client(
             adv.clone(),
         )
         .unwrap()
-    })
+    });
+    ViewClientHandle::new(addr)
 }

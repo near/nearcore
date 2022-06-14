@@ -241,7 +241,7 @@ async fn block_details(
 
     let transactions = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
+        ViewClientHandle::clone(&view_client_addr),
         &block,
     )
     .await?;
@@ -300,7 +300,7 @@ async fn block_transaction_details(
 
     let transaction = crate::adapters::collect_transactions(
         Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
+        ViewClientHandle::clone(&view_client_addr),
         &block,
     )
     .await?
