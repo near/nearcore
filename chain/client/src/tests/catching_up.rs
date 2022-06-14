@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
 
 use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, Query, ViewClientActor};
+use crate::{ClientActor, Query, ViewClientHandle};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::account_id_to_shard_id;
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
@@ -131,7 +131,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
     let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let (validators, key_pairs) = get_validators_and_key_pairs();
@@ -415,7 +415,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
     let validator_groups = 2;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let (validators, key_pairs) = get_validators_and_key_pairs();
@@ -625,7 +625,7 @@ fn test_catchup_sanity_blocks_produced() {
     let validator_groups = 2;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let heights = Arc::new(RwLock::new(HashMap::new()));
@@ -700,7 +700,7 @@ fn test_chunk_grieving() {
     let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let (validators, key_pairs) = get_validators_and_key_pairs();
@@ -870,7 +870,7 @@ fn test_all_chunks_accepted_common(
     let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let (validators, key_pairs) = get_validators_and_key_pairs();

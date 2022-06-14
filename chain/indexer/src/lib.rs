@@ -83,7 +83,7 @@ pub struct IndexerConfig {
 pub struct Indexer {
     indexer_config: IndexerConfig,
     near_config: nearcore::NearConfig,
-    view_client: actix::Addr<near_client::ViewClientActor>,
+    view_client: near_client::ViewClientHandle,
     client: actix::Addr<near_client::ClientActor>,
 }
 
@@ -134,7 +134,7 @@ impl Indexer {
     /// Internal client actors just in case. Use on your own risk, backward compatibility is not guaranteed
     pub fn client_actors(
         &self,
-    ) -> (actix::Addr<near_client::ViewClientActor>, actix::Addr<near_client::ClientActor>) {
+    ) -> (near_client::ViewClientHandle, actix::Addr<near_client::ClientActor>) {
         (self.view_client.clone(), self.client.clone())
     }
 }

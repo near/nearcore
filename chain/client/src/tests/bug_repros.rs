@@ -10,7 +10,7 @@ use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
 use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, GetBlock, ViewClientActor};
+use crate::{ClientActor, GetBlock, ViewClientHandle};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::account_id_to_shard_id;
 use near_crypto::{InMemorySigner, KeyType};
@@ -30,7 +30,7 @@ fn repro_1183() {
     let validator_groups = 2;
     init_test_logger();
     run_actix(async {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let validators = vec![vec![

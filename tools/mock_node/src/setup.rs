@@ -8,7 +8,7 @@ use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
 };
 use near_chain_configs::GenesisConfig;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_client::{start_client, start_view_client, ClientActor, ViewClientHandle};
 use near_epoch_manager::EpochManager;
 use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
@@ -70,7 +70,7 @@ pub struct MockNode {
     // client under test
     pub client: Addr<ClientActor>,
     // view client under test
-    pub view_client: Addr<ViewClientActor>,
+    pub view_client: ViewClientHandle,
     // RPC servers started by the client
     pub servers: Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
     // target height actually available to sync to in the chain history database

@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use actix::{Actor, Handler, SyncArbiter, SyncContext};
 use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
@@ -58,7 +58,7 @@ use near_primitives::views::{
 
 use crate::{
     sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ViewClientHandle,
 };
 
 /// Max number of queries that we keep.
@@ -1365,7 +1365,7 @@ pub fn start_view_client(
     network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
     adv: crate::adversarial::Controls,
-) -> Addr<ViewClientActor> {
+) -> ViewClientHandle {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
         // ViewClientActor::start_in_arbiter(&Arbiter::current(), move |_ctx| {

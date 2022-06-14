@@ -66,7 +66,7 @@ fn test_problematic_blocks_hash() {
 /// and returns everything together in one struct
 #[async_recursion]
 async fn build_streamer_message(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let chunks = fetch_block_chunks(&client, &block).await?;
@@ -233,7 +233,7 @@ async fn build_streamer_message(
 /// Function that tries to find specific local receipt by it's ID and returns it
 /// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
-    client: &Addr<near_client::ViewClientActor>,
+    client: &near_client::ViewClientHandle,
     protocol_config_view: &near_chain_configs::ProtocolConfigView,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
@@ -278,9 +278,9 @@ async fn find_local_receipt_by_id_in_block(
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
 /// compares to already fetched block height and in case it differs fetches new block of given height.
 ///
-/// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: Addr<near_client::ViewClientActor>`.
+/// We have to pass `client: Addr<near_client::ClientActor>` and `view_client: near_client::ViewClientHandle`.
 pub(crate) async fn start(
-    view_client: Addr<near_client::ViewClientActor>,
+    view_client: near_client::ViewClientHandle,
     client: Addr<near_client::ClientActor>,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,

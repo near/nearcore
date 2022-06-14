@@ -4,7 +4,7 @@ use actix_rt::ArbiterHandle;
 use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::Genesis;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, ViewClientHandle};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
@@ -18,7 +18,7 @@ fn start_nodes(
     num_lightclient: NumSeats,
     epoch_length: BlockHeightDelta,
     genesis_height: BlockHeight,
-) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>)>) {
+) -> (Genesis, Vec<String>, Vec<(Addr<ClientActor>, ViewClientHandle, Vec<ArbiterHandle>)>) {
     init_integration_logger();
 
     let num_tracking_nodes = num_nodes - num_lightclient;
@@ -113,11 +113,7 @@ impl NodeCluster {
         F: FnOnce(
             near_chain_configs::Genesis,
             Vec<String>,
-            Vec<(
-                actix::Addr<ClientActor>,
-                actix::Addr<ViewClientActor>,
-                Vec<actix_rt::ArbiterHandle>,
-            )>,
+            Vec<(actix::Addr<ClientActor>, ViewClientHandle, Vec<actix_rt::ArbiterHandle>)>,
         ) -> R,
     {
         let (num_shards, num_validator_seats, num_lightclient, epoch_length, genesis_height) = (

@@ -23,7 +23,7 @@ use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
 use crate::test_utils::{setup_mock_all_validators, BlockStats};
-use crate::{ClientActor, Query, ViewClientActor};
+use crate::{ClientActor, Query, ViewClientActor, ViewClientHandle};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -32,7 +32,7 @@ fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let validators = vec![vec![
@@ -98,7 +98,7 @@ fn test_keyvalue_runtime_balances() {
 
 fn send_tx(
     num_validators: usize,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>>,
     connector_ordinal: usize,
     from: AccountId,
     to: AccountId,
@@ -157,7 +157,7 @@ fn send_tx(
 fn test_cross_shard_tx_callback(
     res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
     account_id: AccountId,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>>,
     iteration: Arc<AtomicUsize>,
     nonce: Arc<AtomicUsize>,
     validators: Vec<AccountId>,
@@ -383,7 +383,7 @@ fn test_cross_shard_tx_common(
     let validator_groups = 4;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, ViewClientHandle)>>> =
             Arc::new(RwLock::new(vec![]));
 
         let validators: Vec<Vec<_>> = if rotate_validators {
