@@ -47,7 +47,7 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let (tempdir, opener) = near_store::Store::tmp_opener();
+            let (tempdir, opener) = near_store::Store::test_opener();
             (Some(tempdir), opener.open())
         };
 
