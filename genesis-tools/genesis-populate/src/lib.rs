@@ -66,6 +66,7 @@ impl GenesisBuilder {
             None,
             None,
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            Default::default(),
         );
         Self {
             home_dir: home_dir.to_path_buf(),
