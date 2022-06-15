@@ -29,17 +29,18 @@ pub struct ViewClientAdapter {
             )
                 -> BoxFuture<'static, Result<NetworkViewClientResponses, ViewClientIsDeadError>>
             + Send
-            + Sync,
+            + Sync
+            + 'static,
     >,
 }
 
 impl ViewClientAdapter {
     pub fn new<F, Fut>(send_msg: F) -> ViewClientAdapter
     where
-        F: Fn(NetworkViewClientMessages) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>>
-            + Send
-            + 'static,
+        F: Fn(NetworkViewClientMessages) -> Fut,
+        F: Send + Sync + 'static,
+        Fut: Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>>,
+        Fut: Send + 'static,
     {
         let inner = Arc::new(move |msg| Box::pin(send_msg(msg)) as BoxFuture<_>);
         ViewClientAdapter { inner }
