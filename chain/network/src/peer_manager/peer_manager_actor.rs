@@ -1,4 +1,5 @@
 use crate::network_protocol::Encoding;
+use crate::view_client_adapter::ViewClientAdapter;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::PeerStore;
@@ -180,7 +181,7 @@ pub struct PeerManagerActor {
     /// Address of the client actor.
     client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
-    view_client_addr: Recipient<NetworkViewClientMessages>,
+    view_client_addr: ViewClientAdapter,
     /// Peer store that provides read/write access to peers.
     peer_store: PeerStore,
     /// Set of outbound connections that were not consolidated yet.
@@ -302,7 +303,7 @@ impl PeerManagerActor {
         store: Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: ViewClientAdapter,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
         let peer_store =

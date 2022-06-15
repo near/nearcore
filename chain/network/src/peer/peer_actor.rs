@@ -1,4 +1,5 @@
 use crate::network_protocol::{Encoding, ParsePeerMessageError};
+use crate::view_client_adapter::ViewClientAdapter;
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::private_actix::{
@@ -88,7 +89,7 @@ pub(crate) struct PeerActor {
     /// Addr for client to send messages related to the chain.
     client_addr: Recipient<NetworkClientMessages>,
     /// Addr for view client to send messages related to the chain.
-    view_client_addr: Recipient<NetworkViewClientMessages>,
+    view_client_addr: ViewClientAdapter,
     /// Tracker for requests and responses.
     tracker: Tracker,
     /// This node genesis id.
@@ -142,7 +143,7 @@ impl PeerActor {
         peer_manager_addr: Recipient<PeerManagerMessageRequest>,
         peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerManagerMessageRequest>>,
         client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: ViewClientAdapter,
         partial_edge_info: Option<PartialEdgeInfo>,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,

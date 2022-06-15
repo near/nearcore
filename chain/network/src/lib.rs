@@ -10,6 +10,7 @@ pub use crate::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF;
 mod network_protocol;
 mod peer;
 mod peer_manager;
+mod view_client_adapter;
 #[cfg(feature = "test_features")]
 pub mod private_actix;
 #[cfg(not(feature = "test_features"))]

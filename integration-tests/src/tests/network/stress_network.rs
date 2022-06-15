@@ -55,7 +55,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         store,
         config,
         client_addr.recipient(),
-        view_client_addr.recipient(),
+        view_client_addr.recipient().into(),
         routing_table_addr,
     )
     .unwrap()
