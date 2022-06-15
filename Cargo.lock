@@ -3419,7 +3419,6 @@ dependencies = [
  "pwasm-utils",
  "rand 0.8.5",
  "serde",
- "threadpool",
  "tracing",
  "wasm-smith",
  "wasmer-compiler-near",
