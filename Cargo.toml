@@ -34,7 +34,6 @@ members = [
     "neard",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
-    "runtime/near-vm-runner-standalone",
     "runtime/near-vm-runner/fuzz",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
