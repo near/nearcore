@@ -44,7 +44,6 @@ test_features = [
 nightly = ["nightly_protocol"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = [
-  "near-network/sandbox",
   "near-client/sandbox",
 ]
 protocol_feature_routing_exchange_algorithm = [

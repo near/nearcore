@@ -418,9 +418,6 @@ pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
 
-    #[cfg(feature = "sandbox")]
-    Sandbox(near_network_primitives::types::NetworkSandboxMessage),
-
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
@@ -464,10 +461,6 @@ pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "test_features")]
     AdvResult(u64),
-
-    /// Sandbox controls
-    #[cfg(feature = "sandbox")]
-    SandboxResult(near_network_primitives::types::SandboxResponse),
 
     /// No response.
     NoResponse,
