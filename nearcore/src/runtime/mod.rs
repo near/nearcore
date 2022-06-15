@@ -159,7 +159,7 @@ impl NightshadeRuntime {
         )
     }
 
-    pub fn new(
+    fn new(
         home_dir: &Path,
         store: Store,
         genesis: &Genesis,

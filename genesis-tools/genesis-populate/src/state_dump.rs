@@ -1,11 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-
 use near_primitives::types::StateRoot;
 use near_store::DBCol;
 use near_store::Store;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
