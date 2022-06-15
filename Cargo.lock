@@ -3449,25 +3449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-vm-runner-standalone"
-version = "0.0.0"
-dependencies = [
- "base64 0.13.0",
- "clap 3.1.18",
- "hex",
- "near-primitives",
- "near-primitives-core",
- "near-test-contracts",
- "near-vm-logic",
- "near-vm-runner",
- "num-rational",
- "rayon",
- "serde",
- "serde_json",
- "tracing-span-tree",
-]
-
-[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
