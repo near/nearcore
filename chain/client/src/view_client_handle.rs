@@ -1,6 +1,8 @@
 use actix::Addr;
 use futures::FutureExt;
+use near_client_primitives::types::{TxStatus, TxStatusError};
 use near_network_primitives::types::{NetworkViewClientHandle, ViewClientIsDeadError};
+use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 use crate::ViewClientActor;
 
@@ -30,6 +32,18 @@ impl ViewClientHandle {
         ViewClientHandle { addr }
     }
 
+    pub async fn tx_status(
+        &self,
+        params: TxStatus,
+    ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
+        match self.send(params).await {
+            Ok(it) => it,
+            Err(mailbox_error) => {
+                Result::Err(TxStatusError::InternalError(mailbox_error.to_string()))
+            }
+        }
+    }
+
     pub fn send<M>(&self, msg: M) -> actix::prelude::Request<ViewClientActor, M>
     where
         M: actix::Message + Send + 'static,
@@ -39,7 +53,7 @@ impl ViewClientHandle {
         self.addr.send(msg)
     }
 
-    pub fn recipient(self) -> NetworkViewClientHandle {
+    pub fn network_handle(self) -> NetworkViewClientHandle {
         NetworkViewClientHandle::new(move |msg| {
             self.send(msg).map(|it| {
                 it.map_err(|err| match err {

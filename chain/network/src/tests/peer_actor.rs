@@ -10,8 +10,9 @@ use crate::types::{
 use actix::{Actor, Context, Handler, StreamHandler as _};
 use near_crypto::InMemorySigner;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessage, RoutedMessageBody,
+    AccountOrPeerIdOrHash, Edge, NetworkViewClientHandle, NetworkViewClientMessages,
+    NetworkViewClientResponses, PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage,
+    RoutedMessage, RoutedMessageBody,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::block::{Block, BlockHeader};
@@ -290,7 +291,7 @@ impl PeerHandle {
                     fa.clone().recipient(),
                     fa.clone().recipient(),
                     fa.clone().recipient(),
-                    fa.clone().recipient(),
+                    None.unwrap(),
                     cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),

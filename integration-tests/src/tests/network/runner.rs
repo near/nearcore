@@ -113,7 +113,7 @@ fn setup_network_node(
             store.clone(),
             config,
             client_actor.recipient(),
-            view_client_actor.recipient(),
+            view_client_actor.network_handle(),
             routing_table_addr,
         )
         .unwrap()

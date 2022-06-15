@@ -281,7 +281,7 @@ pub fn start_with_config_and_synchronization(
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
     let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
+    let view_client1 = view_client.clone().network_handle();
     config.network_config.verify().with_context(|| "start_with_config")?;
     let network_config = config.network_config;
     let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());

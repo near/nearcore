@@ -625,13 +625,13 @@ impl JsonRpcHandler {
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
-                match self.view_client_send(
+                match self.view_client_addr.tx_status(
                     TxStatus {
                         tx_hash,
                         signer_account_id: signer_account_id.clone(),
                         fetch_receipt: false,
                     })
-                    .await
+                    .await.map_err(RpcFrom::rpc_from)
                 {
                     Ok(Some(_)) => {
                         return Ok(true);
@@ -677,13 +677,13 @@ impl JsonRpcHandler {
         };
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let tx_status_result = self.view_client_send( TxStatus {
+                let tx_status_result = self.view_client_addr.tx_status( TxStatus {
                         tx_hash,
                         signer_account_id: account_id.clone(),
                         fetch_receipt,
                     })
                     .await;
-                match tx_status_result {
+                match tx_status_result.map_err(RpcFrom::rpc_from) {
                     Ok(Some(outcome)) => break Ok(outcome),
                     Ok(None) => {} // No such transaction recorded on chain yet
                     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
