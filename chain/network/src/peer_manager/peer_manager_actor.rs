@@ -1792,23 +1792,21 @@ impl PeerManagerActor {
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
                 self.view_client
-                    .send(NetworkViewClientMessages::AnnounceAccount(accounts))
-                    .into_actor(self)
-                    .then(move |response, act, _ctx| {
+                    .actix_send(self, NetworkViewClientMessages::AnnounceAccount(accounts), move |response, act| {
                         let _span = tracing::trace_span!(target: "network", parent: &span, "announce_account").entered();
                         match response {
-                            Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
+                            NetworkViewClientResponses::Ban { ban_reason } => {
                                 act.try_ban_peer(&peer_id_clone, ban_reason);
                             }
-                            Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
+                            NetworkViewClientResponses::AnnounceAccount(accounts) => {
                                 act.broadcast_accounts(accounts);
                             }
                             _ => {
                                 debug!(target: "network", "Received invalid account confirmation from client.");
                             }
                         }
-                        actix::fut::ready(())
-                    }).spawn(ctx);
+                    })
+                    .spawn(ctx);
 
                 self.validate_edges_and_add_to_routing_table(peer_id, edges, throttle_controller);
 

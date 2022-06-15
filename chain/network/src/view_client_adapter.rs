@@ -1,3 +1,4 @@
+use actix::{ActorFutureExt, WrapFuture};
 use futures::future::BoxFuture;
 use futures::Future;
 use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
@@ -21,6 +22,10 @@ use std::sync::Arc;
 /// Implementation wise, this is a struct which holds a `dyn Trait` inside. As
 /// we only need to customize a single method (sending a message), a
 /// [`ViewClientAdapter`] can be constructed from arbitrary closure.
+///
+/// Note that `send` methods are intentionally `pub(crate)` -- code outside of
+/// the network should be able to create an adapter, but only network is
+/// actually allowed to use this.
 #[derive(Clone)]
 pub struct ViewClientAdapter {
     inner: Arc<
@@ -43,6 +48,25 @@ impl ViewClientAdapter {
     {
         let inner = Arc::new(move |msg| Box::pin(send_msg(msg)) as BoxFuture<_>);
         ViewClientAdapter { inner }
+    }
+
+    pub(crate) fn actix_send<A: actix::Actor>(
+        &self,
+        act: &A,
+        msg: NetworkViewClientMessages,
+        then: impl FnOnce(NetworkViewClientResponses, &mut A),
+    ) -> impl actix::ActorFuture<A, Output = ()> {
+        self.send(msg)
+            .into_actor(act)
+            .then(move |res, act, _ctx| {
+                match res {
+                    Ok(it) => then(it, act),
+                    Err(ViewClientIsDeadError) => {
+                        tracing::error!(target: "network", "Failed sending message to view client, it is dead");
+                    }
+                }
+                actix::fut::ready(())
+            })
     }
 
     pub(crate) fn send(

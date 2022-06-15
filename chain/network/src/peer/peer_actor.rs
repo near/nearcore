@@ -249,21 +249,14 @@ impl PeerActor {
     }
 
     fn fetch_client_chain_info(&self, ctx: &mut Context<PeerActor>) {
-        ctx.wait(
-            self.view_client.send(NetworkViewClientMessages::GetChainInfo).into_actor(self).then(
-                move |res, act, _ctx| match res {
-                    Ok(NetworkViewClientResponses::ChainInfo { genesis_id, .. }) => {
-                        act.genesis_id = genesis_id;
-                        actix::fut::ready(())
-                    }
-                    Err(err) => {
-                        error!(target: "network", "Failed sending GetChain to client: {}", err);
-                        actix::fut::ready(())
-                    }
-                    _ => actix::fut::ready(()),
-                },
-            ),
-        );
+        self.view_client
+            .actix_send(self, NetworkViewClientMessages::GetChainInfo, move |res, act| match res {
+                NetworkViewClientResponses::ChainInfo { genesis_id, .. } => {
+                    act.genesis_id = genesis_id;
+                }
+                _ => (),
+            })
+            .wait(ctx);
     }
 
     fn send_handshake(&self, ctx: &mut Context<PeerActor>) {
@@ -273,15 +266,13 @@ impl PeerActor {
         }
 
         self.view_client
-            .send(NetworkViewClientMessages::GetChainInfo)
-            .into_actor(self)
-            .then(move |res, act, _ctx| match res {
-                Ok(NetworkViewClientResponses::ChainInfo {
+            .actix_send(self, NetworkViewClientMessages::GetChainInfo, move |res, act| match res {
+                NetworkViewClientResponses::ChainInfo {
                     genesis_id,
                     height,
                     tracked_shards,
                     archival,
-                }) => {
+                } => {
                     let handshake = match act.protocol_version {
                         39..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
                             act.protocol_version,
@@ -293,18 +284,13 @@ impl PeerActor {
                         )),
                         _ => {
                             error!(target: "network", "Trying to talk with peer with no supported version: {}", act.protocol_version);
-                            return actix::fut::ready(());
+                            return;
                         }
                     };
 
                     act.send_message_or_log(&handshake);
-                    actix::fut::ready(())
                 }
-                Err(err) => {
-                    error!(target: "network", "Failed sending GetChain to client: {}", err);
-                    actix::fut::ready(())
-                }
-                _ => actix::fut::ready(()),
+                _ => (),
             })
             .spawn(ctx);
     }
@@ -383,19 +369,17 @@ impl PeerActor {
         };
 
         self.view_client
-            .send(view_client_message)
-            .into_actor(self)
-            .then(move |res, act, _ctx| {
+            .actix_send(self, view_client_message, move |res, act| {
                 // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
+                    NetworkViewClientResponses::TxStatus(tx_result) => {
                         let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
                         let _ =
                             act.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                                 PeerRequest::RouteBack(body, msg_hash.unwrap()),
                             ));
                     }
-                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
+                    NetworkViewClientResponses::QueryResponse { query_id, response } => {
                         let body =
                             Box::new(RoutedMessageBody::QueryResponse { query_id, response });
                         let _ =
@@ -403,7 +387,7 @@ impl PeerActor {
                                 PeerRequest::RouteBack(body, msg_hash.unwrap()),
                             ));
                     }
-                    Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
+                    NetworkViewClientResponses::StateResponse(state_response) => {
                         let body = match *state_response {
                             StateResponseInfo::V1(state_response) => {
                                 RoutedMessageBody::StateResponse(state_response)
@@ -417,32 +401,23 @@ impl PeerActor {
                                 PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()),
                             ));
                     }
-                    Ok(NetworkViewClientResponses::Block(block)) => {
+                    NetworkViewClientResponses::Block(block) => {
                         // MOO need protocol version
                         act.send_message_or_log(&PeerMessage::Block(*block));
                     }
-                    Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
+                    NetworkViewClientResponses::BlockHeaders(headers) => {
                         act.send_message_or_log(&PeerMessage::BlockHeaders(headers));
                     }
-                    Ok(NetworkViewClientResponses::EpochSyncResponse(response)) => {
+                    NetworkViewClientResponses::EpochSyncResponse(response) => {
                         act.send_message_or_log(&PeerMessage::EpochSyncResponse(response));
                     }
-                    Ok(NetworkViewClientResponses::EpochSyncFinalizationResponse(response)) => {
+                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
                         act.send_message_or_log(&PeerMessage::EpochSyncFinalizationResponse(
                             response,
                         ));
                     }
-                    Err(err) => {
-                        error!(
-                            target: "network",
-                            "Received error sending message to view client: {} for {}",
-                            err, act.peer_info
-                        );
-                        return actix::fut::ready(());
-                    }
                     _ => {}
                 };
-                actix::fut::ready(())
             })
             .spawn(ctx);
     }
