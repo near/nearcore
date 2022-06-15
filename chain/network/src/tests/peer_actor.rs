@@ -290,7 +290,7 @@ impl PeerHandle {
                     fa.clone().recipient(),
                     fa.clone().recipient(),
                     fa.clone().recipient(),
-                    fa.clone().recipient(),
+                    fa.clone().recipient().into(),
                     cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),

@@ -21,3 +21,4 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests;
 pub mod types;
+mod view_client_adapter;

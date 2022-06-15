@@ -104,7 +104,7 @@ fn repeated_announce_accounts() {
             store,
             config,
             mock_client_addr.clone().recipient(),
-            mock_client_addr.recipient(),
+            mock_client_addr.recipient().into(),
             routing_table_addr,
         )
         .unwrap()

@@ -292,7 +292,7 @@ pub fn start_with_config_and_synchronization(
             store,
             network_config,
             client_actor1,
-            view_client1,
+            view_client1.into(),
             routing_table_addr,
         )
         .unwrap()

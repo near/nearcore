@@ -411,7 +411,7 @@ pub mod test_features {
                 store,
                 config,
                 client_addr.recipient(),
-                view_client_addr.recipient(),
+                view_client_addr.recipient().into(),
                 routing_table_addr,
             )
             .unwrap(),
