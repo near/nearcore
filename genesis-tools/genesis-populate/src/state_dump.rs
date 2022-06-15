@@ -17,7 +17,7 @@ pub struct StateDump {
 
 impl StateDump {
     pub fn from_dir(dir: &Path, store_home_dir: &Path) -> Self {
-        let store = near_store::StoreOpener::with_default_config(store_home_dir).open();
+        let store = near_store::Store::opener(store_home_dir, &Default::default()).open();
         let state_file = dir.join(STATE_DUMP_FILE);
         store
             .load_from_file(DBCol::State, state_file.as_path())

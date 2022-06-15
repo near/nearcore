@@ -17,7 +17,7 @@ To start node with 20k accounts first create configs:
 cargo run --package neard --bin neard -- init --test-seed=alice.near --account-id=test.near --fast
 ```
 
-Then create state dump with home many accounts you want:
+Then create state dump with how many accounts you want:
 ```bash
 cargo run --package genesis-populate --bin genesis-populate -- --additional-accounts-num=20000
 ```
