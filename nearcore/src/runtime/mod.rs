@@ -52,7 +52,7 @@ use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, WrappedTrieChanges,
+    StoreUpdate, Trie, TrieCacheFactory, WrappedTrieChanges,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -155,6 +155,7 @@ impl NightshadeRuntime {
             config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
+            config.config.store.trie_cache_capacities.clone(),
         )
     }
 
@@ -167,6 +168,7 @@ impl NightshadeRuntime {
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
+        trie_cache_capacities: Vec<(ShardUId, usize)>,
     ) -> Self {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -185,11 +187,12 @@ impl NightshadeRuntime {
         );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let tries = ShardTries::new(
-            store.clone(),
+        let trie_cache_factory = TrieCacheFactory::new(
+            trie_cache_capacities.into_iter().collect(),
             genesis_config.shard_layout.version(),
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
+        let tries = ShardTries::new(store.clone(), trie_cache_factory);
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
                 .expect("Failed to start Epoch Manager"),
@@ -226,6 +229,7 @@ impl NightshadeRuntime {
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            Default::default(),
         )
     }
 
@@ -298,7 +302,12 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(store, genesis.config.shard_layout.version(), num_shards);
+        let trie_cache_factory = TrieCacheFactory::new(
+            Default::default(),
+            genesis.config.shard_layout.version(),
+            num_shards,
+        );
+        let tries = ShardTries::new(store, trie_cache_factory);
         let runtime = Runtime::new();
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
@@ -2155,6 +2164,7 @@ mod test {
                 None,
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+                Default::default(),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
