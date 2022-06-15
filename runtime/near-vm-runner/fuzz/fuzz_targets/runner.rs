@@ -7,7 +7,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::VMResult;
-use near_vm_runner_fuzz::{ArbitraryModule, create_context, find_entry_point};
+use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
     let code = ContractCode::new(module.0.module.to_bytes(), None);
