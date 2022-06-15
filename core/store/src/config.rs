@@ -1,3 +1,4 @@
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
 const STORE_PATH: &str = "data";
@@ -35,9 +36,15 @@ pub struct StoreConfig {
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
-    /// We're still experimented with this parameter and it seems decreasing its value can improve
+    /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub block_size: bytesize::ByteSize,
+
+    /// Trie cache capacities
+    /// Default value: ShardUId {version: 1, shard_id: 3} -> 2_000_000. TODO: clarify
+    /// We're still experimenting with this parameter and it seems decreasing its value can improve
+    /// the performance of the storage
+    pub trie_cache_capacities: Vec<(ShardUId, usize)>,
 }
 
 impl StoreConfig {
@@ -87,6 +94,8 @@ impl Default for StoreConfig {
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
+
+            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 2_000_000)],
         }
     }
 }
