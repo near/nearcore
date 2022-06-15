@@ -1,5 +1,4 @@
 use crate::network_protocol::Encoding;
-use crate::view_client_adapter::ViewClientAdapter;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::PeerStore;
@@ -20,6 +19,7 @@ use crate::types::{
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerRequest, PeerResponse,
     PeersResponse, QueryPeerStats, RoutingTableUpdate,
 };
+use crate::view_client_adapter::ViewClientAdapter;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
@@ -181,7 +181,7 @@ pub struct PeerManagerActor {
     /// Address of the client actor.
     client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
-    view_client_addr: ViewClientAdapter,
+    view_client: ViewClientAdapter,
     /// Peer store that provides read/write access to peers.
     peer_store: PeerStore,
     /// Set of outbound connections that were not consolidated yet.
@@ -303,7 +303,7 @@ impl PeerManagerActor {
         store: Store,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: ViewClientAdapter,
+        view_client: ViewClientAdapter,
         routing_table_addr: Addr<RoutingTableActor>,
     ) -> anyhow::Result<Self> {
         let peer_store =
@@ -329,7 +329,7 @@ impl PeerManagerActor {
             my_peer_id,
             config,
             client_addr,
-            view_client_addr,
+            view_client,
             peer_store,
             connected_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
@@ -809,7 +809,7 @@ impl PeerManagerActor {
         let server_addr = self.config.node_addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
-        let view_client_addr = self.view_client_addr.clone();
+        let view_client_addr = self.view_client.clone();
 
         let server_addr = match server_addr {
             Some(server_addr) => server_addr,
@@ -1791,7 +1791,7 @@ impl PeerManagerActor {
 
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
-                self.view_client_addr
+                self.view_client
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
                     .into_actor(self)
                     .then(move |response, act, _ctx| {

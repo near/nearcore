@@ -45,7 +45,7 @@ impl ViewClientAdapter {
         ViewClientAdapter { inner }
     }
 
-    pub fn send(
+    pub(crate) fn send(
         &self,
         msg: NetworkViewClientMessages,
     ) -> impl Future<Output = Result<NetworkViewClientResponses, ViewClientIsDeadError>> {
