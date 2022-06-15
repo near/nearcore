@@ -722,12 +722,18 @@ pub(crate) enum OperationType {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationStatusKind {
     Success,
+    //This OperationStatusKind was specifically requested by Coinbase Integration
+    //team in order to continue their tests. It is NOT fully specified in the Rosetta
+    //specs.
+    #[serde(rename = "")]
+    Empty,
 }
 
 impl OperationStatusKind {
     pub(crate) fn is_successful(&self) -> bool {
         match self {
             Self::Success => true,
+            Self::Empty => false,
         }
     }
 }
