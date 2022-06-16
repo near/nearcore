@@ -369,11 +369,10 @@ pub struct ChainStore {
     save_trie_changes: bool,
 }
 
-fn option_to_not_found<T, F>(
-    res: io::Result<Option<T>>,
-    field_name: F,
-) -> Result<T, Error>
-where F: std::string::ToString {
+fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
+where
+    F: std::string::ToString,
+{
     match res {
         Ok(Some(o)) => Ok(o),
         Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
@@ -803,10 +802,7 @@ impl ChainStoreAccess for ChainStore {
         if let Some(ref tip) = self.head {
             Ok(tip.clone())
         } else {
-            option_to_not_found(
-                self.store.get_ser(DBCol::BlockMisc, HEAD_KEY),
-                "HEAD",
-            )
+            option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
         }
     }
 
@@ -853,18 +849,12 @@ impl ChainStoreAccess for ChainStore {
 
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY),
-            "HEADER_HEAD",
-        )
+        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
     }
 
     /// Final head of the chain.
     fn final_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
-            "FINAL HEAD",
-        )
+        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
     }
 
     /// Get full block.
