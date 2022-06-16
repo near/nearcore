@@ -369,10 +369,13 @@ pub struct ChainStore {
     save_trie_changes: bool,
 }
 
-pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
+fn option_to_not_found<T>(
+    res: io::Result<Option<T>>,
+    field_name: std::fmt::Arguments<'_>,
+) -> Result<T, Error> {
     match res {
         Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_owned())),
+        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
         Err(e) => Err(e.into()),
     }
 }
@@ -437,9 +440,8 @@ impl ChainStore {
     ) -> Result<StateChangesForSplitStates, Error> {
         let key = &get_block_shard_id(block_hash, shard_id);
         option_to_not_found(
-            self.store
-                .get_ser::<StateChangesForSplitStates>(DBCol::StateChangesForSplitStates, key),
-            &format!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
+            self.store.get_ser(DBCol::StateChangesForSplitStates, key),
+            format_args!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
         )
     }
 
@@ -597,7 +599,7 @@ impl ChainStore {
                 &self.block_hash_per_height,
                 &index_to_bytes(height),
             ),
-            &format!("BLOCK PER HEIGHT: {}", height),
+            format_args!("BLOCK PER HEIGHT: {}", height),
         )
     }
 
@@ -641,7 +643,7 @@ impl ChainStore {
             .get_or_try_init(|| {
                 option_to_not_found(
                     self.store.get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
-                    "LATEST_KNOWN_KEY",
+                    format_args!("LATEST_KNOWN_KEY"),
                 )
             })
             .cloned()
@@ -800,7 +802,10 @@ impl ChainStoreAccess for ChainStore {
         if let Some(ref tip) = self.head {
             Ok(tip.clone())
         } else {
-            option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
+            option_to_not_found(
+                self.store.get_ser(DBCol::BlockMisc, HEAD_KEY),
+                format_args!("HEAD"),
+            )
         }
     }
 
@@ -847,19 +852,25 @@ impl ChainStoreAccess for ChainStore {
 
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY), "HEADER_HEAD")
+        option_to_not_found(
+            self.store.get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY),
+            format_args!("HEADER_HEAD"),
+        )
     }
 
     /// Final head of the chain.
     fn final_head(&self) -> Result<Tip, Error> {
-        option_to_not_found(self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
+        option_to_not_found(
+            self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
+            format_args!("FINAL HEAD"),
+        )
     }
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         option_to_not_found(
             read_with_cache(&self.store, DBCol::Block, &self.blocks, h.as_ref()),
-            &format!("BLOCK: {}", h),
+            format_args!("BLOCK: {}", h),
         )
     }
 
@@ -907,7 +918,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.block_extras,
                 block_hash.as_ref(),
             ),
-            &format!("BLOCK EXTRA: {}", block_hash),
+            format_args!("BLOCK EXTRA: {}", block_hash),
         )
     }
 
@@ -924,7 +935,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.chunk_extras,
                 &get_block_shard_uid(block_hash, shard_uid),
             ),
-            &format!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
+            format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }
 
@@ -932,7 +943,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         option_to_not_found(
             read_with_cache(&self.store, DBCol::BlockHeader, &self.headers, h.as_ref()),
-            &format!("BLOCK HEADER: {}", h),
+            format_args!("BLOCK HEADER: {}", h),
         )
     }
 
@@ -940,7 +951,7 @@ impl ChainStoreAccess for ChainStore {
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
-            &format!("BLOCK HEIGHT: {}", height),
+            format_args!("BLOCK HEIGHT: {}", height),
         )
         // TODO: cache needs to be deleted when things get updated.
         //        option_to_not_found(
@@ -950,7 +961,7 @@ impl ChainStoreAccess for ChainStore {
         //                &mut self.height,
         //                &index_to_bytes(height),
         //            ),
-        //            &format!("BLOCK HEIGHT: {}", height),
+        //            format_args!("BLOCK HEIGHT: {}", height),
         //        )
     }
 
@@ -962,7 +973,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.next_block_hashes,
                 hash.as_ref(),
             ),
-            &format!("NEXT BLOCK HASH: {}", hash),
+            format_args!("NEXT BLOCK HASH: {}", hash),
         )
     }
 
@@ -977,7 +988,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.epoch_light_client_blocks,
                 hash.as_ref(),
             ),
-            &format!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
+            format_args!("EPOCH LIGHT CLIENT BLOCK: {}", hash),
         )
     }
 
@@ -989,7 +1000,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.block_refcounts,
                 block_hash.as_ref(),
             ),
-            &format!("BLOCK REFCOUNT: {}", block_hash),
+            format_args!("BLOCK REFCOUNT: {}", block_hash),
         )
     }
 
@@ -1005,7 +1016,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.chunk_hash_per_height_shard,
                 &get_height_shard_id(height, shard_id),
             ),
-            &format!("CHUNK PER HEIGHT AND SHARD ID: {} {}", height, shard_id),
+            format_args!("CHUNK PER HEIGHT AND SHARD ID: {} {}", height, shard_id),
         )
     }
 
@@ -1023,7 +1034,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.outgoing_receipts,
                 &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
+            format_args!("OUTGOING RECEIPT: {} {}", prev_block_hash, shard_id),
         )
     }
 
@@ -1039,7 +1050,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
-            &format!("INCOMING RECEIPT: {}", block_hash),
+            format_args!("INCOMING RECEIPT: {}", block_hash),
         )
     }
 
@@ -1072,7 +1083,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.receipt_id_to_shard_id,
                 receipt_id.as_ref(),
             ),
-            &format!("RECEIPT ID: {}", receipt_id),
+            format_args!("RECEIPT ID: {}", receipt_id),
         )
     }
 
@@ -1104,7 +1115,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.block_merkle_tree,
                 block_hash.as_ref(),
             ),
-            &format!("BLOCK MERKLE TREE: {}", block_hash),
+            format_args!("BLOCK MERKLE TREE: {}", block_hash),
         )
     }
 
@@ -1116,7 +1127,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.block_ordinal_to_hash,
                 &index_to_bytes(block_ordinal),
             ),
-            &format!("BLOCK ORDINAL: {}", block_ordinal),
+            format_args!("BLOCK ORDINAL: {}", block_ordinal),
         )
     }
 
