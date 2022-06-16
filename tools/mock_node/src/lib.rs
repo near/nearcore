@@ -299,7 +299,7 @@ impl MockPeer {
         });
     }
 
-    fn send_new_blocks(&mut self) -> JoinHandle<()> {
+    fn send_new_blocks(&self) -> JoinHandle<()> {
         let block_production_delay = self.block_production_delay;
         let target_height = self.target_height;
         let chain = self.chain.clone();
@@ -500,7 +500,7 @@ impl MockPeer {
                 // ignore for now
             }
             // TODO, although not a big deal:
-            // PeerMessage::SyncRoutingTable => { set things up so that read() on the socket gives EOF }
+            // PeerMessage::Disconnect => { set things up so that read() on the socket gives EOF }
             _ => {
                 tracing::warn!(target: "mock-node", "Don't know how to handle {:?}", msg);
             }
