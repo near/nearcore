@@ -27,6 +27,7 @@
 * Key files can use `private_key` field instead of `secret_key` now;
   this improves interoperability with near cli which uses the former
   name [#7030](https://github.com/near/nearcore/issues/7030)
+* Added `trie_cache_capacities` option to `StoreConfig` which makes capacities of trie nodes caches configurable for each shard [#7022](https://github.com/near/nearcore/pull/7022) 
 
 ## 1.26.0 [2022-05-18]
 
