@@ -312,6 +312,8 @@ message PeerMessage {
   // between borsh and protobuf encodings:
   // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit
   reserved 1,2,3;
+  // Deprecated fields.
+  reserved 24;
 
   oneof message_type {
     Handshake handshake = 4;
@@ -340,7 +342,5 @@ message PeerMessage {
     EpochSyncResponse epoch_sync_response = 21;
     EpochSyncFinalizationRequest epoch_sync_finalization_request = 22;
     EpochSyncFinalizationResponse epoch_sync_finalization_response = 23;
-    
-    RoutingSyncV2 routing_table_sync_v2 = 24;
   }
 }

@@ -33,7 +33,6 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly
-pytest --timeout=480 sanity/routing_table_sync.py --features nightly
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re

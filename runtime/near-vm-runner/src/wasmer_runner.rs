@@ -223,48 +223,6 @@ fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Resu
     Ok(())
 }
 
-pub(crate) fn run_wasmer0_module<'a>(
-    module: Module,
-    memory: &mut WasmerMemory,
-    method_name: &str,
-    ext: &mut dyn External,
-    context: VMContext,
-    wasm_config: &'a VMConfig,
-    fees_config: &'a RuntimeFeesConfig,
-    promise_results: &'a [PromiseResult],
-    current_protocol_version: ProtocolVersion,
-) -> VMResult {
-    if method_name.is_empty() {
-        let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-            MethodResolveError::MethodEmptyName,
-        ));
-        return VMResult::nop_outcome(err);
-    }
-    // Note that we don't clone the actual backing memory, just increase the RC.
-    let memory_copy = memory.clone();
-
-    let mut logic = VMLogic::new_with_protocol_version(
-        ext,
-        context,
-        wasm_config,
-        fees_config,
-        promise_results,
-        memory,
-        current_protocol_version,
-    );
-
-    let import_object = imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
-
-    if let Err(e) = check_method(&module, method_name) {
-        return VMResult::nop_outcome(e);
-    }
-
-    match run_method(&module, &import_object, method_name) {
-        Ok(()) => VMResult::ok(logic),
-        Err(err) => VMResult::abort(logic, err),
-    }
-}
-
 pub(crate) fn wasmer0_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     42

@@ -2,7 +2,6 @@
 pub use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
@@ -31,7 +30,9 @@ use std::fmt::Debug;
 /// Peer stats query.
 #[derive(actix::Message)]
 #[rtype(result = "PeerStatsResult")]
-pub struct QueryPeerStats {}
+pub struct QueryPeerStats {
+    pub(crate) context: opentelemetry::Context,
+}
 
 /// Peer stats result
 #[derive(Debug, actix::MessageResponse)]
@@ -118,13 +119,9 @@ pub enum PeerManagerMessageRequest {
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY allows for modifying the internal routing table.
     SetRoutingTable(crate::test_utils::SetRoutingTable),
 }
 
@@ -161,13 +158,9 @@ pub enum PeerManagerMessageResponse {
     InboundTcpConnect(()),
     Unregister(()),
     Ban(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(()),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY
     SetRoutingTable(()),
 }
 
@@ -342,12 +335,6 @@ pub enum NetworkRequests {
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
-
-    // IbfMessage
-    IbfMessage {
-        peer_id: PeerId,
-        ibf_msg: RoutingSyncV2,
-    },
 }
 
 /// Combines peer address info, chain and edge information.

@@ -8,7 +8,7 @@ use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -259,7 +259,10 @@ impl RocksDB {
 }
 
 pub struct TestDB {
-    db: RwLock<enum_map::EnumMap<DBCol, HashMap<Vec<u8>, Vec<u8>>>>,
+    // In order to ensure determinism when iterating over column's results
+    // a BTreeMap is used since it is an ordered map. A HashMap would
+    // give the aforementioned guarantee, and therefore is discarded.
+    db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
 pub(crate) trait Database: Sync + Send {
@@ -426,10 +429,12 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        RocksDB::iter_with_rc_logic(
-            col,
-            self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
-        )
+        let iterator = self.db.read().unwrap()[col]
+            .range(key_prefix.to_vec()..)
+            .take_while(move |(k, _)| k.starts_with(&key_prefix))
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
+        RocksDB::iter_with_rc_logic(col, iterator.into_iter())
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -806,13 +811,13 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::DEFAULT, false).unwrap();
+        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), false).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
-        let (_tmp_dir, opener) = Store::tmp_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         let store = opener.open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
@@ -833,7 +838,7 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
-        let (_tmp_dir, opener) = Store::tmp_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         let store = opener.open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
