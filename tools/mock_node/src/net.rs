@@ -10,6 +10,7 @@ use near_primitives::network::PeerId;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
@@ -29,6 +30,7 @@ struct MockTcpStreamInner {
     read_buf: Arc<Mutex<ReadBuffer>>,
     peer: Arc<Mutex<MockPeer>>,
     net: MockNet,
+    shutdown: AtomicBool,
 }
 
 pub(crate) struct MockTcpStream(Arc<MockTcpStreamInner>);
@@ -66,10 +68,16 @@ impl MockTcpStream {
         self.0.peer.lock().unwrap().recv(self, PeerMessage::deserialize(Encoding::Proto, frame));
     }
 
-    fn read(&self, src: &[u8]) {
+    fn read(&self, src: &[u8]) -> io::Result<usize> {
         let len = src.len();
         let mut pos = 0;
 
+        if self.0.shutdown.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "mock socket has been shutdown()",
+            ));
+        }
         // TODO: handle the case of incomplete frames by saving the data for later in a BytesMut or something.
         // with the current code it doesn't look possible that we get an incomplete frame here but the mock
         // code ideally would not assume that
@@ -93,6 +101,7 @@ impl MockTcpStream {
             self.handle_frame(&src[pos..pos + frame_len]);
             pos += frame_len;
         }
+        Ok(len)
     }
 }
 
@@ -127,6 +136,7 @@ impl MockTcpStreamInner {
             read_buf: Arc::new(Mutex::new(ReadBuffer { buf: BytesMut::new(), reader: None })),
             peer,
             net,
+            shutdown: AtomicBool::new(false),
         })
     }
 
@@ -216,8 +226,7 @@ impl AsyncWrite for MockTcpStream {
         src: &[u8],
     ) -> Poll<io::Result<usize>> {
         tracing::trace_span!(target: "mock-node", "poll_write", len = src.len());
-        self.read(src);
-        Poll::Ready(Ok(src.len()))
+        Poll::Ready(self.read(src))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
@@ -225,7 +234,7 @@ impl AsyncWrite for MockTcpStream {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        self.0.read_buf.lock().unwrap().buf.clear();
+        self.0.shutdown.store(true, Ordering::Release);
         Poll::Ready(Ok(()))
     }
 }
