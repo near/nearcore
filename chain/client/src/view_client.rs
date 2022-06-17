@@ -459,7 +459,7 @@ impl ViewClientActor {
 
     fn retrieve_headers(
         &mut self,
-        hashes: Vec<CryptoHash>,
+        hashes: &[CryptoHash],
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
         self.chain.retrieve_headers(&hashes, sync::MAX_BLOCK_HEADERS, None)
     }
@@ -1123,7 +1123,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
                 if self.adv.disable_header_sync() {
                     NetworkViewClientResponses::NoResponse
-                } else if let Ok(headers) = self.retrieve_headers(hashes) {
+                } else if let Ok(headers) = self.retrieve_headers(&hashes) {
                     NetworkViewClientResponses::BlockHeaders(headers)
                 } else {
                     NetworkViewClientResponses::NoResponse
