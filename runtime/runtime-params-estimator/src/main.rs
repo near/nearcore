@@ -17,7 +17,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
 use std::time;
 
 #[derive(Parser)]
@@ -143,20 +142,15 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store =
-            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
-        GenesisBuilder::from_config_and_store(
-            &state_dump_path,
-            Arc::new(near_config.genesis),
-            store,
-        )
-        .add_additional_accounts(cli_args.additional_accounts_num)
-        .add_additional_accounts_contract(contract_code)
-        .print_progress()
-        .build()
-        .unwrap()
-        .dump_state()
-        .unwrap();
+        let store = near_store::Store::opener(&state_dump_path, &near_config.config.store).open();
+        GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
+            .add_additional_accounts(cli_args.additional_accounts_num)
+            .add_additional_accounts_contract(contract_code)
+            .print_progress()
+            .build()
+            .unwrap()
+            .dump_state()
+            .unwrap();
     }
 
     if cli_args.docker {

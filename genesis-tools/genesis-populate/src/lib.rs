@@ -2,16 +2,11 @@
 
 pub mod state_dump;
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use indicatif::{ProgressBar, ProgressStyle};
-
 use crate::state_dump::StateDump;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
-use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
@@ -22,7 +17,10 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
-use nearcore::{NightshadeRuntime, TrackedConfig};
+use nearcore::{NearConfig, NightshadeRuntime};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 fn get_account_id(account_index: u64) -> AccountId {
     AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
@@ -51,24 +49,13 @@ pub struct GenesisBuilder {
 }
 
 impl GenesisBuilder {
-    pub fn from_config_and_store(home_dir: &Path, genesis: Arc<Genesis>, store: Store) -> Self {
+    pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-        let runtime = NightshadeRuntime::new(
-            tmpdir.path(),
-            store.clone(),
-            &genesis,
-            // Since we are not using runtime as an actor
-            // there is no reason to track accounts or shards.
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            None,
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-        );
+        let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &config);
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            genesis,
+            genesis: Arc::new(config.genesis),
             store,
             runtime,
             unflushed_records: Default::default(),

@@ -1,11 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-
 use near_primitives::types::StateRoot;
 use near_store::DBCol;
 use near_store::Store;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -17,7 +16,7 @@ pub struct StateDump {
 
 impl StateDump {
     pub fn from_dir(dir: &Path, store_home_dir: &Path) -> Self {
-        let store = near_store::StoreOpener::with_default_config(store_home_dir).open();
+        let store = near_store::Store::opener(store_home_dir, &Default::default()).open();
         let state_file = dir.join(STATE_DUMP_FILE);
         store
             .load_from_file(DBCol::State, state_file.as_path())

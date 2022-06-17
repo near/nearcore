@@ -14,9 +14,8 @@ use near_store::test_utils::create_test_store;
 use once_cell::sync::Lazy;
 use serde_json::json;
 
-pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> = Lazy::new(|| {
-    GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"))
-});
+pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> =
+    Lazy::new(|| GenesisConfig::from_json(include_str!("../res/genesis_config.json")));
 
 pub enum NodeType {
     Validator,
