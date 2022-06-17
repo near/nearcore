@@ -1,8 +1,9 @@
 use crate::network_protocol::Encoding;
 use crate::tests::data;
-use crate::tests::util::{make_rng, FakeClock};
+use crate::tests::util::make_rng;
 use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
+use near_network_primitives::time;
 use near_network_primitives::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
@@ -12,7 +13,7 @@ use near_primitives::types::EpochId;
 #[test]
 fn serialize_deserialize() -> anyhow::Result<()> {
     let mut rng = make_rng(89028037453);
-    let mut clock = FakeClock::default();
+    let mut clock = time::FakeClock::default();
 
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
     let a = data::make_signer(&mut rng);

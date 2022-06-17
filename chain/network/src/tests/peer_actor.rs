@@ -9,6 +9,7 @@ use crate::types::{
 };
 use actix::{Actor, Context, Handler, StreamHandler as _};
 use near_crypto::InMemorySigner;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessage, RoutedMessageBody,
@@ -29,7 +30,6 @@ use near_rate_limiter::{
 
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::time;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::Span;
@@ -256,7 +256,11 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(cfg: PeerConfig, stream: TcpStream) -> PeerHandle {
+    pub async fn start_endpoint(
+        clock: time::Clock,
+        cfg: PeerConfig,
+        stream: TcpStream,
+    ) -> PeerHandle {
         let cfg = Arc::new(cfg);
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
 
@@ -265,7 +269,7 @@ impl PeerHandle {
             let my_addr = stream.local_addr().unwrap();
             let peer_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
-            let handshake_timeout = time::Duration::from_secs(5);
+            let handshake_timeout = time::Duration::seconds(5);
             let fa = FakeActor { cfg: cfg.clone(), responses: send }.start();
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
@@ -277,6 +281,7 @@ impl PeerHandle {
             PeerActor::create(move |ctx| {
                 PeerActor::add_stream(read, ctx);
                 PeerActor::new(
+                    clock,
                     PeerInfo { id: cfg.id(), addr: Some(my_addr), account_id: None },
                     peer_addr.clone(),
                     cfg.start_handshake_with.as_ref().map(|id| PeerInfo {

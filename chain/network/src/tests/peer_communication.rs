@@ -2,11 +2,12 @@ use crate::network_protocol::Encoding;
 use crate::tests::data;
 use crate::tests::peer_actor::{PeerConfig, PeerHandle, Response};
 use crate::tests::stream::Stream;
-use crate::tests::util::{make_rng, FakeClock};
+use crate::tests::util::make_rng;
 use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
@@ -20,7 +21,7 @@ async fn test_peer_communication(
     inbound_encoding: Option<Encoding>,
 ) -> anyhow::Result<()> {
     let mut rng = make_rng(89028037453);
-    let mut clock = FakeClock::default();
+    let mut clock = time::FakeClock::default();
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
@@ -39,8 +40,9 @@ async fn test_peer_communication(
     };
 
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let mut inbound = PeerHandle::start_endpoint(inbound_cfg, inbound_stream).await;
-    let mut outbound = PeerHandle::start_endpoint(outbound_cfg, outbound_stream).await;
+    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let mut outbound =
+        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
 
     assert_eq!(Response::HandshakeDone, outbound.recv().await);
     assert_eq!(Response::HandshakeDone, inbound.recv().await);
@@ -170,7 +172,7 @@ async fn peer_communication() -> anyhow::Result<()> {
 
 async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: Option<Encoding>) {
     let mut rng = make_rng(89028037453);
-    let mut clock = FakeClock::default();
+    let mut clock = time::FakeClock::default();
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
@@ -188,7 +190,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         start_handshake_with: None,
     };
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let inbound = PeerHandle::start_endpoint(inbound_cfg, inbound_stream).await;
+    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
