@@ -2251,6 +2251,7 @@ impl PeerManagerActor {
         }
 
         if Self::message_for_me(&mut self.routing_table_view, &self.my_peer_id, &msg.target) {
+            self.record_routed_msg_latency(&msg);
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match &msg.body {
@@ -2272,6 +2273,18 @@ impl PeerManagerActor {
                 warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
             }
             false
+        }
+    }
+
+    fn record_routed_msg_latency(&self, msg: &RoutedMessage) {
+        if let Some(created_at) = &msg.created_at {
+            if let Ok(created_at) = time::UtcSerializable::to_instant(created_at) {
+                let duration_nanos =
+                    self.clock.now_utc().unix_timestamp_nanos() - created_at.unix_timestamp_nanos();
+                metrics::NETWORK_ROUTED_MSG_LATENCY
+                    .with_label_values(&[msg.body_variant()])
+                    .observe(duration_nanos as f64 * 1e-9);
+            }
         }
     }
 

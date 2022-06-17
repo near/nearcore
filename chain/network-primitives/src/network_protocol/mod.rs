@@ -1,3 +1,4 @@
+use crate::time::{Clock, UtcSerializable};
 /// `network_protocol.rs` contains types which are part of network protocol.
 /// We need to maintain backward compatibility in network protocol.
 /// All changes to this file should be reviewed.
@@ -317,6 +318,8 @@ pub struct RoutedMessage {
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
+    /// The time the Routed message was created by `author`.
+    pub created_at: Option<UtcSerializable>,
 }
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
@@ -327,6 +330,10 @@ struct RoutedMessageNoSignature<'a> {
 }
 
 impl RoutedMessage {
+    pub fn now() -> Option<UtcSerializable> {
+        Some(UtcSerializable::from_instant(Clock::real().now_utc()))
+    }
+
     pub fn build_hash(
         target: &PeerIdOrHash,
         source: &PeerId,

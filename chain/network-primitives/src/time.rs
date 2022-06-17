@@ -20,6 +20,7 @@
 ///    over the network, or store it for later use. Remember that clocks
 ///    of different machines are not perfectly synchronized, and in extreme
 ///    cases can be totally skewed.
+use borsh::{BorshDeserialize, BorshSerialize};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 pub use time::error;
@@ -43,6 +44,22 @@ static FAKE_CLOCK_MONO_START: Lazy<Instant> = Lazy::new(Instant::now);
 
 // An arbitrary non-trivial deterministic Utc timestamp.
 const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89108233).unwrap());
+
+/// A wrapper around `Utc` which makes that type serializable with borsh.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct UtcSerializable {
+    pub nanoseconds: i128,
+}
+
+impl UtcSerializable {
+    pub fn to_instant(&self) -> Result<Utc, time::error::ComponentRange> {
+        Utc::from_unix_timestamp_nanos(self.nanoseconds)
+    }
+
+    pub fn from_instant(t: Utc) -> Self {
+        Self { nanoseconds: t.unix_timestamp_nanos() }
+    }
+}
 
 #[derive(Clone)]
 enum ClockInner {
