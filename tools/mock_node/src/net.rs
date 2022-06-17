@@ -68,7 +68,8 @@ impl MockTcpStream {
         self.0.peer.lock().unwrap().recv(self, PeerMessage::deserialize(Encoding::Proto, frame));
     }
 
-    fn read(&self, src: &[u8]) -> io::Result<usize> {
+    // try to deserialize any frames in `src`, and pass them all to the MockPeer behind this stream via its recv().
+    fn do_poll_write(&self, src: &[u8]) -> io::Result<usize> {
         let len = src.len();
         let mut pos = 0;
 
@@ -145,6 +146,8 @@ impl MockTcpStreamInner {
         self.read_buf.lock().unwrap().buf.remaining() > 1 << 32
     }
 
+    // schedule a task that will copy the serialized message to the stream's buffers after `self.response_delay`
+    // called by the mock code when it wants to send a message to the code under test
     fn send_message(&self, msg: &PeerMessage) {
         if self.is_full() {
             // Should not get here. But could happen if we have a buggy neard that
@@ -178,7 +181,10 @@ impl MockTcpStreamInner {
         self.send_message(&PeerMessage::Routed(msg));
     }
 
-    fn write(&self, dst: &mut ReadBuf<'_>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    // If the mock code previously sent a message, read it into `dst` here. Note that there may be some
+    // pending ones that haven't been written yet since we wait some time before copying the data to simulate
+    // network latency
+    fn do_poll_read(&self, dst: &mut ReadBuf<'_>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut buf = self.read_buf.lock().unwrap();
         if buf.buf.has_remaining() {
             let n = std::cmp::min(buf.buf.remaining(), dst.remaining());
@@ -215,7 +221,7 @@ impl AsyncRead for MockTcpStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         tracing::trace_span!(target: "mock-node", "poll_read", capacity = buf.remaining());
-        self.0.write(buf, cx)
+        self.0.do_poll_read(buf, cx)
     }
 }
 
@@ -226,7 +232,7 @@ impl AsyncWrite for MockTcpStream {
         src: &[u8],
     ) -> Poll<io::Result<usize>> {
         tracing::trace_span!(target: "mock-node", "poll_write", len = src.len());
-        Poll::Ready(self.read(src))
+        Poll::Ready(self.do_poll_write(src))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {

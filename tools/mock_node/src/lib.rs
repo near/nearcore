@@ -290,6 +290,8 @@ impl MockPeer {
         }
     }
 
+    // The code under test has called connect() with self.addr as the desired endpoint, and we were not
+    // previously connected
     fn connected(&mut self, stream: MockTcpStreamHandle) {
         self.conn = Some(MockConn {
             stream: stream,
@@ -299,6 +301,8 @@ impl MockPeer {
         });
     }
 
+    // every self.block_production_delay, send a new block, starting at self.network_start_height and
+    // ending at self.target_height
     fn send_new_blocks(&self) -> JoinHandle<()> {
         let block_production_delay = self.block_production_delay;
         let target_height = self.target_height;
@@ -328,6 +332,7 @@ impl MockPeer {
         })
     }
 
+    // spam the same block over and over, as configured in mock.json
     fn send_unrequested_block(&self) -> Option<JoinHandle<()>> {
         match self.incoming_requests.block.clone() {
             Some((interval, block)) => {
@@ -351,6 +356,7 @@ impl MockPeer {
         }
     }
 
+    // spam the same chunk part request over and over, as configured in mock.json
     fn send_chunk_request(&self) -> Option<JoinHandle<()>> {
         match self.incoming_requests.chunk_request.clone() {
             Some((interval, req)) => {
@@ -380,6 +386,8 @@ impl MockPeer {
         }
     }
 
+    // start tasks that will periodically send messages to the code under test, not as a response to a particular request
+    // So this is the place for new blocks to be sent, chunk part requests to be spammed, etc.
     fn start_timers(&mut self) {
         // this doesn't seem to be documented really, but it appears this will cancel
         // the existing tasks if they're Some() and haven't already seen stream.get().is_none()
@@ -417,6 +425,10 @@ impl MockPeer {
         self.start_timers();
     }
 
+    // The code under test has sent a message on its peer socket. Here we handle the handshake at the
+    // beginning, and subsequently we respond to certain kinds of requests (BlockRequest, BlockHeadersRequest, etc)
+    // This is the main callback that triggers the mock logic. In theory this is the place to put most of the behavior
+    // we'd like to see the code under test handle
     fn recv(&mut self, stream: &MockTcpStream, msg: Result<PeerMessage, ParsePeerMessageError>) {
         let msg = match msg {
             Ok(m) => m,
