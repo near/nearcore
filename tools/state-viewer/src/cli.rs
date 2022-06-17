@@ -22,6 +22,9 @@ pub enum StateViewerSubCommand {
     DumpState(DumpStateCmd),
     #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
+    /// Generate a file that contains all transactions from a block.
+    #[clap(alias = "dump_tx")]
+    DumpTx(DumpTxCmd),
     /// Print chain from start_index to end_index.
     Chain(ChainCmd),
     /// Replay headers from chain.
@@ -78,6 +81,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -145,6 +149,34 @@ pub struct DumpStateRedisCmd {
 impl DumpStateRedisCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state_redis(self.height, home_dir, near_config, store);
+    }
+}
+
+#[derive(Parser)]
+pub struct DumpTxCmd {
+    /// Specify which block to dump transactions for.
+    #[clap(long)]
+    height: BlockHeight,
+    /// List of account IDs to dump.
+    /// If not set, all account IDs will be dumped.
+    #[clap(long)]
+    account_ids: Option<Vec<AccountId>>,
+    /// Optionally, can specify the path of the output.
+    #[clap(long)]
+    output_path: Option<String>,
+}
+
+impl DumpTxCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_tx(
+            self.height,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+            self.output_path,
+        )
+        .expect("Failed to dump transaction...")
     }
 }
 
