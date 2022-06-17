@@ -117,6 +117,7 @@ pub(crate) fn dump_tx(
     near_config: NearConfig,
     store: Store,
     select_account_ids: Option<&Vec<AccountId>>,
+    output_path: Option<String>,
 ) -> Result<(), Error> {
     let mut chain_store = ChainStore::new(
         store.clone(),
@@ -126,7 +127,11 @@ pub(crate) fn dump_tx(
     let hash = chain_store.get_block_hash_by_height(height)?;
     let block = chain_store.get_block(&hash)?;
     let txs = tx_dump(&mut chain_store, &block, select_account_ids);
-    fs::write(PathBuf::from(&home_dir).join("tx.json"), json!(txs).to_string())
+    let json_path = match output_path {
+        Some(path) => PathBuf::from(path),
+        None => PathBuf::from(&home_dir).join("tx.json"),
+    };
+    fs::write(json_path, json!(txs).to_string())
         .expect("Error writing the results to a json file.");
     return Ok(());
 }

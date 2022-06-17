@@ -6,7 +6,7 @@ use near_primitives::transaction::SignedTransaction;
 
 /// Returns a list of transactions found in the block.
 pub fn tx_dump(
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     block: &Block,
     select_account_ids: Option<&Vec<AccountId>>,
 ) -> Vec<SignedTransaction> {
@@ -38,11 +38,3 @@ fn should_include_signed_transaction(
         Some(specified_ids) => specified_ids.contains(&signed_transaction.transaction.receiver_id),
     }
 }
-
-// #[cfg(test)]
-// mod test {
-//     #[test]
-//     fn test_tx_dump() {
-//
-//     }
-// }

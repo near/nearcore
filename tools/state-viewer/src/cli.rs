@@ -161,14 +161,22 @@ pub struct DumpTxCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// Optionally, can specify the path of the output.
+    #[clap(long)]
+    output_path: Option<String>,
 }
 
 impl DumpTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        match dump_tx(self.height, home_dir, near_config, store, self.account_ids.as_ref()) {
-            Ok(_) => (),
-            _ => panic!("error"),
-        }
+        dump_tx(
+            self.height,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+            self.output_path,
+        )
+        .expect("Failed to dump transaction...")
     }
 }
 
