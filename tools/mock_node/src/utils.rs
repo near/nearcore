@@ -3,23 +3,21 @@ use near_primitives::types::BlockHeight;
 use serde_json::Value;
 
 pub fn json_block_header(block: &Value) -> anyhow::Result<&Value> {
-    match block {
-        serde_json::Value::Object(values) => match values.get("header") {
+    if let Some(values) = block.as_object() {
+        match values.get("header") {
             Some(header) => Ok(header),
             None => Err(anyhow::anyhow!("get_latest_block() result has no header")),
-        },
-        _ => Err(anyhow::anyhow!("get_latest_block() result not an object")),
+        }
+    } else {
+        Err(anyhow::anyhow!("get_latest_block() result not an object"))
     }
 }
 
 pub fn json_block_height(block: &Value) -> anyhow::Result<BlockHeight> {
     match json_block_header(block)?.get("height") {
-        Some(h) => match h {
-            serde_json::Value::Number(height) => height
-                .as_u64()
-                .ok_or(anyhow::anyhow!("get_latest_block() header has bad height: {}", height)),
-            _ => Err(anyhow::anyhow!("get_latest_block() header has bad height: {}", h)),
-        },
+        Some(h) => {
+            h.as_u64().ok_or(anyhow::anyhow!("get_latest_block() header has bad height: {}", h))
+        }
         None => Err(anyhow::anyhow!("get_latest_block() header has no height")),
     }
 }
