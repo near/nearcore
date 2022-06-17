@@ -93,6 +93,9 @@ sandbox-release: neard-sandbox-release
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
 
+shardnet-release:
+	cargo build -p neard --release --features protocol_feature_chunk_only_producers
+
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
 .PHONY: perf-release perf-debug nightly-release nightly-debug assertions-release sandbox
