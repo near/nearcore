@@ -1,5 +1,5 @@
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::tests::data;
 use crate::tests::util::make_rng;
 use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
@@ -9,6 +9,18 @@ use near_network_primitives::types::{
 };
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
+
+// TODO: RoutingTableUpdate.validators field is supported only in proto encoding.
+// Remove this test once borsh support is removed.
+#[test]
+fn serialize_deserialize_protobuf_only() {
+    let mut rng = make_rng(39521947542);
+    let clock = time::FakeClock::default();
+    let rt = data::make_routing_table(&mut rng, &clock.clock());
+    let m = PeerMessage::SyncRoutingTable(rt);
+    let m2 = PeerMessage::deserialize(Encoding::Proto, &m.serialize(Encoding::Proto)).unwrap();
+    assert_eq!(m, m2);
+}
 
 #[test]
 fn serialize_deserialize() -> anyhow::Result<()> {
@@ -38,6 +50,11 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             receipts: vec![],
         }),
     );
+    let mut routing_table = data::make_routing_table(&mut rng, &clock.clock());
+    // TODO: validators field is supported only in proto encoding.
+    // Remove this line once borsh support is removed.
+    routing_table.validators = vec![];
+
     let msgs = [
         PeerMessage::Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
@@ -45,7 +62,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             HandshakeFailureReason::InvalidTarget,
         ),
         PeerMessage::LastEdge(edge.clone()),
-        PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
+        PeerMessage::SyncRoutingTable(routing_table),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
         PeerMessage::ResponseUpdateNonce(edge),
         PeerMessage::PeersRequest,
@@ -63,7 +80,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate)),
         PeerMessage::EpochSyncFinalizationRequest(epoch_id),
         // TODO: EpochSyncFinalizationResponse
-        // TODO: RoutingTableSyncV2,
     ];
 
     // Check that serialize;deserialize = 1

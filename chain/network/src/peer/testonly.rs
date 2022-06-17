@@ -1,8 +1,8 @@
+use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::tests::actix::ActixSystem;
-use crate::tests::data;
 use crate::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, RoutingTableUpdate,
