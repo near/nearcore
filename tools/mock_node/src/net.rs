@@ -10,7 +10,7 @@ use near_primitives::network::PeerId;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -26,7 +26,7 @@ struct MockTcpStreamInner {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     response_delay: Duration,
-    read_buf: Arc<RwLock<ReadBuffer>>,
+    read_buf: Arc<Mutex<ReadBuffer>>,
     peer: Arc<Mutex<MockPeer>>,
     net: MockNet,
 }
@@ -124,7 +124,7 @@ impl MockTcpStreamInner {
             local_addr: SocketAddr::new("127.0.0.1".parse().unwrap(), net.get_port()?),
             peer_addr,
             response_delay,
-            read_buf: Arc::new(RwLock::new(ReadBuffer { buf: BytesMut::new(), reader: None })),
+            read_buf: Arc::new(Mutex::new(ReadBuffer { buf: BytesMut::new(), reader: None })),
             peer,
             net,
         })
@@ -132,7 +132,7 @@ impl MockTcpStreamInner {
 
     fn is_full(&self) -> bool {
         // 4GB max
-        self.read_buf.read().unwrap().buf.remaining() > 1 << 32
+        self.read_buf.lock().unwrap().buf.remaining() > 1 << 32
     }
 
     fn send_message(&self, msg: &PeerMessage) {
@@ -153,7 +153,7 @@ impl MockTcpStreamInner {
             tokio::time::sleep(delay).await;
             tracing::trace!(target: "mock-node", "copying {} bytes into read buffer", bytes.len() + 4);
 
-            let mut buf = buf.write().unwrap();
+            let mut buf = buf.lock().unwrap();
             buf.buf.put_u32_le(bytes.len() as u32);
             buf.buf.put_slice(&bytes);
             if let Some(reader) = &buf.reader {
@@ -169,7 +169,7 @@ impl MockTcpStreamInner {
     }
 
     fn write(&self, dst: &mut ReadBuf<'_>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut buf = self.read_buf.write().unwrap();
+        let mut buf = self.read_buf.lock().unwrap();
         if buf.buf.has_remaining() {
             let n = std::cmp::min(buf.buf.remaining(), dst.remaining());
             tracing::trace!(target: "mock-node", "writing {} bytes out of {} available", n, buf.buf.remaining());
@@ -225,7 +225,7 @@ impl AsyncWrite for MockTcpStream {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        self.0.read_buf.write().unwrap().buf.clear();
+        self.0.read_buf.lock().unwrap().buf.clear();
         Poll::Ready(Ok(()))
     }
 }
