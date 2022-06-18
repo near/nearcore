@@ -83,7 +83,6 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [
-  "near-network/sandbox",
   "near-chain/sandbox",
   "node-runtime/sandbox",
   "near-client/sandbox",
