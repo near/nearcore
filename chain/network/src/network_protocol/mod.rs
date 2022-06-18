@@ -3,6 +3,11 @@ mod borsh;
 mod borsh_conv;
 mod proto_conv;
 
+#[cfg(test)]
+pub(crate) mod testonly;
+#[cfg(test)]
+mod tests;
+
 mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
@@ -10,23 +15,77 @@ mod _proto {
 pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_network_primitives::time;
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{EpochId, ProtocolVersion};
+use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
 use thiserror::Error;
 
-pub use self::borsh::RoutingTableUpdate;
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct PeerAddr {
+    addr: std::net::SocketAddr,
+    peer_id: Option<PeerId>,
+}
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Validator {
+    peers: Vec<PeerAddr>,
+    account_id: AccountId,
+    epoch_id: EpochId,
+    timestamp: time::Utc,
+}
+
+impl Validator {
+    pub fn sign(self, signer: &dyn near_crypto::Signer) -> SignedValidator {
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign(&payload);
+        SignedValidator { validator: self, payload: AccountKeySignedPayload { payload, signature } }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AccountKeySignedPayload {
+    payload: Vec<u8>,
+    signature: near_crypto::Signature,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct SignedValidator {
+    validator: Validator,
+    // serialized and signed validator.
+    payload: AccountKeySignedPayload,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct RoutingTableUpdate {
+    pub edges: Vec<Edge>,
+    pub accounts: Vec<AnnounceAccount>,
+    pub validators: Vec<SignedValidator>,
+}
+
+impl RoutingTableUpdate {
+    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
+        Self { edges, accounts: Vec::new(), validators: Vec::new() }
+    }
+
+    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
+        Self { edges: Vec::new(), accounts, validators: Vec::new() }
+    }
+
+    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
+        Self { edges, accounts, validators: Vec::new() }
+    }
+}
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {

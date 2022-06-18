@@ -32,6 +32,7 @@ pub struct RegisterPeer {
     /// Edge information from other node.
     pub(crate) other_edge_info: PartialEdgeInfo,
     /// Protocol version of new peer. May be higher than ours.
+    #[allow(dead_code)]
     pub(crate) peer_protocol_version: ProtocolVersion,
     /// A helper data structure for limiting reading, reporting bandwidth stats.
     pub(crate) throttle_controller: ThrottleController,

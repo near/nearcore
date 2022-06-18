@@ -75,6 +75,20 @@ impl From<&mem::HandshakeFailureReason> for net::HandshakeFailureReason {
 
 //////////////////////////////////////////
 
+impl From<net::RoutingTableUpdate> for mem::RoutingTableUpdate {
+    fn from(x: net::RoutingTableUpdate) -> Self {
+        Self { edges: x.edges, accounts: x.accounts, validators: vec![] }
+    }
+}
+
+impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
+    fn from(x: mem::RoutingTableUpdate) -> Self {
+        Self { edges: x.edges, accounts: x.accounts }
+    }
+}
+
+//////////////////////////////////////////
+
 #[derive(Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
@@ -92,7 +106,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
             net::PeerMessage::LastEdge(e) => mem::PeerMessage::LastEdge(e),
-            net::PeerMessage::SyncRoutingTable(rtu) => mem::PeerMessage::SyncRoutingTable(rtu),
+            net::PeerMessage::SyncRoutingTable(rtu) => {
+                mem::PeerMessage::SyncRoutingTable(rtu.into())
+            }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
             net::PeerMessage::ResponseUpdateNonce(e) => mem::PeerMessage::ResponseUpdateNonce(e),
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
@@ -133,7 +149,9 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }
             mem::PeerMessage::LastEdge(e) => net::PeerMessage::LastEdge(e),
-            mem::PeerMessage::SyncRoutingTable(rtu) => net::PeerMessage::SyncRoutingTable(rtu),
+            mem::PeerMessage::SyncRoutingTable(rtu) => {
+                net::PeerMessage::SyncRoutingTable(rtu.into())
+            }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
             mem::PeerMessage::ResponseUpdateNonce(e) => net::PeerMessage::ResponseUpdateNonce(e),
             mem::PeerMessage::PeersRequest => net::PeerMessage::PeersRequest,

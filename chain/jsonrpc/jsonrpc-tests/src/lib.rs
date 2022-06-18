@@ -1,17 +1,18 @@
+use actix::Actor;
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use once_cell::sync::Lazy;
-use serde_json::json;
-
 use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_network::test_utils::open_port;
-#[cfg(feature = "test_features")]
-use near_network::test_utils::test_features::make_peer_manager_routing_table_addr_pair;
+use near_network::test_utils::test_features::make_peer_manager;
+use near_network_primitives::types::NetworkConfig;
 use near_primitives::types::NumBlocks;
+use near_store::test_utils::create_test_store;
+use once_cell::sync::Lazy;
+use serde_json::json;
 
 pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> =
     Lazy::new(|| GenesisConfig::from_json(include_str!("../res/genesis_config.json")));
@@ -43,19 +44,21 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     );
 
     let addr = format!("127.0.0.1:{}", open_port());
-
-    #[cfg(feature = "test_features")]
-    let (peer_manager_addr, routing_table_addr) = make_peer_manager_routing_table_addr_pair();
-
+    #[allow(unused_variables)]
+    let peer_manager = make_peer_manager(
+        create_test_store(),
+        NetworkConfig::from_seed("test2", open_port()),
+        vec![("test1", open_port())],
+        10,
+    )
+    .start();
     start_http(
         RpcConfig::new(&addr),
         TEST_GENESIS_CONFIG.clone(),
         client_addr,
         view_client_addr.clone(),
         #[cfg(feature = "test_features")]
-        peer_manager_addr,
-        #[cfg(feature = "test_features")]
-        routing_table_addr,
+        peer_manager,
     );
     (view_client_addr, addr)
 }
