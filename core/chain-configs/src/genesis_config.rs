@@ -583,7 +583,7 @@ impl Genesis {
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
     pub protocol_version: ProtocolVersion,
@@ -609,10 +609,8 @@ pub struct ProtocolConfigView {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "u128_dec_format")]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -637,7 +635,6 @@ pub struct ProtocolConfigView {
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
