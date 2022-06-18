@@ -1241,17 +1241,15 @@ impl JsonRpcHandler {
 
     async fn adv_get_routing_table(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         let result = self
-            .routing_table_addr
-            .send(near_network::RoutingTableMessages::RequestRoutingTable)
+            .peer_manager_addr
+            .send(near_network::types::PeerManagerMessageRequest::GetRoutingTable)
             .await
             .map_err(RpcError::rpc_from)?;
-
         match result {
-            near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                edges_info: routing_table,
-            } => serialise_response(near_network::routing::GetRoutingTableResult {
-                edges_info: routing_table.iter().map(|x| x.to_simple_edge()).collect(),
-            }),
+            near_network::types::PeerManagerMessageResponse::GetRoutingTable { edges_info } => {
+                let edges_info = edges_info.iter().map(|x| x.to_simple_edge()).collect();
+                serialise_response(near_network::routing::GetRoutingTableResult { edges_info })
+            }
             _ => Ok(Value::Null),
         }
     }
