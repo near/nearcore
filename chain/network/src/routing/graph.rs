@@ -59,6 +59,7 @@ impl Graph {
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
+    #[cfg(test)]
     pub fn compute_total_active_edges(&self) -> u64 {
         let result: u64 = self.adjacency.iter().map(|x| x.len() as u64).sum();
         assert_eq!(result % 2, 0);
