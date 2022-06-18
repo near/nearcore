@@ -2990,11 +2990,13 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
- "near-chain-configs",
+ "chrono",
+ "near-account-id",
  "near-client-primitives",
  "near-crypto",
  "near-primitives",
  "near-rpc-error-macro",
+ "num-rational",
  "serde",
  "serde_json",
  "thiserror",

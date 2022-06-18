@@ -91,3 +91,13 @@ fn parse_signed_transaction(
     Ok(near_primitives::transaction::SignedTransaction::try_from_slice(&bytes)
         .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))?)
 }
+
+impl RpcFrom<near_primitives::runtime::fees::Fee> for near_jsonrpc_primitives::types::Fee {
+    fn rpc_from(fee: near_primitives::runtime::fees::Fee) -> Self {
+        near_jsonrpc_primitives::types::Fee {
+            send_sir: fee.send_sir,
+            send_not_sir: fee.send_not_sir,
+            execution: fee.execution,
+        }
+    }
+}

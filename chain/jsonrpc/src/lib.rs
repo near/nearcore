@@ -965,7 +965,7 @@ impl JsonRpcHandler {
     > {
         let config_view =
             self.view_client_send(GetProtocolConfig(request_data.block_reference)).await?;
-        Ok(RpcProtocolConfigResponse { config_view })
+        Ok(RpcProtocolConfigResponse { config_view: config_view.rpc_into() })
     }
 
     async fn query(
