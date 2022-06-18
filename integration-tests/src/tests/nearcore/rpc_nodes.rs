@@ -10,6 +10,7 @@ use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
+use near_jsonrpc::RpcInto;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::{hash, CryptoHash};
@@ -262,7 +263,7 @@ fn test_protocol_config_rpc() {
         );
         assert_eq!(
             config_response.config_view.runtime_config,
-            latest_runtime_config.as_ref().clone()
+            latest_runtime_config.as_ref().clone().rpc_into()
         );
         System::current().stop();
     });
