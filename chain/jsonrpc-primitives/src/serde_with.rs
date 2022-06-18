@@ -6,7 +6,7 @@ pub mod u128_dec_format {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&format!("{}", num))
+        serializer.serialize_str(&num.to_string())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
