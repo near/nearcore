@@ -266,7 +266,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             handler="NetworkClientMessages",
             msg=msg.as_ref())
         .entered();
-        
+
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -1252,7 +1252,6 @@ impl ClientActor {
             debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
         } else {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
-
         }
 
         for height in
