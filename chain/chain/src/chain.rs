@@ -1360,6 +1360,31 @@ impl Chain {
         Ok(())
     }
 
+    /// Check if the block is one a chain that has challenged blocks. Returns Ok if the chain
+    /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
+    fn check_if_block_path_challenged(&self, block_header: &BlockHeader) -> Result<(), Error> {
+        let mut hash = *block_header.hash();
+        let mut height = block_header.height();
+        let mut prev_hash = *block_header.prev_hash();
+        loop {
+            match self.get_block_hash_by_height(height) {
+                Ok(cur_hash) if cur_hash == hash => {
+                    // Found common ancestor.
+                    return Ok(());
+                }
+                _ => {
+                    if self.is_block_challenged(&hash)? {
+                        return Err(Error::ChallengedBlockOnChain);
+                    }
+                    let prev_header = self.get_block_header(&prev_hash)?;
+                    hash = *prev_header.hash();
+                    height = prev_header.height();
+                    prev_hash = *prev_header.prev_hash();
+                }
+            };
+        }
+    }
+
     pub fn ping_missing_chunks(
         &self,
         me: &Option<AccountId>,
@@ -2057,6 +2082,8 @@ impl Chain {
             } else {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
             };
+
+        self.check_if_block_path_challenged(block.header())?;
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
