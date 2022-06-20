@@ -28,7 +28,7 @@ use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping,
-    Pong, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom,
+    Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
     StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
@@ -47,6 +47,7 @@ use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
+use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -1412,19 +1413,19 @@ impl PeerManagerActor {
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    fn send_signed_message_to_peer(&mut self, msg: Box<RoutedMessage>) -> bool {
+    fn send_signed_message_to_peer(&mut self, msg: Box<RoutedMessageV2>) -> bool {
         // Check if the message is for myself and don't try to send it in that case.
-        if let PeerIdOrHash::PeerId(target) = &msg.target {
+        if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
             if target == &self.my_peer_id {
                 debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), my_peer_id = ?self.my_peer_id, ?msg, "Drop signed message to myself");
                 return false;
             }
         }
 
-        match self.routing_table_view.find_route(&self.clock, &msg.target) {
+        match self.routing_table_view.find_route(&self.clock, &msg.msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
-                if msg.author == self.my_peer_id && msg.expect_response() {
+                if msg.msg.author == self.my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
                     self.routing_table_view.add_route_back(
                         &self.clock,
@@ -1437,14 +1438,14 @@ impl PeerManagerActor {
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+                metrics::MessageDropped::NoRouteFound.inc(&msg.msg.body);
 
                 debug!(target: "network",
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                      to = ?msg.target,
+                      to = ?msg.msg.target,
                       reason = ?find_route_error,
                       known_peers = ?self.routing_table_view.peer_forwarding.len(),
-                      msg = ?msg.body,
+                      msg = ?msg.msg.body,
                     "Drop signed message"
                 );
                 false
@@ -1482,8 +1483,17 @@ impl PeerManagerActor {
         self.send_message_to_peer(msg)
     }
 
-    fn sign_routed_message(&self, msg: RawRoutedMessage, my_peer_id: PeerId) -> Box<RoutedMessage> {
-        msg.sign(my_peer_id, &self.config.node_key, self.config.routed_message_ttl)
+    fn sign_routed_message(
+        &self,
+        msg: RawRoutedMessage,
+        my_peer_id: PeerId,
+    ) -> Box<RoutedMessageV2> {
+        msg.sign(
+            my_peer_id,
+            &self.config.node_key,
+            self.config.routed_message_ttl,
+            Some(self.clock.now_utc()),
+        )
     }
 
     // Determine if the given target is referring to us.
@@ -2250,10 +2260,11 @@ impl PeerManagerActor {
             self.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
         }
 
-        if Self::message_for_me(&mut self.routing_table_view, &self.my_peer_id, &msg.target) {
+        if Self::message_for_me(&mut self.routing_table_view, &self.my_peer_id, &msg.msg.target) {
+            self.record_routed_msg_latency(&msg);
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
-            match &msg.body {
+            match &msg.msg.body {
                 RoutedMessageBody::Ping(ping) => {
                     self.send_pong(ping.nonce as usize, msg.hash());
                     self.ping_counter.add_ping(ping);
@@ -2272,6 +2283,18 @@ impl PeerManagerActor {
                 warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
             }
             false
+        }
+    }
+
+    // The routed message received its destination. If the timestamp of creation of this message is
+    // known, then update the corresponding latency metric histogram.
+    fn record_routed_msg_latency(&self, msg: &RoutedMessageV2) {
+        if let Some(created_at) = msg.created_at {
+            let now = self.clock.now_utc();
+            let duration = now.sub(created_at);
+            metrics::NETWORK_ROUTED_MSG_LATENCY
+                .with_label_values(&[msg.body_variant()])
+                .observe(duration.as_seconds_f64());
         }
     }
 
