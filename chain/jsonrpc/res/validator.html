@@ -90,15 +90,14 @@
         // draw the colorful bar with the approvals.
         // approval_map should contain the mapping from 'skips' (int) to number of votes, skip == 0 means that this is an endorsement.
         function drawApprovals(approvalMap, missingCount, context) {
+            // We use 5 different colors (and they should roughly map the validator-skip-XX css above).
             var colors = {
-
                 0: { "bg": 'rgba(117, 240, 158, 0.2)', "border": 'rgba(117, 240, 158, 1.0)' },
                 1: { "bg": 'rgba(255, 206, 86, 0.2)', "border": 'rgba(255, 206, 86, 1.0)' },
                 2: { "bg": 'rgba(54, 162, 235, 0.2)', "border": 'rgba(54, 162, 235, 1.0)' },
                 3: { "bg": 'rgba(75, 192, 192, 0.2)', "border": 'rgba(75, 192, 192, 1.0)' },
                 4: { "bg": 'rgba(255, 100, 30, 0.2)', "border": 'rgba(255, 100, 30, 1.0)' },
             };
-
             let datasets = [];
             Array.from(approvalMap.keys()).sort().forEach(element => {
                 if (element == 0) {
@@ -191,6 +190,7 @@
                 $('.js-tbody-approvals-sent').append(row);
             });
 
+            // Updates the top table with production information.
             let all_validators = data.status_response.ValidatorStatus.validators;
             let validators_size = all_validators.length;
 
@@ -201,7 +201,6 @@
             $('.js-thead-production').append($("<th>").text("Block production"));
 
             let numShards = data.status_response.ValidatorStatus.shards;
-
             for (let i = 0; i < numShards; i += 1) {
                 $('.js-thead-production').append($("<th>").text("Shard " + i));
             }
@@ -210,12 +209,10 @@
             Object.keys(production).sort(function (a, b) { return a - b; }).reverse().forEach(function (key) {
                 if (key == head) {
                     $('.js-tbody-production').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
-
                 }
                 let entry = production[key];
                 let row = $('<tr>')
                     .append($('<td>').append(key));
-
                 let fastestValidator = null;
                 let thresholdApprovalTime = null;
 
@@ -281,7 +278,6 @@
                     });
                 }
 
-
                 // In case the current validator is responsible for producting this block.
                 if (entry.block_production != null) {
                     let block_production = entry.block_production;
@@ -340,7 +336,6 @@
             });
 
         };
-
 
         $(document).ready(() => {
             $('.div-progress').hide();
