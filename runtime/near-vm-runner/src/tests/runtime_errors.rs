@@ -392,7 +392,7 @@ fn bad_import_global(env: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"
             (module
-              (import "{env}" "input" (global (;0;) i32))
+              (import "{env}" "no-such-global" (global i32))
               (func (export "main"))
             )"#,
     ))
@@ -403,7 +403,7 @@ fn bad_import_func(env: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"
             (module
-              (import "{env}" "wtf" (func $f))
+              (import "{env}" "no-such-fn" (func $f))
               (export "main" (func $f))
             )"#,
     ))
@@ -416,7 +416,7 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
     test_builder()
-        .wasm(&bad_import_global("wtf"))
+        .wasm(&bad_import_global("no-such-module"))
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -428,7 +428,7 @@ fn test_bad_import_1() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463
                 Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
@@ -437,7 +437,7 @@ fn test_bad_import_1() {
 #[test]
 fn test_bad_import_2() {
     test_builder()
-        .wasm(&bad_import_func("wtf"))
+        .wasm(&bad_import_func("no-such-module"))
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -449,7 +449,7 @@ fn test_bad_import_2() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963
                 Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
@@ -458,7 +458,7 @@ fn test_bad_import_2() {
 #[test]
 fn test_bad_import_3() {
     test_builder().wasm(&bad_import_global("env")).opaque_error().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
         Err: ...
     "#]]);
 }
@@ -466,7 +466,7 @@ fn test_bad_import_3() {
 #[test]
 fn test_bad_import_4() {
     test_builder().wasm(&bad_import_func("env")).opaque_error().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
         Err: ...
     "#]]);
 }
@@ -776,7 +776,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);
@@ -790,7 +790,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46283463 used gas 46283463
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);
