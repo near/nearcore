@@ -5,7 +5,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{ShardTries, Store, TrieCacheFactory};
+use crate::{ShardTries, Store};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -26,8 +26,7 @@ pub fn create_tries() -> ShardTries {
 
 pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
     let store = create_test_store();
-    let trie_cache_factory = TrieCacheFactory::new(Default::default(), shard_version, num_shards);
-    ShardTries::new(store, trie_cache_factory)
+    ShardTries::new(store, shard_version, num_shards)
 }
 
 pub fn test_populate_trie(

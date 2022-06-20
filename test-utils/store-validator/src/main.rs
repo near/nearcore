@@ -42,7 +42,6 @@ fn main() {
         None,
         None,
         DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-        Default::default(),
     ));
 
     let mut store_validator = StoreValidator::new(

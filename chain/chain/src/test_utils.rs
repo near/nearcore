@@ -140,7 +140,7 @@ impl KeyValueRuntime {
         epoch_length: u64,
         no_gc: bool,
     ) -> Self {
-        let tries = ShardTries::test(store.clone(), num_shards);
+        let tries = ShardTries::new(store.clone(), 0, num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
