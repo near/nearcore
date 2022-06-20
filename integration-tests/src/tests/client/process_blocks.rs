@@ -2262,7 +2262,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        &chunks.get(&0).cloned().unwrap(),
+        &chunks.get(&0).cloned().unwrap().0,
     )
     .is_ok());
 }

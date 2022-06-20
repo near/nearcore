@@ -1,0 +1,422 @@
+<html>
+
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+
+        .approval-skip {
+            background-color: yellow;
+        }
+
+        .approval-target-rollback {
+            background-color: red;
+        }
+
+        .approval-ok {
+            background-color: lightgreen;
+        }
+
+        .client-actor-delayed {
+            font-size: x-large;
+            font-weight: bold;
+        }
+
+        .validator-missing {
+            background-color: grey;
+        }
+
+        .validator-endorse {
+            background-color: lightgreen;
+        }
+
+        .validator-skip-0 {
+            background-color: #75f09e33;
+        }
+
+        .validator-skip-1 {
+            background-color: #ffce5633;
+        }
+
+        .validator-skip-2 {
+            background-color: #36a2eb33;
+        }
+
+        .validator-skip-3 {
+            background-color: #4bc0c033;
+        }
+
+        .validator-skip-4 {
+            background-color: #ff641e33;
+        }
+
+        .chunk-delay-orange {
+            background-color: orange;
+        }
+
+        .chunk-delay-red {
+            background-color: red;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        // draw the colorful bar with the approvals.
+        // approval_map should contain the mapping from 'skips' (int) to number of votes, skip == 0 means that this is an endorsement.
+        function drawApprovals(approvalMap, missingCount, context) {
+            var colors = {
+
+                0: { "bg": 'rgba(117, 240, 158, 0.2)', "border": 'rgba(117, 240, 158, 1.0)' },
+                1: { "bg": 'rgba(255, 206, 86, 0.2)', "border": 'rgba(255, 206, 86, 1.0)' },
+                2: { "bg": 'rgba(54, 162, 235, 0.2)', "border": 'rgba(54, 162, 235, 1.0)' },
+                3: { "bg": 'rgba(75, 192, 192, 0.2)', "border": 'rgba(75, 192, 192, 1.0)' },
+                4: { "bg": 'rgba(255, 100, 30, 0.2)', "border": 'rgba(255, 100, 30, 1.0)' },
+            };
+
+            let datasets = [];
+            Array.from(approvalMap.keys()).sort().forEach(element => {
+                if (element == 0) {
+                    // This is endorsement
+                    label = "Endorsement";
+                } else {
+                    label = "Skip " + element;
+                }
+                datasets.push({
+                    label: label,
+                    data: [approvalMap.get(element)],
+                    backgroundColor: [colors[element % 5]["bg"]],
+                    borderColor: [colors[element % 5]["border"]],
+                    borderWidth: 1,
+                })
+            });
+            datasets.push({
+                label: 'Missing',
+                data: [missingCount],
+                backgroundColor: ['rgba(128, 128, 128, 0.2)'],
+                borderColor: ['rgba(128, 128, 128, 1.0)'],
+                borderWidth: 1,
+            });
+
+            var myChart = new Chart(context, {
+                type: 'bar',
+                data: {
+                    labels: ['Votes'],
+                    datasets: datasets,
+                },
+                options: {
+                    indexAxis: 'y',
+                    scales: {
+                        y: {
+                            stacked: true,
+                            beginAtZero: true
+                        },
+                        x: {
+                            stacked: true,
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                        }
+                    }
+
+                }
+            });
+        }
+
+        function process_validator_status(data) {
+            if (data.status_response.ValidatorStatus.validator_name != null) {
+                $(".is-validator").text("Validator Id: " + data.status_response.ValidatorStatus.validator_name);
+            } else {
+                $(".is-validator").text("NOT A VALIDATOR");
+            }
+
+            let head = data.status_response.ValidatorStatus.head_height;
+            let approvalHistory = data.status_response.ValidatorStatus.approval_history;
+
+            // Updates the bottom table with the history of approvals created.
+            approvalHistory.reverse().forEach((element, index) => {
+                let row =
+                    $('<tr>')
+                        .append($('<td>').append(element.approval_creation_time))
+                        .append($('<td>').append(element.parent_height))
+                        .append($('<td>').append(element.target_height))
+                        .append($('<td>').append(element.expected_delay_millis));
+
+                let client_actor_delay = element.timer_started_ago_millis - element.expected_delay_millis;
+                let client_actor_delay_cell = $('<td>').append(client_actor_delay);
+                if (client_actor_delay > 150) {
+                    client_actor_delay_cell.addClass('client-actor-delayed');
+                }
+
+                row.append(client_actor_delay_cell);
+
+                if (index < approvalHistory.length - 1 && approvalHistory[index + 1].target_height > element.target_height) {
+                    row.addClass('approval-target-rollback');
+                } else {
+                    // This means that this is a skip
+                    if (element.target_height != element.parent_height + 1) {
+                        row.addClass('approval-skip');
+                    } else {
+                        row.addClass('approval-ok');
+
+                    }
+                }
+                $('.js-tbody-approvals-sent').append(row);
+            });
+
+            let all_validators = data.status_response.ValidatorStatus.validators;
+            let validators_size = all_validators.length;
+
+            $('.js-thead-production').append($("<th>").text("Approvals"));
+            for (let i = 0; i < validators_size; i += 1) {
+                $('.js-thead-production').append($("<th>").text(all_validators[i][0].substring(0, 7)));
+            }
+            $('.js-thead-production').append($("<th>").text("Block production"));
+
+            let numShards = data.status_response.ValidatorStatus.shards;
+
+            for (let i = 0; i < numShards; i += 1) {
+                $('.js-thead-production').append($("<th>").text("Shard " + i));
+            }
+            let production = data.status_response.ValidatorStatus.upcoming_production;
+
+            Object.keys(production).sort(function (a, b) { return a - b; }).reverse().forEach(function (key) {
+                if (key == head) {
+                    $('.js-tbody-production').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
+
+                }
+                let entry = production[key];
+                let row = $('<tr>')
+                    .append($('<td>').append(key));
+
+                let fastestValidator = null;
+                let thresholdApprovalTime = null;
+
+                // In case the current validator has received any approvals for this block.
+                if (entry.approvals != null) {
+                    let approvals = entry.approvals.approvals;
+                    let approvalsMap = new Map();
+                    let missingCount = 0;
+
+                    let more_info_data = $('<div>');
+                    more_info_data.hide();
+                    let more_info_table = $('<table><tr><th>Validator</th><td>State</td><td>Time</td></tr></table>');
+
+                    all_validators.forEach(entry => {
+                        let validator = entry[0];
+                        let stake = entry[1];
+                        if (approvals[validator] == null) {
+                            missingCount += stake;
+                        } else {
+                            if (approvals[validator][0]["Endorsement"] != null) {
+                                approvalsMap.set(0, (approvalsMap.get(0) ?? 0) + stake);
+                            } else {
+                                let skip_delta = key - approvals[validator][0]["Skip"];
+                                approvalsMap.set(skip_delta, (approvalsMap.get(skip_delta) ?? 0) + stake);
+                            }
+                            let ts = Date.parse(approvals[validator][1]);
+                            if (fastestValidator == null || fastestValidator > ts) {
+                                fastestValidator = ts;
+                            }
+                        }
+
+                    });
+
+                    let canvas = $('<canvas>').height(100);
+                    drawApprovals(approvalsMap, missingCount, canvas[0].getContext('2d'));
+                    row.append($('<td>').append($('<div>').width("200px").append(canvas)));
+
+                    all_validators.forEach(entry => {
+                        let validator = entry[0];
+                        let cell = $('<td>');
+                        if (approvals[validator] == null) {
+                            cell.addClass('validator-missing');
+                        } else {
+                            let cellText = "";
+                            if (approvals[validator][0]["Endorsement"] != null) {
+                                cell.addClass('validator-endorse');
+                            } else {
+                                let skip_delta = key - approvals[validator][0]["Skip"];
+
+                                cell.addClass('validator-skip-' + (skip_delta % 5));
+                                cellText += "Skip " + skip_delta + "<br>"
+                            }
+                            let ts = Date.parse(approvals[validator][1]);
+                            cellText += "F + " + (ts - fastestValidator) + "ms";
+                            cell.append(cellText);
+                        }
+                        row.append(cell);
+                    });
+                } else {
+                    row.append($('<td>'));
+                    all_validators.forEach(validator => {
+                        row.append($('<td>'));
+                    });
+                }
+
+
+                // In case the current validator is responsible for producting this block.
+                if (entry.block_production != null) {
+                    let block_production = entry.block_production;
+                    let content = "";
+
+                    if (entry.approvals != null && entry.approvals.ready_at != null) {
+                        content += "Approval Threshold T = <b>F + " + (Date.parse(entry.approvals.ready_at) - fastestValidator) + " ms</b> <br>";
+                        thresholdApprovalTime = Date.parse(entry.approvals.ready_at);
+                    }
+
+                    content += "Block produced: <br>@" + (block_production.block_production_time ?? "-");
+
+                    if (block_production.block_production_time != null) {
+                        content += "<br> <b>F+" + (Date.parse(block_production.block_production_time) - fastestValidator) + "ms</b>";
+                        content += "<br> <b>T+" + (Date.parse(block_production.block_production_time) - thresholdApprovalTime) + "ms</b>";
+                    }
+
+                    let cell = $('<td>').append(content);
+
+                    row.append(cell);
+                    for (let i = 0; i < numShards; i += 1) {
+                        let chunk_cell = $('<td>');
+
+                        let time_delta = null;
+                        let time_since_threshold = null;
+                        if (block_production.chunks_collection_time[i] != null) {
+                            time_delta = Date.parse(block_production.chunks_collection_time[i]) - fastestValidator;
+                            if (thresholdApprovalTime != null) {
+                                time_since_threshold = Date.parse(block_production.chunks_collection_time[i]) - thresholdApprovalTime;
+                                if (time_since_threshold > 300) {
+                                    chunk_cell.addClass('chunk-delay-red')
+                                } else if (time_since_threshold > 150) {
+                                    chunk_cell.addClass('chunk-delay-orange')
+                                }
+                            }
+                        }
+
+                        if (entry.chunk_production[i] != null) {
+                            chunk_cell.append("own production <br> F + " + (time_delta ?? "-") + " ms <br><b>T +" + (time_since_threshold ?? "-") + "ms </b> <br>Production duration: " + (entry.chunk_production[i].chunk_production_duration_millis ?? "-") + " ms");
+                        } else {
+                            chunk_cell.append("received <br> F + " + (time_delta ?? "-") + " ms  <br><b>T + " + (time_since_threshold ?? "-") + "ms</b> <br>");
+                        }
+                        row.append(chunk_cell);
+                    }
+                } else {
+                    row.append($('<td>'));
+                    for (let i = 0; i < numShards; i += 1) {
+                        if (entry.chunk_production[i] != null) {
+                            row.append($('<td>').append("produce: @" + (entry.chunk_production[i].chunk_production_duration_millis ?? "-") + " ms"));
+                        } else {
+                            row.append($('<td>'));
+                        }
+                    }
+                }
+                $('.js-tbody-production').append(row);
+            });
+
+        };
+
+
+        $(document).ready(() => {
+            $('.div-progress').hide();
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/validator_status",
+                success: data => {
+                    process_validator_status(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <h1>
+        Validator page -
+        <span class="is-validator"></span>
+    </h1>
+
+    <div class=" div-production">
+        <h2>
+            <p>Production</p>
+        </h2>
+        <p>
+            <b>F</b> is the time when the first approval arrives for a given height.<br>
+            <b>T</b> is the time when a given blocks gets a threshold approval (66%).<br>
+            Shards can either be produced by this validator (marked as 'own production') or received from other
+            validators.<br>
+            If shard arrives too late (more than 200 ms after T) - it might not get included in the block.<br>
+            Shards that are delayed by more than 150ms are marked as orange, and ones delayed more than 300 marked as
+            red.<br>
+            <b>Approvals</b><br>
+            Green field means that validators endorses the PREVIOUS block.<br>
+            Grey means that we didn't get any info from the validator.<br>
+            Other colors means different amount of skips.
+
+        </p>
+        <table>
+            <thead>
+                <tr class="js-thead-production">
+                    <th>Height</th>
+                </tr>
+            </thead>
+            <tbody class="js-tbody-production">
+            </tbody>
+        </table>
+    </div>
+
+    <div class="div-approvals-sent">
+        <h2>
+            <p>Approval history</p>
+        </h2>
+        <table>
+            <thead>
+                <tr class="js-thead-approvals-sent">
+                    <th>Time</th>
+                    <th>Approval from</th>
+                    <th>Approval to</th>
+                    <th>Delay</th>
+                    <th>Client-actor delay</th>
+
+                </tr>
+            </thead>
+            <tbody class="js-tbody-approvals-sent">
+            </tbody>
+        </table>
+    </div>
+
+
+</body>
+
+</html>

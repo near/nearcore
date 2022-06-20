@@ -937,6 +937,7 @@ impl JsonRpcHandler {
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
+                "/debug/api/validator_status" => self.client_send(DebugStatus::ValidatorStatus).await?,
                 _ => return Ok(None),
             };
             return Ok(Some(debug_status.rpc_into()));
@@ -1502,6 +1503,7 @@ async fn display_debug_html(
         "epoch_info" => Some(include_str!("../res/epoch_info.html")),
         "chain_n_chunk_info" => Some(include_str!("../res/chain_n_chunk_info.html")),
         "sync" => Some(include_str!("../res/sync.html")),
+        "validator" => Some(include_str!("../res/validator.html")),
         _ => None,
     };
 

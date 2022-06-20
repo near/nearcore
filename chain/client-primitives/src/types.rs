@@ -22,7 +22,7 @@ use near_primitives::views::{
     BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
     ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
     LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView, ValidatorStatus,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -358,6 +358,8 @@ pub enum DebugStatus {
     EpochInfo,
     // Detailed information about last couple blocks.
     BlockStatus,
+    // Consensus related information.
+    ValidatorStatus,
 }
 
 impl Message for DebugStatus {
@@ -372,6 +374,8 @@ pub enum DebugStatusResponse {
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
     BlockStatus(Vec<DebugBlockStatus>),
+
+    ValidatorStatus(ValidatorStatus),
 }
 
 #[derive(thiserror::Error, Debug)]

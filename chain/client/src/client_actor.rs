@@ -51,7 +51,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, TrackedShardsView,
-    ValidatorInfo,
+    ValidatorInfo, ValidatorStatus, ProductionAtHeight, ChunkProduction, BlockProduction
 };
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
@@ -75,6 +75,9 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
+
+// How many old blocks (before HEAD) should be shown in debug page.
+const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 10;
 
 pub struct ClientActor {
     /// Adversarial controls
@@ -911,6 +914,62 @@ impl ClientActor {
         }
         Ok(blocks_debug)
     }
+
+
+    /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be 
+    /// produced and some detailed timing information.
+    fn get_validator_status(
+        &mut self,
+    ) -> Result<ValidatorStatus, near_chain_primitives::Error> {
+        let head = self.client.chain.head()?;
+        let mut production_map: HashMap<BlockHeight, ProductionAtHeight> = HashMap::new();
+
+        if let Some(signer) = &self.client.validator_signer {
+            let validator_id = signer.validator_id().to_string();
+
+            let max_height = std::cmp::max(head.height + DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW, self.client.doomslug.get_largest_target_height());
+            for height in head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height {
+                let mut production = ProductionAtHeight::default();
+                production.approvals = self.client.doomslug.approval_status_at_height(&height);
+
+                let block_producer = self
+                    .client
+                    .runtime_adapter
+                    .get_block_producer(&head.epoch_id, height)
+                    .map(|f| f.to_string())
+                    .unwrap_or_default();
+
+                if block_producer == validator_id {                    
+                    production.block_production = self.client.block_production_times.get(&height).cloned().or(Some(BlockProduction::default()));
+                }
+
+                for shard_id in 0..self.client.runtime_adapter.num_shards(&head.epoch_id)? {
+                    let chunk_producer = self.client.runtime_adapter.get_chunk_producer(&head.epoch_id, height, shard_id).map(|f| f.to_string()).unwrap_or_default();
+                    if chunk_producer == validator_id {
+                        production.chunk_production.insert(shard_id, ChunkProduction {
+                            chunk_production_duration_millis: self.client.chunk_production_times.get(&(height, shard_id)).map(|i| i.as_millis() as u64),
+                            chunk_production_time: None,
+                        });
+                    }
+                }
+                production_map.insert(height, production);
+            }
+        }
+
+        Ok(ValidatorStatus{
+            validator_name: self.client.validator_signer.as_ref().map(|signer| signer.validator_id().to_string()),
+            validators: self.client.runtime_adapter.get_epoch_block_approvers_ordered(&head.last_block_hash).map(|validators|
+                validators.iter().map(|validator| {
+                    (validator.0.account_id.to_string(), (validator.0.stake_this_epoch / u128::pow(10, 24)) as u64)
+                }).collect::<Vec<(String, u64)>>()
+            ).ok(),
+            head_height: head.height,
+            shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
+            approval_history: self.client.doomslug.get_approval_history(),
+            upcoming_production: production_map,
+        })
+
+    }
 }
 
 impl Handler<DebugStatus> for ClientActor {
@@ -930,6 +989,9 @@ impl Handler<DebugStatus> for ClientActor {
             }
             DebugStatus::BlockStatus => {
                 Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info()?))
+            }
+            DebugStatus::ValidatorStatus => {
+                Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
             }
         }
     }
@@ -1245,6 +1307,7 @@ impl ClientActor {
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
+        // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {

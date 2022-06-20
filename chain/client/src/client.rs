@@ -38,7 +38,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::{BlockByChunksView, ChunkInfoView};
+use near_primitives::views::{BlockByChunksView, ChunkInfoView, BlockProduction};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
@@ -65,6 +65,9 @@ pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
+
+/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
+pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
 
 pub struct Client {
     /// Adversarial controls
@@ -111,6 +114,11 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+
+    /// Block and chunk production timing information.
+    /// used only for debug purposes.
+    pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
+    pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
 }
 
 // Debug information about the upcoming block.
@@ -231,6 +239,8 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
+            block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
         })
     }
 
@@ -433,14 +443,14 @@ impl Client {
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
-
+        
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
             return Ok(None);
         }
 
-        let mut approvals_map = self.doomslug.remove_witness(&prev_hash, prev_height, next_height);
+        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, next_height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
@@ -502,8 +512,19 @@ impl Client {
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
+
+        // Add debug information about the block production (and info on when did the chunks arrive).
+        self.block_production_times.put(next_height, BlockProduction {
+            block_production_time: Some(chrono::Utc::now()),
+            chunks_collection_time: (0..(chunks.len().clone())).map(|shard_id| {
+                new_chunks.get(&(shard_id.clone() as u64)).and_then(|(_, arrival_time)| {
+                    Some(arrival_time.clone())
+                })
+            }).collect::<Vec<_>>()
+        });
+
         // Collect new chunks.
-        for (shard_id, mut chunk_header) in new_chunks {
+        for (shard_id, (mut chunk_header, _)) in new_chunks {
             *chunk_header.height_included_mut() = next_height;
             chunks[shard_id as usize] = chunk_header;
         }
@@ -581,6 +602,7 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+        let timer = Instant::now();
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -669,16 +691,18 @@ impl Client {
 
         debug!(
             target: "client",
-            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
+            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {} prev_block_hash: {}",
             next_height,
             shard_id,
             num_filtered_transactions,
             outgoing_receipts.len(),
             validator_signer.validator_id(),
             encoded_chunk.chunk_hash().0,
+            prev_block_hash,
         );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
+        self.chunk_production_times.put((next_height, shard_id), timer.elapsed());
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
