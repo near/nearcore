@@ -1,6 +1,8 @@
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
+use crate::db::Mode;
+
 const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -119,8 +121,8 @@ pub struct StoreOpener<'a> {
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
 
-    /// Whether to open the storeg in read-only mode.
-    read_only: bool,
+    /// Which mode to open storeg in.
+    mode: Mode,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -128,12 +130,12 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
         let path =
             home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
-        Self { path, config, read_only: false }
+        Self { path, config, mode: Mode::ReadWrite }
     }
 
-    /// Configure whether the database should be opened in read-only mode.
-    pub fn read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
+    /// Configure which mode the database should be opened in.
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -170,13 +172,19 @@ impl<'a> StoreOpener<'a> {
     pub fn open(&self) -> crate::Store {
         if std::fs::canonicalize(&self.path).is_ok() {
             tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
-        } else if self.read_only {
-            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-            panic!("Failed to open non-existent the database");
         } else {
-            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
+            match self.mode {
+                Mode::ReadOnly => {
+                    tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
+                    panic!("Failed to open non-existent the database");
+                }
+                Mode::ReadWrite => {
+                    tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
+                }
+            }
         }
-        let db = crate::RocksDB::open(&self.path, &self.config, self.read_only)
+
+        let db = crate::RocksDB::open(&self.path, &self.config, self.mode.clone())
             .expect("Failed to open the database");
         crate::Store::new(std::sync::Arc::new(db))
     }

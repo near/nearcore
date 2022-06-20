@@ -6,7 +6,7 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::StateRoot;
-use near_store::TrieIterator;
+use near_store::{db::Mode, TrieIterator};
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 /// took on avg 1.424615ms op per sec 701 items read 10000
 /// took on avg 1.416562ms op per sec 705 items read 10000
 /// ```
-fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
+fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
     init_integration_logger();
     let home_dir = get_default_home();
     let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast)
@@ -29,7 +29,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
         let store = near_store::Store::opener(&home_dir, &near_config.config.store)
-            .read_only(read_only)
+            .mode(mode.clone())
             .open();
 
         let chain_store =
@@ -69,13 +69,13 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, read_only: bool) {
 
 /// Read first 10k trie items from shard 0.
 fn read_trie_items_10k(bench: &mut Bencher) {
-    read_trie_items(bench, 0, false);
+    read_trie_items(bench, 0, Mode::ReadWrite);
 }
 
 /// Read first 10k trie items from shard 0 in read-only mode.
 fn read_trie_items_10k_read_only(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 0, true);
+    read_trie_items(bench, 0, Mode::ReadOnly);
 }
 
 benchmark_group!(benches, read_trie_items_10k, read_trie_items_10k_read_only);

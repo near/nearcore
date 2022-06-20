@@ -171,22 +171,23 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     }
 }
 
+#[derive(Clone)]
+pub enum Mode {
+    ReadOnly,
+    ReadWrite,
+}
+
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the read_only parameter specified in the store_config.
-    pub fn open(
-        path: &Path,
-        store_config: &StoreConfig,
-        read_only: bool,
-    ) -> Result<RocksDB, DBError> {
+    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
 
         ensure_max_open_files_limit(store_config.max_open_files)?;
 
-        let (db, db_opt) = if read_only {
-            Self::open_read_only(path, store_config)
-        } else {
-            Self::open_read_write(path, store_config)
+        let (db, db_opt) = match mode {
+            Mode::ReadOnly => Self::open_read_only(path, store_config),
+            Mode::ReadWrite => Self::open_read_write(path, store_config),
         }?;
 
         let mut cf_handles = enum_map::EnumMap::default();
@@ -626,7 +627,7 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let value = RocksDB::open(path, &StoreConfig::default(), true)?
+        let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
                 DBError(
@@ -787,6 +788,8 @@ mod tests {
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
     use crate::{DBCol, Store, StoreConfig, StoreStatistics};
 
+    use super::Mode;
+
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
@@ -811,7 +814,8 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), false).unwrap();
+        let store =
+            RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), Mode::ReadWrite).unwrap();
         store.pre_write_check().unwrap()
     }
 
