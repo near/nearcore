@@ -205,7 +205,7 @@
             for (let i = 0; i < numShards; i += 1) {
                 $('.js-thead-production').append($("<th>").text("Shard " + i));
             }
-            let production = data.status_response.ValidatorStatus.upcoming_production;
+            let production = data.status_response.ValidatorStatus.production;
 
             Object.keys(production).sort(function (a, b) { return a - b; }).reverse().forEach(function (key) {
                 if (key == head) {

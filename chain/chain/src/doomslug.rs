@@ -238,7 +238,6 @@ impl DoomslugApprovalsTracker {
     fn ready_since(&self) -> Option<Instant> {
         self.time_passed_threshold
     }
-
 }
 
 impl DoomslugApprovalsTrackersAtHeight {
@@ -320,8 +319,6 @@ impl DoomslugApprovalsTrackersAtHeight {
         let threshold_approval = self.approval_trackers.iter().filter_map(|(_, tracker)| {
             tracker.ready_since()
         }).min().map(|ts| chrono::Utc::now() - chrono::Duration::milliseconds(ts.elapsed().as_millis() as i64));
-
-        
         ApprovalAtHeightStatus { approvals, ready_at: threshold_approval }
     }
 }
@@ -395,7 +392,6 @@ impl Doomslug {
     pub fn get_approval_history(&self) -> Vec<ApprovalHistoryEntry> {
        self.history.iter().map(|x| x.clone()).collect::<Vec<_>>()
     }
-
 
     /// Adds new approval to the history.
     fn update_history(&mut self, entry: ApprovalHistoryEntry) {

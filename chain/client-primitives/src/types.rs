@@ -374,7 +374,7 @@ pub enum DebugStatusResponse {
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
     BlockStatus(Vec<DebugBlockStatus>),
-
+    // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
 }
 

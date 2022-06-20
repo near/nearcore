@@ -79,6 +79,9 @@ const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 // How many old blocks (before HEAD) should be shown in debug page.
 const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 10;
 
+// Maximum number of blocks to show.
+const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
+
 pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
@@ -915,7 +918,6 @@ impl ClientActor {
         Ok(blocks_debug)
     }
 
-
     /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be 
     /// produced and some detailed timing information.
     fn get_validator_status(
@@ -927,11 +929,16 @@ impl ClientActor {
         if let Some(signer) = &self.client.validator_signer {
             let validator_id = signer.validator_id().to_string();
 
-            let max_height = std::cmp::max(head.height + DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW, self.client.doomslug.get_largest_target_height());
+            // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
+            // and new blocks (up to the current height for which we've sent approval).
+
+            let max_height = std::cmp::min(std::cmp::max(head.height, self.client.doomslug.get_largest_target_height()), DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW);
             for height in head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height {
                 let mut production = ProductionAtHeight::default();
+                // For each height - we want to collect information about received approvals.
                 production.approvals = self.client.doomslug.approval_status_at_height(&height);
 
+                // And if we are the block (or chunk) producer for this height - collect some timing info.
                 let block_producer = self
                     .client
                     .runtime_adapter
@@ -958,6 +965,8 @@ impl ClientActor {
 
         Ok(ValidatorStatus{
             validator_name: self.client.validator_signer.as_ref().map(|signer| signer.validator_id().to_string()),
+            // TODO: this might not work correctly when we're at the epoch boundary (as it will just return the validators for the current epoch).
+            // We can fix it in the future, if we see that this debug page is useful.
             validators: self.client.runtime_adapter.get_epoch_block_approvers_ordered(&head.last_block_hash).map(|validators|
                 validators.iter().map(|validator| {
                     (validator.0.account_id.to_string(), (validator.0.stake_this_epoch / u128::pow(10, 24)) as u64)
@@ -966,7 +975,7 @@ impl ClientActor {
             head_height: head.height,
             shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
-            upcoming_production: production_map,
+            production: production_map,
         })
 
     }
