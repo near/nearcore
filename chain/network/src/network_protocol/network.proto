@@ -5,6 +5,41 @@ package network;
 
 import "google/protobuf/timestamp.proto";
 
+// A payload that can be signed with account keys.
+// Since account keys are used to sign things in independent contexts,
+// we need this common enum to prevent message replay attacks, like this one:
+// - messages M1 and M2 of different types happen to have the same serialized representation.
+// - an attacker observes M1 signed by A in some context
+// - the attacker then sends M2 with A's signature of M1 (which also matches M2, since
+//   their serialized representations match) to B, effectively impersonating A.
+// NOTE that proto serialization is non-unique, so the message passed around with the signature
+// should be in serialized form.
+// TODO: move to a separate file, probably in a separate package.
+message AccountKeyPayload {
+  oneof payload_type {
+    Validator validator = 1;
+  }
+}
+
+// Wrapper of borsh-encoded Signature.
+// TODO: link to the rust Signature type.
+message Signature {
+  bytes borsh = 1;
+}
+
+message AccountKeySignedPayload {
+  // protobuf-serialized AccountKeyPayload, required.
+  // It is passed in serialized form, because the protobuf encoding is non-deterministic.
+  // In particular encode(decode(payload)) might not match the signature.
+  bytes payload = 1;
+  // Signature of the payload, required.
+  Signature signature = 2;
+  // TODO: this is a good place to add optional fields: account_id, account_public_key,
+  // in case the signer of the message is not implied by the payload, or the context.
+  // Add them if needed.
+}
+//////////////////////////////////////
+
 // Wrapper of borsh-encoded PublicKey.
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/crypto/src/signature.rs#L201
 message PublicKey {
@@ -166,22 +201,6 @@ message Validator {
   google.protobuf.Timestamp timestamp = 4; 
 }
 
-message SignedValidator {
-  // protobuf-serialized Validator, required.
-  // It is passed in serialized form, because the protobuf encoding is non-deterministic.
-  // In particular encode(decode(payload)) might not match the signature.
-  bytes payload = 1;
-  // signature of a key assigned to account_id at the epoch previous to epoch_id
-  // (TODO: verify, whether that's correct).
-  //
-  // If a node is connected directly to a validator (and therefore observes its IP),
-  // but validator hasn't provided a signed Validator message (a validator node might not know its own public IP),
-  // the node is allowed to broadcast an unsigned Validator message
-  // (i.e. with signature field empty). This is a fallback validator discovery
-  // method (not recommended), might be removed in the future.
-  bytes signature = 2;
-}
-
 // Message sent whenever the sender learns about new connections
 // between the peers in the network (I think).
 // It provides a view of the whole NEAR network to each peer.
@@ -194,11 +213,13 @@ message SignedValidator {
 // Accounts provides a mapping AccountId -> PeerId, providing knowledge
 // about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
+  reserved 3;
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
-  // Information about the validators to broadcast. 
-  repeated SignedValidator validators = 3;
+  // Information about the validators to broadcast.
+  // Contains AccountKeyPayload.validator.
+  repeated AccountKeySignedPayload validators = 4;
 }
 
 // TODO: document it.

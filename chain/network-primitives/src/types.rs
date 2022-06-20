@@ -1,3 +1,4 @@
+use crate::time;
 /// Contains files used for a few different purposes:
 /// - Changes related to network config - TODO - move to another file
 /// - actix messages - used for communicating with `PeerManagerActor` - TODO move to another file
@@ -10,22 +11,18 @@
 /// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
 use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::time::Utc;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
-use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
-use std::time::Duration;
 use tokio::net::TcpStream;
 
 /// Exported types, which are part of network protocol.
@@ -47,7 +44,8 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: std::time::Duration =
+    std::time::Duration::from_secs(60);
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
 
@@ -135,14 +133,13 @@ pub struct RoutedMessageFrom {
     pub from: PeerId,
 }
 
-/// not part of protocol, probably doesn't need `borsh`
 /// Status of the known peers.
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan, u64),
+    Banned(ReasonForBan, time::Utc),
 }
 
 impl KnownPeerStatus {
@@ -151,28 +148,23 @@ impl KnownPeerStatus {
     }
 }
 
-/// not part of protocol, probably doesn't need `borsh`
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: u64,
-    pub last_seen: u64,
+    pub first_seen: time::Utc,
+    pub last_seen: time::Utc,
 }
 
 impl KnownPeerState {
-    pub fn new(peer_info: PeerInfo, now: DateTime<Utc>) -> Self {
+    pub fn new(peer_info: PeerInfo, now: time::Utc) -> Self {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(now),
-            last_seen: to_timestamp(now),
+            first_seen: now,
+            last_seen: now,
         }
-    }
-
-    pub fn last_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.last_seen)
     }
 }
 
@@ -279,23 +271,6 @@ pub enum NetworkAdversarialMessage {
     AdvGetSavedBlocks,
     AdvCheckStorageConsistency,
     AdvSetSyncInfo(u64),
-}
-
-#[cfg(feature = "sandbox")]
-#[derive(Debug)]
-pub enum NetworkSandboxMessage {
-    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
-    SandboxPatchStateStatus,
-    SandboxFastForward(near_primitives::types::BlockHeightDelta),
-    SandboxFastForwardStatus,
-}
-
-#[cfg(feature = "sandbox")]
-#[derive(Eq, PartialEq, Debug)]
-pub enum SandboxResponse {
-    SandboxPatchStateFinished(bool),
-    SandboxFastForwardFinished(bool),
-    SandboxFastForwardFailed(String),
 }
 
 #[derive(actix::Message, strum::IntoStaticStr)]

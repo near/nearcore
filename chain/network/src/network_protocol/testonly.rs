@@ -1,6 +1,8 @@
-use crate::tests::util::{Clock, Duration, FakeClock};
+use super::*;
+
 use crate::types::{Handshake, RoutingTableUpdate};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
+use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RawRoutedMessage,
     RoutedMessage, RoutedMessageBody,
@@ -21,13 +23,15 @@ use near_primitives::version::PROTOCOL_VERSION;
 use rand::distributions::Standard;
 use rand::Rng;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net;
 
-pub fn make_genesis_block(clock: &Clock, chunks: Vec<ShardChunk>) -> Block {
+pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
         PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
-        clock.utc_now(),
+        // TODO: this should be clock.now(), but Block::genesis has to be migrated
+        // from chrono to time first.
+        chrono::Utc::now(),
         0,                     // height
         1000,                  // initial_gas_price
         1000,                  // initial_total_supply
@@ -36,7 +40,7 @@ pub fn make_genesis_block(clock: &Clock, chunks: Vec<ShardChunk>) -> Block {
 }
 
 pub fn make_block(
-    clock: &Clock,
+    _clock: &time::Clock,
     signer: &dyn ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
@@ -61,7 +65,8 @@ pub fn make_block(
         signer,
         CryptoHash::default(), // next_bp_hash
         CryptoHash::default(), // block_merkle_root
-        Some(clock.utc_now()), // timestamp_override
+        // TODO: migrate to clock.now()
+        Some(chrono::Utc::now()), // timestamp_override
     )
 }
 
@@ -69,18 +74,21 @@ pub fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
     format!("account{}", rng.gen::<u32>()).parse().unwrap()
 }
 
+pub fn make_secret_key<R: Rng>(rng: &mut R) -> SecretKey {
+    SecretKey::from_seed(KeyType::ED25519, &rng.gen::<u64>().to_string())
+}
+
+pub fn make_peer_id<R: Rng>(rng: &mut R) -> PeerId {
+    PeerId::new(make_secret_key(rng).public_key())
+}
+
 pub fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
-    let account_id = make_account_id(rng);
-    InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, &account_id)
+    InMemorySigner::from_secret_key(make_account_id(rng), make_secret_key(rng))
 }
 
 pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
     let account_id = make_account_id(rng);
     InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, &account_id)
-}
-
-pub fn make_addr<R: Rng>(rng: &mut R) -> SocketAddr {
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, rng.gen()))
 }
 
 pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
@@ -128,7 +136,7 @@ pub fn make_edge<R: Rng>(rng: &mut R, a: &InMemorySigner, b: &InMemorySigner) ->
     Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
 }
 
-pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
+pub fn make_routing_table<R: Rng>(rng: &mut R, clock: &time::Clock) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
@@ -141,6 +149,7 @@ pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
             }
             e
         },
+        validators: (0..4).map(|_| make_signed_validator(rng, clock)).collect(),
     }
 }
 
@@ -223,13 +232,13 @@ pub struct Chain {
 }
 
 impl Chain {
-    pub fn make<R: Rng>(clock: &mut FakeClock, rng: &mut R, block_count: usize) -> Chain {
+    pub fn make<R: Rng>(clock: &mut time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
         blocks.push(make_genesis_block(&clock.clock(), chunks.make()));
         let signer = make_validator_signer(rng);
         for _ in 1..block_count {
-            clock.advance(Duration::seconds(15));
+            clock.advance(time::Duration::seconds(15));
             blocks.push(make_block(&clock.clock(), &signer, blocks.last().unwrap(), chunks.make()));
         }
         Chain {
@@ -283,4 +292,48 @@ pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<
         &signer.secret_key,
         /*ttl=*/ 1,
     )
+}
+pub fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {
+    net::IpAddr::V4(net::Ipv4Addr::from(rng.gen::<[u8; 4]>()))
+}
+
+pub fn make_ipv6(rng: &mut impl Rng) -> net::IpAddr {
+    net::IpAddr::V6(net::Ipv6Addr::from(rng.gen::<[u8; 16]>()))
+}
+
+pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
+    net::SocketAddr::new(make_ipv4(rng), rng.gen())
+}
+
+pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
+    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: Some(make_peer_id(rng)) }
+}
+
+pub fn make_validator(rng: &mut impl Rng, clock: &time::Clock, account_id: AccountId) -> Validator {
+    Validator {
+        peers: vec![
+            // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
+            // doesn't work.
+            {
+                let ip = make_ipv4(rng);
+                make_peer_addr(rng, ip)
+            },
+            {
+                let ip = make_ipv4(rng);
+                make_peer_addr(rng, ip)
+            },
+            {
+                let ip = make_ipv6(rng);
+                make_peer_addr(rng, ip)
+            },
+        ],
+        account_id,
+        epoch_id: EpochId::default(),
+        timestamp: clock.now_utc(),
+    }
+}
+
+pub fn make_signed_validator(rng: &mut impl Rng, clock: &time::Clock) -> SignedValidator {
+    let signer = make_signer(rng);
+    make_validator(rng, clock, signer.account_id.clone()).sign(&signer)
 }

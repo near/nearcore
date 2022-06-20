@@ -3,24 +3,18 @@ extern crate criterion;
 
 use criterion::{black_box, Criterion};
 use near_crypto::{KeyType, SecretKey, Signature};
+use near_network::routing;
 use near_network::test_utils::random_peer_id;
-use near_network::RoutingTableActor;
 use near_network_primitives::types::Edge;
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
-    // This is needed for `RoutingTableActor` not to crash.
-    // `RoutingTableActor` stats `EdgeValidatorActor.
-    let _system = actix::System::new();
-
+fn build_graph(depth: usize, size: usize) -> routing::GraphWithCache {
     let source = random_peer_id();
     let nodes: Vec<_> = (0..depth * size).map(|_| random_peer_id()).collect();
 
-    let store = create_test_store();
-    let mut routing_table_actor = RoutingTableActor::new(source.clone(), store);
+    let mut graph = routing::GraphWithCache::new(source.clone());
 
     let mut edges: Vec<Edge> = Vec::new();
     for node in &nodes[..size] {
@@ -36,18 +30,17 @@ fn build_graph(depth: usize, size: usize) -> RoutingTableActor {
             }
         }
     }
-    routing_table_actor.add_verified_edges_to_routing_table(edges);
-
-    routing_table_actor
+    graph.update_edges(edges);
+    graph
 }
 
 #[allow(dead_code)]
 fn get_all_edges_bench_old(c: &mut Criterion) {
     // 1000 nodes, 10m edges
-    let routing_table_actor = build_graph(10, 100);
+    let graph = build_graph(10, 100);
     c.bench_function("get_all_edges_bench_old", |bench| {
         bench.iter(|| {
-            let result = routing_table_actor.get_all_edges();
+            let result = graph.edges();
             black_box(result);
         })
     });
@@ -58,10 +51,10 @@ fn get_all_edges_bench_new2(c: &mut Criterion) {
     // this is how we efficient we could make get_all_edges by using Arc
 
     // 1000 nodes, 10m edges
-    let routing_table_actor = build_graph(10, 100);
-    let all_edges = routing_table_actor.get_all_edges();
+    let graph = build_graph(10, 100);
+    let all_edges = graph.edges();
     let mut new_edges_info = HashMap::new();
-    for edge in all_edges {
+    for edge in all_edges.values() {
         let edge = EdgeNew {
             key: Arc::new(edge.key().clone()),
             nonce: edge.nonce(),
@@ -86,10 +79,10 @@ fn get_all_edges_bench_new3(c: &mut Criterion) {
     // this is how we efficient we could make get_all_edges by using Arc
 
     // 1000 nodes, 10m edges
-    let routing_table_actor = build_graph(10, 100);
-    let all_edges = routing_table_actor.get_all_edges();
+    let rt = build_graph(10, 100);
+    let all_edges = rt.edges();
     let mut new_edges_info = HashMap::new();
-    for edge in all_edges {
+    for edge in all_edges.values() {
         let edge = EdgeNew2 {
             key: (Arc::new(edge.key().0.clone()), Arc::new(edge.key().1.clone())),
             nonce: edge.nonce(),

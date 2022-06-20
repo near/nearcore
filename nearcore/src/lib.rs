@@ -8,7 +8,6 @@ use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::version::DbVersion;
@@ -280,22 +279,19 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
-    let network_config = config.network_config;
-    let routing_table_addr = start_routing_table_actor(network_config.node_id(), store.clone());
-    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let routing_table_addr2 = routing_table_addr.clone();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(
-            store,
-            network_config,
-            client_actor1,
-            view_client1,
-            routing_table_addr,
-        )
-        .unwrap()
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
+        let client_actor = client_actor.clone();
+        let view_client = view_client.clone();
+        move |_ctx| {
+            PeerManagerActor::new(
+                store,
+                config.network_config,
+                client_actor.recipient(),
+                view_client.recipient(),
+            )
+            .unwrap()
+        }
     });
     network_adapter.set_recipient(network_actor.clone().recipient());
 
@@ -308,8 +304,6 @@ pub fn start_with_config_and_synchronization(
             view_client.clone(),
             #[cfg(feature = "test_features")]
             network_actor,
-            #[cfg(feature = "test_features")]
-            routing_table_addr2,
         ));
     }
 

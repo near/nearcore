@@ -1,4 +1,3 @@
-#![allow(dead_code)] //TODO: remove, it will be in use in the next PR.
 /// Store module defines atomic DB operations on top of schema module.
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.

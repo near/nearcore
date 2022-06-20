@@ -79,6 +79,6 @@ nightly = [
   "protocol_feature_routing_exchange_algorithm",
 ]
 sandbox = [
-  "near-network/sandbox",
+  "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]

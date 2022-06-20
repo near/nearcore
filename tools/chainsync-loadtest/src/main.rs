@@ -14,7 +14,6 @@ use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
 use near_chain_configs::Genesis;
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
@@ -24,7 +23,6 @@ use nearcore::config::NearConfig;
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     config.network_config.verify().context("start_with_config")?;
-    let node_id = config.network_config.node_id();
     let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -34,14 +32,12 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         move |_| FakeClientActor::new(network)
     });
 
-    let routing_table_addr = start_routing_table_actor(node_id, store.clone());
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
             store,
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),
-            routing_table_addr,
         )
         .unwrap()
     })
