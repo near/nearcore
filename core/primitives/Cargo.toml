@@ -57,11 +57,7 @@ nightly = [
 nightly_protocol = []
 
 
-shardnet = [
-  shardnet_protocol,
-  protocol_feature_chunk_only_producers
-]
-shardnet_protocol = []
+shardnet = []
 
 deepsize_feature = [
   "deepsize",

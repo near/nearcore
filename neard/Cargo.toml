@@ -70,6 +70,11 @@ nightly = [
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
+shardnet = [
+  "near-primitives/shardnet",
+  "protocol_feature_chunk_only_producers"
+]
+
 sandbox = ["nearcore/sandbox"]
 
 # Force usage of a specific wasm vm irrespective of protocol version.

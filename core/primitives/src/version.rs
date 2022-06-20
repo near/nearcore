@@ -176,13 +176,13 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
 /// Version used by this binary.
-#[cfg(all(not(feature = "nightly_protocol"), not(feature="shardnet_protocol")))]
+#[cfg(all(not(feature = "nightly_protocol"), not(feature="shardnet")))]
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
-#[cfg(all(feature = "nightly_protocol", not(feature="shardnet_protocol")))]
+#[cfg(all(feature = "nightly_protocol", not(feature="shardnet")))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 129;
-/// Current latest nightly version of the protocol.
-#[cfg(feature = "shardnet_protocol")]
+/// Protocol version for shardnet.
+#[cfg(feature = "shardnet")]
 pub const PROTOCOL_VERSION: ProtocolVersion = 100;
 
 
