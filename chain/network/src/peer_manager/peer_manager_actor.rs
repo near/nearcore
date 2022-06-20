@@ -1492,7 +1492,7 @@ impl PeerManagerActor {
             my_peer_id,
             &self.config.node_key,
             self.config.routed_message_ttl,
-            self.clock.now_utc(),
+            Some(self.clock.now_utc()),
         )
     }
 

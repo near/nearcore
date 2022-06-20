@@ -5,6 +5,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_network_primitives::time::error::ComponentRange;
 use near_network_primitives::types::{RoutedMessage, RoutedMessageV2};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -137,7 +138,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
                     borsh: r.msg.try_to_vec().unwrap(),
-                    created_at: MF::from_option(r.created_at.as_ref().map(|utc| utc_to_proto(utc))),
+                    created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
@@ -221,6 +222,8 @@ pub enum ParsePeerMessageError {
     EpochSyncFinalizationRequest(ParseRequiredError<ParseCryptoHashError>),
     #[error("epoch_sync_finalization_response: {0}")]
     EpochSyncFinalizationResponse(ParseEpochSyncFinalizationResponseError),
+    #[error("routed_created_at: {0}")]
+    RoutedCreatedAtTimestamp(ComponentRange),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -268,15 +271,12 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
-                created_at: r.created_at.as_ref().and_then(|timestamp| {
-                    match utc_from_proto(timestamp) {
-                        Ok(utc) => Some(utc),
-                        Err(err) => {
-                            tracing::warn!(target: "network", err=?err, "Malformed routed message created_at timestamp");
-                            None
-                        }
-                    }
-                }),
+                created_at: r
+                    .created_at
+                    .as_ref()
+                    .map(utc_from_proto)
+                    .transpose()
+                    .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
             })),
             ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
             ProtoMT::Challenge(c) => PeerMessage::Challenge(

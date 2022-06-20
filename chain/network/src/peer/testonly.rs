@@ -259,7 +259,7 @@ impl PeerHandle {
             self.cfg.id(),
             &self.cfg.signer.secret_key,
             /*ttl=*/ 1,
-            utc,
+            Some(utc),
         )
     }
 
