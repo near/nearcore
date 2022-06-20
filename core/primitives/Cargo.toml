@@ -57,6 +57,7 @@ nightly = [
 nightly_protocol = []
 
 
+// Shard-net is the experimental network that we deploy for chunk-only producer testing.
 shardnet = []
 
 deepsize_feature = [
