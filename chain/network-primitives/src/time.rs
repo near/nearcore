@@ -48,16 +48,17 @@ const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89
 /// A wrapper around `Utc` which makes that type serializable with borsh.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct UtcSerializable {
-    pub nanoseconds: i128,
+    pub seconds: i64,
+    pub nanoseconds: u32,
 }
 
 impl UtcSerializable {
     pub fn to_instant(&self) -> Result<Utc, time::error::ComponentRange> {
-        Utc::from_unix_timestamp_nanos(self.nanoseconds)
+        Utc::from_unix_timestamp(self.seconds)?.replace_nanosecond(self.nanoseconds)
     }
 
     pub fn from_instant(t: Utc) -> Self {
-        Self { nanoseconds: t.unix_timestamp_nanos() }
+        Self { seconds: t.unix_timestamp(), nanoseconds: t.nanosecond() }
     }
 }
 

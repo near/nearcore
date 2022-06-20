@@ -146,7 +146,7 @@ pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| 
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
         "Latency of network messages, assuming clocks are perfectly synchronized",
-        &["msg"],
+        &["routed"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()

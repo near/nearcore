@@ -318,8 +318,37 @@ pub struct RoutedMessage {
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageV2 {
+    /// Message
+    pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<UtcSerializable>,
+}
+
+impl RoutedMessageV2 {
+    pub fn hash(&self) -> CryptoHash {
+        self.msg.hash()
+    }
+
+    pub fn now() -> Option<UtcSerializable> {
+        Some(UtcSerializable::from_instant(Clock::real().now_utc()))
+    }
+
+    pub fn body_variant(&self) -> &'static str {
+        self.msg.body_variant()
+    }
+
+    pub fn decrease_ttl(&mut self) -> bool {
+        self.msg.decrease_ttl()
+    }
+
+    pub fn verify(&self) -> bool {
+        self.msg.verify()
+    }
 }
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
@@ -330,10 +359,6 @@ struct RoutedMessageNoSignature<'a> {
 }
 
 impl RoutedMessage {
-    pub fn now() -> Option<UtcSerializable> {
-        Some(UtcSerializable::from_instant(Clock::real().now_utc()))
-    }
-
     pub fn build_hash(
         target: &PeerIdOrHash,
         source: &PeerId,

@@ -5,12 +5,14 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_network_primitives::types::RoutedMessage;
+use near_network_primitives::time::UtcSerializable;
+use near_network_primitives::types::{RoutedMessage, RoutedMessageV2};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
+use protobuf::well_known_types::timestamp::Timestamp;
 use protobuf::MessageField as MF;
 
 #[derive(thiserror::Error, Debug)]
@@ -136,7 +138,12 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: r.try_to_vec().unwrap(),
+                    borsh: r.msg.try_to_vec().unwrap(),
+                    created_at: MF::from_option(r.created_at.as_ref().map(|timestamp| Timestamp {
+                        seconds: timestamp.seconds,
+                        nanos: timestamp.nanoseconds as i32,
+                        ..Default::default()
+                    })),
                     ..Default::default()
                 }),
                 PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
@@ -265,9 +272,13 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
-            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(
-                RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
-            )),
+            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(RoutedMessageV2 {
+                msg: RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
+                created_at: r.created_at.as_ref().map(|timestamp| UtcSerializable {
+                    seconds: timestamp.seconds,
+                    nanoseconds: timestamp.nanos as u32,
+                }),
+            })),
             ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
