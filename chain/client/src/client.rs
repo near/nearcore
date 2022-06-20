@@ -582,7 +582,9 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
-        let _timer = metrics::PRODUCE_CHUNK_TIME.start_timer();
+        let _timer = metrics::PRODUCE_CHUNK_TIME
+            .with_label_values(&[&format!("{}", shard_id)])
+            .start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
         let validator_signer = self
             .validator_signer
@@ -1227,7 +1229,9 @@ impl Client {
                             prev_block_hash = ?*block.hash(),
                             ?shard_id)
                         .entered();
-                        let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME.start_timer();
+                        let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
+                            .with_label_values(&[&format!("{}", shard_id)])
+                            .start_timer();
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
@@ -1243,6 +1247,7 @@ impl Client {
                                     merkle_paths,
                                     receipts,
                                     self.chain.mut_store(),
+                                    shard_id,
                                 )
                                 .expect("Failed to process produced chunk"),
                             Ok(None) => {}

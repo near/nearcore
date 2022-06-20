@@ -389,6 +389,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             merkle_paths,
             vec![],
             client.chain.mut_store(),
+            0,
         )
         .unwrap();
 
@@ -512,7 +513,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             chunk.clone(),
             merkle_paths.clone(),
             receipts.clone(),
-            client.chain.mut_store()
+            client.chain.mut_store(),
+            0,
         )
         .is_err());
     let (_, result) = client.process_block(block.clone().into(), Provenance::NONE);

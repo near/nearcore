@@ -274,20 +274,22 @@ pub(crate) static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub static PRODUCE_CHUNK_TIME: Lazy<near_metrics::Histogram> = Lazy::new(|| {
-    near_metrics::try_create_histogram_with_buckets(
+pub static PRODUCE_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
+    near_metrics::try_create_histogram_vec(
         "near_produce_chunk_time",
         "Time taken to produce a chunk",
-        exponential_buckets(0.001, 2.0, 16).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
     )
     .unwrap()
 });
 
-pub static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<near_metrics::Histogram> = Lazy::new(|| {
-    near_metrics::try_create_histogram_with_buckets(
+pub static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
+    near_metrics::try_create_histogram_vec(
         "near_produce_and_distribute_chunk_time",
         "Time to produce a chunk and distribute it to peers",
-        exponential_buckets(0.001, 2.0, 16).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
     )
     .unwrap()
 });
