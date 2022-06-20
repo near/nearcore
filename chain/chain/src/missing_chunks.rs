@@ -8,7 +8,7 @@ use std::collections::{
     hash_map::{self, HashMap},
     BinaryHeap, HashSet,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 type BlockHash = CryptoHash;
 
@@ -126,6 +126,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
 
     pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash) {
         let block_hashes = self.missing_chunks.remove(chunk_hash).unwrap_or_else(HashSet::new);
+        debug!(target: "chunks", "Accepting chunk {:?}, {} blocks were waiting for it.", chunk_hash, block_hashes.len());
         for block_hash in block_hashes {
             match self.blocks_missing_chunks.entry(block_hash) {
                 hash_map::Entry::Occupied(mut missing_chunks_entry) => {
@@ -134,7 +135,10 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     if missing_chunks.is_empty() {
                         // No more missing chunks!
                         missing_chunks_entry.remove_entry();
+                        debug!(target: "chunks", "Last chunk received for {:?}, block is ready.", block_hash);
                         self.mark_block_as_ready(&block_hash);
+                    } else {
+                        debug!(target: "chunks", "Block {:?}, is still waiting for {} chunks.", block_hash, missing_chunks.len());
                     }
                 }
                 hash_map::Entry::Vacant(_) => {
