@@ -23,7 +23,7 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) challenged_blocks: Vec<CryptoHash>,
     pub(crate) provenance: Provenance,
     /// This field will be set to true when the apply_chunks has finished.
-    pub(crate) apply_chunks_done: Arc<OnceCell<bool>>,
+    pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
@@ -60,7 +60,9 @@ pub struct BlockProcessingArtifact {
     pub challenges: Vec<ChallengeBody>,
 }
 
-pub type ApplyChunkCallback = Arc<dyn Fn(CryptoHash) -> () + Send + Sync + 'static>;
+/// This struct defines the callback function that will be called after apply chunks are finished
+/// for each block
+pub type DoneApplyChunkCallback = Arc<dyn Fn(CryptoHash) -> () + Send + Sync + 'static>;
 
 #[derive(Debug)]
 pub struct BlockNotInPoolError;
@@ -107,14 +109,14 @@ impl BlocksInProcessing {
 
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool
     /// Returns true if the pool is empty
-    pub(crate) fn wait_for_all_block(&self) -> bool {
+    pub(crate) fn wait_for_all_blocks(&self) -> bool {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
             let _ = block_preprocess_info.apply_chunks_done.wait();
         }
         self.preprocessed_blocks.is_empty()
     }
 
-    /// This function wait until apply_chunks_done is marked as true for block `block_hash`
+    /// This function waits until apply_chunks_done is marked as true for block `block_hash`
     pub(crate) fn wait_for_block(
         &self,
         block_hash: &CryptoHash,

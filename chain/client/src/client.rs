@@ -15,8 +15,8 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 use near_chain::types::LatestKnown;
 use near_chain::{
-    ApplyChunkCallback, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
+    BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
+    DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
@@ -749,7 +749,7 @@ impl Client {
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
@@ -818,7 +818,7 @@ impl Client {
     /// blocks.
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let me = self
@@ -878,7 +878,7 @@ impl Client {
     pub fn process_partial_encoded_chunk_response(
         &mut self,
         response: PartialEncodedChunkResponseMsg,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
@@ -893,7 +893,7 @@ impl Client {
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let maybe_header = self
             .shards_mgr
@@ -945,7 +945,7 @@ impl Client {
     pub fn check_incomplete_chunks(
         &mut self,
         prev_block_hash: &CryptoHash,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
             debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
@@ -970,7 +970,7 @@ impl Client {
     pub fn process_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let chunk_hash = partial_encoded_chunk.chunk_hash();
         let pec_v2: MaybeValidated<PartialEncodedChunkV2> = partial_encoded_chunk.map(Into::into);
@@ -994,7 +994,7 @@ impl Client {
         &mut self,
         header: ShardChunkHeader,
         process_result: ProcessPartialEncodedChunkResult,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         match process_result {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
@@ -1103,7 +1103,7 @@ impl Client {
         block_hash: CryptoHash,
         status: BlockStatus,
         provenance: Provenance,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -1132,7 +1132,7 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
         skip_produce_chunk: bool,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block,
@@ -1369,7 +1369,7 @@ impl Client {
     /// Check if any block with missing chunks is ready to be processed
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
@@ -1780,7 +1780,7 @@ impl Client {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
-        apply_chunks_done_callback: ApplyChunkCallback,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {

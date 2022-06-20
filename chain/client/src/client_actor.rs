@@ -20,8 +20,8 @@ use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
-    byzantine_assert, near_chain_primitives, ApplyChunkCallback, Block, BlockHeader,
-    BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
+    byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
+    ChainGenesis, ChainStoreAccess, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
@@ -1572,7 +1572,7 @@ impl ClientActor {
         self.client.start_process_block(block, provenance, self.get_apply_chunks_done_callback())
     }
 
-    fn get_apply_chunks_done_callback(&self) -> ApplyChunkCallback {
+    fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
         let addr = self.address.clone();
         Arc::new(move |_| {
             addr.do_send(ApplyChunksDoneMessage {});
