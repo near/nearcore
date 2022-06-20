@@ -3,9 +3,10 @@ use super::*;
 use crate::types::{Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
+use near_network_primitives::time::Utc;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RawRoutedMessage,
-    RoutedMessage, RoutedMessageBody,
+    RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -284,13 +285,18 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     )
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<RoutedMessage> {
+pub fn make_routed_message<R: Rng>(
+    rng: &mut R,
+    body: RoutedMessageBody,
+    utc: Utc,
+) -> Box<RoutedMessageV2> {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
     RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
         peer_id,
         &signer.secret_key,
         /*ttl=*/ 1,
+        utc,
     )
 }
 pub fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {

@@ -41,6 +41,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             part_ords: vec![],
             tracking_shards: Default::default(),
         }),
+        clock.now_utc(),
     );
     let routed_message2 = data::make_routed_message(
         &mut rng,
@@ -49,6 +50,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             parts: data::make_chunk_parts(chain.chunks[&chunk_hash].clone()),
             receipts: vec![],
         }),
+        clock.now_utc(),
     );
     let mut routing_table = data::make_routing_table(&mut rng, &clock.clock());
     // TODO: validators field is supported only in proto encoding.
