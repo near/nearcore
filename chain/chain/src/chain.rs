@@ -1360,9 +1360,9 @@ impl Chain {
         Ok(())
     }
 
-    /// Check if the block is one a chain that has challenged blocks. Returns Ok if the chain
+    /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
     /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
-    fn check_if_block_path_challenged(&self, block_header: &BlockHeader) -> Result<(), Error> {
+    fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
         let mut hash = *block_header.hash();
         let mut height = block_header.height();
         let mut prev_hash = *block_header.prev_hash();
@@ -1986,7 +1986,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
-    fn preprocess_block(
+    pub(crate) fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -2083,7 +2083,7 @@ impl Chain {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
             };
 
-        self.check_if_block_path_challenged(block.header())?;
+        self.check_if_challenged_block_on_chain(block.header())?;
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
