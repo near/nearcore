@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased]
+## 1.27.0 [2022-06-22]
 
 ### Protocol Changes
 
