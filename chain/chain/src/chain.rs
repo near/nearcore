@@ -51,8 +51,7 @@ use near_store::{DBCol, ShardTries, StoreUpdate};
 use near_primitives::state_record::StateRecord;
 
 use crate::block_processing_utils::{
-    BlockNotInPoolError, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
-    DoneApplyChunkCallback,
+    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
