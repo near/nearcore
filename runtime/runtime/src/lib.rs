@@ -407,8 +407,6 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -442,18 +440,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                )?;
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(stake) => {
-                action_stake(
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    stake,
-                    &apply_state.prev_block_hash,
-                    epoch_info_provider,
-                    true,
                 )?;
             }
         };
