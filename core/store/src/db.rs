@@ -5,8 +5,8 @@ use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
 use rocksdb::checkpoint::Checkpoint;
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
-    Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
+    WriteBatch, DB,
 };
 use std::collections::BTreeMap;
 use std::io;
@@ -14,6 +14,8 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
 use std::{cmp, fmt};
+
+use strum::IntoEnumIterator;
 use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
@@ -126,8 +128,12 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
-fn col_name(col: DBCol) -> String {
-    format!("col{}", col as usize)
+struct ColName(DBCol);
+
+impl std::convert::Into<String> for ColName {
+    fn into(self) -> String {
+        format!("col{}", self.0 as usize)
+    }
 }
 
 /// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
@@ -179,28 +185,10 @@ impl RocksDB {
         store_config: &StoreConfig,
         read_only: bool,
     ) -> Result<RocksDB, DBError> {
-        use strum::IntoEnumIterator;
-
         ensure_max_open_files_limit(store_config.max_open_files)?;
+        let (db, db_opt) = Self::open_db(path, store_config, read_only)?;
+        let cf_handles = Self::get_cf_handles(&db);
 
-        let (db, db_opt) = if read_only {
-            Self::open_read_only(path, store_config)
-        } else {
-            Self::open_read_write(path, store_config)
-        }?;
-
-        let mut cf_handles = enum_map::EnumMap::default();
-        for col in DBCol::iter() {
-            let ptr = db
-                .cf_handle(&col_name(col))
-                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
-            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
-        }
-        let cf_handles = cf_handles.map(|col, ptr| {
-            ptr.unwrap_or_else(|| {
-                panic!("Missing cf handle for {}", col.variant_name());
-            })
-        });
         Ok(Self {
             db,
             db_opt,
@@ -212,32 +200,26 @@ impl RocksDB {
         })
     }
 
-    /// Opens a read only database.
-    fn open_read_only(path: &Path, store_config: &StoreConfig) -> Result<(DB, Options), DBError> {
-        use strum::IntoEnumIterator;
-        let options = rocksdb_options(store_config);
-        let cf_with_opts =
-            DBCol::iter().map(|col| (col_name(col), rocksdb_column_options(col, store_config)));
-        let db = DB::open_cf_with_opts_for_read_only(&options, path, cf_with_opts, false)?;
-        Ok((db, options))
-    }
-
-    /// Opens the database in read/write mode.
-    fn open_read_write(path: &Path, store_config: &StoreConfig) -> Result<(DB, Options), DBError> {
-        use strum::IntoEnumIterator;
-        let mut options = rocksdb_options(store_config);
-        if store_config.enable_statistics {
-            options = enable_statistics(options);
-        }
+    /// Opens the database with all column families configured.
+    fn open_db(
+        path: &Path,
+        store_config: &StoreConfig,
+        read_only: bool,
+    ) -> Result<(DB, Options), DBError> {
+        let options = rocksdb_options(store_config, read_only);
         let cf_descriptors = DBCol::iter()
             .map(|col| {
-                ColumnFamilyDescriptor::new(
-                    col_name(col),
+                rocksdb::ColumnFamilyDescriptor::new(
+                    ColName(col),
                     rocksdb_column_options(col, store_config),
                 )
             })
             .collect::<Vec<_>>();
-        let db = DB::open_cf_descriptors(&options, path, cf_descriptors)?;
+        let db = if read_only {
+            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+        } else {
+            DB::open_cf_descriptors(&options, path, cf_descriptors)
+        }?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
@@ -248,6 +230,22 @@ impl RocksDB {
             println!("Disabled all background threads in rocksdb");
         }
         Ok((db, options))
+    }
+
+    /// Returns mapping from [`DBCol`] to cf handle used with RocksDB calls.
+    fn get_cf_handles(db: &DB) -> enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>> {
+        let mut cf_handles = enum_map::EnumMap::default();
+        for col in DBCol::iter() {
+            let col_name: String = ColName(col).into();
+            let ptr =
+                db.cf_handle(&col_name).map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
+            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
+        }
+        cf_handles.map(|col, ptr| {
+            ptr.unwrap_or_else(|| {
+                panic!("Missing cf handle for {}", col.variant_name());
+            })
+        })
     }
 
     /// Returns column family handler to use with RocsDB for given column.
@@ -514,18 +512,19 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 /// DB level options
-fn rocksdb_options(store_config: &StoreConfig) -> Options {
+fn rocksdb_options(store_config: &StoreConfig, read_only: bool) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.create_missing_column_families(true);
-    opts.create_if_missing(true);
+    opts.create_if_missing(!read_only);
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
     opts.set_max_bytes_for_level_base(256 * bytesize::MIB);
+
     if cfg!(feature = "single_thread_rocksdb") {
         opts.set_disable_auto_compactions(true);
         opts.set_max_background_jobs(0);
@@ -539,17 +538,16 @@ fn rocksdb_options(store_config: &StoreConfig) -> Options {
         opts.set_max_total_wal_size(bytesize::GIB);
     }
 
-    opts
-}
-
-pub fn enable_statistics(mut opts: Options) -> Options {
-    // Rust API doesn't permit choosing stats level. The default stats level is
-    // `kExceptDetailedTimers`, which is described as:
-    // "Collects all stats except time inside mutex lock AND time spent on compression."
-    opts.enable_statistics();
-    // Disabling dumping stats to files because the stats are exported to Prometheus.
-    opts.set_stats_persist_period_sec(0);
-    opts.set_stats_dump_period_sec(0);
+    if !read_only && store_config.enable_statistics {
+        // Rust API doesn't permit choosing stats level. The default stats level
+        // is `kExceptDetailedTimers`, which is described as: "Collects all
+        // stats except time inside mutex lock AND time spent on compression."
+        opts.enable_statistics();
+        // Disabling dumping stats to files because the stats are exported to
+        // Prometheus.
+        opts.set_stats_persist_period_sec(0);
+        opts.set_stats_dump_period_sec(0);
+    }
 
     opts
 }
