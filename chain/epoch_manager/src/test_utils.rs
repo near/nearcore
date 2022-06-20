@@ -187,7 +187,6 @@ pub fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().collect()
 }
 
-
 pub fn setup_epoch_manager_with_simple_nightshade_config(
     validators: Vec<(AccountId, Balance)>,
     epoch_length: BlockHeightDelta,
@@ -201,9 +200,18 @@ pub fn setup_epoch_manager_with_simple_nightshade_config(
     simple_nightshade_config: Option<ShardConfig>,
 ) -> EpochManager {
     setup_epoch_manager_with_simple_nightshade_config_and_protocol_version(
-        validators, epoch_length,num_shards, num_block_producer_seats,num_hidden_validator_seats,
-        block_producer_kickout_threshold, chunk_producer_kickout_threshold, fishermen_threshold, 
-        reward_calculator, simple_nightshade_config, PROTOCOL_VERSION)
+        validators,
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        num_hidden_validator_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        fishermen_threshold,
+        reward_calculator,
+        simple_nightshade_config,
+        PROTOCOL_VERSION,
+    )
 }
 
 pub fn setup_epoch_manager_with_simple_nightshade_config_and_protocol_version(

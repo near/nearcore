@@ -660,8 +660,11 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
 }
 impl ClientActor {
     // Gets a list of block producers and chunk-only producers for a given epoch.
-    fn get_producers_for_epoch(&self, epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash) -> Result<(Vec<ValidatorInfo>, Vec<String>), Error> {
+    fn get_producers_for_epoch(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+    ) -> Result<(Vec<ValidatorInfo>, Vec<String>), Error> {
         let mut block_producers_set = HashSet::new();
         let block_producers: Vec<ValidatorInfo> = self
             .client
@@ -670,19 +673,22 @@ impl ClientActor {
             .into_iter()
             .map(|(validator_stake, is_slashed)| {
                 block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
-                ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed,
-            }}
-        )
+                ValidatorInfo { account_id: validator_stake.take_account_id(), is_slashed }
+            })
             .collect();
-        let chunk_only_producers = self.client.runtime_adapter.get_epoch_chunk_producers(&epoch_id)?
-            .iter().filter_map(|producer| 
+        let chunk_only_producers = self
+            .client
+            .runtime_adapter
+            .get_epoch_chunk_producers(&epoch_id)?
+            .iter()
+            .filter_map(|producer| {
                 if block_producers_set.contains(&producer.account_id().to_string()) {
                     None
                 } else {
                     Some(producer.account_id().to_string())
-                }).collect::<Vec<_>>();
+                }
+            })
+            .collect::<Vec<_>>();
         Ok((block_producers, chunk_only_producers))
     }
 
@@ -697,7 +703,8 @@ impl ClientActor {
 
         let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
         let epoch_id = block.header().epoch_id();
-        let (validators, chunk_only_producers) = self.get_producers_for_epoch(&epoch_id, &current_block)?;
+        let (validators, chunk_only_producers) =
+            self.get_producers_for_epoch(&epoch_id, &current_block)?;
 
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
@@ -771,9 +778,9 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
-        let (validators, chunk_only_producers) = self.get_producers_for_epoch(&&head.next_epoch_id, &head.last_block_hash)?;
+        let (validators, chunk_only_producers) =
+            self.get_producers_for_epoch(&&head.next_epoch_id, &head.last_block_hash)?;
 
-        
         Ok(EpochInfoView {
             epoch_id: head.next_epoch_id.0,
             // Expected height of the next epoch.

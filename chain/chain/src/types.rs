@@ -413,10 +413,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
 
     /// Returns all the chunk producers for a given epoch.
-    fn get_epoch_chunk_producers(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ValidatorStake>, Error>;
+    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(

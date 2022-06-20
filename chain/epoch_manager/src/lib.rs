@@ -695,13 +695,11 @@ impl EpochManager {
         })
     }
 
-
-     /// Returns settlement of all chunk producers in the current epoch.
-     pub fn get_all_chunk_producers(
+    /// Returns settlement of all chunk producers in the current epoch.
+    pub fn get_all_chunk_producers(
         &self,
         epoch_id: &EpochId,
     ) -> Result<Arc<[ValidatorStake]>, EpochError> {
-
         self.epoch_chunk_producers_unique.get_or_try_put(epoch_id.clone(), |epoch_id| {
             let mut producers: HashSet<u64> = HashSet::default();
 
@@ -713,11 +711,7 @@ impl EpochManager {
                 }
             }
 
-            Ok(
-                producers.iter().map(|producer_id| {
-                    epoch_info.get_validator(*producer_id)
-                }).collect()
-            )
+            Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
         })
     }
 
