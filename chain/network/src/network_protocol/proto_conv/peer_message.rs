@@ -5,7 +5,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_network_primitives::time::UtcSerializable;
+use near_network_primitives::time::Utc;
 use near_network_primitives::types::{RoutedMessage, RoutedMessageV2};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -140,8 +140,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
                     borsh: r.msg.try_to_vec().unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(|timestamp| Timestamp {
-                        seconds: timestamp.seconds,
-                        nanos: timestamp.nanoseconds as i32,
+                        seconds: timestamp.unix_timestamp(),
+                        nanos: timestamp.nanosecond() as i32,
                         ..Default::default()
                     })),
                     ..Default::default()
@@ -274,9 +274,22 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
-                created_at: r.created_at.as_ref().map(|timestamp| UtcSerializable {
-                    seconds: timestamp.seconds,
-                    nanoseconds: timestamp.nanos as u32,
+                created_at: r.created_at.as_ref().and_then(|timestamp| {
+                    match Utc::from_unix_timestamp(timestamp.seconds) {
+                        Ok(ts) => {
+                           match ts.replace_nanosecond(timestamp.nanos as u32) {
+                               Ok(ts) => Some(ts),
+                               Err(err) => {
+                                   tracing::warn!(target: "network", err=?err, "Malformed routed message created_at timestamp");
+                                   None
+                               }
+                           }
+                        }
+                        Err(err) => {
+                            tracing::warn!(target: "network", err=?err, "Malformed routed message created_at timestamp");
+                            None
+                        }
+                    }
                 }),
             })),
             ProtoMT::Disconnect(_) => PeerMessage::Disconnect,

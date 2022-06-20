@@ -1,4 +1,4 @@
-use crate::time::{Clock, UtcSerializable};
+use crate::time::Utc;
 /// `network_protocol.rs` contains types which are part of network protocol.
 /// We need to maintain backward compatibility in network protocol.
 /// All changes to this file should be reviewed.
@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 pub(crate) mod edge;
@@ -326,28 +327,20 @@ pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
-    pub created_at: Option<UtcSerializable>,
+    pub created_at: Option<Utc>,
 }
 
-impl RoutedMessageV2 {
-    pub fn hash(&self) -> CryptoHash {
-        self.msg.hash()
-    }
+impl Deref for RoutedMessageV2 {
+    type Target = RoutedMessage;
 
-    pub fn now() -> Option<UtcSerializable> {
-        Some(UtcSerializable::from_instant(Clock::real().now_utc()))
+    fn deref(&self) -> &Self::Target {
+        &self.msg
     }
+}
 
-    pub fn body_variant(&self) -> &'static str {
-        self.msg.body_variant()
-    }
-
-    pub fn decrease_ttl(&mut self) -> bool {
-        self.msg.decrease_ttl()
-    }
-
-    pub fn verify(&self) -> bool {
-        self.msg.verify()
+impl DerefMut for RoutedMessageV2 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.msg
     }
 }
 

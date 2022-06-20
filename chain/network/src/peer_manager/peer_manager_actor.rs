@@ -1425,7 +1425,7 @@ impl PeerManagerActor {
         match self.routing_table_view.find_route(&self.clock, &msg.msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
-                if msg.msg.author == self.my_peer_id && msg.msg.expect_response() {
+                if msg.msg.author == self.my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
                     self.routing_table_view.add_route_back(
                         &self.clock,
@@ -1488,7 +1488,12 @@ impl PeerManagerActor {
         msg: RawRoutedMessage,
         my_peer_id: PeerId,
     ) -> Box<RoutedMessageV2> {
-        msg.sign(my_peer_id, &self.config.node_key, self.config.routed_message_ttl)
+        msg.sign(
+            my_peer_id,
+            &self.config.node_key,
+            self.config.routed_message_ttl,
+            self.clock.now_utc(),
+        )
     }
 
     // Determine if the given target is referring to us.
@@ -2250,7 +2255,7 @@ impl PeerManagerActor {
         });
         let RoutedMessageFrom { mut msg, from } = msg;
 
-        if msg.msg.expect_response() {
+        if msg.expect_response() {
             trace!(target: "network", route_back = ?PeerMessage::Routed(msg.clone()), "Received peer message that requires");
             self.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
         }
@@ -2284,13 +2289,12 @@ impl PeerManagerActor {
     // The routed message received its destination. If the timestamp of creation of this message is
     // known, then update the corresponding latency metric histogram.
     fn record_routed_msg_latency(&self, msg: &RoutedMessageV2) {
-        if let Some(created_at) = &msg.created_at {
-            if let Ok(created_at) = time::UtcSerializable::to_instant(created_at) {
-                let duration = self.clock.now_utc().sub(created_at);
-                metrics::NETWORK_ROUTED_MSG_LATENCY
-                    .with_label_values(&[msg.body_variant()])
-                    .observe(duration.as_seconds_f64());
-            }
+        if let Some(created_at) = msg.created_at {
+            let now = self.clock.now_utc();
+            let duration = now.sub(created_at);
+            metrics::NETWORK_ROUTED_MSG_LATENCY
+                .with_label_values(&[msg.body_variant()])
+                .observe(duration.as_seconds_f64());
         }
     }
 
