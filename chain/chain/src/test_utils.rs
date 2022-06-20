@@ -443,6 +443,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
         Ok(validators)
     }
+    fn get_epoch_chunk_producers(
+            &self,
+            _epoch_id: &EpochId,
+        ) -> Result<Vec<ValidatorStake>, Error> {
+        todo!()
+    }
 
     fn get_block_producer(
         &self,

@@ -68,6 +68,9 @@ pub struct EpochManager {
     epoch_validators_ordered: SyncLruCache<EpochId, Arc<[(ValidatorStake, bool)]>>,
     /// Unique validators ordered by `block_producer_settlement`.
     epoch_validators_ordered_unique: SyncLruCache<EpochId, Arc<[(ValidatorStake, bool)]>>,
+
+    /// Unique chunk producers.
+    epoch_chunk_producers_unique: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
     /// Aggregator that keeps statistics about the current epoch.  It’s data are
     /// synced up to the last final block.  The information are updated by
     /// [`Self::update_epoch_info_aggregator_upto_final`] method.  To get
@@ -122,6 +125,7 @@ impl EpochManager {
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
+            epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_info_aggregator,
             #[cfg(test)]
             epoch_info_aggregator_loop_counter: Default::default(),
@@ -688,6 +692,32 @@ impl EpochManager {
                 .cloned()
                 .collect();
             Ok(result)
+        })
+    }
+
+
+     /// Returns settlement of all chunk producers in the current epoch.
+     pub fn get_all_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Arc<[ValidatorStake]>, EpochError> {
+
+        self.epoch_chunk_producers_unique.get_or_try_put(epoch_id.clone(), |epoch_id| {
+            let mut producers: HashSet<u64> = HashSet::default();
+
+            // Collect unique chunk producers.
+            let epoch_info = self.get_epoch_info(epoch_id)?;
+            for chunk_producers in epoch_info.chunk_producers_settlement() {
+                for chunk_producer in chunk_producers {
+                    producers.insert(*chunk_producer);
+                }
+            }
+
+            Ok(
+                producers.iter().map(|producer_id| {
+                    epoch_info.get_validator(*producer_id)
+                }).collect()
+            )
         })
     }
 

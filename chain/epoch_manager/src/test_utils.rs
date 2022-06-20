@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use near_primitives::version::ProtocolVersion;
 use num_rational::Rational;
 
 use crate::proposals::find_threshold;
@@ -186,6 +187,7 @@ pub fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().collect()
 }
 
+
 pub fn setup_epoch_manager_with_simple_nightshade_config(
     validators: Vec<(AccountId, Balance)>,
     epoch_length: BlockHeightDelta,
@@ -197,6 +199,25 @@ pub fn setup_epoch_manager_with_simple_nightshade_config(
     fishermen_threshold: Balance,
     reward_calculator: RewardCalculator,
     simple_nightshade_config: Option<ShardConfig>,
+) -> EpochManager {
+    setup_epoch_manager_with_simple_nightshade_config_and_protocol_version(
+        validators, epoch_length,num_shards, num_block_producer_seats,num_hidden_validator_seats,
+        block_producer_kickout_threshold, chunk_producer_kickout_threshold, fishermen_threshold, 
+        reward_calculator, simple_nightshade_config, PROTOCOL_VERSION)
+}
+
+pub fn setup_epoch_manager_with_simple_nightshade_config_and_protocol_version(
+    validators: Vec<(AccountId, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    num_hidden_validator_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    fishermen_threshold: Balance,
+    reward_calculator: RewardCalculator,
+    simple_nightshade_config: Option<ShardConfig>,
+    protocol_version: ProtocolVersion,
 ) -> EpochManager {
     let store = create_test_store();
     let config = epoch_config(
@@ -212,7 +233,7 @@ pub fn setup_epoch_manager_with_simple_nightshade_config(
     EpochManager::new(
         store,
         config,
-        PROTOCOL_VERSION,
+        protocol_version,
         reward_calculator,
         validators
             .iter()

@@ -1043,6 +1043,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
+    fn get_epoch_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, Error> {
+        let epoch_manager = self.epoch_manager.read();
+        Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
+    }
 
     fn get_block_producer(
         &self,
