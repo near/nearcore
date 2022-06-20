@@ -321,7 +321,6 @@ pub struct RoutedMessage {
     pub body: RoutedMessageBody,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessageV2 {
     /// Message
