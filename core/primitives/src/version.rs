@@ -176,11 +176,15 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
 /// Version used by this binary.
-#[cfg(not(feature = "nightly_protocol"))]
+#[cfg(all(not(feature = "nightly_protocol"), not(feature="shardnet_protocol")))]
 pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
 /// Current latest nightly version of the protocol.
-#[cfg(feature = "nightly_protocol")]
+#[cfg(all(feature = "nightly_protocol", not(feature="shardnet_protocol")))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 129;
+/// Current latest nightly version of the protocol.
+#[cfg(feature = "shardnet_protocol")]
+pub const PROTOCOL_VERSION: ProtocolVersion = 100;
+
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -237,9 +241,11 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
 
-            // Nightly features
+            // Nightly & shardnet features
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 124,
+            ProtocolFeature::ChunkOnlyProducers => 100,
+
+            // Nightly features
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

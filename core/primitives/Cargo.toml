@@ -55,6 +55,14 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
 ]
 nightly_protocol = []
+
+
+shardnet = [
+  shardnet_protocol,
+  protocol_feature_chunk_only_producers
+]
+shardnet_protocol = []
+
 deepsize_feature = [
   "deepsize",
   "near-vm-errors/deepsize_feature",
