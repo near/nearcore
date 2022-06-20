@@ -1414,7 +1414,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
+        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();
