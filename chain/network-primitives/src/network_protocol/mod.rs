@@ -329,6 +329,13 @@ pub struct RoutedMessageV2 {
     pub created_at: Option<Utc>,
 }
 
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for RoutedMessageV2 {
+    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+        self.msg.deep_size_of_children(context) + std::mem::size_of::<Option<Utc>>()
+    }
+}
+
 impl Deref for RoutedMessageV2 {
     type Target = RoutedMessage;
 
