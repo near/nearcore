@@ -73,7 +73,6 @@ performance_stats = [
 protocol_feature_routing_exchange_algorithm = [
     "near-primitives/protocol_feature_routing_exchange_algorithm",
 ]
-sandbox = ["near-network-primitives/sandbox"]
 test_features = [
   "near-network-primitives/test_features",
   "serde",
