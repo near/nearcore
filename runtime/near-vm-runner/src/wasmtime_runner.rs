@@ -152,13 +152,14 @@ pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
 
 pub(super) fn default_config() -> wasmtime::Config {
     let mut config = wasmtime::Config::default();
+    config.max_wasm_stack(1024 * 1024 * 1024).unwrap(); // wasm stack metering is implemented by pwasm-utils, we don't want wasmtime to trap before that
     config.wasm_threads(WASM_FEATURES.threads);
     config.wasm_reference_types(WASM_FEATURES.reference_types);
     config.wasm_simd(WASM_FEATURES.simd);
     config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
     config.wasm_multi_value(WASM_FEATURES.multi_value);
     config.wasm_multi_memory(WASM_FEATURES.multi_memory);
-    config.wasm_module_linking(WASM_FEATURES.module_linking);
+    assert_eq!(WASM_FEATURES.module_linking, false, "wasmtime currently does not support the module-linking feature");
     config
 }
 
