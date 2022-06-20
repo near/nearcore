@@ -9,6 +9,7 @@ use near_primitives::types::ShardId;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -22,8 +23,12 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) challenges_result: ChallengesResult,
     pub(crate) challenged_blocks: Vec<CryptoHash>,
     pub(crate) provenance: Provenance,
-    /// This field will be set to true when the apply_chunks has finished.
+    /// This field will be set when the apply_chunks has finished.
+    /// This is used to provide a way for caller to wait for the finishing of applying chunks of
+    /// a block
     pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
+    /// This is used to calculate block processing time metric
+    pub(crate) block_received_time: Instant,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
@@ -108,12 +113,12 @@ impl BlocksInProcessing {
     }
 
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool
-    /// Returns true if the pool is empty
+    /// Returns true if new blocks are done applying chunks
     pub(crate) fn wait_for_all_blocks(&self) -> bool {
         for (_, (_, block_preprocess_info)) in self.preprocessed_blocks.iter() {
             let _ = block_preprocess_info.apply_chunks_done.wait();
         }
-        self.preprocessed_blocks.is_empty()
+        !self.preprocessed_blocks.is_empty()
     }
 
     /// This function waits until apply_chunks_done is marked as true for block `block_hash`

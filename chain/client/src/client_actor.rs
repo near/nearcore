@@ -76,10 +76,6 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct ApplyChunksDoneMessage;
-
 pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
@@ -1080,6 +1076,13 @@ impl Handler<GetNetworkInfo> for ClientActor {
     }
 }
 
+/// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
+/// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
+/// just finished applying chunks.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ApplyChunksDoneMessage;
+
 impl Handler<ApplyChunksDoneMessage> for ClientActor {
     type Result = ();
 
@@ -1382,6 +1385,16 @@ impl ClientActor {
         )
     }
 
+    /// "Unfinished" blocks means that blocks that client has started the processing and haven't
+    /// finished because it was waiting for applying chunks to be done. This function checks
+    /// if there are any "unfinished" blocks that are ready to be processed again and finish processing
+    /// these blocks.
+    /// This function is called at two places, upon receiving ApplyChunkDoneMessage and `check_triggers`.
+    /// The job that executes applying chunks will send an ApplyChunkDoneMessage to ClientActor after
+    /// applying chunks is done, so when receiving ApplyChunkDoneMessage messages, ClientActor
+    /// calls this function to finish processing the unfinished blocks. ClientActor also calls
+    /// this function in `check_triggers`, because the actix queue may be blocked by other messages
+    /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let (accepted_blocks, _errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
@@ -1572,6 +1585,9 @@ impl ClientActor {
         self.client.start_process_block(block, provenance, self.get_apply_chunks_done_callback())
     }
 
+    /// Returns the callback function that will be passed to various functions that may trigger
+    /// the processing of new blocks. This callback will be called at the end of applying chunks
+    /// for every block.
     fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
         let addr = self.address.clone();
         Arc::new(move |_| {

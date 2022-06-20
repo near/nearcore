@@ -1300,7 +1300,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{setup, setup_with_validators};
+    use near_chain::test_utils::{process_block_sync, setup, setup_with_validators};
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1352,27 +1352,27 @@ mod test {
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer);
-            chain
-                .process_block_sync(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut BlockProcessingArtifact::default(),
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
-            chain2
-                .process_block_sync(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut BlockProcessingArtifact::default(),
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain2,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {

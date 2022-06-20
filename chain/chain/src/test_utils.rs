@@ -13,6 +13,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Block;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -45,16 +46,56 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
+use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
     ValidatorInfoIdentifier,
 };
-use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
+use near_primitives::utils::MaybeValidated;
+
+/// Wait for all blocks that started processing to be ready for postprocessing
+/// Returns true if there are new blocks that are ready
+pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+    chain.blocks_in_processing.wait_for_all_blocks()
+}
+
+pub fn wait_for_block_in_processing(
+    chain: &mut Chain,
+    hash: &CryptoHash,
+) -> Result<(), BlockNotInPoolError> {
+    chain.blocks_in_processing.wait_for_block(hash)
+}
+
+/// Unlike Chain::start_process_block_async, this function blocks until the processing of this block
+/// finishes
+pub fn process_block_sync(
+    chain: &mut Chain,
+    me: &Option<AccountId>,
+    block: MaybeValidated<Block>,
+    provenance: Provenance,
+    block_processing_artifacts: &mut BlockProcessingArtifact,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let block_hash = block.hash().clone();
+    chain.start_process_block_async(
+        me,
+        block,
+        provenance,
+        block_processing_artifacts,
+        Arc::new(|_| {}),
+    )?;
+    wait_for_block_in_processing(chain, &block_hash).unwrap();
+    let (accepted_blocks, errors) =
+        chain.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {}));
+    // This is in test, we should never get errors when postprocessing blocks
+    debug_assert!(errors.is_empty());
+    Ok(accepted_blocks)
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);

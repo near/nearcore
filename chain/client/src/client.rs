@@ -1,6 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -843,10 +844,8 @@ impl Client {
                 apply_chunks_done_callback.clone(),
             );
         }
-        let last_time_head_updated = self.chain.get_last_time_head_updated();
-        if last_time_head_updated >= self.last_time_head_progress_made {
-            self.last_time_head_progress_made = last_time_head_updated;
-        }
+        self.last_time_head_progress_made =
+            max(self.chain.get_last_time_head_updated(), self.last_time_head_progress_made);
         (accepted_blocks_hashes, errors)
     }
 

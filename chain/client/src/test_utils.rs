@@ -14,7 +14,9 @@ use near_primitives::time::Utc;
 use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{
+    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -85,7 +87,7 @@ impl Client {
         should_produce_chunk: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.start_process_block(block, provenance, Arc::new(|_| {}))?;
-        assert!(!self.chain.wait_for_all_block_in_processing());
+        assert!(wait_for_all_blocks_in_processing(&mut self.chain));
         let (accepted_blocks, errors) =
             self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
         assert!(errors.is_empty());
@@ -111,7 +113,7 @@ impl Client {
     /// This function finishes processing all blocks that started being processed.
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
-        while !self.chain.wait_for_all_block_in_processing() {
+        while wait_for_all_blocks_in_processing(&mut self.chain) {
             accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
         }
         accepted_blocks
@@ -120,7 +122,7 @@ impl Client {
     /// This function finishes processing block with hash `hash`, if the procesing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
-        if let Ok(_) = self.chain.wait_for_block_in_processing(hash) {
+        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
             assert!(errors.is_empty());
             return accepted_blocks;
@@ -1394,7 +1396,7 @@ impl TestEnv {
         if should_run_catchup {
             run_catchup(&mut self.clients[id], &vec![]).unwrap();
         }
-        while !self.clients[id].chain.wait_for_all_block_in_processing() {
+        while wait_for_all_blocks_in_processing(&mut self.clients[id].chain) {
             self.clients[id].postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
         }
     }
