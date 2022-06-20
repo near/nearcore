@@ -27,7 +27,7 @@ pub static DISTRIBUTE_ENCODED_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Laz
             "Time to distribute data about a produced chunk: Preparation of network messages ",
             "and passing it to peer manager",
         ),
-        &["method", "success"],
+        &["shard_id"],
         Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
     )
     .unwrap()
