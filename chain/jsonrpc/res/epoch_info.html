@@ -98,12 +98,25 @@
                 }
 
                 $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
-                epoch.validators.forEach((validator, validator_index) => {
+                // Use 2 bits to encode the validator's role in a given epoch.
+                // 00 -- not participated
+                // 01 -- block producer
+                // 10 -- chunk only producer
+                epoch.validators.forEach(validator => {
                     let account_id = validator.account_id;
+                    let value = 2 ** (index * 2);
                     if (validatorMap.has(account_id)) {
-                        validatorMap.set(account_id, validatorMap.get(account_id) + 2 ** index);
+                        validatorMap.set(account_id, validatorMap.get(account_id) + value);
                     } else {
-                        validatorMap.set(account_id, 2 ** index);
+                        validatorMap.set(account_id, value);
+                    }
+                });
+                epoch.chunk_only_producers.forEach(account_id => {
+                    let value = 2 ** (index * 2 + 1);
+                    if (validatorMap.has(account_id)) {
+                        validatorMap.set(account_id, validatorMap.get(account_id) + value);
+                    } else {
+                        validatorMap.set(account_id, value);
                     }
                 });
 
@@ -129,8 +142,10 @@
                 let row = $('<tr>').append($('<td>').append(key));
                 for (i = 0; i < epoch_data.status_response.EpochInfo.length; i += 1) {
                     let cell = $('<td>');
-                    if (value & 2 ** i) {
-                        cell.append('1');
+                    if (value & 2 ** (i * 2)) {
+                        cell.append('B');
+                    } else if (value & 2 ** (i * 2 + 1)) {
+                        cell.append('C');
                     } else {
                         cell.append('0');
                     }

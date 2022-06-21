@@ -771,9 +771,9 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
     let code = read_resource(if cfg!(feature = "nightly") {
-        "test-contract/res/nightly_large_contract.wasm"
+        "test-contract/res/nightly_contract.wasm"
     } else {
-        "test-contract/res/stable_large_contract.wasm"
+        "test-contract/res/stable_contract.wasm"
     });
 
     let n_iters = 10;

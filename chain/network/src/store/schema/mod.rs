@@ -3,6 +3,7 @@
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use near_network_primitives::time;
 use near_network_primitives::types as primitives;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -38,7 +39,9 @@ impl From<primitives::KnownPeerStatus> for KnownPeerStatus {
             primitives::KnownPeerStatus::Unknown => Self::Unknown,
             primitives::KnownPeerStatus::NotConnected => Self::NotConnected,
             primitives::KnownPeerStatus::Connected => Self::Connected,
-            primitives::KnownPeerStatus::Banned(r, t) => Self::Banned(r, t),
+            primitives::KnownPeerStatus::Banned(r, t) => {
+                Self::Banned(r, t.unix_timestamp_nanos() as u64)
+            }
         }
     }
 }
@@ -49,7 +52,10 @@ impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
             KnownPeerStatus::Unknown => primitives::KnownPeerStatus::Unknown,
             KnownPeerStatus::NotConnected => primitives::KnownPeerStatus::NotConnected,
             KnownPeerStatus::Connected => primitives::KnownPeerStatus::Connected,
-            KnownPeerStatus::Banned(r, t) => primitives::KnownPeerStatus::Banned(r, t),
+            KnownPeerStatus::Banned(r, t) => primitives::KnownPeerStatus::Banned(
+                r,
+                time::Utc::from_unix_timestamp_nanos(t as i128).unwrap(),
+            ),
         }
     }
 }
@@ -76,8 +82,8 @@ impl BorshRepr for KnownPeerStateRepr {
         Self {
             peer_info: s.peer_info.clone(),
             status: s.status.clone().into(),
-            first_seen: s.first_seen,
-            last_seen: s.last_seen,
+            first_seen: s.first_seen.unix_timestamp_nanos() as u64,
+            last_seen: s.last_seen.unix_timestamp_nanos() as u64,
         }
     }
 
@@ -85,8 +91,10 @@ impl BorshRepr for KnownPeerStateRepr {
         Ok(primitives::KnownPeerState {
             peer_info: s.peer_info,
             status: s.status.into(),
-            first_seen: s.first_seen,
-            last_seen: s.last_seen,
+            first_seen: time::Utc::from_unix_timestamp_nanos(s.first_seen as i128)
+                .map_err(invalid_data)?,
+            last_seen: time::Utc::from_unix_timestamp_nanos(s.last_seen as i128)
+                .map_err(invalid_data)?,
         })
     }
 }
