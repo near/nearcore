@@ -178,7 +178,6 @@ impl<'a> StoreOpener<'a> {
         } else {
             tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
         }
-
         let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
             .expect("Failed to open the database");
         crate::Store::new(std::sync::Arc::new(db))
