@@ -706,9 +706,7 @@ impl EpochManager {
             // Collect unique chunk producers.
             let epoch_info = self.get_epoch_info(epoch_id)?;
             for chunk_producers in epoch_info.chunk_producers_settlement() {
-                for chunk_producer in chunk_producers {
-                    producers.insert(*chunk_producer);
-                }
+                producers.extend(chunk_producers);
             }
 
             Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
