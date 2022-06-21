@@ -263,8 +263,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages")
+            handler="NetworkClientMessages",
+            msg=msg.as_ref())
         .entered();
+
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -1222,6 +1224,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
+            debug!(target:"client", "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1250,6 +1253,12 @@ impl ClientActor {
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
+        if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
+            debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
+        } else {
+            debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
+        }
+
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1271,7 +1280,7 @@ impl ClientActor {
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", "Block production failed: {}", err);
+                        error!(target: "client", height, "Block production failed: {}", err);
                     } else {
                         self.post_block_production();
                     }

@@ -1740,6 +1740,8 @@ impl PeerManagerActor {
                                 success = true;
                                 break;
                             }
+                        } else {
+                            debug!(target: "network", chunk_hash=?request.chunk_hash, "Failed to find any matching peer for chunk");
                         }
                     }
                 }
@@ -1747,6 +1749,7 @@ impl PeerManagerActor {
                 if success {
                     NetworkResponses::NoResponse
                 } else {
+                    debug!(target: "network", chunk_hash=?request.chunk_hash, "Failed to find a route for chunk");
                     NetworkResponses::RouteNotFound
                 }
             }
