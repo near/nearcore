@@ -357,10 +357,12 @@ mod tests {
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-        cache.insert_chunk_header(0, header);
+        cache.insert_chunk_header(0, header.clone());
         assert!(!cache.encoded_chunks.is_empty());
         assert!(!cache.height_map.is_empty());
-        assert!(!cache.get_chunk_headers_for_block(&CryptoHash::default()).is_empty());
+        let headers = cache.get_chunk_headers_for_block(&CryptoHash::default());
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get(&0), Some(&header));
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
