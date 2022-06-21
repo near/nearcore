@@ -5,8 +5,7 @@ use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
     block_info, change_stake, default_reward_calculator, epoch_config, epoch_info_with_num_seats,
     hash_range, record_block, record_block_with_final_block_hash, record_block_with_slashes,
-    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager,
-    setup_epoch_manager_with_simple_nightshade_config_and_protocol_version, stake,
+    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
 use near_primitives::challenge::SlashedValidator;
@@ -16,7 +15,7 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ValidatorKickoutReason::NotEnoughBlocks;
 use near_primitives::utils::get_num_seats_per_shard;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Rational;
@@ -2141,7 +2140,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let new_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
+    let new_protocol_version = SimpleNightshade.protocol_version();
     let mut epoch_manager = EpochManager::new(
         store,
         config,
@@ -2405,28 +2404,16 @@ fn test_chunk_producers() {
         ("not_enough_producer".parse().unwrap(), 100),
     ];
 
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    let protocol_version = PROTOCOL_VERSION;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    let protocol_version = std::cmp::max(
-        PROTOCOL_VERSION,
-        ProtocolFeature::protocol_version(ProtocolFeature::ChunkOnlyProducers),
-    );
-
     // There are 2 shards, and 2 block producers seats.
     // So test1 and test2 should become block producers, and chunk_only should become chunk only producer.
-    let mut epoch_manager = setup_epoch_manager_with_simple_nightshade_config_and_protocol_version(
+    let mut epoch_manager = setup_default_epoch_manager(
         validators,
         2,
         2,
         2,
         0,
         90,
-        60,
-        1,
-        default_reward_calculator(),
-        None,
-        protocol_version,
+        60
     );
     let h = hash_range(10);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
