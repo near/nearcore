@@ -2360,12 +2360,11 @@ impl Chain {
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
-        let mut new_blocks_accepted = vec![];
-        let orphans = self.blocks_with_missing_chunks.ready_blocks();
-        debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", orphans.len());
-        for orphan in orphans {
-            let block_hash = *orphan.block.header().hash();
-            let height = orphan.block.header().height();
+        let blocks = self.blocks_with_missing_chunks.ready_blocks();
+        debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
+        for block in blocks {
+            let block_hash = *block.block.header().hash();
+            let height = block.block.header().height();
             let time = Clock::instant();
             let res = self.start_process_block_async(
                 me,
