@@ -1574,6 +1574,8 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    /// This function checks that the block is not on a chain with challenged blocks and updates
+    /// fields in ChainStore that stores information of the canonical chain
     fn update_height_if_not_challenged(
         &mut self,
         height: BlockHeight,
@@ -1599,6 +1601,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     return Ok(());
                 }
                 _ => {
+                    // TODO: remove this check from this function and use Chain::check_if_challenged_block_on_chain
+                    // I'm not doing that now because I'm afraid that this will make header sync take
+                    // even longer.
                     if self.is_block_challenged(&header_hash)? {
                         return Err(Error::ChallengedBlockOnChain);
                     }
