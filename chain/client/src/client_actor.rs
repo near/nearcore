@@ -44,7 +44,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -57,7 +57,7 @@ use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -263,8 +263,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages")
+            handler="NetworkClientMessages",
+            msg=msg.as_ref())
         .entered();
+
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -659,6 +661,39 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
     }
 }
 impl ClientActor {
+    // Gets a list of block producers and chunk-only producers for a given epoch.
+    fn get_producers_for_epoch(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+    ) -> Result<(Vec<ValidatorInfo>, Vec<String>), Error> {
+        let mut block_producers_set = HashSet::new();
+        let block_producers: Vec<ValidatorInfo> = self
+            .client
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, &last_known_block_hash)?
+            .into_iter()
+            .map(|(validator_stake, is_slashed)| {
+                block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
+                ValidatorInfo { account_id: validator_stake.take_account_id(), is_slashed }
+            })
+            .collect();
+        let chunk_only_producers = self
+            .client
+            .runtime_adapter
+            .get_epoch_chunk_producers(&epoch_id)?
+            .iter()
+            .filter_map(|producer| {
+                if block_producers_set.contains(&producer.account_id().to_string()) {
+                    None
+                } else {
+                    Some(producer.account_id().to_string())
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok((block_producers, chunk_only_producers))
+    }
+
     /// Gets the information about the epoch that contains a given block.
     /// Also returns the hash of the last block of the previous epoch.
     fn get_epoch_info_view(
@@ -670,16 +705,8 @@ impl ClientActor {
 
         let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
         let epoch_id = block.header().epoch_id();
-        let validators: Vec<ValidatorInfo> = self
-            .client
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &current_block)?
-            .into_iter()
-            .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed,
-            })
-            .collect();
+        let (validators, chunk_only_producers) =
+            self.get_producers_for_epoch(&epoch_id, &current_block)?;
 
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
@@ -736,6 +763,7 @@ impl ClientActor {
                 height: block.header().height(),
                 first_block: Some((block.header().hash().clone(), block.header().timestamp())),
                 validators: validators.to_vec(),
+                chunk_only_producers,
                 protocol_version: self
                     .client
                     .runtime_adapter
@@ -752,22 +780,16 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+        let (validators, chunk_only_producers) =
+            self.get_producers_for_epoch(&&head.next_epoch_id, &head.last_block_hash)?;
 
         Ok(EpochInfoView {
             epoch_id: head.next_epoch_id.0,
             // Expected height of the next epoch.
             height: epoch_start_height + self.client.config.epoch_length,
             first_block: None,
-            validators: self
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.next_epoch_id, &head.last_block_hash)?
-                .into_iter()
-                .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                    account_id: validator_stake.take_account_id(),
-                    is_slashed,
-                })
-                .collect(),
+            validators,
+            chunk_only_producers,
             protocol_version: self
                 .client
                 .runtime_adapter
@@ -1222,6 +1244,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
+            debug!(target:"client", "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1250,6 +1273,12 @@ impl ClientActor {
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
+        if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
+            debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
+        } else {
+            debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
+        }
+
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1271,7 +1300,7 @@ impl ClientActor {
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", "Block production failed: {}", err);
+                        error!(target: "client", height, "Block production failed: {}", err);
                     } else {
                         self.post_block_production();
                     }

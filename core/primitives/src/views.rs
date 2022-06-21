@@ -404,6 +404,7 @@ pub struct EpochInfoView {
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
+    pub chunk_only_producers: Vec<String>,
     pub protocol_version: u32,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
@@ -914,12 +915,6 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    StakeChunkOnly {
-        #[serde(with = "u128_dec_format")]
-        stake: Balance,
-        public_key: PublicKey,
-    },
 }
 
 impl From<Action> for ActionView {
@@ -946,10 +941,6 @@ impl From<Action> for ActionView {
             Action::DeleteKey(action) => ActionView::DeleteKey { public_key: action.public_key },
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(action) => {
-                ActionView::StakeChunkOnly { stake: action.stake, public_key: action.public_key }
             }
         }
     }
@@ -984,10 +975,6 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ActionView::StakeChunkOnly { stake, public_key } => {
-                Action::StakeChunkOnly(StakeAction { stake, public_key })
             }
         })
     }

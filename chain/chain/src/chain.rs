@@ -1360,6 +1360,31 @@ impl Chain {
         Ok(())
     }
 
+    /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
+    /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
+    fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
+        let mut hash = *block_header.hash();
+        let mut height = block_header.height();
+        let mut prev_hash = *block_header.prev_hash();
+        loop {
+            match self.get_block_hash_by_height(height) {
+                Ok(cur_hash) if cur_hash == hash => {
+                    // Found common ancestor.
+                    return Ok(());
+                }
+                _ => {
+                    if self.store.is_block_challenged(&hash)? {
+                        return Err(Error::ChallengedBlockOnChain);
+                    }
+                    let prev_header = self.get_block_header(&prev_hash)?;
+                    hash = *prev_header.hash();
+                    height = prev_header.height();
+                    prev_hash = *prev_header.prev_hash();
+                }
+            };
+        }
+    }
+
     pub fn ping_missing_chunks(
         &self,
         me: &Option<AccountId>,
@@ -1961,7 +1986,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
-    fn preprocess_block(
+    pub(crate) fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -2057,6 +2082,8 @@ impl Chain {
             } else {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
             };
+
+        self.check_if_challenged_block_on_chain(block.header())?;
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
@@ -2260,8 +2287,10 @@ impl Chain {
     ) {
         let mut new_blocks_accepted = vec![];
         let orphans = self.blocks_with_missing_chunks.ready_blocks();
+        debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", orphans.len());
         for orphan in orphans {
             let block_hash = *orphan.block.header().hash();
+            let height = orphan.block.header().height();
             let time = Clock::instant();
             let res = self.process_block_single(
                 me,
@@ -2271,13 +2300,13 @@ impl Chain {
             );
             match res {
                 Ok(_) => {
-                    debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
+                    debug!(target: "chain", %block_hash, height, "Accepted block with missing chunks");
                     self.blocks_delay_tracker
                         .mark_block_completed_missing_chunks(&block_hash, time);
                     new_blocks_accepted.push(block_hash);
                 }
                 Err(_) => {
-                    debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
+                    debug!(target: "chain", %block_hash, height, "Declined block with missing chunks is declined.");
                 }
             }
         }
