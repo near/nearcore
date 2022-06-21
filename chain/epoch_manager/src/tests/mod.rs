@@ -2406,15 +2406,7 @@ fn test_chunk_producers() {
 
     // There are 2 shards, and 2 block producers seats.
     // So test1 and test2 should become block producers, and chunk_only should become chunk only producer.
-    let mut epoch_manager = setup_default_epoch_manager(
-        validators,
-        2,
-        2,
-        2,
-        0,
-        90,
-        60
-    );
+    let mut epoch_manager = setup_default_epoch_manager(validators, 2, 2, 2, 0, 90, 60);
     let h = hash_range(10);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..=4 {
