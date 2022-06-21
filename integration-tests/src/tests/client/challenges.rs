@@ -87,7 +87,7 @@ fn test_invalid_chunk_state() {
     }
 
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
-    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
 }
 

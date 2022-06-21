@@ -994,7 +994,7 @@ fn test_process_invalid_tx() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.transaction_validity_period = 10;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -4067,7 +4067,7 @@ mod access_key_nonce_range_tests {
         genesis.config.shard_layout = ShardLayout::v1_test();
         genesis.config.num_block_producer_seats_per_shard =
             vec![num_validators, num_validators, num_validators, num_validators];
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(

@@ -2,6 +2,7 @@ use crate::test_utils::setup;
 use crate::{Block, Error, Provenance};
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
+use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 
 #[test]
@@ -49,13 +50,14 @@ fn challenges_new_head_prev() {
         &MaybeValidated::from(last_block),
         &Provenance::NONE,
         &mut vec![],
+        Clock::instant(),
         None,
     ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {
         assert!(false);
     }
-    
+
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);
 
     // Add two more blocks
