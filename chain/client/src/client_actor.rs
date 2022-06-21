@@ -71,7 +71,7 @@ pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
 
-    pub client: Client,
+    pub (crate) client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
