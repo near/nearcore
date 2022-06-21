@@ -17,7 +17,7 @@ pub use _proto::network as proto;
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -155,7 +155,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessage>),
+    Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -216,7 +216,7 @@ impl PeerMessage {
 
     pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
-            PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
+            PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
             _ => self.into(),
         }
     }
@@ -230,7 +230,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncResponse(_)
             | PeerMessage::Transaction(_) => true,
             PeerMessage::Routed(r) => matches!(
-                r.body,
+                r.msg.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
                     | RoutedMessageBody::PartialEncodedChunk(_)
@@ -252,7 +252,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncFinalizationRequest(_)
             | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
-                r.body,
+                r.msg.body,
                 RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)

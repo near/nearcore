@@ -1,7 +1,8 @@
 use crate::network_protocol::Encoding;
 use near_metrics::{
-    try_create_histogram, try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
-    Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
@@ -137,6 +138,16 @@ static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_broadcast_msg",
         "Broadcasted messages",
         &["type"],
+    )
+    .unwrap()
+});
+
+pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_network_routed_msg_latency",
+        "Latency of network messages, assuming clocks are perfectly synchronized",
+        &["routed"],
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
