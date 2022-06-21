@@ -37,15 +37,6 @@ where
     }
 }
 
-pub trait BaseDecode:
-    for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error + Send + Sync>>
-{
-    fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let bytes = from_base(s)?;
-        Self::try_from(&bytes)
-    }
-}
-
 pub mod base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};

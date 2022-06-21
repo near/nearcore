@@ -6,7 +6,7 @@ use sha2::Digest;
 
 use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode};
+use crate::serialize::{from_base, to_base};
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
@@ -35,8 +35,6 @@ impl Default for CryptoHash {
         CryptoHash(Default::default())
     }
 }
-
-impl BaseDecode for CryptoHash {}
 
 impl borsh::BorshSerialize for CryptoHash {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
