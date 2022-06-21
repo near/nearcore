@@ -1373,7 +1373,7 @@ impl Chain {
                     return Ok(());
                 }
                 _ => {
-                    if self.is_block_challenged(&hash)? {
+                    if self.store.is_block_challenged(&hash)? {
                         return Err(Error::ChallengedBlockOnChain);
                     }
                     let prev_header = self.get_block_header(&prev_hash)?;
