@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [dependencies]
@@ -25,7 +25,6 @@ once_cell = "1.5.2"
 borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
-prometheus = "0.11"
 thiserror = "1.0"
 tokio = { version = "1.1", features = ["sync"] }
 
@@ -68,18 +67,12 @@ protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
   "near-chain/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_routing_exchange_algorithm = [
-  "near-network/protocol_feature_routing_exchange_algorithm",
-  "near-chain/protocol_feature_routing_exchange_algorithm",
-  "near-primitives/protocol_feature_routing_exchange_algorithm",
-]
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
   "near-chain/nightly",
-  "protocol_feature_routing_exchange_algorithm",
 ]
 sandbox = [
-  "near-network/sandbox",
+  "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]

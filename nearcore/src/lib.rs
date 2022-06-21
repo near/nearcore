@@ -8,16 +8,14 @@ use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::RocksDB;
+use near_store::db::{Mode, RocksDB};
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
 use near_store::{DBCol, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
@@ -76,7 +74,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::open(path, &near_config.config.store, false)?;
+    let db = RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -203,7 +201,7 @@ fn apply_store_migrations_if_exists(
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = StoreOpener::new(&near_config.config.store).home(home_dir);
+    let opener = Store::opener(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener.open();
     if !exists {
@@ -252,9 +250,9 @@ pub fn start_with_config_and_synchronization(
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone());
+    let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
@@ -281,23 +279,19 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
-    let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
-    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let routing_table_addr2 = routing_table_addr.clone();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(
-            store,
-            network_config,
-            client_actor1,
-            view_client1,
-            routing_table_addr,
-        )
-        .unwrap()
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
+        let client_actor = client_actor.clone();
+        let view_client = view_client.clone();
+        move |_ctx| {
+            PeerManagerActor::new(
+                store,
+                config.network_config,
+                client_actor.recipient(),
+                view_client.recipient(),
+            )
+            .unwrap()
+        }
     });
     network_adapter.set_recipient(network_actor.clone().recipient());
 
@@ -310,8 +304,6 @@ pub fn start_with_config_and_synchronization(
             view_client.clone(),
             #[cfg(feature = "test_features")]
             network_actor,
-            #[cfg(feature = "test_features")]
-            routing_table_addr2,
         ));
     }
 
@@ -381,7 +373,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_opener = StoreOpener::new(&config.store).home(home_dir).read_only(true);
+    let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.get_path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
@@ -400,7 +392,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = StoreOpener::new(&dst_config).home(&cwd);
+    let dst_opener = Store::opener(&cwd, &dst_config);
     let dst_path = dst_opener.get_path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),

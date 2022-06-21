@@ -1,10 +1,9 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
-use near_chain::missing_chunks::MissingChunksPool;
+
+use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::validate::validate_challenge;
-use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, Provenance,
-};
+use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
@@ -21,8 +20,10 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId, StateRoot};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -61,6 +62,33 @@ fn test_block_with_challenges() {
 
     let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
+}
+
+/// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
+#[test]
+fn test_invalid_chunk_state() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    env.produce_block(0, 1);
+    let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
+
+    {
+        let mut chunk_extra = ChunkExtra::clone(
+            &env.clients[0].chain.get_chunk_extra(&block_hash, &ShardUId::single_shard()).unwrap(),
+        );
+        let store = env.clients[0].chain.mut_store();
+        let mut store_update = store.store_update();
+        assert_ne!(chunk_extra.state_root(), &CryptoHash::default());
+        *chunk_extra.state_root_mut() = CryptoHash::default();
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
+        store_update.commit().unwrap();
+    }
+
+    let block = env.clients[0].produce_block(2).unwrap().unwrap();
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
 }
 
 #[test]
@@ -298,7 +326,6 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let transaction_validity_period = genesis.config.transaction_validity_period;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
@@ -362,6 +389,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             merkle_paths,
             vec![],
             client.chain.mut_store(),
+            0,
         )
         .unwrap();
 
@@ -400,25 +428,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
     );
 
-    let challenge_body = {
-        use near_chain::chain::{ChainUpdate, OrphanBlockPool};
-        let chain = &mut client.chain;
-        let adapter = chain.runtime_adapter.clone();
-        let empty_block_pool = OrphanBlockPool::new();
-        let empty_chunks_pool = MissingChunksPool::new();
-
-        let mut chain_update = ChainUpdate::new(
-            chain.mut_store(),
-            adapter,
-            &empty_block_pool,
-            &empty_chunks_pool,
-            DoomslugThresholdMode::NoApprovals,
-            transaction_validity_period,
-            None,
-        );
-
-        chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()
-    };
+    let challenge_body =
+        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
     {
         let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
@@ -502,7 +513,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             chunk.clone(),
             merkle_paths.clone(),
             receipts.clone(),
-            client.chain.mut_store()
+            client.chain.mut_store(),
+            0,
         )
         .is_err());
     let result = client.process_block_test(block.clone().into(), Provenance::NONE);

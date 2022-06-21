@@ -157,17 +157,6 @@ extern "C" {
     fn storage_has_key(key_len: u64, key_ptr: u64) -> u64;
 }
 
-// This function is not doing anything useful, it is just here to make sure the payload is getting
-// compiled into Wasm.
-#[cfg(feature = "payload")]
-#[no_mangle]
-pub fn payload() {
-    let payload = include_bytes!("../res/payload");
-    unsafe {
-        value_return(1, payload.as_ptr() as *const u64 as u64);
-    }
-}
-
 // Function that does not do anything at all.
 #[no_mangle]
 pub fn noop() {}

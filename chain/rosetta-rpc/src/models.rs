@@ -582,8 +582,8 @@ pub(crate) struct MempoolTransactionResponse {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct MetadataRequest {
     // Rosetta Spec optionally provides, but we don't have any use for it:
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub metadata: Option<serde_json::Value>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub metadata: Option<serde_json::Value>,
 }
 
 /// The network_identifier specifies which network a particular object is
@@ -722,12 +722,18 @@ pub(crate) enum OperationType {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum OperationStatusKind {
     Success,
+    //This OperationStatusKind was specifically requested by Coinbase Integration
+    //team in order to continue their tests. It is NOT fully specified in the Rosetta
+    //specs.
+    #[serde(rename = "")]
+    Empty,
 }
 
 impl OperationStatusKind {
     pub(crate) fn is_successful(&self) -> bool {
         match self {
             Self::Success => true,
+            Self::Empty => false,
         }
     }
 }

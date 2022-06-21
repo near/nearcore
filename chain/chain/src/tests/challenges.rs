@@ -1,6 +1,8 @@
 use crate::test_utils::setup;
-use crate::{Block, Error};
+use crate::{Block, Error, Provenance};
+use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
+use near_primitives::utils::MaybeValidated;
 
 #[test]
 fn challenges_new_head_prev() {
@@ -42,17 +44,18 @@ fn challenges_new_head_prev() {
     assert!(chain.get_header_by_height(4).is_err());
 
     // Try to add a block on top of the fifth block.
-
-    // TODO: figure out what to do here with error. process_block_test no longer returns error because
-    // postprocess_ready_blocks ignore all errors
-    chain.process_block_test(&None, last_block).unwrap();
-    /*
-    if let Err(e) = chain.process_block_test(&None, last_block) {
+    if let Err(e) = chain.preprocess_block(
+        &None,
+        &MaybeValidated::from(last_block),
+        &Provenance::NONE,
+        &mut vec![],
+        None,
+    ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {
         assert!(false);
     }
-     */
+    
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);
 
     // Add two more blocks

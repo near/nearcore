@@ -399,49 +399,6 @@ impl Wasmer2VM {
 
         Ok(())
     }
-
-    pub(crate) fn run_module<'a>(
-        &self,
-        artifact: &VMArtifact,
-        memory: &mut Wasmer2Memory,
-        method_name: &str,
-        ext: &mut dyn External,
-        context: VMContext,
-        fees_config: &'a RuntimeFeesConfig,
-        promise_results: &'a [PromiseResult],
-        current_protocol_version: ProtocolVersion,
-    ) -> VMResult {
-        let vmmemory = memory.vm();
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            memory,
-            current_protocol_version,
-        );
-
-        let import = imports::wasmer2::build(
-            vmmemory,
-            &mut logic,
-            current_protocol_version,
-            // FIXME: make sure tricky case below is impossible.
-            // TRICKY: we must use the engine associated with the artifact here, rather than
-            // self.engine. These two aren't necessarily the same thing – after in-memory cache
-            // `Self` can be entirely distinct thing with its very own independent engine than the
-            // VM that created the artifact in the first place.
-            artifact.engine(),
-        );
-        if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return VMResult::nop_outcome(e);
-        }
-        let status = self.run_method(artifact, import, method_name);
-        match status {
-            Ok(()) => VMResult::ok(logic),
-            Err(err) => VMResult::abort(logic, err),
-        }
-    }
 }
 
 impl wasmer_vm::Tunables for &Wasmer2VM {

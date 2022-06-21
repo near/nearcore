@@ -827,3 +827,25 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
         }
     }
 }
+
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum SandboxMessage {
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
+    SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
+    SandboxNoResponse,
+}
+#[cfg(feature = "sandbox")]
+impl Message for SandboxMessage {
+    type Result = SandboxResponse;
+}

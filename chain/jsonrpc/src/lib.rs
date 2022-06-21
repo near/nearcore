@@ -9,7 +9,6 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
-use prometheus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
@@ -26,7 +25,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_metrics::{Encoder, TextEncoder};
+use near_metrics::{prometheus, Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -217,8 +216,6 @@ struct JsonRpcHandler {
     enable_debug_rpc: bool,
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<near_network::PeerManagerActor>,
-    #[cfg(feature = "test_features")]
-    routing_table_addr: Addr<near_network::RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -302,7 +299,6 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request =
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
@@ -314,27 +310,6 @@ impl JsonRpcHandler {
                                 prune_edges: request.prune_edges,
                             },
                         ))
-                        .await
-                        .map_err(RpcError::rpc_from)?;
-                    Some(
-                        serde_json::to_value(())
-                            .map_err(|err| RpcError::serialization_error(err.to_string())),
-                    )
-                }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-                "adv_start_routing_table_syncv2" => {
-                    let params = parse_params::<
-                        near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest,
-                    >(params)?;
-
-                    self.peer_manager_addr
-                        .send(
-                            near_network::types::PeerManagerMessageRequest::StartRoutingTableSync(
-                                near_network::private_actix::StartRoutingTableSync {
-                                    peer_id: params.peer_id,
-                                },
-                            ),
-                        )
                         .await
                         .map_err(RpcError::rpc_from)?;
                     Some(
@@ -357,13 +332,12 @@ impl JsonRpcHandler {
                 }
                 "adv_get_routing_table" => {
                     let result = self
-                        .routing_table_addr
-                        .send(near_network::RoutingTableMessages::RequestRoutingTable)
+                        .peer_manager_addr
+                        .send(near_network::types::PeerManagerMessageRequest::GetRoutingTable)
                         .await
                         .map_err(RpcError::rpc_from)?;
-
                     match result {
-                        near_network::RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                        near_network::types::PeerManagerMessageResponse::GetRoutingTable {
                             edges_info: routing_table,
                         } => {
                             let response = {
@@ -1208,10 +1182,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(
-                    patch_state_request.records,
-                ),
+            .send(near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                patch_state_request.records,
             ))
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1220,13 +1192,11 @@ impl JsonRpcHandler {
             loop {
                 let patch_state_finished = self
                     .client_addr
-                    .send(NetworkClientMessages::Sandbox(
-                        near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus {},
-                    ))
+                    .send(near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {})
                     .await;
-                if let Ok(NetworkClientResponses::SandboxResult(
-                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
-                )) = patch_state_finished
+                if let Ok(
+                    near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
+                ) = patch_state_finished
                 {
                     break;
                 }
@@ -1246,13 +1216,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
     > {
-        use near_network_primitives::types::SandboxResponse;
+        use near_client_primitives::types::SandboxResponse;
 
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
-                    fast_forward_request.delta_height,
-                ),
+            .send(near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                fast_forward_request.delta_height,
             ))
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1263,18 +1231,14 @@ impl JsonRpcHandler {
             loop {
                 let fast_forward_finished = self
                     .client_addr
-                    .send(NetworkClientMessages::Sandbox(
-                        near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus {},
-                    ))
+                    .send(
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
+                    )
                     .await;
 
                 match fast_forward_finished {
-                    Ok(NetworkClientResponses::SandboxResult(
-                        SandboxResponse::SandboxFastForwardFinished(true)
-                    )) => break,
-                    Ok(NetworkClientResponses::SandboxResult(
-                        SandboxResponse::SandboxFastForwardFailed(err)
-                    )) => return Err(err),
+                    Ok(SandboxResponse::SandboxFastForwardFinished(true)) => break,
+                    Ok(SandboxResponse::SandboxFastForwardFailed(err)) => return Err(err),
                     _ => (),
                 }
 
@@ -1283,11 +1247,16 @@ impl JsonRpcHandler {
             Ok(())
         })
         .await
-        .map_err(|_| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-            error_message: "sandbox failed to fast forward within reasonable time of an hour".to_string()
+        .map_err(|_| {
+            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                error_message: "sandbox failed to fast forward within reasonable time of an hour"
+                    .to_string(),
+            }
         })?
-        .map_err(|err| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-            error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+        .map_err(|err| {
+            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+            }
         })?;
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
@@ -1510,18 +1479,9 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
-lazy_static_include::lazy_static_include_str! {
-    LAST_BLOCKS_HTML => "res/last_blocks.html",
-    DEBUG_HTML => "res/debug.html",
-    NETWORK_INFO_HTML => "res/network_info.html",
-    EPOCH_INFO_HTML => "res/epoch_info.html",
-    CHAIN_N_CHUNK_INFO_HTML => "res/chain_n_chunk_info.html",
-    SYNC_HTML => "res/sync.html",
-}
-
 #[get("/debug")]
 async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(*DEBUG_HTML))
+    Ok(HttpResponse::Ok().body(include_str!("../res/debug.html")))
 }
 
 #[get("/debug/pages/{page}")]
@@ -1531,11 +1491,11 @@ async fn display_debug_html(
     let page_name = path.into_inner().0;
 
     let content = match page_name.as_str() {
-        "last_blocks" => Some(*LAST_BLOCKS_HTML),
-        "network_info" => Some(*NETWORK_INFO_HTML),
-        "epoch_info" => Some(*EPOCH_INFO_HTML),
-        "chain_n_chunk_info" => Some(*CHAIN_N_CHUNK_INFO_HTML),
-        "sync" => Some(*SYNC_HTML),
+        "last_blocks" => Some(include_str!("../res/last_blocks.html")),
+        "network_info" => Some(include_str!("../res/network_info.html")),
+        "epoch_info" => Some(include_str!("../res/epoch_info.html")),
+        "chain_n_chunk_info" => Some(include_str!("../res/chain_n_chunk_info.html")),
+        "sync" => Some(include_str!("../res/sync.html")),
         _ => None,
     };
 
@@ -1564,7 +1524,6 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
-    #[cfg(feature = "test_features")] routing_table_addr: Addr<near_network::RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1589,8 +1548,6 @@ pub fn start_http(
                 enable_debug_rpc,
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
-                #[cfg(feature = "test_features")]
-                routing_table_addr: routing_table_addr.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

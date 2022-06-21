@@ -8,7 +8,7 @@ use rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -171,22 +171,23 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Mode {
+    ReadOnly,
+    ReadWrite,
+}
+
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the read_only parameter specified in the store_config.
-    pub fn open(
-        path: &Path,
-        store_config: &StoreConfig,
-        read_only: bool,
-    ) -> Result<RocksDB, DBError> {
+    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> Result<RocksDB, DBError> {
         use strum::IntoEnumIterator;
 
         ensure_max_open_files_limit(store_config.max_open_files)?;
 
-        let (db, db_opt) = if read_only {
-            Self::open_read_only(path, store_config)
-        } else {
-            Self::open_read_write(path, store_config)
+        let (db, db_opt) = match mode {
+            Mode::ReadOnly => Self::open_read_only(path, store_config),
+            Mode::ReadWrite => Self::open_read_write(path, store_config),
         }?;
 
         let mut cf_handles = enum_map::EnumMap::default();
@@ -259,7 +260,10 @@ impl RocksDB {
 }
 
 pub struct TestDB {
-    db: RwLock<enum_map::EnumMap<DBCol, HashMap<Vec<u8>, Vec<u8>>>>,
+    // In order to ensure determinism when iterating over column's results
+    // a BTreeMap is used since it is an ordered map. A HashMap would
+    // give the aforementioned guarantee, and therefore is discarded.
+    db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
 pub(crate) trait Database: Sync + Send {
@@ -278,12 +282,8 @@ pub(crate) trait Database: Sync + Send {
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        None
-    }
-    fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
-    }
+    fn flush(&self) -> Result<(), DBError>;
+    fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
@@ -384,8 +384,8 @@ impl Database for RocksDB {
         Ok(self.db.write(batch)?)
     }
 
-    fn as_rocksdb(&self) -> Option<&RocksDB> {
-        Some(self)
+    fn flush(&self) -> Result<(), DBError> {
+        self.db.flush().map_err(DBError::from)
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -430,10 +430,12 @@ impl Database for TestDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        RocksDB::iter_with_rc_logic(
-            col,
-            self.iter(col).filter(move |(key, _value)| key.starts_with(key_prefix)),
-        )
+        let iterator = self.db.read().unwrap()[col]
+            .range(key_prefix.to_vec()..)
+            .take_while(move |(k, _)| k.starts_with(&key_prefix))
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
+        RocksDB::iter_with_rc_logic(col, iterator.into_iter())
     }
 
     fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
@@ -467,6 +469,14 @@ impl Database for TestDB {
             };
         }
         Ok(())
+    }
+
+    fn flush(&self) -> Result<(), DBError> {
+        Ok(())
+    }
+
+    fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        None
     }
 }
 
@@ -617,7 +627,7 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let value = RocksDB::open(path, &StoreConfig::default(), true)?
+        let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
                 DBError(
@@ -660,11 +670,6 @@ impl RocksDB {
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
     pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
         Checkpoint::new(&self.db).map_err(DBError::from)
-    }
-
-    /// Synchronously flush all Memtables to SST files on disk
-    pub fn flush(&self) -> Result<(), DBError> {
-        self.db.flush().map_err(DBError::from)
     }
 }
 
@@ -781,7 +786,9 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 mod tests {
     use crate::db::StatsValue::{Count, Percentile, Sum};
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
-    use crate::{DBCol, StoreConfig, StoreOpener, StoreStatistics};
+    use crate::{DBCol, Store, StoreConfig, StoreStatistics};
+
+    use super::Mode;
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -806,15 +813,16 @@ mod tests {
 
     #[test]
     fn test_prewrite_check() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::default(), false).unwrap();
+        let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
+        let store =
+            RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), Mode::ReadWrite).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let (_tmp_dir, opener) = Store::test_opener();
+        let store = opener.open();
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -834,8 +842,8 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
-        let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = StoreOpener::with_default_config().home(tmp_dir.path()).open();
+        let (_tmp_dir, opener) = Store::test_opener();
+        let store = opener.open();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

@@ -46,8 +46,8 @@ skip = [
     { name = "object", version = "=0.27.1" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
-    # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
-    { name = "wasmparser", version = "=0.81.0" },
+    # Wasmtime 0.34 use relies on a newer wasmparser, the main version stays the one in production.
+    { name = "wasmparser", version = "=0.82.0" },
     # wasm-smith relies on 0.84.0
     { name = "wasmparser", version = "=0.84.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
@@ -70,9 +70,7 @@ skip = [
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
-    { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
-    { name = "parking_lot_core", version = "=0.8.5" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
 

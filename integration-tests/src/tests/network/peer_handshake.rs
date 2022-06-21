@@ -13,8 +13,6 @@ use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 
-use near_network::routing::start_routing_table_actor;
-
 use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
@@ -23,8 +21,6 @@ use near_network::PeerManagerActor;
 use near_network_primitives::types::{
     NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
 };
-#[cfg(test)]
-use near_primitives::network::PeerId;
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
 
@@ -61,17 +57,9 @@ fn make_peer_manager(
         }
     }))
     .start();
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(config.public_key.clone()), store.clone());
 
-    PeerManagerActor::new(
-        store,
-        config,
-        client_addr.recipient(),
-        view_client_addr.recipient(),
-        routing_table_addr,
-    )
-    .unwrap()
+    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
+        .unwrap()
 }
 
 #[test]

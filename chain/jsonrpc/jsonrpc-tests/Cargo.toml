@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [dependencies]
@@ -20,7 +20,9 @@ near-chain-configs = { path = "../../../core/chain-configs" }
 near-crypto = { path = "../../../core/crypto" }
 near-primitives = { path = "../../../core/primitives" }
 near-client = { path = "../../client" }
+near-store = { path = "../../../core/store" }
 near-network = { path = "../../network" }
+near-network-primitives = { path = "../../network-primitives" }
 near-jsonrpc = { path = "../" }
 near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
 
@@ -33,4 +35,3 @@ test_features = ["near-jsonrpc/test_features"]
 nightly = ["nightly_protocol"]
 nightly_protocol = ["near-jsonrpc/nightly_protocol"]
 sandbox = ["near-jsonrpc/sandbox"]
-protocol_feature_routing_exchange_algorithm = ["near-jsonrpc/protocol_feature_routing_exchange_algorithm"]
