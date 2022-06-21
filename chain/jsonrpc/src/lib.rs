@@ -299,7 +299,6 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request =
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;

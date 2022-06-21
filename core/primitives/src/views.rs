@@ -404,6 +404,7 @@ pub struct EpochInfoView {
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
     pub validators: Vec<ValidatorInfo>,
+    pub chunk_only_producers: Vec<String>,
     pub protocol_version: u32,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
