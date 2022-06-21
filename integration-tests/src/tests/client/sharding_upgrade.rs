@@ -65,7 +65,7 @@ impl TestShardUpgradeEnv {
             [validators, gen_unique_accounts(&mut rng, num_init_accounts)].concat();
         let genesis =
             setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
