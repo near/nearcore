@@ -472,7 +472,7 @@ mod test {
     // build a TestEnv with one validator with 20 blocks of history, all empty
     fn setup_mock() -> (ChainHistoryAccess, TestEnv) {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes = vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             create_test_store(),

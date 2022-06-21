@@ -283,7 +283,9 @@ message SignedTransaction {
 // Wrapper of borsh-encoded RoutedMessage
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/mod.rs#L295
 message RoutedMessage {
-  bytes borsh = 1; 
+  bytes borsh = 1;
+  // Timestamp of creating the Routed message by its original author.
+  google.protobuf.Timestamp created_at = 2;
 }
 
 // Disconnect is send by a node before closing a TCP connection.

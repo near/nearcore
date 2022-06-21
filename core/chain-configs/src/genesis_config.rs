@@ -280,12 +280,6 @@ pub struct Genesis {
     pub records_file: PathBuf,
 }
 
-impl AsRef<GenesisConfig> for &Genesis {
-    fn as_ref(&self) -> &GenesisConfig {
-        &self.config
-    }
-}
-
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
     ///
@@ -322,11 +316,7 @@ impl GenesisConfig {
             .map(|account_info| {
                 ValidatorStake::new(
                     account_info.account_id.clone(),
-                    account_info
-                        .public_key
-                        .clone()
-                        .try_into()
-                        .expect("Failed to deserialize validator public key"),
+                    account_info.public_key.clone(),
                     account_info.amount,
                     #[cfg(feature = "protocol_feature_chunk_only_producers")]
                     false,

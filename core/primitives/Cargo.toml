@@ -15,6 +15,7 @@ This crate provides the base set of primitives used by other nearcore crates
 [dependencies]
 byteorder = "1.3"
 bytesize = "1.1"
+cfg-if = "1.0.0"
 chrono = { version = "0.4.4", features = ["serde"] }
 deepsize = { version = "0.2.0", features = ["chrono"], optional=true }
 derive_more = "0.99.3"
@@ -42,19 +43,20 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 sandbox = []
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_chunk_only_producers = []
-protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
-protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
-  "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
 ]
 nightly_protocol = []
+
+
+# Shardnet is the experimental network that we deploy for chunk-only producer testing.
+shardnet = []
+
 deepsize_feature = [
   "deepsize",
   "near-vm-errors/deepsize_feature",
