@@ -99,8 +99,6 @@ pub fn total_send_fees(
                 transfer_send_fee(cfg, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            StakeChunkOnly(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
                     let num_bytes = call_perm
@@ -157,8 +155,6 @@ pub fn exec_fee(
             transfer_exec_fee(cfg, is_receiver_implicit)
         }
         Stake(_) => cfg.stake_cost.exec_fee(),
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        StakeChunkOnly(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
                 let num_bytes = call_perm
