@@ -280,12 +280,6 @@ pub struct Genesis {
     pub records_file: PathBuf,
 }
 
-impl AsRef<GenesisConfig> for &Genesis {
-    fn as_ref(&self) -> &GenesisConfig {
-        &self.config
-    }
-}
-
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
     ///
