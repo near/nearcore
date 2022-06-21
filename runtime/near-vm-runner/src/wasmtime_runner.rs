@@ -159,7 +159,10 @@ pub(super) fn default_config() -> wasmtime::Config {
     config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
     config.wasm_multi_value(WASM_FEATURES.multi_value);
     config.wasm_multi_memory(WASM_FEATURES.multi_memory);
-    assert_eq!(WASM_FEATURES.module_linking, false, "wasmtime currently does not support the module-linking feature");
+    assert_eq!(
+        WASM_FEATURES.module_linking, false,
+        "wasmtime currently does not support the module-linking feature"
+    );
     config
 }
 
