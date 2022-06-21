@@ -244,7 +244,7 @@ impl TrieStorage for TrieCachingStorage {
             Some(val) => {
                 tracing::trace!(target: "io_tracer", count = "shard_cache_hit");
                 val.clone()
-            },
+            }
             None => {
                 tracing::trace!(target: "io_tracer", count = "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
