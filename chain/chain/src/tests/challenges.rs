@@ -1,5 +1,5 @@
 use crate::test_utils::setup;
-use crate::{Block, Error};
+use crate::{Block, Error, Provenance};
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
 use near_primitives::utils::MaybeValidated;
@@ -48,7 +48,7 @@ fn challenges_new_head_prev() {
     if let Err(e) = chain.preprocess_block(
         &None,
         &MaybeValidated::from(last_block),
-        Provenance::None,
+        &Provenance::NONE,
         &mut vec![],
         None,
     ) {
