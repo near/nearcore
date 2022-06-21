@@ -20,7 +20,6 @@ futures = "0.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 once_cell = "1.5.2"
-prometheus = "0.11"
 rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
@@ -34,32 +33,32 @@ tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = { version = "0.4", optional = true }
-lazy-static-include = "3"
 tempfile = "3"
 indicatif = "0.15.0"
 xz2 = "0.1.6"
 rlimit = "0.7"
 strum = "0.24"
 
-near-crypto = { path = "../core/crypto" }
-near-primitives = { path = "../core/primitives" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-store = { path = "../core/store" }
-near-metrics = { path = "../core/metrics" }
-near-o11y = { path = "../core/o11y" }
-node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
+near-chain-configs = { path = "../core/chain-configs" }
 near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
-near-pool = { path = "../chain/pool" }
-near-network = { path = "../chain/network" }
-near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
-near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
-near-telemetry = { path = "../chain/telemetry" }
+near-crypto = { path = "../core/crypto" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
-near-vm-runner = { path = "../runtime/near-vm-runner"}
+near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
+near-mainnet-res = { path = "../utils/mainnet-res" }
+near-metrics = { path = "../core/metrics" }
+near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
+near-o11y = { path = "../core/o11y" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-pool = { path = "../chain/pool" }
+near-primitives = { path = "../core/primitives" }
+near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
+near-store = { path = "../core/store" }
+near-telemetry = { path = "../chain/telemetry" }
+near-vm-runner = { path = "../runtime/near-vm-runner"}
+node-runtime = { path = "../runtime/runtime" }
 
 delay-detector = { path = "../tools/delay_detector" }
 

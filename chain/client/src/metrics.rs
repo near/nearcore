@@ -1,7 +1,8 @@
 use near_metrics::{
-    try_create_counter, try_create_gauge, try_create_histogram, try_create_histogram_vec,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge, Counter, Gauge,
-    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, try_create_counter, try_create_gauge, try_create_histogram,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, Counter, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -172,7 +173,7 @@ pub(crate) static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::ne
         "near_client_messages_processing_time",
         "Processing time of messages that client actor received, sorted by message type",
         &["type"],
-        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -190,7 +191,7 @@ pub(crate) static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(||
         "near_client_triggers_time_by_type",
         "Time spent on the different triggers in client",
         &["trigger"],
-        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -273,6 +274,25 @@ pub(crate) static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
+pub static PRODUCE_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
+    near_metrics::try_create_histogram_vec(
+        "near_produce_chunk_time",
+        "Time taken to produce a chunk",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
+    near_metrics::try_create_histogram_vec(
+        "near_produce_and_distribute_chunk_time",
+        "Time to produce a chunk and distribute it to peers",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
 /// Exports neard, protocol and database versions via Prometheus metrics.
 ///
 /// Sets metrics which export node’s max supported protocol version, used

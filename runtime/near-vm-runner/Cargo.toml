@@ -32,7 +32,6 @@ near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 tracing = { version = "0.1", default-features = false }
-threadpool = "1.8.1"
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
@@ -64,6 +63,7 @@ wasm-smith = "0.10"
 assert_matches = "1.3"
 wat = "1.0.40"
 base64 = "0.13"
+expect-test = "1.3.0"
 
 [features]
 # all vms enabled for now

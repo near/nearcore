@@ -2131,11 +2131,21 @@ impl ShardsManager {
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         chain_store: &mut ChainStore,
+        shard_id: ShardId,
     ) -> Result<(), Error> {
+        let _timer = metrics::DISTRIBUTE_ENCODED_CHUNK_TIME
+            .with_label_values(&[&format!("{}", shard_id)])
+            .start_timer();
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "distribute_encoded_chunk",
+            ?prev_block_hash,
+            ?shard_id)
+        .entered();
 
         let mut block_producer_mapping = HashMap::new();
         for part_ord in 0..self.runtime_adapter.num_total_parts() {

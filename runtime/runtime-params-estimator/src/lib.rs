@@ -771,9 +771,9 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
     let code = read_resource(if cfg!(feature = "nightly") {
-        "test-contract/res/nightly_large_contract.wasm"
+        "test-contract/res/nightly_contract.wasm"
     } else {
-        "test-contract/res/stable_large_contract.wasm"
+        "test-contract/res/stable_contract.wasm"
     });
 
     let n_iters = 10;
@@ -1069,8 +1069,7 @@ fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
     // Number of bytes in the final key. Will create 2x that many nodes.
     // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
     let final_key_len = 1000;
-    let mut testbed = ctx.testbed();
-    let cost = trie::read_node_from_db(&mut testbed, warmup_iters, measured_iters, final_key_len);
+    let cost = trie::read_node_from_db(ctx, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_read = Some(cost.clone());
     cost
@@ -1085,8 +1084,7 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     // Number of bytes in the final key. Will create 2x that many nodes.
     // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
     let final_key_len = 1000;
-    let mut testbed = ctx.testbed();
-    let cost = trie::write_node(&mut testbed, warmup_iters, measured_iters, final_key_len);
+    let cost = trie::write_node(ctx, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_write = Some(cost.clone());
     cost
@@ -1117,7 +1115,8 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
     let measurements = testbed.measure_blocks(blocks, 0);
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
-    let (gas_cost, _ext_costs) = aggregate_per_block_measurements(testbed.config, 1, measurements);
+    let (gas_cost, _ext_costs) =
+        aggregate_per_block_measurements(testbed.config, 1, measurements, None);
 
     ctx.cached.apply_block = Some(gas_cost.clone());
 

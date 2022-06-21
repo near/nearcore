@@ -380,39 +380,6 @@ impl ClientActor {
                     _ => panic!("invalid adversary message"),
                 };
             }
-            #[cfg(feature = "sandbox")]
-            NetworkClientMessages::Sandbox(sandbox_msg) => {
-                return match sandbox_msg {
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
-                        self.client.chain.patch_state(state);
-                        NetworkClientResponses::NoResponse
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
-                        NetworkClientResponses::SandboxResult(
-                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
-                                !self.client.chain.patch_state_in_progress(),
-                            ),
-                        )
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
-                        if self.fastforward_delta > 0 {
-                            return NetworkClientResponses::SandboxResult(
-                                near_network_primitives::types::SandboxResponse::SandboxFastForwardFailed(
-                                    "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string()));
-                        }
-
-                        self.fastforward_delta = delta_height;
-                        NetworkClientResponses::NoResponse
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus => {
-                        NetworkClientResponses::SandboxResult(
-                            near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                                self.fastforward_delta == 0,
-                            ),
-                        )
-                    }
-                };
-            }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
                 self.client.process_tx(transaction, is_forwarded, check_only)
             }
@@ -653,6 +620,44 @@ impl ClientActor {
         }
     }
 }
+#[cfg(feature = "sandbox")]
+impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
+    type Result = near_client_primitives::types::SandboxResponse;
+
+    fn handle(
+        &mut self,
+        msg: near_client_primitives::types::SandboxMessage,
+        _ctx: &mut Context<Self>,
+    ) -> near_client_primitives::types::SandboxResponse {
+        match msg {
+            near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
+                self.client.chain.patch_state(
+                    near_primitives::sandbox_state_patch::SandboxStatePatch::new(state),
+                );
+                near_client_primitives::types::SandboxResponse::SandboxNoResponse
+            }
+            near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus => {
+                near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(
+                    !self.client.chain.patch_state_in_progress(),
+                )
+            }
+            near_client_primitives::types::SandboxMessage::SandboxFastForward(delta_height) => {
+                if self.fastforward_delta > 0 {
+                    return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                        "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
+                }
+
+                self.fastforward_delta = delta_height;
+                near_client_primitives::types::SandboxResponse::SandboxNoResponse
+            }
+            near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
+                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
+                    self.fastforward_delta == 0,
+                )
+            }
+        }
+    }
+}
 impl ClientActor {
     /// Gets the information about the epoch that contains a given block.
     /// Also returns the hash of the last block of the previous epoch.
@@ -699,7 +704,6 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                warn!("state header looking for {:?}", block.hash());
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
@@ -1410,7 +1414,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
+        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();

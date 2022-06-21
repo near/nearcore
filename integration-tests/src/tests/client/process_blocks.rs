@@ -1346,6 +1346,7 @@ fn test_bad_chunk_mask() {
                     merkle_paths.clone(),
                     receipts.clone(),
                     &mut chain_store,
+                    0,
                 )
                 .unwrap();
         }
@@ -2236,7 +2237,7 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
         .shards_mgr
-        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
+        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store, 0)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks();
@@ -2831,6 +2832,7 @@ fn test_epoch_protocol_version_change() {
                     merkle_paths.clone(),
                     receipts.clone(),
                     &mut chain_store,
+                    0,
                 )
                 .unwrap();
         }
@@ -3794,7 +3796,13 @@ mod access_key_nonce_range_tests {
         );
         env.clients[0]
             .shards_mgr
-            .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
+            .distribute_encoded_chunk(
+                encoded_shard_chunk,
+                merkle_path,
+                receipts,
+                &mut chain_store,
+                0,
+            )
             .unwrap();
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidTransactions);

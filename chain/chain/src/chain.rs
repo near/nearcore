@@ -6,6 +6,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -47,8 +48,6 @@ use near_primitives::views::{
     SignedTransactionView,
 };
 use near_store::{DBCol, ShardTries, StoreUpdate};
-
-use near_primitives::state_record::StateRecord;
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
@@ -455,7 +454,7 @@ pub struct Chain {
     /// place in the database. Instead, we will include this "bonus changes" in
     /// the next block we'll be processing, keeping them in this field in the
     /// meantime.
-    pending_states_to_patch: Option<Vec<StateRecord>>,
+    pending_state_patch: Option<SandboxStatePatch>,
 }
 
 impl ChainAccess for Chain {
@@ -517,7 +516,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            pending_states_to_patch: None,
+            pending_state_patch: None,
         })
     }
 
@@ -650,7 +649,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            pending_states_to_patch: None,
+            pending_state_patch: None,
         })
     }
 
@@ -1796,14 +1795,13 @@ impl Chain {
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
-        let states_to_patch =
-            if cfg!(feature = "sandbox") { self.pending_states_to_patch.take() } else { None };
+        let state_patch = self.pending_state_patch.take();
         let preprocess_res = self.preprocess_block(
             me,
             &block,
             &provenance,
             &mut block_processing_artifact.challenges,
-            states_to_patch,
+            state_patch,
         );
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => preprocess_res,
@@ -1929,7 +1927,7 @@ impl Chain {
             chain_update.chain_store_update.save_block_height_processed(block.header().height());
             chain_update.commit()?;
 
-            self.pending_states_to_patch = None;
+            self.pending_state_patch = None;
 
             if let Some(tip) = &new_head {
                 if let Ok(producers) = self
@@ -1969,7 +1967,7 @@ impl Chain {
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         challenges: &mut Vec<ChallengeBody>,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<
         (
             Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
@@ -2111,7 +2109,6 @@ impl Chain {
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
-        // TODO: move apply_chunks_preprocessing from ChainUpdate to Chain
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
             block,
@@ -2121,7 +2118,7 @@ impl Chain {
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
             if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
-            states_to_patch,
+            state_patch,
         )?;
 
         Ok((
@@ -3274,7 +3271,7 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-        mut states_to_patch: Option<Vec<StateRecord>>,
+        mut state_patch: Option<SandboxStatePatch>,
     ) -> Result<
         Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
         Error,
@@ -3296,7 +3293,7 @@ impl Chain {
         {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
-            let states_to_patch = states_to_patch.take();
+            let state_patch = state_patch.take();
 
             let shard_id = shard_id as ShardId;
             let cares_about_shard_this_epoch =
@@ -3472,7 +3469,7 @@ impl Chain {
                             random_seed,
                             true,
                             is_first_block_with_chunk_of_version,
-                            states_to_patch,
+                            state_patch,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3532,7 +3529,7 @@ impl Chain {
                             random_seed,
                             false,
                             false,
-                            states_to_patch,
+                            state_patch,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4162,17 +4159,18 @@ impl Chain {
 }
 
 /// Sandbox node specific operations
-#[cfg(feature = "sandbox")]
 impl Chain {
-    pub fn patch_state(&mut self, records: Vec<StateRecord>) {
-        match &mut self.pending_states_to_patch {
-            None => self.pending_states_to_patch = Some(records),
-            Some(pending) => pending.extend(records),
+    // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
+    // "sandbox")]`, so we don't need extra cfg-gating here.
+    pub fn patch_state(&mut self, patch: SandboxStatePatch) {
+        match &mut self.pending_state_patch {
+            None => self.pending_state_patch = Some(patch),
+            Some(pending) => pending.merge(patch),
         }
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        self.pending_states_to_patch.is_some()
+        self.pending_state_patch.is_some()
     }
 }
 

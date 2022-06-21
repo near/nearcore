@@ -43,7 +43,6 @@ testlib = { path = "../../test-utils/testlib" }
 sandbox = [
   "node-runtime/sandbox",
   "near-chain/sandbox",
-  "near-network/sandbox",
   "near-client/sandbox",
 ]
 nightly = [

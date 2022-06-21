@@ -22,11 +22,7 @@ See the [FAQ][./faq.md] document for high-leven design constraints discussion.
 
 ## Entry Point
 
-The entry point is the `runner::run` function. It is exposed as a stand-alone
-binary for testing purposes in the `near-vm-runner-standalone` crate.
-
-`near-vm-runner-standalone` also includes a `script.rs` DSL, which can be used
-to programmatically drive the runner for benchmarking or ad-hoc investigations.
+The entry point is the `runner::run` function. 
 
 ## Testing
 
