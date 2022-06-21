@@ -41,7 +41,6 @@ protocol_feature_chunk_only_producers = [
   "near-store/protocol_feature_chunk_only_producers",
   "near-chain-configs/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_access_key_nonce_for_implicit_accounts = ["near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [

@@ -3187,6 +3187,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "bytesize",
+ "cfg-if 1.0.0",
  "chrono",
  "deepsize",
  "derive_more",

@@ -103,6 +103,7 @@ async fn test_peer_communication(
             tracking_shards: Default::default(),
         }),
         inbound.cfg.id(),
+        clock.now_utc(),
     );
     outbound.send(PeerMessage::Routed(msg)).await;
     assert_eq!(Response::ChunkRequest(want), inbound.recv().await);
@@ -117,6 +118,7 @@ async fn test_peer_communication(
             receipts: vec![],
         }),
         inbound.cfg.id(),
+        clock.now_utc(),
     );
     outbound.send(PeerMessage::Routed(msg)).await;
     assert_eq!(Response::Chunk(want_parts), inbound.recv().await);
