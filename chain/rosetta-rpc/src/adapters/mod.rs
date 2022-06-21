@@ -345,18 +345,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                near_primitives::transaction::Action::StakeChunkOnly(action) => {
-                    operations.push(
-                        validated_operations::StakeOperation {
-                            account: receiver_account_identifier.clone(),
-                            amount: action.stake,
-                            public_key: (&action.public_key).into(),
-                        }
-                        .into_operation(crate::models::OperationIdentifier::new(&operations)),
-                    );
-                }
-
                 near_primitives::transaction::Action::DeployContract(action) => {
                     let initiate_deploy_contract_operation_id =
                         crate::models::OperationIdentifier::new(&operations);

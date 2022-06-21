@@ -12,7 +12,7 @@ use near_crypto::InMemorySigner;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessage, RoutedMessageBody,
+    PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::block::{Block, BlockHeader};
@@ -28,6 +28,7 @@ use near_rate_limiter::{
     ThrottleToken,
 };
 
+use near_network_primitives::time::Utc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -248,11 +249,17 @@ impl PeerHandle {
             .unwrap();
     }
 
-    pub fn routed_message(&self, body: RoutedMessageBody, peer_id: PeerId) -> Box<RoutedMessage> {
+    pub fn routed_message(
+        &self,
+        body: RoutedMessageBody,
+        peer_id: PeerId,
+        utc: Utc,
+    ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
             &self.cfg.signer.secret_key,
             /*ttl=*/ 1,
+            Some(utc),
         )
     }
 
