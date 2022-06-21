@@ -1601,6 +1601,12 @@ impl<'a> ChainStoreUpdate<'a> {
                     return Ok(());
                 }
                 _ => {
+                    // TODO: remove this check from this function and use Chain::check_if_challenged_block_on_chain
+                    // I'm not doing that now because I'm afraid that this will make header sync take
+                    // even longer.
+                    if self.is_block_challenged(&header_hash)? {
+                        return Err(Error::ChallengedBlockOnChain);
+                    }
                     self.chain_store_cache_update
                         .height_to_hashes
                         .insert(header_height, Some(header_hash));
