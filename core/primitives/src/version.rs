@@ -173,15 +173,17 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// the corresponding version
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
-/// Version used by this binary.
-#[cfg(all(not(feature = "nightly_protocol"), not(feature="shardnet")))]
-pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-/// Current latest nightly version of the protocol.
-#[cfg(all(feature = "nightly_protocol", not(feature="shardnet")))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 129;
-/// Protocol version for shardnet.
-#[cfg(feature = "shardnet")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 100;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "nightly_protocol")] {
+        /// Current latest nightly version of the protocol.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 129;
+    } else if #[cfg(feature = "shardnet")] {
+        /// Protocol version for shardnet.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 100;
+    } else {
+        pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
+    }
+}
 
 
 /// The points in time after which the voting for the protocol version should start.
