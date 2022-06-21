@@ -172,19 +172,14 @@ impl<'a> StoreOpener<'a> {
     pub fn open(&self) -> crate::Store {
         if std::fs::canonicalize(&self.path).is_ok() {
             tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
+        } else if matches!(self.mode, Mode::ReadOnly) {
+            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
+            panic!("Failed to open non-existent the database");
         } else {
-            match self.mode {
-                Mode::ReadOnly => {
-                    tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-                    panic!("Failed to open non-existent the database");
-                }
-                Mode::ReadWrite => {
-                    tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
-                }
-            }
+            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
         }
 
-        let db = crate::RocksDB::open(&self.path, &self.config, self.mode.clone())
+        let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
             .expect("Failed to open the database");
         crate::Store::new(std::sync::Arc::new(db))
     }

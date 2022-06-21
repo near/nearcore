@@ -171,7 +171,7 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum Mode {
     ReadOnly,
     ReadWrite,
