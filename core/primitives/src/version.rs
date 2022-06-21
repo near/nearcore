@@ -185,7 +185,6 @@ cfg_if::cfg_if! {
     }
 }
 
-
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
 const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
