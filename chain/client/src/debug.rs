@@ -2,10 +2,7 @@ use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
-};
+use near_chain::{near_chain_primitives, ChainStoreAccess};
 use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
 use near_client_primitives::types::Error;
 use near_client_primitives::{
@@ -13,7 +10,7 @@ use near_client_primitives::{
     types::StatusError,
 };
 use near_performance_metrics_macros::perf;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::syncing::get_num_state_parts;
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -21,7 +18,7 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 
