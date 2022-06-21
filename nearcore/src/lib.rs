@@ -250,7 +250,7 @@ pub fn start_with_config_and_synchronization(
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
