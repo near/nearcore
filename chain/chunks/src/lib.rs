@@ -781,7 +781,7 @@ impl ShardsManager {
         if self.requested_partial_encoded_chunks.contains_key(&chunk_hash) {
             return;
         }
-        debug!(target: "chunks", "Requesting chunk @{} shard: {} hash:{:?} should_wait:{}", height, shard_id, chunk_hash, should_wait_for_chunk_forwarding);
+        debug!(target: "chunks", height, shard_id, ?chunk_hash, should_wait_for_chunk_forwarding, "Requesting.");
 
         self.encoded_chunks.try_insert(&chunk_header);
 
@@ -826,7 +826,7 @@ impl ShardsManager {
                     error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
                 }
             } else {
-                debug!(target: "chunks", "Delaying the chunk request: due to forward {} archival {} old {}", should_wait_for_chunk_forwarding, fetch_from_archival, old_block);
+                debug!(target: "chunks",should_wait_for_chunk_forwarding, fetch_from_archival, old_block,  "Delaying the chunk request.");
             }
         }
     }
@@ -1603,8 +1603,8 @@ impl ShardsManager {
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        debug!(target: "chunks", "process partial encoded chunk {:?} height {} shard {}, me: {:?}, parts {}",
-               chunk_hash, header.height_created(), header.shard_id(), self.me, partial_encoded_chunk.get_inner().parts.len());
+        debug!(target: "chunks", ?chunk_hash, height=header.height_created(), shard_id=header.shard_id(), "Process partial encoded chunk:  parts {}",
+               partial_encoded_chunk.get_inner().parts.len());
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {

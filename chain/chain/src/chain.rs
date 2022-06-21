@@ -2273,13 +2273,13 @@ impl Chain {
             );
             match res {
                 Ok(_) => {
-                    debug!(target: "chain", "Block {} @{} with missing chunks is accepted; me: {:?}", block_hash, height, me);
+                    debug!(target: "chain", %block_hash, height, "Accepted block with missing chunks");
                     self.blocks_delay_tracker
                         .mark_block_completed_missing_chunks(&block_hash, time);
                     new_blocks_accepted.push(block_hash);
                 }
                 Err(_) => {
-                    debug!(target: "chain", "Block {} @{} with missing chunks is declined; me: {:?}",block_hash, height, me);
+                    debug!(target: "chain", %block_hash, height, "Declined block with missing chunks is declined.");
                 }
             }
         }
