@@ -299,7 +299,6 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
-                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request =
                         near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
@@ -1184,10 +1183,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(
-                    patch_state_request.records,
-                ),
+            .send(near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                patch_state_request.records,
             ))
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1196,13 +1193,11 @@ impl JsonRpcHandler {
             loop {
                 let patch_state_finished = self
                     .client_addr
-                    .send(NetworkClientMessages::Sandbox(
-                        near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus {},
-                    ))
+                    .send(near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {})
                     .await;
-                if let Ok(NetworkClientResponses::SandboxResult(
-                              near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
-                )) = patch_state_finished
+                if let Ok(
+                    near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
+                ) = patch_state_finished
                 {
                     break;
                 }
@@ -1222,13 +1217,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse,
         near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError,
     > {
-        use near_network_primitives::types::SandboxResponse;
+        use near_client_primitives::types::SandboxResponse;
 
         self.client_addr
-            .send(NetworkClientMessages::Sandbox(
-                near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(
-                    fast_forward_request.delta_height,
-                ),
+            .send(near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                fast_forward_request.delta_height,
             ))
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1239,18 +1232,14 @@ impl JsonRpcHandler {
             loop {
                 let fast_forward_finished = self
                     .client_addr
-                    .send(NetworkClientMessages::Sandbox(
-                        near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus {},
-                    ))
+                    .send(
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
+                    )
                     .await;
 
                 match fast_forward_finished {
-                    Ok(NetworkClientResponses::SandboxResult(
-                        SandboxResponse::SandboxFastForwardFinished(true)
-                    )) => break,
-                    Ok(NetworkClientResponses::SandboxResult(
-                        SandboxResponse::SandboxFastForwardFailed(err)
-                    )) => return Err(err),
+                    Ok(SandboxResponse::SandboxFastForwardFinished(true)) => break,
+                    Ok(SandboxResponse::SandboxFastForwardFailed(err)) => return Err(err),
                     _ => (),
                 }
 
@@ -1259,11 +1248,16 @@ impl JsonRpcHandler {
             Ok(())
         })
         .await
-        .map_err(|_| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-            error_message: "sandbox failed to fast forward within reasonable time of an hour".to_string()
+        .map_err(|_| {
+            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                error_message: "sandbox failed to fast forward within reasonable time of an hour"
+                    .to_string(),
+            }
         })?
-        .map_err(|err| near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-            error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+        .map_err(|err| {
+            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+            }
         })?;
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
