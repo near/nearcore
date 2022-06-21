@@ -87,7 +87,7 @@ impl Client {
         should_produce_chunk: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
         self.start_process_block(block, provenance, Arc::new(|_| {}))?;
-        assert!(wait_for_all_blocks_in_processing(&mut self.chain));
+        wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) =
             self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
         assert!(errors.is_empty());
