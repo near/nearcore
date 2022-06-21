@@ -344,7 +344,7 @@ impl PeerActor {
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
-                match message.body {
+                match message.msg.body {
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
                             tx_hash,
@@ -480,7 +480,7 @@ impl PeerActor {
             PeerMessage::Routed(routed_message) => {
                 let msg_hash = routed_message.hash();
 
-                match routed_message.body {
+                match routed_message.msg.body {
                     RoutedMessageBody::BlockApproval(approval) => {
                         NetworkClientMessages::BlockApproval(approval, peer_id)
                     }
@@ -612,7 +612,7 @@ impl PeerActor {
     /// If so, drop the transaction.
     fn should_we_drop_msg(&self, msg: &PeerMessage) -> bool {
         let m = if let PeerMessage::Routed(m) = msg {
-            m
+            &m.msg
         } else {
             return false;
         };
@@ -719,6 +719,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
         // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
+            let msg = &msg.msg;
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = self.clock.now();
             if let Some(&t) = self.routed_message_cache.get(&key) {
@@ -730,7 +731,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             self.routed_message_cache.put(key, now);
         }
         if let PeerMessage::Routed(routed) = &peer_msg {
-            if let RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } = routed.as_ref() {
+            if let RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } = routed.as_ref().msg
+            {
                 self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
             }
         } else if let PeerMessage::Block(_) = &peer_msg {
@@ -1021,7 +1023,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     ));
             }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
+                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.msg.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
