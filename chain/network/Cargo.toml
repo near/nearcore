@@ -12,6 +12,7 @@ anyhow = "1.0.55"
 protobuf-codegen = "3.0.1"
 
 [dependencies]
+smart-default = "0.6"
 protobuf = "3.0.1"
 actix = "0.13.0"
 anyhow = "1.0.55"
@@ -69,10 +70,6 @@ performance_stats = [
     "near-performance-metrics/performance_stats",
     "near-rust-allocator-proxy",
 ]
-protocol_feature_routing_exchange_algorithm = [
-    "near-primitives/protocol_feature_routing_exchange_algorithm",
-]
-sandbox = ["near-network-primitives/sandbox"]
 test_features = [
   "near-network-primitives/test_features",
   "serde",

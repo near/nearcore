@@ -1,23 +1,22 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
 use near_primitives::version::ProtocolFeature;
+use std::fmt::Write;
 
 static INFINITE_INITIALIZER_CONTRACT: &str = r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0) (loop (br 0)))
-  (func (;1;) (type 0))
-  (start 0)
-  (export "hello" (func 1))
+  (func $start (loop (br 0)))
+  (func (export "main"))
+  (start $start)
 )"#;
 
 #[test]
 fn test_infinite_initializer() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
-        .method("hello")
+        .gas(10u64.pow(10))
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
         "#]]);
 }
@@ -26,7 +25,7 @@ fn test_infinite_initializer() {
 fn test_infinite_initializer_export_not_found() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
-        .method("hello2")
+        .method("no-such-method")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -37,23 +36,18 @@ fn test_infinite_initializer_export_not_found() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45633213 used gas 45633213
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213
                 Err: MethodNotFound
             "#]],
         ]);
 }
 
-static SIMPLE_CONTRACT: &str = r#"
-(module
-  (type (;0;) (func))
-  (func (;0;) (type 0))
-  (export "hello" (func 0))
-)"#;
+static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 
 #[test]
 fn test_simple_contract() {
-    test_builder().wat(SIMPLE_CONTRACT).method("hello").expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
+    test_builder().wat(SIMPLE_CONTRACT).expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
     "#]]);
 }
 
@@ -64,7 +58,6 @@ fn test_multiple_memories() {
             0, 97, 115, 109, 1, 0, 0, 0, 2, 12, 1, 3, 101, 110, 118, 0, 2, 1, 239, 1, 248, 1, 4, 6,
             1, 112, 0, 143, 129, 32, 7, 12, 1, 8, 0, 17, 17, 17, 17, 17, 17, 2, 2, 0,
         ])
-        .method("hello")
         // Wasmtime classifies this error as link error at the moment.
         .opaque_error()
         .protocol_features(&[
@@ -87,7 +80,7 @@ fn test_multiple_memories() {
 #[test]
 fn test_export_not_found() {
     test_builder().wat(SIMPLE_CONTRACT)
-        .method("hello2")
+        .method("no-such-method")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -98,7 +91,7 @@ fn test_export_not_found() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
                 Err: MethodNotFound
             "#]],
         ]);
@@ -115,18 +108,10 @@ fn test_empty_method() {
 #[test]
 fn test_trap_contract() {
     test_builder()
-        .wat(
-            r#"
-(module
-  (type (;0;) (func))
-  (func (;0;) (type 0) (unreachable))
-  (export "hello" (func 0))
-)"#,
-        )
-        .method("hello")
+        .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44071719 used gas 44071719
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -137,16 +122,13 @@ fn test_trap_initializer() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0) (unreachable))
-  (start 0)
-  (export "hello" (func 0))
+  (func $f (export "main") (unreachable))
+  (start $f)
 )"#,
         )
-        .method("hello")
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44721969 used gas 44721969
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -157,20 +139,17 @@ fn test_div_by_zero_contract() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0)
+  (func (export "main")
     i32.const 1
     i32.const 0
     i32.div_s
     return
   )
-  (export "hello" (func 0))
 )"#,
         )
-        .method("hello")
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47623737 used gas 47623737
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
             Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
         "#]]);
 }
@@ -182,19 +161,16 @@ fn test_float_to_int_contract() {
             .wat(&format!(
                 r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0)
+  (func (export "main")
     f64.const 0x1p+1023
     {op}
     return
   )
-  (export "hello" (func 0))
 )"#,
             ))
-            .method("hello")
             .skip_wasmtime()
             .expect(expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47884731 used gas 47884731
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]]);
     }
@@ -206,21 +182,19 @@ fn test_indirect_call_to_null_contract() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (table (;0;) 2 funcref)
-  (func (;0;) (type 0)
-    i32.const 1
-    call_indirect (type 0)
+  (type $ty (func))
+  (table 1 funcref)
+  (func (export "main")
+    i32.const 0
+    call_indirect (type $ty)
     return
   )
-  (export "hello" (func 0))
 )"#,
         )
-        .method("hello")
         .opaque_error()
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48101481 used gas 48101481
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
             Err: ...
         "#]])
 }
@@ -231,26 +205,22 @@ fn test_indirect_call_to_wrong_signature_contract() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (type (;1;) (func (result i32)))
-  (func (;0;) (type 0)
-    i32.const 1
-    call_indirect (type 1)
-    return
-  )
-  (func (;1;) (type 1)
+  (type $ty (func (result i32)))
+  (func $f)
+
+  (table 1 funcref)
+  (elem (i32.const 0) $f)
+
+  (func (export "main")
     i32.const 0
+    call_indirect (type $ty)
     return
   )
-  (table (;0;) 3 3 funcref)
-  (elem (;0;) (i32.const 1) 0 1)
-  (export "hello" (func 0))
 )"#,
         )
-        .method("hello")
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 52869981 used gas 52869981
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
             Err: WebAssembly trap: Call indirect incorrect signature trap.
         "#]])
 }
@@ -258,15 +228,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
 #[test]
 fn test_wrong_signature_contract() {
     test_builder()
-        .wat(
-            r#"
-(module
-  (type (;0;) (func (param i32)))
-  (func (;0;) (type 0))
-  (export "hello" (func 0))
-)"#,
-        )
-        .method("hello")
+        .wat(r#"(module (func (export "main") (param i32)))"#)
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -278,7 +240,7 @@ fn test_wrong_signature_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43248963 used gas 43248963
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
                 Err: MethodInvalidSignature
             "#]],
         ]);
@@ -287,14 +249,7 @@ fn test_wrong_signature_contract() {
 #[test]
 fn test_export_wrong_type() {
     test_builder()
-        .wat(
-            r#"
-(module
-  (global (;0;) i32 (i32.const 123))
-  (export "hello" (global 0))
-)"#,
-        )
-        .method("hello")
+        .wat(r#"(module (global (export "main") i32 (i32.const 123)))"#)
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -306,7 +261,7 @@ fn test_export_wrong_type() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41514963 used gas 41514963
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213
                 Err: MethodNotFound
             "#]],
         ]);
@@ -318,15 +273,28 @@ fn test_guest_panic() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (import "env" "panic" (func (;0;) (type 0)))
-  (func (;1;) (type 0) (call 0))
-  (export "hello" (func 1))
+  (import "env" "panic" (func $panic))
+  (func (export "main") (call $panic))
 )"#,
         )
-        .method("hello")
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 312307830 used gas 312307830
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
+            Err: Smart contract panicked: explicit guest panic
+        "#]]);
+}
+
+#[test]
+fn test_panic_re_export() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "panic" (func $panic))
+  (export "main" (func $panic))
+)"#,
+        )
+        .expect(expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 312352074 used gas 312352074
             Err: Smart contract panicked: explicit guest panic
         "#]]);
 }
@@ -334,18 +302,10 @@ fn test_guest_panic() {
 #[test]
 fn test_stack_overflow() {
     test_builder()
-        .wat(
-            r#"
-(module
-  (type (;0;) (func))
-  (func (;0;) (type 0) (call 0))
-  (export "hello" (func 0))
-)"#,
-        )
-        .method("hello")
+        .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13523500017 used gas 13523500017
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -411,21 +371,19 @@ fn test_memory_grow() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0)
+  (memory 17 32)
+  (func (export "main")
     (loop
       (memory.grow (i32.const 1))
       drop
       br 0
     )
   )
-  (memory (;0;) 17 32)
-  (export "hello" (func 0))
 )"#,
         )
-        .method("hello")
+        .gas(10u64.pow(10))
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
         "#]]);
 }
@@ -434,12 +392,9 @@ fn bad_import_global(env: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"
             (module
-              (type (;0;) (func))
-              (import "{}" "input" (global (;0;) i32))
-              (func (;0;) (type 0))
-              (export "hello" (func 0))
+              (import "{env}" "no-such-global" (global i32))
+              (func (export "main"))
             )"#,
-        env
     ))
     .unwrap()
 }
@@ -448,12 +403,9 @@ fn bad_import_func(env: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"
             (module
-              (type (;0;) (func))
-              (import "{}" "wtf" (func (;0;) (type 0)))
-              (func (;0;) (type 0))
-              (export "hello" (func 0))
+              (import "{env}" "no-such-fn" (func $f))
+              (export "main" (func $f))
             )"#,
-        env
     ))
     .unwrap()
 }
@@ -464,8 +416,7 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
     test_builder()
-        .wasm(&bad_import_global("wtf"))
-        .method("hello")
+        .wasm(&bad_import_global("no-such-module"))
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -477,7 +428,7 @@ fn test_bad_import_1() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46500213 used gas 46500213
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463
                 Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
@@ -486,8 +437,7 @@ fn test_bad_import_1() {
 #[test]
 fn test_bad_import_2() {
     test_builder()
-        .wasm(&bad_import_func("wtf"))
-        .method("hello")
+        .wasm(&bad_import_func("no-such-module"))
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -499,7 +449,7 @@ fn test_bad_import_2() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45849963 used gas 45849963
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963
                 Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
@@ -507,22 +457,18 @@ fn test_bad_import_2() {
 
 #[test]
 fn test_bad_import_3() {
-    test_builder().wasm(&bad_import_global("env")).method("hello").opaque_error().expect(expect![
-        [r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46500213 used gas 46500213
+    test_builder().wasm(&bad_import_global("env")).opaque_error().expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
         Err: ...
-    "#]
-    ]);
+    "#]]);
 }
 
 #[test]
 fn test_bad_import_4() {
-    test_builder().wasm(&bad_import_func("env")).method("hello").opaque_error().expect(expect![[
-        r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45849963 used gas 45849963
+    test_builder().wasm(&bad_import_func("env")).opaque_error().expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
         Err: ...
-    "#
-    ]]);
+    "#]]);
 }
 
 #[test]
@@ -531,13 +477,10 @@ fn test_initializer_no_gas() {
         .wat(
             r#"
 (module
-  (type (;0;) (func))
-  (func (;0;) (type 0) nop)
-  (start 0)
-  (export "hello" (func 0))
+  (func $f (export "main") nop)
+  (start $f)
 )"#,
         )
-        .method("hello")
         .gas(0)
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -549,78 +492,71 @@ fn test_initializer_no_gas() {
 fn test_bad_many_imports() {
     let mut imports = String::new();
     for i in 0..100 {
-        imports.push_str(&format!(
-            r#"
-            (import "env" "wtf{}" (func (;{};) (type 0)))
-         "#,
-            i, i
-        ));
+        writeln!(imports, r#"(import "env" "wtf{i}" (func))"#).unwrap();
     }
 
     test_builder()
         .wat(&format!(
             r#"
                 (module
-                  (type (;0;) (func))
-                  {}
-                  (export "hello" (func 0))
+                  {imports}
+                  (export "main" (func 0))
                 )"#,
-            imports
         ))
-        .method("hello")
         .opaque_error()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 299664213 used gas 299664213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 299447463 used gas 299447463
             Err: ...
         "#]])
 }
 
 static EXTERNAL_CALL_CONTRACT: &str = r#"
 (module
-  (import "env" "prepaid_gas" (func (;0;) (result i64)))
-  (export "hello" (func 1))
-  (func (;1;)
-      (drop (call 0))
-      )
+  (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
+  (func (export "main")
+      (drop (call $prepaid_gas)))
 )"#;
 
 #[test]
 fn test_external_call_ok() {
-    test_builder().wat(EXTERNAL_CALL_CONTRACT).method("hello").expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315514836 used gas 315514836
+    test_builder().wat(EXTERNAL_CALL_CONTRACT).expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
     "#]]);
 }
 
 #[test]
 fn test_external_call_error() {
-    test_builder().wat(EXTERNAL_CALL_CONTRACT).method("hello").gas(100).expect(expect![[r#"
+    test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(100).expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100 used gas 100
         Err: Exceeded the prepaid gas.
     "#]]);
 }
 
-static EXTERNAL_INDIRECT_CALL_CONTRACT: &str = r#"
-(module
-  (import "env" "prepaid_gas" (func $lol (result i64)))
-  (type $lol_t (func (result i64)))
-
-  (table 1 funcref)
-  (elem (i32.const 0) $lol)
-
-  (func (export "main")
-    (call_indirect (type $lol_t) (i32.const 0))
-    drop
-  )
-)"#;
-
 #[test]
 fn test_external_call_indirect() {
-    test_builder().wat(EXTERNAL_INDIRECT_CALL_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 325441092 used gas 325441092
-    "#]]);
+    test_builder()
+        .wat(r#"
+(module
+  (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
+  (type $prepaid_gas_t (func (result i64)))
+
+  (table 1 funcref)
+  (elem (i32.const 0) $prepaid_gas)
+
+  (func (export "main")
+    (call_indirect (type $prepaid_gas_t) (i32.const 0))
+    drop
+  )
+)"#
+        ).expect(expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
+        "#]]);
 }
 
-const ADDRESS_OVERFLOW: &str = r#"
+/// Load from address so far out of bounds that it causes integer overflow.
+#[test]
+fn test_address_overflow() {
+    let code = r#"
 (module
   (memory 1)
   (func (export "main")
@@ -630,21 +566,27 @@ const ADDRESS_OVERFLOW: &str = r#"
   )
 )"#;
 
-/// Load from address so far out of bounds that it causes integer overflow.
-#[test]
-fn test_address_overflow() {
-    test_builder().wat(ADDRESS_OVERFLOW).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
+    test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
         Err: WebAssembly trap: Memory out of bounds trap.
     "#]]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
-    test_builder().wat(ADDRESS_OVERFLOW).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
+    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
     "#]]);
 }
 
-const NAN_SIGN: &str = r#"
+/// Uses `f32.copysign` to observe a sign of `NaN`.
+///
+/// WASM specification allows different behaviors here:
+///
+///   https://github.com/WebAssembly/design/blob/main/Nondeterminism.md
+///
+/// We solve this problem by canonicalizing NaNs.
+#[test]
+fn test_nan_sign() {
+    let code = r#"
 (module
   (func (export "main")
     (i32.div_u
@@ -658,21 +600,12 @@ const NAN_SIGN: &str = r#"
   )
 )"#;
 
-/// Uses `f32.copysign` to observe a sign of `NaN`.
-///
-/// WASM specification allows different behaviors here:
-///
-///   https://github.com/WebAssembly/design/blob/main/Nondeterminism.md
-///
-/// We solve this problem by canonicalizing NaNs.
-#[test]
-fn test_nan_sign() {
-    test_builder().wat(NAN_SIGN).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
+    test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
     "#]]);
 
     // wasmer0 doesn't canonicalize NaNs
-    test_builder().wat(NAN_SIGN).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
+    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
         Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
     "#]]);
@@ -821,7 +754,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
         // currently do not have tests ready to trigger each error.
 
         test_builder()
-            .wat(r#"(module (export "hello" (func 0)))"#)
+            .wat(r#"(module (export "main" (func 0)))"#)
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
@@ -829,7 +762,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     Err: PrepareError: Error happened while deserializing the module.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39564213 used gas 39564213
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39347463 used gas 39347463
                     Err: PrepareError: Error happened while deserializing the module.
                 "#]],
             ]);
@@ -843,7 +776,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46500213 used gas 46500213
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);
@@ -857,7 +790,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45849963 used gas 45849963
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
                     Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);

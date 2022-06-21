@@ -19,3 +19,16 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME: Lazy<near_metrics::His
         )
         .unwrap()
     });
+
+pub static DISTRIBUTE_ENCODED_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
+    near_metrics::try_create_histogram_vec(
+        "near_distribute_encoded_chunk_time",
+        concat!(
+            "Time to distribute data about a produced chunk: Preparation of network messages ",
+            "and passing it to peer manager",
+        ),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});

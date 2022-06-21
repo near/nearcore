@@ -11,7 +11,6 @@ use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
 
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
@@ -48,17 +47,8 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         }
     }))
     .start();
-    let net_config = NetworkConfig::from_seed(seed, port);
-    let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
-
-    PeerManagerActor::new(
-        store,
-        config,
-        client_addr.recipient(),
-        view_client_addr.recipient(),
-        routing_table_addr,
-    )
-    .unwrap()
+    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
+        .unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.

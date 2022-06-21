@@ -117,10 +117,19 @@ fn main() -> anyhow::Result<()> {
         }
     };
     if state_dump_path.read_dir()?.next().is_none() {
+        // Every created account gets this smart contract deployed, such that
+        // any account can be used to perform estimations that require this
+        // contract.
+        // Note: This contract no longer has a fixed size, which means that
+        // changes to the test contract might affect all kinds of estimations.
+        // (Larger code = more time spent on reading it from the database, for
+        // example.) But this is generally a sign of a badly designed
+        // estimation, therefore we make no effort to guarantee a fixed size.
+        // Also, continuous estimation should be able to pick up such changes.
         let contract_code = read_resource(if cfg!(feature = "nightly") {
-            "test-contract/res/nightly_small_contract.wasm"
+            "test-contract/res/nightly_contract.wasm"
         } else {
-            "test-contract/res/stable_small_contract.wasm"
+            "test-contract/res/stable_contract.wasm"
         });
 
         nearcore::init_configs(

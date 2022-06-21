@@ -67,18 +67,12 @@ protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
   "near-chain/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_routing_exchange_algorithm = [
-  "near-network/protocol_feature_routing_exchange_algorithm",
-  "near-chain/protocol_feature_routing_exchange_algorithm",
-  "near-primitives/protocol_feature_routing_exchange_algorithm",
-]
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
   "near-chain/nightly",
-  "protocol_feature_routing_exchange_algorithm",
 ]
 sandbox = [
-  "near-network/sandbox",
+  "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]

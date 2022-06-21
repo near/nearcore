@@ -32,5 +32,4 @@ deepsize_feature = [
   "deepsize",
   "near-primitives/deepsize_feature",
 ]
-sandbox = []
 test_features = []
