@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::{fs::File, sync::Mutex};
 use tracing::{span, Subscriber};
@@ -46,13 +47,17 @@ struct BufferedLine {
 }
 
 /// Information added to a span through events happening within.
-struct SpanInfo(Vec<String>);
+#[derive(Default)]
+struct SpanInfo{
+    key_values: Vec<String>,
+    counts: HashMap<String, u64>,
+}
 
 impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
     fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         let span = ctx.span(id).unwrap();
         span.extensions_mut().replace(OutputBuffer(vec![]));
-        span.extensions_mut().replace(SpanInfo(vec![]));
+        span.extensions_mut().replace(SpanInfo::default());
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
@@ -72,8 +77,11 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
         let span = ctx.span(id).unwrap();
         let name = span.name();
         let span_line = {
-            let span_info = span.extensions_mut().replace(SpanInfo(vec![])).unwrap();
-            format!("{name} {}", span_info.0.join(" "))
+            let mut span_info = span.extensions_mut().replace(SpanInfo::default()).unwrap();
+            for (key,count) in span_info.counts.drain() {
+                span_info.key_values.push(format!("{key}={count}"));
+            }
+            format!("{name} {}", span_info.key_values.join(" "))
         };
 
         let OutputBuffer(mut exiting_buffer) =
@@ -143,7 +151,7 @@ impl IoTraceLayer {
                     format!("{storage_op} key={key}{formatted_size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
                 
                     let span = ctx.event_span(event).expect("storage operations must happen inside span");
-                        span.extensions_mut().get_mut::<SpanInfo>().unwrap().0.push(span_info);
+                        span.extensions_mut().get_mut::<SpanInfo>().unwrap().key_values.push(span_info);
                 }
                 None => {
                     // Ignore irrelevant tracing events.
@@ -223,8 +231,18 @@ impl tracing::field::Visit for IoEventVisitor {
 }
 
 impl tracing::field::Visit for SpanInfo {
+    
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        // "count" is a special field, everything else are key values pairs.
+        if  field.name() == "count" {
+            *self.counts.entry( format!("{value}")).or_default() += 1;
+        } else {
+            self.record_debug(field, &value);
+        }
+    }
+
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
-        self.0.push(format!("{name}={value:?}"));
+        self.key_values.push(format!("{name}={value:?}"));
     }
 }
