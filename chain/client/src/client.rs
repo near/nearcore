@@ -946,7 +946,9 @@ impl Client {
                 self.chain
                     .blocks_delay_tracker
                     .mark_chunk_received(&header.chunk_hash(), Clock::instant());
+                // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
+                // If this was the last chunk that was missing for a block, it will be processed now.
                 self.process_blocks_with_missing_chunks()
             }
         }

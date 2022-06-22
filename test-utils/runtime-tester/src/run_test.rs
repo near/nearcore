@@ -51,7 +51,7 @@ impl Scenario {
             (Some(tempdir), opener.open())
         };
 
-        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
             .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(

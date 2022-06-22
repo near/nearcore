@@ -177,16 +177,18 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Mode {
+    ReadOnly,
+    ReadWrite,
+}
+
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
-    /// on the read_only parameter specified in the store_config.
-    pub fn open(
-        path: &Path,
-        store_config: &StoreConfig,
-        read_only: bool,
-    ) -> Result<RocksDB, DBError> {
+    /// on the `mode` parameter specified in the store_config.
+    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> Result<RocksDB, DBError> {
         ensure_max_open_files_limit(store_config.max_open_files)?;
-        let (db, db_opt) = Self::open_db(path, store_config, read_only)?;
+        let (db, db_opt) = Self::open_db(path, store_config, mode)?;
         let cf_handles = Self::get_cf_handles(&db);
 
         Ok(Self {
@@ -204,9 +206,9 @@ impl RocksDB {
     fn open_db(
         path: &Path,
         store_config: &StoreConfig,
-        read_only: bool,
+        mode: Mode,
     ) -> Result<(DB, Options), DBError> {
-        let options = rocksdb_options(store_config, read_only);
+        let options = rocksdb_options(store_config, mode);
         let cf_descriptors = DBCol::iter()
             .map(|col| {
                 rocksdb::ColumnFamilyDescriptor::new(
@@ -215,10 +217,9 @@ impl RocksDB {
                 )
             })
             .collect::<Vec<_>>();
-        let db = if read_only {
-            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
-        } else {
-            DB::open_cf_descriptors(&options, path, cf_descriptors)
+        let db = match mode {
+            Mode::ReadOnly => DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false),
+            Mode::ReadWrite => DB::open_cf_descriptors(&options, path, cf_descriptors),
         }?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
@@ -512,12 +513,13 @@ fn set_compression_options(opts: &mut Options) {
 }
 
 /// DB level options
-fn rocksdb_options(store_config: &StoreConfig, read_only: bool) -> Options {
+fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+    let read_write = matches!(mode, Mode::ReadWrite);
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
     opts.create_missing_column_families(true);
-    opts.create_if_missing(!read_only);
+    opts.create_if_missing(read_write);
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
@@ -538,7 +540,7 @@ fn rocksdb_options(store_config: &StoreConfig, read_only: bool) -> Options {
         opts.set_max_total_wal_size(bytesize::GIB);
     }
 
-    if !read_only && store_config.enable_statistics {
+    if read_write && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
         // is `kExceptDetailedTimers`, which is described as: "Collects all
         // stats except time inside mutex lock AND time spent on compression."
@@ -624,7 +626,7 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
-        let value = RocksDB::open(path, &StoreConfig::default(), true)?
+        let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
                 DBError(
@@ -785,6 +787,8 @@ mod tests {
     use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
     use crate::{DBCol, Store, StoreConfig, StoreStatistics};
 
+    use super::Mode;
+
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
@@ -809,7 +813,8 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), false).unwrap();
+        let store =
+            RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), Mode::ReadWrite).unwrap();
         store.pre_write_check().unwrap()
     }
 
