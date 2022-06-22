@@ -2005,6 +2005,48 @@ impl Chain {
             "postprocess_block",
             height = block.header().height())
         .entered();
+
+        /*
+        let prev_hash = block.header().prev_hash();
+        // We can unwrap here because this block can't be an orphan
+        let prev_block_header = self.get_block_header(prev_hash).unwrap();
+        // It is possible that when we preprocess the block, the previous block is not caught up
+        // but it is caught up now. In that case, the catchup process didn't see this block,
+        // so it won't catch up this block. We need to apply chunks in CatchingUp mode again
+        // to catch up the shards in the next epoch.
+        if !block_preprocess_info.is_caught_up
+            && !self.runtime_adapter.is_next_block_epoch_start(prev_hash)?
+            && self.prev_block_is_caught_up(&prev_block_header.prev_hash(), prev_hash)?
+        {
+            let block_hash = block.hash();
+            debug!(target:"chain", %block_hash, "Block ready to catch up shards for next epoch");
+            let mut block_preprocess_info = block_preprocess_info;
+            let prev_block = self.get_block(block.header().prev_hash()).unwrap();
+            let work = self
+                .apply_chunks_preprocessing(
+                    me,
+                    &block,
+                    &prev_block,
+                    &block_preprocess_info.incoming_receipts,
+                    ApplyChunksMode::CatchingUp,
+                    None,
+                )
+                .unwrap();
+            let done_marker = Arc::new(OnceCell::new());
+            self.schedule_apply_chunks(
+                *block.hash(),
+                work,
+                done_marker.clone(),
+                apply_chunks_done_callback,
+            );
+            block_preprocess_info.apply_chunks_done = done_marker;
+            // We can safely unwrap here. We won't hit an error because we just took this block out
+            // out of the pool.
+            self.blocks_in_processing.add(block, block_preprocess_info).unwrap();
+            return Ok(None);
+        }
+         */
+
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
         let provenance = block_preprocess_info.provenance.clone();
@@ -3003,29 +3045,41 @@ impl Chain {
         debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}",
                blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
                blocks_catch_up_state.scheduled_blocks, blocks_catch_up_state.done_blocks.len());
+        let mut processed_blocks = HashMap::new();
         for (queued_block, results) in blocks_catch_up_state.processed_blocks.drain() {
-            match self.block_catch_up_postprocess(&queued_block, results) {
-                Ok(_) => {
-                    let mut saw_one = false;
-                    for next_block_hash in self.store.get_blocks_to_catchup(&queued_block)?.clone()
-                    {
-                        saw_one = true;
-                        blocks_catch_up_state.pending_blocks.push(next_block_hash);
+            // If this block is parent of some blocks in processing that need to be caught up,
+            // we can't mark this block as done yet because these blocks haven't been added to
+            // the store as blocks to be caught up yet. If we mark this block as done right now,
+            // these blocks will never get caught up. So we add these blocks back to the processed_blocks
+            // queue.
+            if self.blocks_in_processing.has_blocks_to_catch_up(&queued_block) {
+                processed_blocks.insert(queued_block, results);
+            } else {
+                match self.block_catch_up_postprocess(&queued_block, results) {
+                    Ok(_) => {
+                        let mut saw_one = false;
+                        for next_block_hash in
+                            self.store.get_blocks_to_catchup(&queued_block)?.clone()
+                        {
+                            saw_one = true;
+                            blocks_catch_up_state.pending_blocks.push(next_block_hash);
+                        }
+                        if saw_one {
+                            assert_eq!(
+                                self.runtime_adapter.get_epoch_id_from_prev_block(&queued_block)?,
+                                blocks_catch_up_state.epoch_id
+                            );
+                        }
+                        blocks_catch_up_state.done_blocks.push(queued_block);
                     }
-                    if saw_one {
-                        assert_eq!(
-                            self.runtime_adapter.get_epoch_id_from_prev_block(&queued_block)?,
-                            blocks_catch_up_state.epoch_id
-                        );
+                    Err(_) => {
+                        error!("Error processing block during catch up, retrying");
+                        blocks_catch_up_state.pending_blocks.push(queued_block);
                     }
-                    blocks_catch_up_state.done_blocks.push(queued_block);
-                }
-                Err(_) => {
-                    error!("Error processing block during catch up, retrying");
-                    blocks_catch_up_state.pending_blocks.push(queued_block);
                 }
             }
         }
+        blocks_catch_up_state.processed_blocks = processed_blocks;
 
         for pending_block in blocks_catch_up_state.pending_blocks.drain(..) {
             let block = self.store.get_block(&pending_block)?.clone();

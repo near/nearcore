@@ -1374,36 +1374,10 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Make the clients[i] in this TestEnv process the block
-    /// Note that although block processing happens async, this function finishes all blocks
-    /// that have started being processed.
-    pub fn process_block_with_options(
-        &mut self,
-        id: usize,
-        block: Block,
-        provenance: Provenance,
-        should_run_catchup: bool,
-        should_produce_chunk: bool,
-    ) {
-        self.clients[id]
-            .process_block_sync_with_produce_chunk_options(
-                MaybeValidated::from(block),
-                provenance,
-                should_produce_chunk,
-            )
-            .unwrap();
-        if should_run_catchup {
-            run_catchup(&mut self.clients[id], &vec![]).unwrap();
-        }
-        while wait_for_all_blocks_in_processing(&mut self.clients[id].chain) {
-            self.clients[id].postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
-        }
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        self.process_block_with_options(id, block, provenance, true, true);
+        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1731,10 +1705,14 @@ pub fn create_chunk(
     (chunk, merkle_paths, receipts, block)
 }
 
+/// Keep running catchup until there is no more catchup work that can be done
+/// Note that this function does not necessarily mean that all blocks are caught up.
+/// It's possible that some blocks that need to be caught up are still being processed
+/// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<CryptoHash>, Error> {
+) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1747,7 +1725,7 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+    loop {
         client.run_catchup(
             highest_height_peers,
             &f,
@@ -1755,6 +1733,7 @@ pub fn run_catchup(
             &state_split,
             Arc::new(|_| {}),
         )?;
+        let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
@@ -1765,6 +1744,7 @@ pub fn run_catchup(
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }
+            catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
             let results = rt.build_state_for_split_shards(
@@ -1778,7 +1758,11 @@ pub fn run_catchup(
             } else {
                 client.state_sync.set_split_result(msg.shard_id, results);
             }
+            catchup_done = false;
+        }
+        if catchup_done {
+            break;
         }
     }
-    Ok(client.finish_blocks_in_processing())
+    Ok(())
 }

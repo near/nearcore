@@ -21,8 +21,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
-    create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,
-    TestEnv,
+    create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
 };
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
@@ -2802,7 +2801,6 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
-            run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap();
@@ -3862,7 +3860,7 @@ mod access_key_nonce_range_tests {
                 res.unwrap_err(),
                 near_chain::Error::ChunksMissing(_) | near_chain::Error::Orphan
             );
-            run_catchup(&mut env.clients[1], &vec![]).unwrap();
+            let _ = env.clients[1].finish_blocks_in_processing();
             env.process_partial_encoded_chunks_requests(1);
         }
         env.clients[1].finish_blocks_in_processing();
@@ -4021,7 +4019,6 @@ mod access_key_nonce_range_tests {
                 if rng.gen_bool(0.5) {
                     env.clients[1].finish_block_in_processing(blocks[ind].hash());
                 }
-                run_catchup(&mut env.clients[1], &vec![]).unwrap();
                 while let Some(request) = env.network_adapters[1].pop() {
                     // process the chunk request some times, otherwise keep it in the queue
                     // this is to simulate delays in the network
@@ -4294,7 +4291,6 @@ mod storage_usage_fix_tests {
             let _ =
                 env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
             env.clients[0].finish_blocks_in_processing();
-            run_catchup(&mut env.clients[0], &vec![]).unwrap();
 
             let root = *env.clients[0]
                 .chain

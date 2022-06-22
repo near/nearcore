@@ -7,7 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
 use near_primitives::types::ShardId;
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -33,7 +33,10 @@ pub(crate) struct BlockPreprocessInfo {
 
 /// Blocks which finished pre-processing and are now being applied asynchronously
 pub(crate) struct BlocksInProcessing {
+    // A map that stores all blocks in processing
     preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
+    // A map that indexes all blocks here that need to be caught up by their prev hash
+    blocks_to_catch_up: HashMap<CryptoHash, HashSet<CryptoHash>>,
 }
 
 #[derive(Debug)]
@@ -74,7 +77,10 @@ pub struct BlockNotInPoolError;
 
 impl BlocksInProcessing {
     pub(crate) fn new() -> Self {
-        BlocksInProcessing { preprocessed_blocks: HashMap::new() }
+        BlocksInProcessing {
+            preprocessed_blocks: HashMap::new(),
+            blocks_to_catch_up: HashMap::new(),
+        }
     }
 
     /// Add a preprocessed block to the pool. Return Error::ExceedingPoolSize if the pool already
@@ -86,6 +92,12 @@ impl BlocksInProcessing {
     ) -> Result<(), AddError> {
         self.add_dry_run(block.hash())?;
 
+        if !preprocess_info.is_caught_up {
+            self.blocks_to_catch_up
+                .entry(*block.header().prev_hash())
+                .or_default()
+                .insert(*block.hash());
+        }
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())
     }
@@ -94,7 +106,18 @@ impl BlocksInProcessing {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Option<(Block, BlockPreprocessInfo)> {
-        self.preprocessed_blocks.remove(block_hash)
+        if let Some((block, info)) = self.preprocessed_blocks.remove(block_hash) {
+            let prev_hash = block.header().prev_hash();
+            if let Some(entry) = self.blocks_to_catch_up.get_mut(prev_hash) {
+                entry.remove(block_hash);
+                if entry.len() == 0 {
+                    self.blocks_to_catch_up.remove(prev_hash);
+                }
+            }
+            Some((block, info))
+        } else {
+            None
+        }
     }
 
     /// This function does NOT add the block, it simply checks if the block can be added
@@ -110,6 +133,10 @@ impl BlocksInProcessing {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn has_blocks_to_catch_up(&self, prev_hash: &CryptoHash) -> bool {
+        self.blocks_to_catch_up.contains_key(prev_hash)
     }
 
     /// This function waits until apply_chunks_done is marked as true for all blocks in the pool

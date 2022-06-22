@@ -6,7 +6,7 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
+use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
@@ -712,7 +712,6 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        run_catchup(&mut env.clients[0], &vec![]).unwrap();
         let len = network_adapter.requests.write().unwrap().len();
         for _ in 0..len {
             match network_adapter

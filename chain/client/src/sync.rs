@@ -1309,6 +1309,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_logger_utils::init_test_logger;
     use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1614,6 +1615,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
+        init_test_logger();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
@@ -1659,12 +1661,10 @@ mod test {
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
-        let _ = env.clients[1]
-            .process_block_test(
-                MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
-                Provenance::NONE,
-            )
-            .unwrap();
+        let _ = env.clients[1].process_block_test(
+            MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
+            Provenance::NONE,
+        );
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
@@ -1677,7 +1677,8 @@ mod test {
 
         // Receive all blocks. Should not request more.
         for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
-            env.process_block(1, blocks[i].clone(), Provenance::NONE);
+            let _ = env.clients[1]
+                .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
