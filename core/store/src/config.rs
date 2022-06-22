@@ -157,7 +157,11 @@ impl<'a> StoreOpener<'a> {
 
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
-        self.check_if_exists().then(|| crate::RocksDB::get_version(&self.path)).transpose()
+        if self.check_if_exists() {
+            Some(crate::RocksDB::get_version(&self.path)).transpose()
+        } else {
+            Ok(None)
+        }
     }
 
     /// Opens the RocksDB database.
