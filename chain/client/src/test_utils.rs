@@ -1735,7 +1735,7 @@ pub fn run_catchup(
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.work);
+            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {

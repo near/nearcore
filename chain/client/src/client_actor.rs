@@ -2184,7 +2184,7 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
         let _span =
             tracing::debug_span!(target: "client", "handle", handler = "BlockCatchUpRequest")
                 .entered();
-        let results = do_apply_chunks(msg.work);
+        let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_addr.do_send(BlockCatchUpResponse {
             sync_hash: msg.sync_hash,

@@ -1942,12 +1942,14 @@ impl Chain {
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
         let block = block.into_inner();
         let block_hash = *block.hash();
+        let block_height = block.header().height();
         let apply_chunks_done_marker = block_preprocess_info.apply_chunks_done.clone();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
         // 2) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
             block_hash,
+            block_height,
             apply_chunk_work,
             apply_chunks_done_marker,
             apply_chunks_done_callback.clone(),
@@ -1962,6 +1964,7 @@ impl Chain {
     fn schedule_apply_chunks(
         &self,
         block_hash: CryptoHash,
+        block_height: BlockHeight,
         work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
         apply_chunks_done_marker: Arc<OnceCell<()>>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
@@ -1969,7 +1972,7 @@ impl Chain {
         let sc = self.apply_chunks_sender.clone();
         rayon::spawn(move || {
             // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
-            let res = do_apply_chunks(work);
+            let res = do_apply_chunks(block_hash, block_height, work);
             // we can safely unwrap here because error means the receiver is deallocated, which means
             // the chain thread is shut down, and the node already crashed
             sc.send((block_hash.clone(), res)).unwrap();
@@ -2005,47 +2008,6 @@ impl Chain {
             "postprocess_block",
             height = block.header().height())
         .entered();
-
-        /*
-        let prev_hash = block.header().prev_hash();
-        // We can unwrap here because this block can't be an orphan
-        let prev_block_header = self.get_block_header(prev_hash).unwrap();
-        // It is possible that when we preprocess the block, the previous block is not caught up
-        // but it is caught up now. In that case, the catchup process didn't see this block,
-        // so it won't catch up this block. We need to apply chunks in CatchingUp mode again
-        // to catch up the shards in the next epoch.
-        if !block_preprocess_info.is_caught_up
-            && !self.runtime_adapter.is_next_block_epoch_start(prev_hash)?
-            && self.prev_block_is_caught_up(&prev_block_header.prev_hash(), prev_hash)?
-        {
-            let block_hash = block.hash();
-            debug!(target:"chain", %block_hash, "Block ready to catch up shards for next epoch");
-            let mut block_preprocess_info = block_preprocess_info;
-            let prev_block = self.get_block(block.header().prev_hash()).unwrap();
-            let work = self
-                .apply_chunks_preprocessing(
-                    me,
-                    &block,
-                    &prev_block,
-                    &block_preprocess_info.incoming_receipts,
-                    ApplyChunksMode::CatchingUp,
-                    None,
-                )
-                .unwrap();
-            let done_marker = Arc::new(OnceCell::new());
-            self.schedule_apply_chunks(
-                *block.hash(),
-                work,
-                done_marker.clone(),
-                apply_chunks_done_callback,
-            );
-            block_preprocess_info.apply_chunks_done = done_marker;
-            // We can safely unwrap here. We won't hit an error because we just took this block out
-            // out of the pool.
-            self.blocks_in_processing.add(block, block_preprocess_info).unwrap();
-            return Ok(None);
-        }
-         */
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
@@ -3098,6 +3060,7 @@ impl Chain {
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
                 block_hash: pending_block,
+                block_height: block.header().height(),
                 work,
             });
         }
@@ -5102,9 +5065,13 @@ impl<'a> ChainUpdate<'a> {
 }
 
 pub fn do_apply_chunks(
+    block_hash: CryptoHash,
+    block_height: BlockHeight,
     work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 ) -> Vec<Result<ApplyChunkResult, Error>> {
-    let parent_span = tracing::debug_span!(target: "chain", "do_apply_chunks").entered();
+    let parent_span =
+        tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, %block_hash)
+            .entered();
     work.into_par_iter()
         .map(|task| {
             // As chunks can be processed in parallel, make sure they are all tracked as children of
@@ -5153,6 +5120,7 @@ pub struct ApplyStatePartsResponse {
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
+    pub block_height: BlockHeight,
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
