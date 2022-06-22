@@ -1,7 +1,8 @@
 use crate::test_utils::setup;
-use crate::{Block, Error};
+use crate::{Block, Error, Provenance};
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
+use near_primitives::utils::MaybeValidated;
 
 #[test]
 fn challenges_new_head_prev() {
@@ -44,7 +45,13 @@ fn challenges_new_head_prev() {
 
     // Try to add a block on top of the fifth block.
 
-    if let Err(e) = chain.process_block_test(&None, last_block) {
+    if let Err(e) = chain.preprocess_block(
+        &None,
+        &MaybeValidated::from(last_block),
+        &Provenance::NONE,
+        &mut vec![],
+        None,
+    ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {
         assert!(false);
