@@ -1,13 +1,13 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
 
+use crate::types::{StatusError, SyncStatus};
 use actix::Message;
 use chrono::DateTime;
 use near_primitives::{
     hash::CryptoHash, sharding::ChunkHash, types::BlockHeight, views::ValidatorInfo,
 };
 use serde::{Deserialize, Serialize};
-use crate::types::{StatusError, SyncStatus};
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]

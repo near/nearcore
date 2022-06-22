@@ -1,3 +1,6 @@
+//! Structs in this file are used for debug purposes, and might change at any time
+//! without backwards compatibility.
+
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
@@ -186,9 +189,7 @@ impl ClientActor {
         })
     }
 
-    pub fn get_tracked_shards_view(
-        &self,
-    ) -> Result<TrackedShardsView, near_chain_primitives::Error> {
+    fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
@@ -218,7 +219,7 @@ impl ClientActor {
         })
     }
 
-    pub fn get_recent_epoch_info(
+    fn get_recent_epoch_info(
         &mut self,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
         // Next epoch id
@@ -241,7 +242,7 @@ impl ClientActor {
         Ok(epochs_info)
     }
 
-    pub fn get_last_blocks_info(
+    fn get_last_blocks_info(
         &mut self,
     ) -> Result<Vec<DebugBlockStatus>, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
