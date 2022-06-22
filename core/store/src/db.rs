@@ -13,35 +13,11 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, RwLock};
-use std::{cmp, fmt};
 
 use strum::IntoEnumIterator;
 use tracing::{error, info, warn};
 
 pub(crate) mod refcount;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DBError(String);
-
-impl fmt::Display for DBError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl std::error::Error for DBError {}
-
-impl From<rocksdb::Error> for DBError {
-    fn from(err: rocksdb::Error) -> Self {
-        DBError(err.into_string())
-    }
-}
-
-impl From<DBError> for io::Error {
-    fn from(err: DBError) -> io::Error {
-        io::Error::new(io::ErrorKind::Other, err)
-    }
-}
 
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 
@@ -128,6 +104,14 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
+fn other_error(msg: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, msg)
+}
+
+fn into_other(error: rocksdb::Error) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, error.into_string())
+}
+
 fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
@@ -148,28 +132,28 @@ fn col_name(col: DBCol) -> String {
 /// Returns error if NOFILE limit could not be read or set.  In practice the
 /// only thing that can happen is hard limit being too low such that soft limit
 /// cannot be increased to required value.
-fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), DBError> {
+fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), String> {
     let required = max_open_files as u64 + 1000;
     let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
-        DBError(format!("Unable to get limit for the number of open files (NOFILE): {err}"))
+        format!("Unable to get limit for the number of open files (NOFILE): {err}")
     })?;
     if required <= soft {
         Ok(())
     } else if required <= hard {
         rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
-            DBError(format!(
+            format!(
                 "Unable to change limit for the number of open files (NOFILE) \
                  from ({soft}, {hard}) to ({required}, {hard}) (for configured \
                  max_open_files={max_open_files}): {err}"
-            ))
+            )
         })
     } else {
-        Err(DBError(format!(
+        Err(format!(
             "Hard limit for the number of open files (NOFILE) is too low \
              ({hard}).  At least {required} is required (for configured \
              max_open_files={max_open_files}).  Set ‘ulimit -Hn’ accordingly \
              and restart the node."
-        )))
+        ))
     }
 }
 
@@ -182,8 +166,8 @@ pub enum Mode {
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the `mode` parameter specified in the store_config.
-    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> Result<RocksDB, DBError> {
-        ensure_max_open_files_limit(store_config.max_open_files)?;
+    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<RocksDB> {
+        ensure_max_open_files_limit(store_config.max_open_files).map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode)?;
         let cf_handles = Self::get_cf_handles(&db);
 
@@ -199,11 +183,7 @@ impl RocksDB {
     }
 
     /// Opens the database with all column families configured.
-    fn open_db(
-        path: &Path,
-        store_config: &StoreConfig,
-        mode: Mode,
-    ) -> Result<(DB, Options), DBError> {
+    fn open_db(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
         let cf_descriptors = DBCol::iter()
             .map(|col| {
@@ -218,7 +198,8 @@ impl RocksDB {
                 DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
             }
             Mode::ReadWrite => DB::open_cf_descriptors(&options, path, cf_descriptors),
-        }?;
+        }
+        .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::default().unwrap();
@@ -266,7 +247,7 @@ pub(crate) trait Database: Sync + Send {
     fn transaction(&self) -> DBTransaction {
         DBTransaction { ops: Vec::new() }
     }
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError>;
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
         &'a self,
@@ -277,18 +258,19 @@ pub(crate) trait Database: Sync + Send {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
-    fn write(&self, batch: DBTransaction) -> Result<(), DBError>;
-    fn flush(&self) -> Result<(), DBError>;
+    fn write(&self, batch: DBTransaction) -> io::Result<()>;
+    fn flush(&self) -> io::Result<()>;
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
 
         let read_options = rocksdb_read_options();
-        let result = self.db.get_cf_opt(self.cf_handle(col), key, &read_options)?;
+        let result =
+            self.db.get_cf_opt(self.cf_handle(col), key, &read_options).map_err(into_other)?;
         let result = Ok(RocksDB::get_with_rc_logic(col, result));
 
         timer.observe_duration();
@@ -335,7 +317,7 @@ impl Database for RocksDB {
         RocksDB::iter_with_rc_logic(col, iterator)
     }
 
-    fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
+    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         if let Err(check) = self.pre_write_check() {
             if check.is_io() {
                 warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
@@ -377,11 +359,11 @@ impl Database for RocksDB {
                 }
             }
         }
-        Ok(self.db.write(batch)?)
+        self.db.write(batch).map_err(into_other)
     }
 
-    fn flush(&self) -> Result<(), DBError> {
-        self.db.flush().map_err(DBError::from)
+    fn flush(&self) -> io::Result<()> {
+        self.db.flush().map_err(into_other)
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -400,7 +382,7 @@ impl Database for RocksDB {
 }
 
 impl Database for TestDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> Result<Option<Vec<u8>>, DBError> {
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let result = self.db.read().unwrap()[col].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
@@ -434,7 +416,7 @@ impl Database for TestDB {
         RocksDB::iter_with_rc_logic(col, iterator.into_iter())
     }
 
-    fn write(&self, transaction: DBTransaction) -> Result<(), DBError> {
+    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
@@ -467,7 +449,7 @@ impl Database for TestDB {
         Ok(())
     }
 
-    fn flush(&self) -> Result<(), DBError> {
+    fn flush(&self) -> io::Result<()> {
         Ok(())
     }
 
@@ -534,7 +516,7 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.set_level_zero_file_num_compaction_trigger(-1);
         opts.set_level_zero_stop_writes_trigger(100000000);
     } else {
-        opts.increase_parallelism(cmp::max(1, num_cpus::get() as i32 / 2));
+        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(bytesize::GIB);
     }
 
@@ -623,18 +605,18 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version(path: &Path) -> Result<DbVersion, DBError> {
+    pub fn get_version(path: &Path) -> io::Result<DbVersion> {
         let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
-                DBError(
+                other_error(
                     "Failed to read database version; \
                      it’s not a neard database or database is corrupted."
                         .into(),
                 )
             })?;
         serde_json::from_slice(&value).map_err(|_err| {
-            DBError(format!(
+            other_error(format!(
                 "Failed to parse database version: {value:?}; \
                  it’s not a neard database or database is corrupted."
             ))
@@ -665,8 +647,8 @@ impl RocksDB {
     }
 
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
-    pub fn checkpoint(&self) -> Result<Checkpoint, DBError> {
-        Checkpoint::new(&self.db).map_err(DBError::from)
+    pub fn checkpoint(&self) -> io::Result<Checkpoint> {
+        Checkpoint::new(&self.db).map_err(into_other)
     }
 }
 
@@ -678,7 +660,7 @@ fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
 #[derive(Debug, thiserror::Error)]
 pub enum PreWriteCheckErr {
     #[error("error checking filesystem: {0}")]
-    IO(#[from] std::io::Error),
+    IO(#[from] io::Error),
     #[error("low disk memory ({0} available)")]
     LowDiskSpace(bytesize::ByteSize),
 }
@@ -782,10 +764,10 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 #[cfg(test)]
 mod tests {
     use crate::db::StatsValue::{Count, Percentile, Sum};
-    use crate::db::{parse_statistics, rocksdb_read_options, DBError, Database, RocksDB};
+    use crate::db::{parse_statistics, rocksdb_read_options, Database, RocksDB};
     use crate::{DBCol, Store, StoreConfig, StoreStatistics};
 
-    use super::Mode;
+    use super::{into_other, Mode};
 
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
@@ -801,10 +783,10 @@ mod tests {
             &self,
             col: DBCol,
             key: &[u8],
-        ) -> Result<Option<Vec<u8>>, DBError> {
-            let read_options = rocksdb_read_options();
-            let result = self.db.get_cf_opt(self.cf_handle(col), key, &read_options)?;
-            Ok(result)
+        ) -> std::io::Result<Option<Vec<u8>>> {
+            self.db
+                .get_cf_opt(self.cf_handle(col), key, &rocksdb_read_options())
+                .map_err(into_other)
         }
     }
 
