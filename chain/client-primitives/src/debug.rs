@@ -1,5 +1,5 @@
-// Structs in this file are used for debug purposes, and might change at any time
-// without backwards compatibility.
+//! Structs in this module are used for debug purposes, and might change at any time
+//! without backwards compatibility of JSON encoding.
 
 use actix::Message;
 use chrono::DateTime;
