@@ -115,6 +115,14 @@ impl TrieNodeWithSize {
     }
 }
 
+#[derive(Debug)]
+pub enum Level {
+    Leaf(Vec<u8>, u32, CryptoHash, u64),
+    Extension((Vec<u8>, CryptoHash, u64)),
+    // the branch info without the element, memory usage and the index in the children array
+    Branch(([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>, u64, u8)),
+}
+
 impl TrieNode {
     fn new(rc_node: RawTrieNode) -> TrieNode {
         match rc_node {
@@ -757,6 +765,149 @@ impl Trie {
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
     }
+
+    pub fn get_proof(
+        &self,
+        root: &CryptoHash,
+        key: &[u8],
+    ) -> Result<Option<Vec<Level>>, StorageError> {
+        let mut key = NibbleSlice::new(key);
+
+        let mut hash = *root;
+
+        /*
+        [
+            [h1, h4, h6],
+            [h1],
+            [h2, h6],
+        ]
+         */
+
+        let mut levels: Vec<Level> = vec![];
+
+        loop {
+            if hash == Trie::empty_root() {
+                return Ok(None);
+            }
+            let bytes = self.storage.retrieve_raw_bytes(&hash)?;
+            let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
+                StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
+            })?;
+
+            let memory_usage = node.memory_usage;
+            match dbg!(node).node {
+                RawTrieNode::Leaf(existing_key, a, h) => {
+                    if dbg!(NibbleSlice::from_encoded(&existing_key).0) == dbg!(key) {
+                        let existing_key_clone = existing_key.clone();
+                        levels.push(Level::Leaf(existing_key, a, h, memory_usage));
+
+                        let node = RawTrieNodeWithSize {
+                            node: RawTrieNode::Leaf(existing_key_clone, a, h),
+                            memory_usage,
+                        };
+                        let mut v = vec![];
+                        node.encode_into(&mut v).unwrap();
+                        dbg!(CryptoHash::hash_bytes(&v));
+                        dbg!(h);
+
+                        return Ok(Some(levels));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                RawTrieNode::Extension(existing_key, child) => {
+                    let existing_key_clone = existing_key.clone();
+                    let existing_key = NibbleSlice::from_encoded(&existing_key).0;
+                    if key.starts_with(&existing_key) {
+                        hash = child;
+                        key = key.mid(existing_key.len());
+
+                        levels.push(Level::Extension((
+                            existing_key_clone,
+                            // CryptoHash::hash_bytes(bytes.as_ref()),
+                            child,
+                            memory_usage,
+                        )));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                RawTrieNode::Branch(children, value) => {
+                    let mut children_copy = children.clone();
+                    if key.is_empty() {
+                        match value {
+                            Some(_) => return Ok(Some(levels)),
+                            None => return Ok(None),
+                        }
+                    } else {
+                        let mut level = [None; 16];
+                        let mut hash_idx = 0u8;
+                        for (idx, child) in children.iter().enumerate() {
+                            if idx as u8 == key.at(0) {
+                                if child.is_none() {
+                                    return Ok(None);
+                                }
+                                hash = child.unwrap();
+                                key = key.mid(1);
+                                level[idx] = None;
+                                children_copy[idx] = None;
+                                hash_idx = idx as _;
+                            } else {
+                                if child.is_none() {
+                                    continue;
+                                }
+                                level[idx] = *child;
+                            }
+                        }
+                        levels.push(Level::Branch((children_copy, value, memory_usage, hash_idx)));
+                    }
+                }
+            };
+        }
+    }
+
+    pub fn verify_proof(
+        &self,
+        levels: Vec<Level>,
+        value: &[u8],
+        expected_hash: CryptoHash,
+    ) -> bool {
+        let hash_node = |node: RawTrieNodeWithSize| {
+            let mut v = vec![];
+            node.encode_into(&mut v).unwrap();
+            CryptoHash::hash_bytes(&v)
+        };
+        let mut hash = CryptoHash::default();
+        for level in levels {
+            dbg!(hash);
+            match level {
+                Level::Leaf(v, a, h, memory_usage) => {
+                    let node =
+                        RawTrieNodeWithSize { node: RawTrieNode::Leaf(v, a, h), memory_usage };
+
+                    hash = hash_node(node);
+                    assert_eq!(CryptoHash::hash_bytes(value), h);
+                }
+                Level::Extension((key, h, memory_usage)) => {
+                    let node =
+                        RawTrieNodeWithSize { node: RawTrieNode::Extension(key, h), memory_usage };
+                    dbg!(&node);
+                    assert_eq!(hash, h);
+                    hash = hash_node(node);
+                }
+                Level::Branch((mut children, value, memory_usage, hash_idx)) => {
+                    children[hash_idx as usize] = Some(hash);
+                    let node = RawTrieNodeWithSize {
+                        node: RawTrieNode::Branch(children, value),
+                        memory_usage,
+                    };
+                    dbg!(&node);
+                    hash = hash_node(node);
+                }
+            }
+        }
+        hash == expected_hash
+    }
 }
 
 /// Methods used in the runtime-parameter-estimator for measuring trie internal
@@ -1195,5 +1346,37 @@ mod tests {
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
+    }
+
+    #[test]
+    fn asdasd() {
+        //     let store = create_test_store();
+        //     let tries = ShardTries::test(store, 1);
+        //     let empty_root = Trie::empty_root();
+        //     let changes = vec![
+        //         (b"doge".to_vec(), Some(b"coin".to_vec())),
+        //         (b"docu".to_vec(), Some(b"value".to_vec())),
+        //         (b"do".to_vec(), Some(b"verb".to_vec())),
+        //         (b"horse".to_vec(), Some(b"stallion".to_vec())),
+        //         (b"dog".to_vec(), Some(b"puppy".to_vec())),
+        //         (b"h".to_vec(), Some(b"value".to_vec())),
+        //     ];
+        //     let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
+        // }
+
+        let tries = create_tries();
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root =
+            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), changes);
+
+        assert_eq!(Some(b"coin".to_vec()), trie.get(&root, b"doge").unwrap());
+        let mut proof = trie.get_proof(&root, b"doge").unwrap().unwrap();
+        proof.reverse();
+        dbg!(trie.verify_proof(proof, b"coin", root));
+        dbg!(&root);
     }
 }
