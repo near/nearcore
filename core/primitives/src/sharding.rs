@@ -810,7 +810,9 @@ impl EncodedShardChunkBody {
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
-        merklize(&self.parts.iter().map(|x| x.as_ref().unwrap().clone()).collect::<Vec<_>>())
+        let parts: Vec<&[u8]> =
+            self.parts.iter().map(|x| x.as_deref().unwrap()).collect::<Vec<_>>();
+        merklize(&parts)
     }
 }
 
