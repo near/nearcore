@@ -104,12 +104,12 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
-fn other_error(msg: String) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, msg)
+fn other_error(msg: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, msg)
 }
 
-fn into_other(error: rocksdb::Error) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, error.into_string())
+fn into_other(error: rocksdb::Error) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, error.into_string())
 }
 
 fn col_name(col: DBCol) -> String {
@@ -166,7 +166,7 @@ pub enum Mode {
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the `mode` parameter specified in the store_config.
-    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> std::io::Result<RocksDB> {
+    pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<RocksDB> {
         ensure_max_open_files_limit(store_config.max_open_files).map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode)?;
         let cf_handles = Self::get_cf_handles(&db);
@@ -183,11 +183,7 @@ impl RocksDB {
     }
 
     /// Opens the database with all column families configured.
-    fn open_db(
-        path: &Path,
-        store_config: &StoreConfig,
-        mode: Mode,
-    ) -> std::io::Result<(DB, Options)> {
+    fn open_db(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
         let cf_descriptors = DBCol::iter()
             .map(|col| {
@@ -251,7 +247,7 @@ pub(crate) trait Database: Sync + Send {
     fn transaction(&self) -> DBTransaction {
         DBTransaction { ops: Vec::new() }
     }
-    fn get(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>>;
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
     fn iter_raw_bytes<'a>(
         &'a self,
@@ -262,13 +258,13 @@ pub(crate) trait Database: Sync + Send {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
-    fn write(&self, batch: DBTransaction) -> std::io::Result<()>;
-    fn flush(&self) -> std::io::Result<()>;
+    fn write(&self, batch: DBTransaction) -> io::Result<()>;
+    fn flush(&self) -> io::Result<()>;
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
 
@@ -321,7 +317,7 @@ impl Database for RocksDB {
         RocksDB::iter_with_rc_logic(col, iterator)
     }
 
-    fn write(&self, transaction: DBTransaction) -> std::io::Result<()> {
+    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         if let Err(check) = self.pre_write_check() {
             if check.is_io() {
                 warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
@@ -366,7 +362,7 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
-    fn flush(&self) -> std::io::Result<()> {
+    fn flush(&self) -> io::Result<()> {
         self.db.flush().map_err(into_other)
     }
 
@@ -386,7 +382,7 @@ impl Database for RocksDB {
 }
 
 impl Database for TestDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let result = self.db.read().unwrap()[col].get(key).cloned();
         Ok(RocksDB::get_with_rc_logic(col, result))
     }
@@ -420,7 +416,7 @@ impl Database for TestDB {
         RocksDB::iter_with_rc_logic(col, iterator.into_iter())
     }
 
-    fn write(&self, transaction: DBTransaction) -> std::io::Result<()> {
+    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let mut db = self.db.write().unwrap();
         for op in transaction.ops {
             match op {
@@ -453,7 +449,7 @@ impl Database for TestDB {
         Ok(())
     }
 
-    fn flush(&self) -> std::io::Result<()> {
+    fn flush(&self) -> io::Result<()> {
         Ok(())
     }
 
@@ -609,7 +605,7 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version(path: &Path) -> std::io::Result<DbVersion> {
+    pub fn get_version(path: &Path) -> io::Result<DbVersion> {
         let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
             .get(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
@@ -651,7 +647,7 @@ impl RocksDB {
     }
 
     /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
-    pub fn checkpoint(&self) -> std::io::Result<Checkpoint> {
+    pub fn checkpoint(&self) -> io::Result<Checkpoint> {
         Checkpoint::new(&self.db).map_err(into_other)
     }
 }
@@ -664,7 +660,7 @@ fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
 #[derive(Debug, thiserror::Error)]
 pub enum PreWriteCheckErr {
     #[error("error checking filesystem: {0}")]
-    IO(#[from] std::io::Error),
+    IO(#[from] io::Error),
     #[error("low disk memory ({0} available)")]
     LowDiskSpace(bytesize::ByteSize),
 }
