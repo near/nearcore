@@ -218,7 +218,9 @@ impl RocksDB {
             })
             .collect::<Vec<_>>();
         let db = match mode {
-            Mode::ReadOnly => DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false),
+            Mode::ReadOnly => {
+                DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+            }
             Mode::ReadWrite => DB::open_cf_descriptors(&options, path, cf_descriptors),
         }?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -237,9 +239,9 @@ impl RocksDB {
     fn get_cf_handles(db: &DB) -> enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>> {
         let mut cf_handles = enum_map::EnumMap::default();
         for col in DBCol::iter() {
-            let col_name: String = ColName(col).into();
-            let ptr =
-                db.cf_handle(&col_name).map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
+            let ptr = db
+                .cf_handle(&String::from(ColName(col)))
+                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
             cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
         }
         cf_handles.map(|col, ptr| {
