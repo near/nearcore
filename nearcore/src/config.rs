@@ -842,7 +842,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for official testnet");
             }

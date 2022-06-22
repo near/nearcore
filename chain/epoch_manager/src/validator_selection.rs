@@ -48,8 +48,7 @@ pub fn proposals_to_epoch_info(
         &mut stake_change,
         &mut fishermen,
     );
-    let mut block_producer_proposals =
-        order_proposals(proposals.values().filter(|p| !p.is_chunk_only()).cloned());
+    let mut block_producer_proposals = order_proposals(proposals.values().cloned());
     let (block_producers, bp_stake_threshold) = select_block_producers(
         &mut block_producer_proposals,
         max_bp_selected,
@@ -78,7 +77,7 @@ pub fn proposals_to_epoch_info(
 
     // since block producer proposals could become chunk producers, their actual stake threshold
     // is the smaller of the two thresholds
-    let bp_stake_threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
+    let threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
     // process remaining chunk_producer_proposals that were not selected for either role
     for OrderedValidatorStake(p) in chunk_producer_proposals {
@@ -91,8 +90,6 @@ pub fn proposals_to_epoch_info(
             if prev_epoch_info.account_is_validator(account_id)
                 || prev_epoch_info.account_is_fisherman(account_id)
             {
-                let threshold =
-                    if p.is_chunk_only() { cp_stake_threshold } else { bp_stake_threshold };
                 debug_assert!(stake < threshold);
                 let account_id = p.take_account_id();
                 validator_kickout.insert(
@@ -202,7 +199,7 @@ pub fn proposals_to_epoch_info(
         validator_reward,
         validator_kickout,
         minted_amount,
-        bp_stake_threshold,
+        threshold,
         next_version,
         rng_seed,
     ))
@@ -480,13 +477,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(epoch_info.epoch_height(), prev_epoch_height + 1);
-
-        // no block producers are chunk-only
-        epoch_info
-            .block_producers_settlement()
-            .into_iter()
-            .map(|id| epoch_info.get_validator(*id))
-            .for_each(|v| assert!(!v.is_chunk_only()));
 
         // the top stakes are the chosen block producers
         let mut sorted_proposals = proposals;
@@ -907,69 +897,33 @@ mod tests {
 
     impl IntoValidatorStake for &str {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(
-                self.parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                100,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                false,
-            )
+            ValidatorStake::new(self.parse().unwrap(), PublicKey::empty(KeyType::ED25519), 100)
         }
     }
 
     impl IntoValidatorStake for (&str, Balance) {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(
-                self.0.parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                self.1,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                false,
-            )
+            ValidatorStake::new(self.0.parse().unwrap(), PublicKey::empty(KeyType::ED25519), self.1)
         }
     }
 
     impl IntoValidatorStake for (String, Balance) {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(
-                self.0.parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                self.1,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                false,
-            )
+            ValidatorStake::new(self.0.parse().unwrap(), PublicKey::empty(KeyType::ED25519), self.1)
         }
     }
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     impl IntoValidatorStake for (&str, Balance, Proposal) {
         fn into_validator_stake(self) -> ValidatorStake {
-            let is_chunk_only = match self.2 {
-                Proposal::BlockProducer => false,
-                Proposal::ChunkOnlyProducer => true,
-            };
-            ValidatorStake::new(
-                self.0.parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                self.1,
-                is_chunk_only,
-            )
+            ValidatorStake::new(self.0.parse().unwrap(), PublicKey::empty(KeyType::ED25519), self.1)
         }
     }
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     impl IntoValidatorStake for (String, Balance, Proposal) {
         fn into_validator_stake(self) -> ValidatorStake {
-            let is_chunk_only = match self.2 {
-                Proposal::BlockProducer => false,
-                Proposal::ChunkOnlyProducer => true,
-            };
-            ValidatorStake::new(
-                self.0.parse().unwrap(),
-                PublicKey::empty(KeyType::ED25519),
-                self.1,
-                is_chunk_only,
-            )
+            ValidatorStake::new(self.0.parse().unwrap(), PublicKey::empty(KeyType::ED25519), self.1)
         }
     }
 
