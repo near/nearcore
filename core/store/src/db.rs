@@ -128,12 +128,8 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
-struct ColName(DBCol);
-
-impl std::convert::From<ColName> for String {
-    fn from(col: ColName) -> Self {
-        format!("col{}", col.0 as usize)
-    }
+fn col_name(col: DBCol) -> String {
+    format!("col{}", col as usize)
 }
 
 /// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
@@ -212,7 +208,7 @@ impl RocksDB {
         let cf_descriptors = DBCol::iter()
             .map(|col| {
                 rocksdb::ColumnFamilyDescriptor::new(
-                    ColName(col),
+                    col_name(col),
                     rocksdb_column_options(col, store_config),
                 )
             })
@@ -240,7 +236,7 @@ impl RocksDB {
         let mut cf_handles = enum_map::EnumMap::default();
         for col in DBCol::iter() {
             let ptr = db
-                .cf_handle(&String::from(ColName(col)))
+                .cf_handle(&col_name(col))
                 .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
             cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
         }
