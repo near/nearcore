@@ -30,10 +30,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
         return (MerkleHash::default(), vec![]);
     }
     let mut len = arr.len().next_power_of_two();
-    let mut hashes = arr
-        .iter()
-        .map(|elem| hash(&elem.try_to_vec().expect("Failed to serialize")))
-        .collect::<Vec<_>>();
+    let mut hashes = arr.iter().map(CryptoHash::hash_borsh).collect::<Vec<_>>();
 
     // degenerate case
     if len == 1 {
