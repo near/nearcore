@@ -106,7 +106,7 @@ pub fn setup_mock_node(
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());

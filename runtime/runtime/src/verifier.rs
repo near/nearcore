@@ -326,8 +326,6 @@ pub fn validate_action(
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),

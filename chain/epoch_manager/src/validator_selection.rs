@@ -61,8 +61,7 @@ pub fn proposals_to_epoch_info(
         ChunkOnlyProducers,
         next_version,
         {
-            let mut chunk_producer_proposals =
-                order_proposals(proposals.into_iter().map(|(_, p)| p));
+            let mut chunk_producer_proposals = order_proposals(proposals.into_values());
             let max_cp_selected = max_bp_selected
                 + (epoch_config.validator_selection_config.num_chunk_only_producer_seats as usize);
             let (chunk_producers, cp_stake_treshold) = select_chunk_producers(
@@ -273,11 +272,7 @@ fn proposals_with_rollover(
 fn order_proposals<I: IntoIterator<Item = ValidatorStake>>(
     proposals: I,
 ) -> BinaryHeap<OrderedValidatorStake> {
-    let mut ordered_proposals = BinaryHeap::new();
-    for p in proposals {
-        ordered_proposals.push(OrderedValidatorStake(p));
-    }
-    ordered_proposals
+    proposals.into_iter().map(OrderedValidatorStake).collect()
 }
 
 fn select_block_producers(
@@ -356,24 +351,24 @@ fn select_validators(
     }
 }
 
+/// We store stakes in max heap and want to order them such that the validator
+/// with the largest state and (in case of a tie) lexicographically smallest
+/// AccountId comes at the top.
 #[derive(Eq, PartialEq)]
 struct OrderedValidatorStake(ValidatorStake);
+impl OrderedValidatorStake {
+    fn key(&self) -> impl Ord + '_ {
+        (self.0.stake(), std::cmp::Reverse(self.0.account_id()))
+    }
+}
 impl PartialOrd for OrderedValidatorStake {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let stake_order = self.0.stake().partial_cmp(&other.0.stake())?;
-        match stake_order {
-            Ordering::Equal => other.0.account_id().partial_cmp(self.0.account_id()),
-            Ordering::Less | Ordering::Greater => Some(stake_order),
-        }
+        Some(self.cmp(other))
     }
 }
 impl Ord for OrderedValidatorStake {
     fn cmp(&self, other: &Self) -> Ordering {
-        let stake_order = self.0.stake().cmp(&other.0.stake());
-        match stake_order {
-            Ordering::Equal => other.0.account_id().cmp(self.0.account_id()),
-            Ordering::Less | Ordering::Greater => stake_order,
-        }
+        self.key().cmp(&other.key())
     }
 }
 
