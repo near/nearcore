@@ -28,6 +28,8 @@ use near_client_primitives::types::{
     StatusError, StatusSyncInfo, SyncStatus,
 };
 
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
