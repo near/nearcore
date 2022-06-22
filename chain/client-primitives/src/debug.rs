@@ -7,7 +7,6 @@ use near_primitives::{
     hash::CryptoHash, sharding::ChunkHash, types::BlockHeight, views::ValidatorInfo,
 };
 use serde::{Deserialize, Serialize};
-
 use crate::types::{StatusError, SyncStatus};
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
