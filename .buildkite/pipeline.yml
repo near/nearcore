@@ -5,7 +5,7 @@ env:
 steps:
   - label: "protobuf backward compatibility"
     command: |
-      buf breaking --against ".git#ref=`git merge-base --fork-point master`"
+      buf breaking --against ".git#ref=`git merge-base master HEAD`"
 
     timeout: 30
     agents:
