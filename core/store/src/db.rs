@@ -130,9 +130,9 @@ unsafe impl Sync for RocksDB {}
 
 struct ColName(DBCol);
 
-impl std::convert::Into<String> for ColName {
-    fn into(self) -> String {
-        format!("col{}", self.0 as usize)
+impl std::convert::From<ColName> for String {
+    fn from(col: ColName) -> Self {
+        format!("col{}", col.0 as usize)
     }
 }
 
