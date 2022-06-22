@@ -271,7 +271,7 @@ impl Database for RocksDB {
         let read_options = rocksdb_read_options();
         let result =
             self.db.get_cf_opt(self.cf_handle(col), key, &read_options).map_err(into_other)?;
-        let result = Ok(RocksDB::get_with_rc_logic(col, result));
+        let result = Ok(refcount::get_with_rc_logic(col, result));
 
         timer.observe_duration();
         result
@@ -291,7 +291,7 @@ impl Database for RocksDB {
         let read_options = rocksdb_read_options();
         let cf_handle = self.cf_handle(col);
         let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        RocksDB::iter_with_rc_logic(col, iterator)
+        refcount::iter_with_rc_logic(col, iterator)
     }
 
     fn iter_prefix<'a>(
@@ -314,7 +314,7 @@ impl Database for RocksDB {
                 IteratorMode::From(key_prefix, Direction::Forward),
             )
             .take_while(move |(key, _value)| key.starts_with(key_prefix));
-        RocksDB::iter_with_rc_logic(col, iterator)
+        refcount::iter_with_rc_logic(col, iterator)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
@@ -384,12 +384,12 @@ impl Database for RocksDB {
 impl Database for TestDB {
     fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let result = self.db.read().unwrap()[col].get(key).cloned();
-        Ok(RocksDB::get_with_rc_logic(col, result))
+        Ok(refcount::get_with_rc_logic(col, result))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         let iterator = self.iter_raw_bytes(col);
-        RocksDB::iter_with_rc_logic(col, iterator)
+        refcount::iter_with_rc_logic(col, iterator)
     }
 
     fn iter_raw_bytes<'a>(
@@ -413,7 +413,7 @@ impl Database for TestDB {
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
             .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
             .collect::<Vec<_>>();
-        RocksDB::iter_with_rc_logic(col, iterator.into_iter())
+        refcount::iter_with_rc_logic(col, iterator.into_iter())
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
