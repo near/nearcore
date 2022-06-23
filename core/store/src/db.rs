@@ -830,35 +830,6 @@ mod tests {
         store.pre_write_check().unwrap()
     }
 
-    fn do_test_clear_column(store: Store) {
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-        {
-            let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[3], &[3]);
-            store_update.commit().unwrap();
-        }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
-        {
-            let mut store_update = store.store_update();
-            store_update.delete_all(DBCol::State);
-            store_update.commit().unwrap();
-        }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-    }
-
-    #[test]
-    fn test_clear_column_rocksdb() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        do_test_clear_column(opener.open());
-    }
-
-    #[test]
-    fn test_clear_column_testdb() {
-        do_test_clear_column(crate::test_utils::create_test_store());
-    }
-
     #[test]
     fn rocksdb_merge_sanity() {
         let (_tmp_dir, opener) = Store::test_opener();

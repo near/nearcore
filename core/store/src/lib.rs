@@ -624,10 +624,41 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
 #[cfg(test)]
 mod tests {
+    use super::{DBCol, Store};
+
     #[test]
     fn test_no_cache_disabled() {
         #[cfg(feature = "no_cache")]
         panic!("no cache is enabled");
+    }
+
+    fn test_clear_column(store: Store) {
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(DBCol::State);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+    }
+
+    #[test]
+    fn clear_column_rocksdb() {
+        let (_tmp_dir, opener) = Store::test_opener();
+        test_clear_column(opener.open());
+    }
+
+    #[test]
+    fn clear_column_testdb() {
+        test_clear_column(crate::test_utils::create_test_store());
     }
 
     /// Asserts that elements in the vector are sorted.
@@ -640,11 +671,11 @@ mod tests {
     }
 
     /// Checks that keys are sorted when iterating.
-    fn test_iter_order_impl(store: crate::Store, count: usize) {
+    fn test_iter_order_impl(store: Store, count: usize) {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: crate::DBCol = crate::DBCol::Peers;
+        const COLUMN: DBCol = DBCol::Peers;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
@@ -680,7 +711,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        let (_tmp_dir, opener) = crate::Store::test_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         test_iter_order_impl(opener.open(), 10_000);
     }
 
