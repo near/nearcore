@@ -268,7 +268,7 @@ impl DBCol {
     /// A reference-counted column is one where we store additional 8-byte value
     /// at the end of the payload with the current reference counter value.  For
     /// such columns you must not use `set`, `set_ser` or `delete` operations,
-    /// but 'increase_refcount' and `decrease_refcount` instead.
+    /// but 'increment_refcount' and `decrement_refcount` instead.
     ///
     /// Under the hood, we’re using custom merge operator (`refcount_merge`) to
     /// properly ‘join’ the refcounted cells.  This means that the 'value' for
@@ -277,13 +277,13 @@ impl DBCol {
     /// Example:
     ///
     /// ```ignore
-    /// increase_refcount("foo", "bar");
+    /// increment_refcount("foo", "bar");
     /// // good - after this call, the RC will be equal to 3.
-    /// increase_refcount_by("foo", "bar", 2);
+    /// increment_refcount_by("foo", "bar", 2);
     /// // bad - the value is still 'bar'.
-    /// increase_refcount("foo", "baz");
+    /// increment_refcount("foo", "baz");
     /// // ok - the value will be removed now. (as rc == 0)
-    /// decrease_refcount_by("foo", "", 3)
+    /// decrement_refcount_by("foo", "", 3)
     /// ```
     ///
     /// Quick note on negative refcounts: if we have a key that ends up having
@@ -293,8 +293,8 @@ impl DBCol {
     /// Example:
     ///
     /// ```ignore
-    /// increase_refcount("a", "b");
-    /// decrease_refcount_by("a", 3);
+    /// increment_refcount("a", "b");
+    /// decrement_refcount_by("a", 3);
     /// // Now we have the entry in the database with key "a", empty payload and
     /// // refcount value of -2,
     /// ```

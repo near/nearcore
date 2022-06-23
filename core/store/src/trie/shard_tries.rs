@@ -164,7 +164,7 @@ impl ShardTries {
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.decrease_refcount_by(DBCol::State, key.as_ref(), rc);
+            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), rc);
         }
     }
 
@@ -186,7 +186,7 @@ impl ShardTries {
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.increase_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, rc);
+            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, rc);
         }
     }
 
@@ -285,7 +285,7 @@ impl ShardTries {
                 shard_uid,
                 &trie_node_or_value_hash,
             );
-            store_update.increase_refcount_by(DBCol::State, key.as_ref(), &trie_node_or_value, rc);
+            store_update.increment_refcount_by(DBCol::State, key.as_ref(), &trie_node_or_value, rc);
         }
         (store_update, trie_changes.new_root)
     }

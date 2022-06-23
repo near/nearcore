@@ -188,6 +188,11 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
+    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+        Some(num) => num,
+        None => panic!(),
+    };
+
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
@@ -223,13 +228,13 @@ impl StoreUpdate {
     /// Inserts a new reference-counted value or increases its reference count
     /// if it’s already there.
     ///
-    /// It is a programming error if `increase_refcount_by` supplies a different
+    /// It is a programming error if `increment_refcount_by` supplies a different
     /// value than the one stored in the database.  It may lead to data
     /// corruption or panics.
     ///
     /// Panics if this is used for columns which are not reference-counted
     /// (see [`DBCol::is_rc`]).
-    pub fn increase_refcount_by(
+    pub fn increment_refcount_by(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -241,10 +246,9 @@ impl StoreUpdate {
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
 
-    /// Same as `self.increase_refcount_by(column, key, data, 1)`.
-    pub fn increase_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
-        const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
-        self.increase_refcount_by(column, key, data, ONE)
+    /// Same as `self.increment_refcount_by(column, key, data, 1)`.
+    pub fn increment_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
+        self.increment_refcount_by(column, key, data, Self::ONE)
     }
 
     /// Decreases value of an existing reference-counted value.
@@ -254,7 +258,7 @@ impl StoreUpdate {
     ///
     /// Panics if this is used for columns which are not reference-counted
     /// (see [`DBCol::is_rc`]).
-    pub fn decrease_refcount_by(
+    pub fn decrement_refcount_by(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -265,20 +269,19 @@ impl StoreUpdate {
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
-    /// Same as `self.decrease_refcount_by(column, key, 1)`.
-    pub fn decrease_refcount(&mut self, column: DBCol, key: &[u8]) {
-        const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
-        self.decrease_refcount_by(column, key, ONE)
+    /// Same as `self.decrement_refcount_by(column, key, 1)`.
+    pub fn decrement_refcount(&mut self, column: DBCol, key: &[u8]) {
+        self.decrement_refcount_by(column, key, Self::ONE)
     }
 
     /// Modifies a value in the database.
     ///
-    /// Unlike `insert`, `increase_refcount` or `decrease_refcount`, arbitrary
+    /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
     /// modifications are allowed, and extra care must be taken to aviod
     /// consistency anomalies.
     ///
     /// Must not be used for reference-counted columns; use
-    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
@@ -287,7 +290,7 @@ impl StoreUpdate {
     /// Saves a BorshSerialized value.
     ///
     /// Must not be used for reference-counted columns; use
-    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -313,7 +316,7 @@ impl StoreUpdate {
     /// Deletes the given key from the database.
     ///
     /// Must not be used for reference-counted columns; use
-    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());

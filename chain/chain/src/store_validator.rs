@@ -180,7 +180,7 @@ impl StoreValidator {
                     // EpochInfo for current Epoch id of Block exists
                     self.check(&validate::block_epoch_exists, &block_hash, &block, col);
                     // Increase Block Refcount
-                    self.check(&validate::block_increase_refcount, &block_hash, &block, col);
+                    self.check(&validate::block_increment_refcount, &block_hash, &block, col);
                 }
                 DBCol::BlockHeight => {
                     let height = BlockHeight::try_from_slice(key_ref)?;

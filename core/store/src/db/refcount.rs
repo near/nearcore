@@ -87,7 +87,7 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
 
 /// Encode a positive reference count into the value.
 pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
-    let rc = std::num::NonZeroI64::from(rc).get();
+    let rc = i64::from(rc.get());
     let mut value = Vec::with_capacity(data.len() + 8);
     value.extend_from_slice(data);
     value.extend_from_slice(&rc.to_le_bytes());
@@ -98,7 +98,8 @@ pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Ve
 ///
 /// `rc` gives the absolute value of the reference count.
 pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
-    (-(rc.get() as i64)).to_le_bytes().to_vec()
+    let rc = -i64::from(rc.get());
+    rc.to_le_bytes().to_vec()
 }
 
 /// Merge reference counted values together.
