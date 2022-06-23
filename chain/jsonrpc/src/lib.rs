@@ -1207,8 +1207,7 @@ impl JsonRpcHandler {
     }
 
     async fn adv_set_routing_table(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let request =
-            near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
+        let request = near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
         self.peer_manager_addr
             .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
                 near_network::test_utils::SetRoutingTable {
