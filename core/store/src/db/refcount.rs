@@ -113,7 +113,7 @@ pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
 /// Assumes that all provided values with positive reference count have the same
 /// value so that the function is free to pick any of the values.  In build with
 /// debug assertions panics if this is not true.
-fn merge<'a>(
+fn refcount_merge<'a>(
     existing: Option<&'a [u8]>,
     operands: impl std::iter::IntoIterator<Item = &'a [u8]>,
 ) -> Option<Vec<u8>> {
@@ -169,7 +169,7 @@ impl RocksDB {
         existing: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
-        merge(existing, operands)
+        self::refcount_merge(existing, operands)
     }
 
     /// Compaction filter for DBCol::State
@@ -247,13 +247,13 @@ mod test {
     }
 
     #[test]
-    fn merge() {
+    fn refcount_merge() {
         fn test(want: &[u8], operands: &[&[u8]]) {
             let it = operands.into_iter().copied();
-            assert_eq!(want, super::merge(None, it).unwrap().as_slice());
+            assert_eq!(want, super::refcount_merge(None, it).unwrap().as_slice());
             if !operands.is_empty() {
                 let it = operands[1..].into_iter().copied();
-                assert_eq!(want, &super::merge(Some(operands[0]), it).unwrap());
+                assert_eq!(want, &super::refcount_merge(Some(operands[0]), it).unwrap());
             }
         }
 
