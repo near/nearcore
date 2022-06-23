@@ -1,5 +1,4 @@
 use super::StoreConfig;
-use crate::db::refcount::merge_refcounted_records;
 use crate::{metrics, DBCol};
 use near_primitives::version::DbVersion;
 use once_cell::sync::Lazy;
@@ -432,12 +431,17 @@ impl Database for TestDB {
                     db[col].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    let mut val = db[col].get(&key).cloned().unwrap_or_default();
-                    merge_refcounted_records(&mut val, &value);
-                    if !val.is_empty() {
-                        db[col].insert(key, val);
-                    } else {
+                    let existing = db[col].get(&key).map(Vec::as_slice);
+                    let operands = std::iter::once(value.as_slice());
+                    let merged = refcount::refcount_merge(existing, operands);
+                    if merged.is_empty() {
                         db[col].remove(&key);
+                    } else {
+                        debug_assert!(
+                            refcount::decode_value_with_rc(&merged).1 > 0,
+                            "Inserting value with non-positive refcount"
+                        );
+                        db[col].insert(key, merged);
                     }
                 }
                 DBOp::Delete { col, key } => {
