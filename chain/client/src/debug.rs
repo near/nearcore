@@ -6,7 +6,10 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, ChainStoreAccess};
-use near_client_primitives::debug::{DebugStatus, DebugStatusResponse, ValidatorStatus, ProductionAtHeight, BlockProduction, ChunkProduction};
+use near_client_primitives::debug::{
+    BlockProduction, ChunkProduction, DebugStatus, DebugStatusResponse, ProductionAtHeight,
+    ValidatorStatus,
+};
 use near_client_primitives::types::Error;
 use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
@@ -14,7 +17,7 @@ use near_client_primitives::{
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -22,7 +25,7 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 
@@ -277,8 +280,7 @@ impl ClientActor {
                     .client
                     .runtime_adapter
                     .get_block_producer(block.header().epoch_id(), height)
-                    .map(|account| account.to_string())
-                    .unwrap_or_default();
+                    .ok();
                 blocks_debug.push(DebugBlockStatus {
                     block_hash: CryptoHash::default(),
                     block_height: height,
@@ -294,8 +296,7 @@ impl ClientActor {
                 .client
                 .runtime_adapter
                 .get_block_producer(block.header().epoch_id(), block.header().height())
-                .map(|f| f.to_string())
-                .unwrap_or_default();
+                .ok();
 
             let chunks = block
                 .chunks()
@@ -311,8 +312,7 @@ impl ClientActor {
                             block.header().height(),
                             chunk.shard_id(),
                         )
-                        .map(|f| f.to_string())
-                        .unwrap_or_default(),
+                        .ok(),
                     gas_used: chunk.gas_used(),
                     processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
                         .map(|s| s.as_millis() as u64),
@@ -340,11 +340,9 @@ impl ClientActor {
         Ok(blocks_debug)
     }
 
-    /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be 
+    /// Returns debugging information about the validator - including things like which approvals were received, which blocks/chunks will be
     /// produced and some detailed timing information.
-    fn get_validator_status(
-        &mut self,
-    ) -> Result<ValidatorStatus, near_chain_primitives::Error> {
+    fn get_validator_status(&mut self) -> Result<ValidatorStatus, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
         let mut production_map: HashMap<BlockHeight, ProductionAtHeight> = HashMap::new();
 
@@ -354,8 +352,13 @@ impl ClientActor {
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
             // and new blocks (up to the current height for which we've sent approval).
 
-            let max_height = std::cmp::min(std::cmp::max(head.height, self.client.doomslug.get_largest_target_height()), DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW);
-            for height in head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height {
+            let max_height = std::cmp::min(
+                std::cmp::max(head.height, self.client.doomslug.get_largest_target_height()),
+                DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW,
+            );
+            for height in
+                head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height
+            {
                 let mut production = ProductionAtHeight::default();
                 // For each height - we want to collect information about received approvals.
                 production.approvals = self.client.doomslug.approval_status_at_height(&height);
@@ -368,37 +371,68 @@ impl ClientActor {
                     .map(|f| f.to_string())
                     .unwrap_or_default();
 
-                if block_producer == validator_id {                    
-                    production.block_production = self.client.block_production_times.get(&height).cloned().or(Some(BlockProduction::default()));
+                if block_producer == validator_id {
+                    production.block_production = self
+                        .client
+                        .block_production_times
+                        .get(&height)
+                        .cloned()
+                        .or(Some(BlockProduction::default()));
                 }
 
                 for shard_id in 0..self.client.runtime_adapter.num_shards(&head.epoch_id)? {
-                    let chunk_producer = self.client.runtime_adapter.get_chunk_producer(&head.epoch_id, height, shard_id).map(|f| f.to_string()).unwrap_or_default();
+                    let chunk_producer = self
+                        .client
+                        .runtime_adapter
+                        .get_chunk_producer(&head.epoch_id, height, shard_id)
+                        .map(|f| f.to_string())
+                        .unwrap_or_default();
                     if chunk_producer == validator_id {
-                        production.chunk_production.insert(shard_id, ChunkProduction {
-                            chunk_production_duration_millis: self.client.chunk_production_times.get(&(height, shard_id)).map(|i| i.as_millis() as u64),
-                            chunk_production_time: None,
-                        });
+                        production.chunk_production.insert(
+                            shard_id,
+                            ChunkProduction {
+                                chunk_production_duration_millis: self
+                                    .client
+                                    .chunk_production_times
+                                    .get(&(height, shard_id))
+                                    .map(|i| i.as_millis() as u64),
+                                chunk_production_time: None,
+                            },
+                        );
                     }
                 }
                 production_map.insert(height, production);
             }
         }
 
-        Ok(ValidatorStatus{
-            validator_name: self.client.validator_signer.as_ref().map(|signer| signer.validator_id().to_string()),
+        Ok(ValidatorStatus {
+            validator_name: self
+                .client
+                .validator_signer
+                .as_ref()
+                .map(|signer| signer.validator_id().clone()),
             // TODO: this might not work correctly when we're at the epoch boundary (as it will just return the validators for the current epoch).
             // We can fix it in the future, if we see that this debug page is useful.
-            validators: self.client.runtime_adapter.get_epoch_block_approvers_ordered(&head.last_block_hash).map(|validators|
-                validators.iter().map(|validator| {
-                    (validator.0.account_id.to_string(), (validator.0.stake_this_epoch / u128::pow(10, 24)) as u64)
-                }).collect::<Vec<(String, u64)>>()
-            ).ok(),
+            validators: self
+                .client
+                .runtime_adapter
+                .get_epoch_block_approvers_ordered(&head.last_block_hash)
+                .map(|validators| {
+                    validators
+                        .iter()
+                        .map(|validator| {
+                            (
+                                validator.0.account_id.clone(),
+                                (validator.0.stake_this_epoch / u128::pow(10, 24)) as u64,
+                            )
+                        })
+                        .collect::<Vec<(AccountId, u64)>>()
+                })
+                .ok(),
             head_height: head.height,
             shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
             production: production_map,
         })
-
     }
 }

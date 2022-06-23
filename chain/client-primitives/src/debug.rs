@@ -7,7 +7,11 @@ use crate::types::{StatusError, SyncStatus};
 use actix::Message;
 use chrono::DateTime;
 use near_primitives::{
-    hash::CryptoHash, sharding::ChunkHash, types::BlockHeight, views::ValidatorInfo, block_header::ApprovalInner,
+    block_header::ApprovalInner,
+    hash::CryptoHash,
+    sharding::ChunkHash,
+    types::{AccountId, BlockHeight},
+    views::ValidatorInfo,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +39,7 @@ pub struct EpochInfoView {
 pub struct DebugChunkStatus {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
-    pub chunk_producer: String,
+    pub chunk_producer: Option<AccountId>,
     pub gas_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
@@ -46,7 +50,7 @@ pub struct DebugChunkStatus {
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
     pub block_height: u64,
-    pub block_producer: String,
+    pub block_producer: Option<AccountId>,
     pub chunks: Vec<DebugChunkStatus>,
     // Time that was spent processing a given block.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,7 +74,7 @@ pub struct ApprovalHistoryEntry {
     // The moment when we were ready to send this approval (or skip)
     pub timer_started_ago_millis: u64,
     // But we had to wait at least this long before doing it.
-    pub expected_delay_millis: u64, 
+    pub expected_delay_millis: u64,
 }
 
 // Information about chunk produced by this node.
@@ -82,7 +86,7 @@ pub struct ChunkProduction {
     pub chunk_production_time: Option<DateTime<chrono::Utc>>,
     // How long did the chunk production take (reed solomon encoding, preparing fragments etc.)
     // Doesn't include network latency.
-    pub chunk_production_duration_millis: Option<u64>
+    pub chunk_production_duration_millis: Option<u64>,
 }
 // Information about the block produced by this node.
 // For debug purposes only.
@@ -90,9 +94,9 @@ pub struct ChunkProduction {
 #[derive(Serialize, Debug, Default, Clone)]
 pub struct BlockProduction {
     // Time at which we received chunk for given shard.
-    pub chunks_collection_time: Vec<Option<DateTime<chrono::Utc>>>, 
+    pub chunks_collection_time: Vec<Option<DateTime<chrono::Utc>>>,
     // Time when we produced the block.
-    pub block_production_time: Option<DateTime<chrono::Utc>> ,
+    pub block_production_time: Option<DateTime<chrono::Utc>>,
 }
 
 // Information about things related to block/chunk production
@@ -114,7 +118,7 @@ pub struct ProductionAtHeight {
 #[derive(Serialize, Debug)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
-    pub approvals: HashMap<String, (ApprovalInner, Option<DateTime<chrono::Utc>>)>,
+    pub approvals: HashMap<AccountId, (ApprovalInner, Option<DateTime<chrono::Utc>>)>,
     // Time at which we received 2/3 approvals (doomslug threshold).
     pub ready_at: Option<DateTime<chrono::Utc>>,
 }
@@ -122,13 +126,13 @@ pub struct ApprovalAtHeightStatus {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug)]
 pub struct ValidatorStatus {
-    pub validator_name: Option<String>,
+    pub validator_name: Option<AccountId>,
     // Current number of shards
     pub shards: u64,
     // Current height.
     pub head_height: u64,
     // Current validators with their stake (stake is in NEAR - not yoctonear).
-    pub validators: Option<Vec<(String, u64)>>,
+    pub validators: Option<Vec<(AccountId, u64)>>,
     // All approvals that we've sent.
     pub approval_history: Vec<ApprovalHistoryEntry>,
     // Blocks & chunks that we've produced or about to produce.

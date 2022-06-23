@@ -64,7 +64,8 @@ pub struct EncodedChunksCache {
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers: HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
+    block_hash_to_chunk_headers:
+        HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -276,8 +277,7 @@ impl EncodedChunksCache {
     /// new blocks in between.
     pub fn get_chunk_headers_for_block(
         &self,
-        prev_block_hash: &CryptoHash
-
+        prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
         self.block_hash_to_chunk_headers
             .get(prev_block_hash)

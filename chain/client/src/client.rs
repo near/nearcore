@@ -445,7 +445,7 @@ impl Client {
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
-        
+
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -514,16 +514,20 @@ impl Client {
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
-
         // Add debug information about the block production (and info on when did the chunks arrive).
-        self.block_production_times.put(next_height, BlockProduction {
-            block_production_time: Some(chrono::Utc::now()),
-            chunks_collection_time: (0..(chunks.len().clone())).map(|shard_id| {
-                new_chunks.get(&(shard_id.clone() as u64)).and_then(|(_, arrival_time)| {
-                    Some(arrival_time.clone())
-                })
-            }).collect::<Vec<_>>()
-        });
+        self.block_production_times.put(
+            next_height,
+            BlockProduction {
+                block_production_time: Some(chrono::Utc::now()),
+                chunks_collection_time: (0..(chunks.len().clone()))
+                    .map(|shard_id| {
+                        new_chunks
+                            .get(&(shard_id.clone() as u64))
+                            .and_then(|(_, arrival_time)| Some(arrival_time.clone()))
+                    })
+                    .collect::<Vec<_>>(),
+            },
+        );
 
         // Collect new chunks.
         for (shard_id, (mut chunk_header, _)) in new_chunks {

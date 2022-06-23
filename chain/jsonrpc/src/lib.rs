@@ -936,7 +936,9 @@ impl JsonRpcHandler {
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
-                "/debug/api/validator_status" => self.client_send(DebugStatus::ValidatorStatus).await?,
+                "/debug/api/validator_status" => {
+                    self.client_send(DebugStatus::ValidatorStatus).await?
+                }
                 _ => return Ok(None),
             };
             return Ok(Some(debug_status.rpc_into()));

@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_client_primitives::debug::{ApprovalHistoryEntry, ApprovalAtHeightStatus};
+use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
@@ -227,10 +227,11 @@ impl DoomslugApprovalsTracker {
     }
 
     // Get witnesses together with their arrival time.
-    fn get_witnesses(&self) -> Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> {
-        self.witness.keys().map(|it| {
-            (it.to_string(), self.arrival_time.get(it).cloned())
-        }).collect::<Vec<_>>()
+    fn get_witnesses(&self) -> Vec<(AccountId, Option<chrono::DateTime<chrono::Utc>>)> {
+        self.witness
+            .keys()
+            .map(|it| (it.clone(), self.arrival_time.get(it).cloned()))
+            .collect::<Vec<_>>()
     }
 
     /// If a given Tracker is ready (the Threshold passed), returns the moment when it was ready the first time.
@@ -309,16 +310,26 @@ impl DoomslugApprovalsTrackersAtHeight {
     /// Returns the current approvals status for the trackers at this height.
     /// Status contains information about which account voted (and for what) and whether the doomslug voting threshold was reached.
     pub fn status(&self) -> ApprovalAtHeightStatus {
-        let approvals = self.approval_trackers.iter().map(|tracker| {
-            let witnesses = tracker.1.get_witnesses();
-            witnesses.into_iter().map(|(account_name, approval_time)| {
-                (account_name, (tracker.0.clone(), approval_time))
+        let approvals = self
+            .approval_trackers
+            .iter()
+            .map(|tracker| {
+                let witnesses = tracker.1.get_witnesses();
+                witnesses.into_iter().map(|(account_name, approval_time)| {
+                    (account_name, (tracker.0.clone(), approval_time))
+                })
             })
-        }).flatten().collect::<HashMap<_, _>>();
+            .flatten()
+            .collect::<HashMap<_, _>>();
 
-        let threshold_approval = self.approval_trackers.iter().filter_map(|(_, tracker)| {
-            tracker.ready_since()
-        }).min().map(|ts| chrono::Utc::now() - chrono::Duration::milliseconds(ts.elapsed().as_millis() as i64));
+        let threshold_approval = self
+            .approval_trackers
+            .iter()
+            .filter_map(|(_, tracker)| tracker.ready_since())
+            .min()
+            .map(|ts| {
+                chrono::Utc::now() - chrono::Duration::milliseconds(ts.elapsed().as_millis() as i64)
+            });
         ApprovalAtHeightStatus { approvals, ready_at: threshold_approval }
     }
 }
@@ -351,7 +362,7 @@ impl Doomslug {
             },
             signer,
             threshold_mode,
-            history: VecDeque::new()
+            history: VecDeque::new(),
         }
     }
 
@@ -390,7 +401,7 @@ impl Doomslug {
 
     /// Returns currently available approval history.
     pub fn get_approval_history(&self) -> Vec<ApprovalHistoryEntry> {
-       self.history.iter().map(|x| x.clone()).collect::<Vec<_>>()
+        self.history.iter().map(|x| x.clone()).collect::<Vec<_>>()
     }
 
     /// Adds new approval to the history.
@@ -442,7 +453,11 @@ impl Doomslug {
                     self.update_history(ApprovalHistoryEntry {
                         parent_height: tip_height,
                         target_height: tip_height + 1,
-                        timer_started_ago_millis: self.timer.last_endorsement_sent.elapsed().as_millis() as u64,
+                        timer_started_ago_millis: self
+                            .timer
+                            .last_endorsement_sent
+                            .elapsed()
+                            .as_millis() as u64,
                         expected_delay_millis: self.timer.endorsement_delay.as_millis() as u64,
                         approval_creation_time: chrono::Utc::now(),
                     });
@@ -565,8 +580,10 @@ impl Doomslug {
         self.timer.height = height + 1;
         self.timer.started = now;
 
-        self.approval_tracking
-            .retain(|h, _| *h > height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS) && *h <= height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS);
+        self.approval_tracking.retain(|h, _| {
+            *h > height.saturating_sub(MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS)
+                && *h <= height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
+        });
 
         self.endorsement_pending = true;
     }
@@ -616,7 +633,10 @@ impl Doomslug {
     /// Gets the current status of approvals for a given height.
     /// It will only work for heights that we have in memory, that is that are not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS
     /// blocks from the head.
-    pub fn approval_status_at_height(&self, height:&BlockHeight) -> Option<ApprovalAtHeightStatus> {
+    pub fn approval_status_at_height(
+        &self,
+        height: &BlockHeight,
+    ) -> Option<ApprovalAtHeightStatus> {
         self.approval_tracking.get(height).and_then(|it| Some(it.status()))
     }
 
