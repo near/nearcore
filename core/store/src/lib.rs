@@ -26,10 +26,8 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
-pub use crate::db::refcount::decode_value_with_rc;
-use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    refcount, DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -190,6 +188,11 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
+    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+        Some(num) => num,
+        None => panic!(),
+    };
+
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, tries: None }
@@ -222,28 +225,72 @@ impl StoreUpdate {
         Ok(())
     }
 
-    /// Inserts a new reference-counted value into the database, or adjusts its
-    /// reference count if it is already there.
+    /// Inserts a new reference-counted value or increases its reference count
+    /// if it’s already there.
     ///
-    /// It is a programming error if `update_refcount` supplies a different
-    /// value than the one stored in te database. Use it for rc columns.
-    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+    /// It is a programming error if `increment_refcount_by` supplies a different
+    /// value than the one stored in the database.  It may lead to data
+    /// corruption or panics.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn increment_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        data: &[u8],
+        increase: std::num::NonZeroU32,
+    ) {
         assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = encode_value_with_rc(value, rc_delta);
+        let value = refcount::add_positive_refcount(data, increase);
+        self.transaction.update_refcount(column, key.to_vec(), value);
+    }
+
+    /// Same as `self.increment_refcount_by(column, key, data, 1)`.
+    pub fn increment_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
+        self.increment_refcount_by(column, key, data, Self::ONE)
+    }
+
+    /// Decreases value of an existing reference-counted value.
+    ///
+    /// Since decrease of reference count is encoded without the data, only key
+    /// and reference count delta arguments are needed.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn decrement_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        decrease: std::num::NonZeroU32,
+    ) {
+        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
+    }
+
+    /// Same as `self.decrement_refcount_by(column, key, 1)`.
+    pub fn decrement_refcount(&mut self, column: DBCol, key: &[u8]) {
+        self.decrement_refcount_by(column, key, Self::ONE)
     }
 
     /// Modifies a value in the database.
     ///
-    /// Unlike `insert` or `update_refcount`, arbitrary modifications are
-    /// allowed, and extra care must be taken to aviod consistency anomalies.
+    /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
+    /// modifications are allowed, and extra care must be taken to aviod
+    /// consistency anomalies.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
     /// Saves a BorshSerialized value.
-    /// Must not be used for RC columns - please use 'update_refcount' instead.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -267,7 +314,9 @@ impl StoreUpdate {
     }
 
     /// Deletes the given key from the database.
-    /// Must not be used for RC columns (use update_refcount instead).
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());
