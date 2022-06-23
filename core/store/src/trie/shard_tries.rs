@@ -155,19 +155,16 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         store_update.tries = Some(tries);
-        for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
-            deletions.iter()
-        {
+        for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+            let rc = match std::num::NonZeroU32::new(*rc) {
+                None => continue,
+                Some(rc) => rc,
+            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.update_refcount(
-                DBCol::State,
-                key.as_ref(),
-                trie_node_or_value,
-                -(*rc as i64),
-            );
+            store_update.decrease_refcount_by(DBCol::State, key.as_ref(), rc);
         }
     }
 
@@ -181,16 +178,15 @@ impl ShardTries {
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
+            let rc = match std::num::NonZeroU32::new(*rc) {
+                None => continue,
+                Some(rc) => rc,
+            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.update_refcount(
-                DBCol::State,
-                key.as_ref(),
-                trie_node_or_value,
-                *rc as i64,
-            );
+            store_update.increase_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, rc);
         }
     }
 
@@ -281,16 +277,15 @@ impl ShardTries {
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             trie_changes.insertions.into_iter()
         {
+            let rc = match std::num::NonZeroU32::new(rc) {
+                None => continue,
+                Some(rc) => rc,
+            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 &trie_node_or_value_hash,
             );
-            store_update.update_refcount(
-                DBCol::State,
-                key.as_ref(),
-                &trie_node_or_value,
-                rc as i64,
-            );
+            store_update.increase_refcount_by(DBCol::State, key.as_ref(), &trie_node_or_value, rc);
         }
         (store_update, trie_changes.new_root)
     }

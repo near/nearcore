@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::compaction_filter::Decision;
 use rocksdb::MergeOperands;
 
@@ -66,16 +66,23 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     }
 }
 
-pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
-    if rc == 0 {
-        return vec![];
-    }
-    let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 8));
-    if rc > 0 {
-        cursor.write_all(data).unwrap();
-    }
-    cursor.write_i64::<LittleEndian>(rc).unwrap();
-    cursor.into_inner()
+/// Adds a positive reference count to the value.
+///
+/// This is roughly equivalent to `encode_value_with_rc(data, rc)`.
+pub(crate) fn add_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
+    let rc = std::num::NonZeroI64::from(rc).get();
+    let mut value = Vec::with_capacity(data.len() + 8);
+    value.extend_from_slice(data);
+    value.extend_from_slice(&rc.to_le_bytes());
+    value
+}
+
+/// Returns empty value with encoded negative reference count.
+///
+/// `rc` gives the absolute value of the reference count.  This is roughly
+/// equivalent to `encode_value_with_rc("", -rc)`.
+pub(crate) fn encode_refcount_decrease(rc: std::num::NonZeroU32) -> Vec<u8> {
+    (-(rc.get() as i64)).to_le_bytes().to_vec()
 }
 
 impl RocksDB {

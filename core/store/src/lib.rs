@@ -26,10 +26,8 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
-pub use crate::db::refcount::decode_value_with_rc;
-use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    refcount, DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -222,15 +220,43 @@ impl StoreUpdate {
         Ok(())
     }
 
-    /// Inserts a new reference-counted value into the database, or adjusts its
-    /// reference count if it is already there.
+    /// Inserts a new reference-counted value or increases its reference count
+    /// if it’s already there.
     ///
     /// It is a programming error if `update_refcount` supplies a different
-    /// value than the one stored in te database. Use it for rc columns.
-    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+    /// value than the one stored in te database.  Use it for rc columns.
+    pub fn increase_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        data: &[u8],
+        increase: std::num::NonZeroU32,
+    ) {
         assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = encode_value_with_rc(value, rc_delta);
+        let value = refcount::add_refcount(data, increase);
+        self.transaction.update_refcount(column, key.to_vec(), value);
+    }
+
+    pub fn increase_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
+        const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
+        self.increase_refcount_by(column, key, data, ONE)
+    }
+
+    /// Decreases value of an existing reference-counted value.
+    pub fn decrease_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        decrease: std::num::NonZeroU32,
+    ) {
+        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        let value = refcount::encode_refcount_decrease(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
+    }
+
+    pub fn decrease_refcount(&mut self, column: DBCol, key: &[u8]) {
+        const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
+        self.decrease_refcount_by(column, key, ONE)
     }
 
     /// Modifies a value in the database.

@@ -17,7 +17,7 @@ use std::sync::{Condvar, Mutex, RwLock};
 use strum::IntoEnumIterator;
 use tracing::{error, info, warn};
 
-pub(crate) mod refcount;
+pub mod refcount;
 
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
 
@@ -805,9 +805,9 @@ mod tests {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(DBCol::State, &[1], &[1], 1);
-            store_update.update_refcount(DBCol::State, &[2], &[2], 1);
-            store_update.update_refcount(DBCol::State, &[3], &[3], 1);
+            store_update.increase_refcount(DBCol::State, &[1], &[1]);
+            store_update.increase_refcount(DBCol::State, &[2], &[2]);
+            store_update.increase_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
@@ -828,12 +828,12 @@ mod tests {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(DBCol::State, &[1], &[1], 1);
+            store_update.increase_refcount(DBCol::State, &[1], &[1]);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(DBCol::State, &[1], &[1], 1);
+            store_update.increase_refcount(DBCol::State, &[1], &[1]);
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
@@ -843,7 +843,7 @@ mod tests {
         );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(DBCol::State, &[1], &[1], -1);
+            store_update.decrease_refcount(DBCol::State, &[1]);
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
@@ -853,7 +853,7 @@ mod tests {
         );
         {
             let mut store_update = store.store_update();
-            store_update.update_refcount(DBCol::State, &[1], &[1], -1);
+            store_update.decrease_refcount(DBCol::State, &[1]);
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None

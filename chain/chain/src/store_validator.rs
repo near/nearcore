@@ -20,7 +20,8 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_store::{decode_value_with_rc, DBCol, Store, TrieChanges};
+use near_store::db::refcount;
+use near_store::{DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
@@ -313,12 +314,12 @@ impl StoreValidator {
                     self.check(&validate::gc_col_count, &col, &count, col);
                 }
                 DBCol::Transactions => {
-                    let (_value, rc) = decode_value_with_rc(value_ref);
+                    let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::tx_refcount, &tx_hash, &(rc as u64), col);
                 }
                 DBCol::Receipts => {
-                    let (_value, rc) = decode_value_with_rc(value_ref);
+                    let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let receipt_id = CryptoHash::try_from(key_ref)?;
                     self.check(&validate::receipt_refcount, &receipt_id, &(rc as u64), col);
                 }
