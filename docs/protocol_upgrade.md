@@ -83,5 +83,5 @@ In this pull request, they should the feature gating, increase the `PROTOCOL_VER
 and change the `protocol_version` implementation to map the stabilized features to the new protocol version.
 
 A feature stabilization request must be approved by at least **two** [nearcore code owners](https://github.com/orgs/near/teams/nearcore-codeowners)
-Unless it is a security related fix, a protocol feature cannot be released until at least **one** week after its stabilization.
+Unless it is a security related fix, a protocol feature cannot be included in any release until at least **one** week after its stabilization.
 This is to ensure that feature implementation and stabilization are not rushed.
