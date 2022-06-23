@@ -248,27 +248,15 @@ pub struct TestDB {
 }
 
 pub(crate) trait Database: Sync + Send {
-    /// Returns value for given `key` or `None` if it doesn’t exist in the db.
+    /// Returns raw bytes for given `key` ignoring any reference count decoding
+    /// if any.
     ///
-    /// When reading reference-counted column, the reference count will be
-    /// correctly stripped.  Furthermore, elements with non-positive reference
-    /// count will be treated as non-existing (i.e. the function will return
-    /// `None` for such cells).  For all other columns, the value is returned
-    /// directly from the database.
-    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.get_raw_bytes(col, key).map(|result| refcount::get_with_rc_logic(col, result))
-    }
-
-    /// Returns value for given `key` bypassing reference count decoding if any.
+    /// Note that when reading reference-counted column, the reference count
+    /// will not be decoded or stripped from the value.  Similarly, cells with
+    /// non-positive reference count will be returned as existing.
     ///
-    /// This is like [`Self::get`] but it returns raw bytes as stored in the
-    /// database.  For reference-counted columns this means that the reference
-    /// count will not be decoded or stripped from returned value and elements
-    /// with non-positive reference count will be returned.
-    ///
-    /// If in doubt, use [`Self::get`] instead.  Unless you’re doing something
-    /// low-level with the database (e.g. doing a migration), you probably don’t
-    /// want this method.
+    /// You most likely will want to use [`refcount::get_with_rc_logic`] to
+    /// properly handle reference-counted columns.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
 
     /// Iterate over all items in given column in lexicographical order sorted
@@ -388,7 +376,7 @@ impl Database for RocksDB {
                 }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
-                        if let Ok(Some(old_value)) = self.get(col, &key) {
+                        if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
                             assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
@@ -660,7 +648,7 @@ impl RocksDB {
     /// Returns version of the database state on disk.
     pub fn get_version(path: &Path) -> io::Result<DbVersion> {
         let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
-            .get(DBCol::DbVersion, VERSION_KEY)?
+            .get_raw_bytes(DBCol::DbVersion, VERSION_KEY)?
             .ok_or_else(|| {
                 other_error(
                     "Failed to read database version; \

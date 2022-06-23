@@ -79,7 +79,9 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage.get(column, key)
+        self.storage
+            .get_raw_bytes(column, key)
+            .map(|result| refcount::get_with_rc_logic(column, result))
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
