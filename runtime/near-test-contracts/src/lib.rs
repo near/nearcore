@@ -79,6 +79,23 @@ pub fn fuzzing_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
 }
 
+/// Smallest (reasonable) contract possible to build from Rust code.
+pub fn smallest_rs_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("smallest_contract")).as_slice()
+}
+
+/// Contract that has all methods required by the gas parameter estimator.
+pub fn estimator_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    let file_name = if cfg!(feature = "nightly") {
+        "nightly_estimator_contract.wasm"
+    } else {
+        "stable_estimator_contract.wasm"
+    };
+    CONTRACT.get_or_init(|| read_contract(file_name)).as_slice()
+}
+
 /// Read given wasm file or panic if unable to.
 fn read_contract(file_name: &str) -> Vec<u8> {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));

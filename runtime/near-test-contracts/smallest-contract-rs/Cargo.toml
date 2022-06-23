@@ -1,5 +1,5 @@
 [package]
-name = "smallest-contract"
+name = "smallest-contract-rs"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
