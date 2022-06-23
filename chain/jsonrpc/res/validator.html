@@ -217,7 +217,7 @@
                 let thresholdApprovalTime = null;
 
                 // In case the current validator has received any approvals for this block.
-                if (entry.approvals != null) {
+                if (entry.approvals != null && !jQuery.isEmptyObject(entry.approvals.approvals)) {
                     let approvals = entry.approvals.approvals;
                     let approvalsMap = new Map();
                     let missingCount = 0;

@@ -352,9 +352,8 @@ impl ClientActor {
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
             // and new blocks (up to the current height for which we've sent approval).
 
-            let max_height = head.height.clamp(
-                head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW,
-                self.client.doomslug.get_largest_target_height(),
+            let max_height = self.client.doomslug.get_largest_target_height().clamp(
+                head.height, head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW
             );
 
             for height in
