@@ -113,7 +113,7 @@ mod test {
     use near_crypto::{KeyType, SecretKey};
     use near_network_primitives::types::{
         PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
-        RoutedMessageBody,
+        RoutedMessageBody, RoutedMessageV2,
     };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
@@ -214,17 +214,20 @@ mod test {
         let signature = sk.sign(hash.as_ref());
 
         let msg = PeerMessage::Routed(
-            RoutedMessage {
-                target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
-                author: PeerId::new(sk.public_key()),
-                signature: signature.clone(),
-                ttl: 100,
-                body: RoutedMessageBody::BlockApproval(Approval {
-                    account_id: "test2".parse().unwrap(),
-                    inner: ApprovalInner::Endorsement(CryptoHash::default()),
-                    target_height: 1,
-                    signature,
-                }),
+            RoutedMessageV2 {
+                msg: RoutedMessage {
+                    target: PeerIdOrHash::PeerId(PeerId::new(sk.public_key())),
+                    author: PeerId::new(sk.public_key()),
+                    signature: signature.clone(),
+                    ttl: 100,
+                    body: RoutedMessageBody::BlockApproval(Approval {
+                        account_id: "test2".parse().unwrap(),
+                        inner: ApprovalInner::Endorsement(CryptoHash::default()),
+                        target_height: 1,
+                        signature,
+                    }),
+                },
+                created_at: None,
             }
             .into(),
         );

@@ -102,7 +102,7 @@ impl ShardTries {
                 .clone()
         };
         let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
-        Trie::new(store, shard_uid)
+        Trie::new(store)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {

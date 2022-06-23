@@ -18,10 +18,10 @@ impl RpcFrom<StatusResponse> for RpcStatusResponse {
     }
 }
 
-impl RpcFrom<near_client_primitives::types::DebugStatusResponse>
+impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
     for near_jsonrpc_primitives::types::status::RpcDebugStatusResponse
 {
-    fn rpc_from(status_response: near_client_primitives::types::DebugStatusResponse) -> Self {
+    fn rpc_from(status_response: near_client_primitives::debug::DebugStatusResponse) -> Self {
         Self { status_response }
     }
 }

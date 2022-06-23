@@ -372,6 +372,7 @@ impl Client {
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         let known_height = self.chain.store().get_latest_known()?.height;
 
         let validator_signer = self
@@ -581,6 +582,10 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+        let _timer = metrics::PRODUCE_CHUNK_TIME
+            .with_label_values(&[&format!("{}", shard_id)])
+            .start_timer();
+        let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -941,7 +946,9 @@ impl Client {
                 self.chain
                     .blocks_delay_tracker
                     .mark_chunk_received(&header.chunk_hash(), Clock::instant());
+                // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
+                // If this was the last chunk that was missing for a block, it will be processed now.
                 self.process_blocks_with_missing_chunks()
             }
         }
@@ -1218,6 +1225,15 @@ impl Client {
                         .unwrap();
 
                     if chunk_proposer == *validator_signer.validator_id() {
+                        let _span = tracing::debug_span!(
+                            target: "client",
+                            "on_block_accepted_produce_chunk",
+                            prev_block_hash = ?*block.hash(),
+                            ?shard_id)
+                        .entered();
+                        let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
+                            .with_label_values(&[&format!("{}", shard_id)])
+                            .start_timer();
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
@@ -1233,6 +1249,7 @@ impl Client {
                                     merkle_paths,
                                     receipts,
                                     self.chain.mut_store(),
+                                    shard_id,
                                 )
                                 .expect("Failed to process produced chunk"),
                             Ok(None) => {}
