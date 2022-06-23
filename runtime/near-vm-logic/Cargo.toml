@@ -32,6 +32,7 @@ near-vm-errors = { path = "../near-vm-errors" }
 
 bn = { package = "zeropool-bn", version = "0.5.11", features = [] }
 tracing = { version = "0.1.13", optional = true}
+ed25519-dalek = { version = "1.0.1" }
 
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }
