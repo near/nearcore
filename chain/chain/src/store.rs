@@ -2692,7 +2692,11 @@ impl<'a> ChainStoreUpdate<'a> {
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions().iter() {
                 let bytes = tx.try_to_vec().expect("Borsh cannot fail");
-                store_update.increment_refcount(DBCol::Transactions, tx.get_hash().as_ref(), &bytes);
+                store_update.increment_refcount(
+                    DBCol::Transactions,
+                    tx.get_hash().as_ref(),
+                    &bytes,
+                );
             }
 
             // Increase receipt refcounts for all included receipts
