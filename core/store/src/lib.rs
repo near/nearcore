@@ -223,8 +223,12 @@ impl StoreUpdate {
     /// Inserts a new reference-counted value or increases its reference count
     /// if it’s already there.
     ///
-    /// It is a programming error if `update_refcount` supplies a different
-    /// value than the one stored in te database.  Use it for rc columns.
+    /// It is a programming error if `increase_refcount_by` supplies a different
+    /// value than the one stored in the database.  It may lead to data
+    /// corruption or panics.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
     pub fn increase_refcount_by(
         &mut self,
         column: DBCol,
@@ -233,16 +237,23 @@ impl StoreUpdate {
         increase: std::num::NonZeroU32,
     ) {
         assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = refcount::add_refcount(data, increase);
+        let value = refcount::add_positive_refcount(data, increase);
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
 
+    /// Same as `self.increase_refcount_by(column, key, data, 1)`.
     pub fn increase_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
         const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
         self.increase_refcount_by(column, key, data, ONE)
     }
 
     /// Decreases value of an existing reference-counted value.
+    ///
+    /// Since decrease of reference count is encoded without the data, only key
+    /// and reference count delta arguments are needed.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
     pub fn decrease_refcount_by(
         &mut self,
         column: DBCol,
@@ -250,10 +261,11 @@ impl StoreUpdate {
         decrease: std::num::NonZeroU32,
     ) {
         assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = refcount::encode_refcount_decrease(decrease);
+        let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
+    /// Same as `self.decrease_refcount_by(column, key, 1)`.
     pub fn decrease_refcount(&mut self, column: DBCol, key: &[u8]) {
         const ONE: std::num::NonZeroU32 = unsafe { std::num::NonZeroU32::new_unchecked(1) };
         self.decrease_refcount_by(column, key, ONE)
@@ -261,15 +273,21 @@ impl StoreUpdate {
 
     /// Modifies a value in the database.
     ///
-    /// Unlike `insert` or `update_refcount`, arbitrary modifications are
-    /// allowed, and extra care must be taken to aviod consistency anomalies.
+    /// Unlike `insert`, `increase_refcount` or `decrease_refcount`, arbitrary
+    /// modifications are allowed, and extra care must be taken to aviod
+    /// consistency anomalies.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
     /// Saves a BorshSerialized value.
-    /// Must not be used for RC columns - please use 'update_refcount' instead.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -293,7 +311,9 @@ impl StoreUpdate {
     }
 
     /// Deletes the given key from the database.
-    /// Must not be used for RC columns (use update_refcount instead).
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increase_refcount'] or [`Self::decrease_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());
