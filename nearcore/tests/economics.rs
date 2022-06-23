@@ -32,7 +32,7 @@ fn build_genesis() -> Genesis {
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
-    TestEnv::builder(ChainGenesis::from(&genesis))
+    TestEnv::builder(ChainGenesis::new(&genesis))
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,

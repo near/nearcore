@@ -81,7 +81,7 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage.get(column, key).map_err(io::Error::from)
+        self.storage.get(column, key)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -168,12 +168,12 @@ impl Store {
 
             transaction.set(column, key, value);
         }
-        self.storage.write(transaction).map_err(io::Error::from)
+        self.storage.write(transaction)
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
     pub fn flush(&self) -> io::Result<()> {
-        self.storage.flush().map_err(io::Error::from)
+        self.storage.flush()
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -315,7 +315,7 @@ impl StoreUpdate {
             assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
             tries.update_cache(&self.transaction)?;
         }
-        self.storage.write(self.transaction).map_err(io::Error::from)
+        self.storage.write(self.transaction)
     }
 }
 

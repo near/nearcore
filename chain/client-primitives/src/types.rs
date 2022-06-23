@@ -23,6 +23,10 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
     LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
     StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView, ValidatorStatus,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -346,36 +350,6 @@ pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
-}
-
-// Different debug requests that can be sent by HTML pages, via GET.
-pub enum DebugStatus {
-    // Request for the current sync status
-    SyncStatus,
-    // Request currently tracked shards
-    TrackedShards,
-    // Detailed information about last couple epochs.
-    EpochInfo,
-    // Detailed information about last couple blocks.
-    BlockStatus,
-    // Consensus related information.
-    ValidatorStatus,
-}
-
-impl Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
-}
-
-#[derive(Serialize, Debug)]
-pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
-    TrackedShards(TrackedShardsView),
-    // List of epochs - in descending order (next epoch is first).
-    EpochInfo(Vec<EpochInfoView>),
-    // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
-    // Detailed information about the validator (approvals, block & chunk production etc.)
-    ValidatorStatus(ValidatorStatus),
 }
 
 #[derive(thiserror::Error, Debug)]

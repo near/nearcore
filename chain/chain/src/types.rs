@@ -9,7 +9,7 @@ use near_primitives::time::Utc;
 use num_rational::Rational;
 
 use crate::DoomslugThresholdMode;
-use near_chain_configs::{GenesisConfig, ProtocolConfig};
+use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
@@ -232,23 +232,19 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
-impl<T> From<T> for ChainGenesis
-where
-    T: AsRef<GenesisConfig>,
-{
-    fn from(genesis_config: T) -> Self {
-        let genesis_config = genesis_config.as_ref();
+impl ChainGenesis {
+    pub fn new(genesis: &Genesis) -> Self {
         Self {
-            time: genesis_config.genesis_time,
-            height: genesis_config.genesis_height,
-            gas_limit: genesis_config.gas_limit,
-            min_gas_price: genesis_config.min_gas_price,
-            max_gas_price: genesis_config.max_gas_price,
-            total_supply: genesis_config.total_supply,
-            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
-            transaction_validity_period: genesis_config.transaction_validity_period,
-            epoch_length: genesis_config.epoch_length,
-            protocol_version: genesis_config.protocol_version,
+            time: genesis.config.genesis_time,
+            height: genesis.config.genesis_height,
+            gas_limit: genesis.config.gas_limit,
+            min_gas_price: genesis.config.min_gas_price,
+            max_gas_price: genesis.config.max_gas_price,
+            total_supply: genesis.config.total_supply,
+            gas_price_adjustment_rate: genesis.config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis.config.transaction_validity_period,
+            epoch_length: genesis.config.epoch_length,
+            protocol_version: genesis.config.protocol_version,
         }
     }
 }

@@ -1,6 +1,8 @@
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
+use crate::db::Mode;
+
 const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -119,8 +121,8 @@ pub struct StoreOpener<'a> {
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
 
-    /// Whether to open the storeg in read-only mode.
-    read_only: bool,
+    /// Which mode to open storeg in.
+    mode: Mode,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -128,12 +130,12 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
         let path =
             home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
-        Self { path, config, read_only: false }
+        Self { path, config, mode: Mode::ReadWrite }
     }
 
-    /// Configure whether the database should be opened in read-only mode.
-    pub fn read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
+    /// Configure which mode the database should be opened in.
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -143,9 +145,7 @@ impl<'a> StoreOpener<'a> {
     /// positives if some but not all database files exist.  In particular, this
     /// is not a guarantee that the database can be opened without an error.
     pub fn check_if_exists(&self) -> bool {
-        // TODO(mina86): Add some more checks.  At least check if CURRENT file
-        // exists.
-        std::fs::canonicalize(&self.get_path()).is_ok()
+        self.path.join("CURRENT").is_file()
     }
 
     /// Returns path to the underlying RocksDB database.
@@ -156,11 +156,12 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
-        std::fs::canonicalize(&self.path)
-            .ok()
-            .map(|path| crate::RocksDB::get_version(&path))
-            .transpose()
+    pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
+        if self.check_if_exists() {
+            Some(crate::RocksDB::get_version(&self.path)).transpose()
+        } else {
+            Ok(None)
+        }
     }
 
     /// Opens the RocksDB database.
@@ -168,15 +169,15 @@ impl<'a> StoreOpener<'a> {
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
     pub fn open(&self) -> crate::Store {
-        if std::fs::canonicalize(&self.path).is_ok() {
+        if self.check_if_exists() {
             tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
-        } else if self.read_only {
+        } else if matches!(self.mode, Mode::ReadOnly) {
             tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-            panic!("Failed to open non-existent the database");
+            panic!("Failed to open non-existent database for reading");
         } else {
             tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
         }
-        let db = crate::RocksDB::open(&self.path, &self.config, self.read_only)
+        let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
             .expect("Failed to open the database");
         crate::Store::new(std::sync::Arc::new(db))
     }

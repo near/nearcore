@@ -1360,6 +1360,31 @@ impl Chain {
         Ok(())
     }
 
+    /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
+    /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
+    fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
+        let mut hash = *block_header.hash();
+        let mut height = block_header.height();
+        let mut prev_hash = *block_header.prev_hash();
+        loop {
+            match self.get_block_hash_by_height(height) {
+                Ok(cur_hash) if cur_hash == hash => {
+                    // Found common ancestor.
+                    return Ok(());
+                }
+                _ => {
+                    if self.store.is_block_challenged(&hash)? {
+                        return Err(Error::ChallengedBlockOnChain);
+                    }
+                    let prev_header = self.get_block_header(&prev_hash)?;
+                    hash = *prev_header.hash();
+                    height = prev_header.height();
+                    prev_hash = *prev_header.prev_hash();
+                }
+            };
+        }
+    }
+
     pub fn ping_missing_chunks(
         &self,
         me: &Option<AccountId>,
@@ -1961,7 +1986,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
-    fn preprocess_block(
+    pub(crate) fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -2057,6 +2082,8 @@ impl Chain {
             } else {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
             };
+
+        self.check_if_challenged_block_on_chain(block.header())?;
 
         debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
 
@@ -2364,7 +2391,7 @@ impl Chain {
     }
 
     pub fn get_outgoing_receipts_for_shard(
-        &mut self,
+        &self,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_height_included: BlockHeight,
@@ -2378,7 +2405,7 @@ impl Chain {
     }
 
     pub fn get_state_response_header(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
@@ -2472,8 +2499,11 @@ impl Chain {
         };
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
-        let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
-            .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?;
+        let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            shard_id,
+            sync_hash,
+            prev_chunk_height_included,
+        )?;
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
@@ -2560,7 +2590,7 @@ impl Chain {
     }
 
     pub fn get_state_response_part(
-        &mut self,
+        &self,
         shard_id: ShardId,
         part_id: u64,
         sync_hash: CryptoHash,
@@ -2776,7 +2806,7 @@ impl Chain {
     }
 
     pub fn get_state_header(
-        &mut self,
+        &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
@@ -3028,14 +3058,14 @@ impl Chain {
     }
 
     pub fn get_transaction_execution_result(
-        &mut self,
+        &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         Ok(self.store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
     fn get_recursive_transaction_results(
-        &mut self,
+        &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
         let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
@@ -3048,7 +3078,7 @@ impl Chain {
     }
 
     pub fn get_final_transaction_result(
-        &mut self,
+        &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
@@ -3089,7 +3119,7 @@ impl Chain {
     }
 
     pub fn get_final_transaction_result_with_receipt(
-        &mut self,
+        &self,
         final_outcome: FinalExecutionOutcomeView,
     ) -> Result<FinalExecutionOutcomeWithReceiptView, Error> {
         let receipt_id_from_transaction =
@@ -3151,7 +3181,7 @@ impl Chain {
 
     /// Get all execution outcomes generated when the chunk are applied
     pub fn get_block_execution_outcomes(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
@@ -3161,7 +3191,7 @@ impl Chain {
         for chunk_header in chunk_headers {
             let shard_id = chunk_header.shard_id();
             let outcomes = self
-                .mut_store()
+                .store()
                 .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
                 .into_iter()
                 .flat_map(|id| {
@@ -3622,7 +3652,7 @@ impl Chain {
 
     /// Get node at given position (index, level). If the node does not exist, return `None`.
     fn get_merkle_tree_node(
-        &mut self,
+        &self,
         index: u64,
         level: u64,
         counter: u64,
@@ -3665,7 +3695,7 @@ impl Chain {
                 } else {
                     Some(
                         *self
-                            .mut_store()
+                            .store()
                             .get_block_merkle_tree_from_ordinal(cur_tree_size)?
                             .get_path()
                             .last()
@@ -3680,7 +3710,7 @@ impl Chain {
 
     /// Reconstruct node at given position (index, level). If the node does not exist, return `None`.
     fn reconstruct_merkle_tree_node(
-        &mut self,
+        &self,
         index: u64,
         level: u64,
         counter: u64,
@@ -3723,12 +3753,12 @@ impl Chain {
 
     /// Get merkle proof for block with hash `block_hash` in the merkle tree of `head_block_hash`.
     pub fn get_block_proof(
-        &mut self,
+        &self,
         block_hash: &CryptoHash,
         head_block_hash: &CryptoHash,
     ) -> Result<MerklePath, Error> {
-        let leaf_index = self.mut_store().get_block_merkle_tree(block_hash)?.size();
-        let tree_size = self.mut_store().get_block_merkle_tree(head_block_hash)?.size();
+        let leaf_index = self.store().get_block_merkle_tree(block_hash)?.size();
+        let tree_size = self.store().get_block_merkle_tree(head_block_hash)?.size();
         if leaf_index >= tree_size {
             if block_hash == head_block_hash {
                 // special case if the block to prove is the same as head
