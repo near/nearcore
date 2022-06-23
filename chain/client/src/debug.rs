@@ -352,10 +352,11 @@ impl ClientActor {
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
             // and new blocks (up to the current height for which we've sent approval).
 
-            let max_height = std::cmp::min(
-                std::cmp::max(head.height, self.client.doomslug.get_largest_target_height()),
-                DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW,
+            let max_height = head.height.clamp(
+                head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW,
+                self.client.doomslug.get_largest_target_height(),
             );
+
             for height in
                 head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height
             {
@@ -423,7 +424,7 @@ impl ClientActor {
                         .map(|validator| {
                             (
                                 validator.0.account_id.clone(),
-                                (validator.0.stake_this_epoch / u128::pow(10, 24)) as u64,
+                                (validator.0.stake_this_epoch / 10u128.pow(24)) as u64,
                             )
                         })
                         .collect::<Vec<(AccountId, u64)>>()

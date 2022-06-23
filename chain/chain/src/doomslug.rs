@@ -62,8 +62,7 @@ struct DoomslugTip {
 }
 
 struct DoomslugApprovalsTracker {
-    witness: HashMap<AccountId, Approval>,
-    arrival_time: HashMap<AccountId, chrono::DateTime<chrono::Utc>>,
+    witness: HashMap<AccountId, (Approval, chrono::DateTime<chrono::Utc>)>,
     account_id_to_stakes: HashMap<AccountId, (Balance, Balance)>,
     total_stake_this_epoch: Balance,
     approved_stake_this_epoch: Balance,
@@ -144,7 +143,6 @@ impl DoomslugApprovalsTracker {
 
         DoomslugApprovalsTracker {
             witness: Default::default(),
-            arrival_time: Default::default(),
             account_id_to_stakes,
             total_stake_this_epoch,
             total_stake_next_epoch,
@@ -173,8 +171,7 @@ impl DoomslugApprovalsTracker {
         let mut increment_approved_stake = false;
         self.witness.entry(approval.account_id.clone()).or_insert_with(|| {
             increment_approved_stake = true;
-            self.arrival_time.insert(approval.account_id.clone(), chrono::Utc::now());
-            approval.clone()
+            (approval.clone(), chrono::Utc::now())
         });
 
         if increment_approved_stake {
@@ -194,7 +191,7 @@ impl DoomslugApprovalsTracker {
     fn withdraw_approval(&mut self, account_id: &AccountId) {
         let approval = match self.witness.remove(account_id) {
             None => return,
-            Some(approval) => approval,
+            Some(approval) => approval.0,
         };
 
         let stakes = self.account_id_to_stakes.get(&approval.account_id).map_or((0, 0), |x| *x);
@@ -227,17 +224,10 @@ impl DoomslugApprovalsTracker {
     }
 
     // Get witnesses together with their arrival time.
-    fn get_witnesses(&self) -> Vec<(AccountId, Option<chrono::DateTime<chrono::Utc>>)> {
-        self.witness
-            .keys()
-            .map(|it| (it.clone(), self.arrival_time.get(it).cloned()))
-            .collect::<Vec<_>>()
-    }
-
-    /// If a given Tracker is ready (the Threshold passed), returns the moment when it was ready the first time.
-    /// Returns None, if Tracker is not ready yet.
-    fn ready_since(&self) -> Option<Instant> {
-        self.time_passed_threshold
+    fn get_witnesses(&self) -> Vec<(AccountId, chrono::DateTime<chrono::Utc>)> {
+        self.witness.iter().map(|(key, (_, arrival_time))| {
+            (key.clone(), arrival_time.clone())
+        }).collect::<Vec<_>>()
     }
 }
 
@@ -313,22 +303,21 @@ impl DoomslugApprovalsTrackersAtHeight {
         let approvals = self
             .approval_trackers
             .iter()
-            .map(|tracker| {
+            .flat_map(|tracker| {
                 let witnesses = tracker.1.get_witnesses();
                 witnesses.into_iter().map(|(account_name, approval_time)| {
                     (account_name, (tracker.0.clone(), approval_time))
                 })
             })
-            .flatten()
             .collect::<HashMap<_, _>>();
 
         let threshold_approval = self
             .approval_trackers
             .iter()
-            .filter_map(|(_, tracker)| tracker.ready_since())
+            .filter_map(|(_, tracker)| tracker.time_passed_threshold)
             .min()
             .map(|ts| {
-                chrono::Utc::now() - chrono::Duration::milliseconds(ts.elapsed().as_millis() as i64)
+                chrono::Utc::now() - chrono::Duration::from_std(ts.elapsed()).unwrap_or(chrono::Duration::days(1))
             });
         ApprovalAtHeightStatus { approvals, ready_at: threshold_approval }
     }
@@ -401,7 +390,7 @@ impl Doomslug {
 
     /// Returns currently available approval history.
     pub fn get_approval_history(&self) -> Vec<ApprovalHistoryEntry> {
-        self.history.iter().map(|x| x.clone()).collect::<Vec<_>>()
+        self.history.iter().cloned().collect::<Vec<_>>()
     }
 
     /// Adds new approval to the history.
@@ -545,7 +534,7 @@ impl Doomslug {
         prev_hash: &CryptoHash,
         parent_height: BlockHeight,
         target_height: BlockHeight,
-    ) -> HashMap<AccountId, Approval> {
+    ) -> HashMap<AccountId, (Approval, chrono::DateTime<chrono::Utc>)> {
         let hash_or_height = ApprovalInner::new(prev_hash, parent_height, target_height);
         if let Some(approval_trackers_at_height) = self.approval_tracking.get(&target_height) {
             let approvals_tracker =
@@ -633,11 +622,8 @@ impl Doomslug {
     /// Gets the current status of approvals for a given height.
     /// It will only work for heights that we have in memory, that is that are not older than MAX_HEIGHTS_BEFORE_TO_STORE_APPROVALS
     /// blocks from the head.
-    pub fn approval_status_at_height(
-        &self,
-        height: &BlockHeight,
-    ) -> Option<ApprovalAtHeightStatus> {
-        self.approval_tracking.get(height).and_then(|it| Some(it.status()))
+    pub fn approval_status_at_height(&self, height: &BlockHeight) -> ApprovalAtHeightStatus {
+        self.approval_tracking.get(height).map(|it| it.status()).unwrap_or_default()
     }
 
     /// Returns whether we can produce a block for this height. The check for whether `me` is the

@@ -106,7 +106,7 @@ pub struct BlockProduction {
 #[derive(Serialize, Debug, Default)]
 pub struct ProductionAtHeight {
     // Approvals that we received.
-    pub approvals: Option<ApprovalAtHeightStatus>,
+    pub approvals: ApprovalAtHeightStatus,
     // Block that we produced.
     pub block_production: Option<BlockProduction>,
     // Map from shard_id to chunk that we produced for this height.
@@ -115,10 +115,10 @@ pub struct ProductionAtHeight {
 
 // Infromation about the approvals that we received.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Default)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
-    pub approvals: HashMap<AccountId, (ApprovalInner, Option<DateTime<chrono::Utc>>)>,
+    pub approvals: HashMap<AccountId, (ApprovalInner, DateTime<chrono::Utc>)>,
     // Time at which we received 2/3 approvals (doomslug threshold).
     pub ready_at: Option<DateTime<chrono::Utc>>,
 }

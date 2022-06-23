@@ -468,7 +468,7 @@ impl Client {
                 if is_slashed {
                     None
                 } else {
-                    approvals_map.remove(&account_id).map(|x| x.signature)
+                    approvals_map.remove(&account_id).map(|x| x.0.signature)
                 }
             })
             .collect();
@@ -519,11 +519,9 @@ impl Client {
             next_height,
             BlockProduction {
                 block_production_time: Some(chrono::Utc::now()),
-                chunks_collection_time: (0..(chunks.len().clone()))
+                chunks_collection_time: (0..chunks.len() as u64)
                     .map(|shard_id| {
-                        new_chunks
-                            .get(&(shard_id.clone() as u64))
-                            .and_then(|(_, arrival_time)| Some(arrival_time.clone()))
+                        new_chunks.get(&shard_id).map(|(_, arrival_time)| arrival_time.clone())
                     })
                     .collect::<Vec<_>>(),
             },
@@ -701,14 +699,14 @@ impl Client {
 
         debug!(
             target: "client",
-            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {} prev_block_hash: {}",
-            next_height,
+            height=next_height,
             shard_id,
+            me=%validator_signer.validator_id(),
+            chunk_hash=%encoded_chunk.chunk_hash().0,
+            %prev_block_hash,
+            "Produced chunk with {} txs and {} receipts",
             num_filtered_transactions,
             outgoing_receipts.len(),
-            validator_signer.validator_id(),
-            encoded_chunk.chunk_hash().0,
-            prev_block_hash,
         );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
