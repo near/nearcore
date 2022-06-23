@@ -246,7 +246,7 @@ impl EncodedChunksCache {
         let chunk_hash = header.chunk_hash();
         if let Some(chunk_headers) = self.block_hash_to_chunk_headers.get_mut(prev_block_hash) {
             if let Some(chunk_header) = chunk_headers.get(&shard_id) {
-                if chunk_header.chunk_hash() == chunk_hash {
+                if chunk_header.0.chunk_hash() == chunk_hash {
                     chunk_headers.remove(&shard_id);
                     if chunk_headers.is_empty() {
                         self.block_hash_to_chunk_headers.remove(prev_block_hash);

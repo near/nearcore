@@ -1,11 +1,13 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
 
+use std::collections::HashMap;
+
 use crate::types::{StatusError, SyncStatus};
 use actix::Message;
 use chrono::DateTime;
 use near_primitives::{
-    hash::CryptoHash, sharding::ChunkHash, types::BlockHeight, views::ValidatorInfo,
+    hash::CryptoHash, sharding::ChunkHash, types::BlockHeight, views::ValidatorInfo, block_header::ApprovalInner,
 };
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +54,86 @@ pub struct DebugBlockStatus {
     // Time between this block and the next one in chain.
     pub timestamp_delta: u64,
     pub gas_price_ratio: f64,
+}
+
+// Information about the approval created by this node.
+// Used for debug purposes only.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug, Clone)]
+pub struct ApprovalHistoryEntry {
+    // If target_height == base_height + 1  - this is endorsement.
+    // Otherwise this is a skip.
+    pub parent_height: BlockHeight,
+    pub target_height: BlockHeight,
+    // Time when we actually created the approval and sent it out.
+    pub approval_creation_time: DateTime<chrono::Utc>,
+    // The moment when we were ready to send this approval (or skip)
+    pub timer_started_ago_millis: u64,
+    // But we had to wait at least this long before doing it.
+    pub expected_delay_millis: u64, 
+}
+
+// Information about chunk produced by this node.
+// For debug purposes only.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug, Default)]
+pub struct ChunkProduction {
+    // Time when we produced the chunk.
+    pub chunk_production_time: Option<DateTime<chrono::Utc>>,
+    // How long did the chunk production take (reed solomon encoding, preparing fragments etc.)
+    // Doesn't include network latency.
+    pub chunk_production_duration_millis: Option<u64>
+}
+// Information about the block produced by this node.
+// For debug purposes only.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug, Default, Clone)]
+pub struct BlockProduction {
+    // Time at which we received chunk for given shard.
+    pub chunks_collection_time: Vec<Option<DateTime<chrono::Utc>>>, 
+    // Time when we produced the block.
+    pub block_production_time: Option<DateTime<chrono::Utc>> ,
+}
+
+// Information about things related to block/chunk production
+// at given height.
+// For debug purposes only.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug, Default)]
+pub struct ProductionAtHeight {
+    // Approvals that we received.
+    pub approvals: Option<ApprovalAtHeightStatus>,
+    // Block that we produced.
+    pub block_production: Option<BlockProduction>,
+    // Map from shard_id to chunk that we produced for this height.
+    pub chunk_production: HashMap<u64, ChunkProduction>,
+}
+
+// Infromation about the approvals that we received.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug)]
+pub struct ApprovalAtHeightStatus {
+    // Map from validator id to the type of approval that they sent and timestamp.
+    pub approvals: HashMap<String, (ApprovalInner, Option<DateTime<chrono::Utc>>)>,
+    // Time at which we received 2/3 approvals (doomslug threshold).
+    pub ready_at: Option<DateTime<chrono::Utc>>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug)]
+pub struct ValidatorStatus {
+    pub validator_name: Option<String>,
+    // Current number of shards
+    pub shards: u64,
+    // Current height.
+    pub head_height: u64,
+    // Current validators with their stake (stake is in NEAR - not yoctonear).
+    pub validators: Option<Vec<(String, u64)>>,
+    // All approvals that we've sent.
+    pub approval_history: Vec<ApprovalHistoryEntry>,
+    // Blocks & chunks that we've produced or about to produce.
+    // The range of heights are controlled by constants in client_actor.rs
+    pub production: HashMap<BlockHeight, ProductionAtHeight>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.

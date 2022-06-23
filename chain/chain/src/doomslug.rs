@@ -2,13 +2,13 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use near_client_primitives::debug::{ApprovalHistoryEntry, ApprovalAtHeightStatus};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::{ApprovalHistoryEntry, ApprovalAtHeightStatus};
 use tracing::info;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking

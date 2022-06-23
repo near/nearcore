@@ -6,7 +6,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, ChainStoreAccess};
-use near_client_primitives::debug::{DebugStatus, DebugStatusResponse};
+use near_client_primitives::debug::{DebugStatus, DebugStatusResponse, ValidatorStatus, ProductionAtHeight, BlockProduction, ChunkProduction};
 use near_client_primitives::types::Error;
 use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
@@ -14,6 +14,7 @@ use near_client_primitives::{
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
+use near_primitives::types::BlockHeight;
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -21,13 +22,19 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
+
+// How many old blocks (before HEAD) should be shown in debug page.
+const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 10;
+
+// Maximum number of blocks to show.
+const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
 
 impl Handler<DebugStatus> for ClientActor {
     type Result = Result<DebugStatusResponse, StatusError>;

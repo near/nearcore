@@ -3,7 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -17,7 +16,7 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
-    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3, ApprovalInner,
+    BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
@@ -388,22 +387,6 @@ pub struct ChunkInfoView {
     pub num_of_chunks_in_progress: usize,
     pub num_of_orphans: usize,
     pub next_blocks_by_chunks: Vec<BlockByChunksView>,
-}
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug)]
-pub struct ValidatorStatus {
-    pub validator_name: Option<String>,
-    // Current number of shards
-    pub shards: u64,
-    // Current height.
-    pub head_height: u64,
-    // Current validators with their stake (stake is in NEAR - not yoctonear).
-    pub validators: Option<Vec<(String, u64)>>,
-    // All approvals that we've sent.
-    pub approval_history: Vec<ApprovalHistoryEntry>,
-    // Blocks & chunks that we've produced or about to produce.
-    // The range of heights are controlled by constants in client_actor.rs
-    pub production: HashMap<BlockHeight, ProductionAtHeight>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

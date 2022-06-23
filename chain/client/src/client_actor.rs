@@ -49,10 +49,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, TrackedShardsView,
-    ValidatorInfo, ValidatorStatus, ProductionAtHeight, ChunkProduction, BlockProduction
-};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
@@ -72,16 +68,6 @@ const BLOCK_HORIZON: u64 = 500;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
-
-// Constants for debug requests.
-const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
-const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
-
-// How many old blocks (before HEAD) should be shown in debug page.
-const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 10;
-
-// Maximum number of blocks to show.
-const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
 
 pub struct ClientActor {
     /// Adversarial controls

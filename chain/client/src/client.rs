@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use near_client_primitives::debug::BlockProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
@@ -38,7 +39,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::views::{BlockByChunksView, ChunkInfoView, BlockProduction};
+use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
