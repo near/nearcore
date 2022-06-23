@@ -915,3 +915,55 @@ fn test_ed25519_verify() {
     logic.read_register(0, res.as_ptr() as _).expect("OK");
     assert_eq!(res.as_slice(), &[0]);
 }
+
+#[test]
+fn test_sr25519_verify() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let message: [u8; 32] = [
+        107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
+        107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
+    ];
+    let signature: [u8; 64] = [
+        106, 144, 17, 34, 142, 65, 191, 241, 233, 250, 132, 168, 204, 173, 122, 196, 118, 248, 159,
+        159, 254, 37, 153, 84, 248, 104, 206, 217, 168, 65, 12, 74, 183, 134, 143, 30, 123, 61,
+        112, 153, 244, 109, 199, 195, 164, 0, 7, 55, 26, 199, 164, 219, 147, 217, 157, 239, 198,
+        108, 162, 246, 52, 49, 116, 132,
+    ];
+
+    let public_key: [u8; 32] = [
+        190, 72, 112, 6, 182, 204, 56, 92, 5, 158, 148, 55, 136, 35, 90, 216, 30, 35, 86, 208, 210,
+        66, 158, 72, 67, 25, 35, 217, 88, 145, 65, 113,
+    ];
+
+    logic
+        .sr25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+            0,
+        )
+        .unwrap();
+
+    let res = &vec![0u8; 1];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(res.as_slice(), &[1]);
+
+    logic
+        .sr25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            [1; 32].as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+            0,
+        )
+        .unwrap();
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(res.as_slice(), &[0]);
+}

@@ -2778,6 +2778,32 @@ impl<'a> VMLogic<'a> {
         let value = pub_key.verify(&msg, &signature).is_ok();
         self.internal_write_register(register_id, vec![u8::from(value)])
     }
+
+    /// Verify an ED25519 signature given a message and a public key.
+    pub fn sr25519_verify(
+        &mut self,
+        sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        use schnorrkel::{PublicKey, Signature};
+
+        // TODO: calculate gas costs
+        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
+        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
+        let pub_key = PublicKey::from_bytes(&pub_key_array)
+            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
+        let signature = Signature::from_bytes(&signature_array)
+            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
+
+        let value = pub_key.verify_simple(b"substrate", &msg, &signature).is_ok();
+        self.internal_write_register(register_id, vec![u8::from(value)])
+    }
 }
 
 #[derive(Clone, PartialEq)]
