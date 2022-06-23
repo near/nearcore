@@ -55,6 +55,10 @@ pub(crate) enum DBOp {
 }
 
 impl DBTransaction {
+    pub(crate) fn new() -> Self {
+        Self { ops: Vec::new() }
+    }
+
     pub(crate) fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Set { col, key, value });
     }
@@ -244,37 +248,87 @@ pub struct TestDB {
 }
 
 pub(crate) trait Database: Sync + Send {
-    fn transaction(&self) -> DBTransaction {
-        DBTransaction { ops: Vec::new() }
+    /// Returns value for given `key` or `None` if it doesn’t exist in the db.
+    ///
+    /// When reading reference-counted column, the reference count will be
+    /// correctly stripped.  Furthermore, elements with non-positive reference
+    /// count will be treated as non-existing (i.e. the function will return
+    /// `None` for such cells).  For all other columns, the value is returned
+    /// directly from the database.
+    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        self.get_raw_bytes(col, key).map(|result| refcount::get_with_rc_logic(col, result))
     }
-    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+
+    /// Returns value for given `key` bypassing reference count decoding if any.
+    ///
+    /// This is like [`Self::get`] but it returns raw bytes as stored in the
+    /// database.  For reference-counted columns this means that the reference
+    /// count will not be decoded or stripped from returned value and elements
+    /// with non-positive reference count will be returned.
+    ///
+    /// If in doubt, use [`Self::get`] instead.  Unless you’re doing something
+    /// low-level with the database (e.g. doing a migration), you probably don’t
+    /// want this method.
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+
+    /// Iterate over all items in given column in lexicographical order sorted
+    /// by the key.
+    ///
+    /// When reading reference-counted column, the reference count will be
+    /// correctly stripped.  Furthermore, elements with non-positive reference
+    /// count will be treated as non-existing (i.e. they’re going to be
+    /// skipped).  For all other columns, the value is returned directly from
+    /// the database.
     fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
-    fn iter_raw_bytes<'a>(
-        &'a self,
-        column: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
+    /// Iterate over items in given column whose keys start with given prefix.
+    ///
+    /// This is morally equivalent to [`Self::iter`] with a filter discarding
+    /// keys which do not start with given `key_prefix` (but faster).  The items
+    /// are returned in lexicographical order sorted by the key.
     fn iter_prefix<'a>(
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
+    /// Iterate over items in given column bypassing reference count decoding if
+    /// any.
+    ///
+    /// This is like [`Self::iter`] but it returns raw bytes as stored in the
+    /// database.  For reference-counted columns this means that the reference
+    /// count will not be decoded or stripped from returned value and elements
+    /// with non-positive reference count will be included in the iterator.
+    ///
+    /// If in doubt, use [`Self::iter`] instead.  Unless you’re doing something
+    /// low-level with the database (e.g. doing a migration), you probably don’t
+    /// want this method.
+    fn iter_raw_bytes<'a>(
+        &'a self,
+        column: DBCol,
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+
+    /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
+
+    /// Flush all in-memory data to disk.
+    ///
+    /// This is a no-op for in-memory databases.
     fn flush(&self) -> io::Result<()>;
+
+    /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 impl Database for RocksDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
-
         let read_options = rocksdb_read_options();
         let result =
             self.db.get_cf_opt(self.cf_handle(col), key, &read_options).map_err(into_other)?;
-        let result = Ok(refcount::get_with_rc_logic(col, result));
-
         timer.observe_duration();
-        result
+        Ok(result)
     }
 
     fn iter_raw_bytes<'a>(
@@ -382,9 +436,8 @@ impl Database for RocksDB {
 }
 
 impl Database for TestDB {
-    fn get(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        let result = self.db.read().unwrap()[col].get(key).cloned();
-        Ok(refcount::get_with_rc_logic(col, result))
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        Ok(self.db.read().unwrap()[col].get(key).cloned())
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
@@ -764,31 +817,10 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
 #[cfg(test)]
 mod tests {
     use crate::db::StatsValue::{Count, Percentile, Sum};
-    use crate::db::{parse_statistics, rocksdb_read_options, Database, RocksDB};
+    use crate::db::{parse_statistics, Database, RocksDB};
     use crate::{DBCol, Store, StoreConfig, StoreStatistics};
 
-    use super::{into_other, Mode};
-
-    impl RocksDB {
-        #[cfg(not(feature = "single_thread_rocksdb"))]
-        fn compact(&self, col: DBCol) {
-            self.db.compact_range_cf(
-                self.cf_handle(col),
-                Option::<&[u8]>::None,
-                Option::<&[u8]>::None,
-            );
-        }
-
-        fn get_no_empty_filtering(
-            &self,
-            col: DBCol,
-            key: &[u8],
-        ) -> std::io::Result<Option<Vec<u8>>> {
-            self.db
-                .get_cf_opt(self.cf_handle(col), key, &rocksdb_read_options())
-                .map_err(into_other)
-        }
-    }
+    use super::Mode;
 
     #[test]
     fn test_prewrite_check() {
@@ -798,10 +830,7 @@ mod tests {
         store.pre_write_check().unwrap()
     }
 
-    #[test]
-    fn test_clear_column() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = opener.open();
+    fn do_test_clear_column(store: Store) {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -817,6 +846,17 @@ mod tests {
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+    }
+
+    #[test]
+    fn test_clear_column_rocksdb() {
+        let (_tmp_dir, opener) = Store::test_opener();
+        do_test_clear_column(opener.open());
+    }
+
+    #[test]
+    fn test_clear_column_testdb() {
+        do_test_clear_column(crate::test_utils::create_test_store());
     }
 
     #[test]
@@ -838,7 +878,7 @@ mod tests {
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
         assert_eq!(
-            rocksdb.get_no_empty_filtering(DBCol::State, &[1]).unwrap(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
             Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
         );
         {
@@ -848,7 +888,7 @@ mod tests {
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
         assert_eq!(
-            rocksdb.get_no_empty_filtering(DBCol::State, &[1]).unwrap(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
             Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
         );
         {
@@ -859,16 +899,23 @@ mod tests {
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_no_empty_filtering(DBCol::State, &[1]).unwrap(), Some(vec![]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
 
-        #[cfg(not(feature = "single_thread_rocksdb"))]
-        {
-            // single_thread_rocksdb makes compact hang forever
-            rocksdb.compact(DBCol::State);
-            rocksdb.compact(DBCol::State);
+        // single_thread_rocksdb makes compact hang forever
+        if !cfg!(feature = "single_thread_rocksdb") {
+            let none = Option::<&[u8]>::None;
+            let cf = rocksdb.cf_handle(DBCol::State);
 
-            // After compaction the empty value disappears
-            assert_eq!(rocksdb.get_no_empty_filtering(DBCol::State, &[1]).unwrap(), None);
+            // I’m not sure why but we need to run compaction twice.  If we run
+            // it only once, we end up with an empty value for the key.  This is
+            // surprising because I assumed that compaction filter would discard
+            // empty values.
+            rocksdb.db.compact_range_cf(cf, none, none);
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
+            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+
+            rocksdb.db.compact_range_cf(cf, none, none);
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), None);
             assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         }
     }

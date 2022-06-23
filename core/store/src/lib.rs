@@ -150,7 +150,7 @@ impl Store {
     pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
-        let mut transaction = self.storage.transaction();
+        let mut transaction = DBTransaction::new();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
                 Ok(key_len) => key_len as usize,
@@ -194,14 +194,15 @@ impl StoreUpdate {
     };
 
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: None }
+        StoreUpdate { storage, transaction: DBTransaction::new(), tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        let storage = Arc::clone(&tries.get_store().storage);
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries) }
+        StoreUpdate {
+            storage: Arc::clone(&tries.get_store().storage),
+            transaction: DBTransaction::new(),
+            tries: Some(tries),
+        }
     }
 
     /// Inserts a new value into the database.
