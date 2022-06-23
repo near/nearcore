@@ -107,7 +107,7 @@ impl RpcConfig {
 /// Serialises response of a query into JSON to be sent to the client.
 ///
 /// Returns an internal server error if the value fails to serialise.
-fn serialise_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
+fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|err| RpcError::serialization_error(err.to_string()))
 }
 
@@ -127,7 +127,7 @@ where
     RpcError: std::convert::From<E>,
     F: std::future::Future<Output = Result<V, E>>,
 {
-    serialise_response(callback(R::parse(request.params)?).await?)
+    serialize_response(callback(R::parse(request.params)?).await?)
 }
 
 #[easy_ext::ext(FromNetworkClientResponses)]
@@ -155,7 +155,7 @@ fn process_query_response(
     // This match is used here to give backward compatible error message for specific
     // error variants. Should be refactored once structured errors fully shipped
     match query_response {
-        Ok(rpc_query_response) => serialise_response(rpc_query_response),
+        Ok(rpc_query_response) => serialize_response(rpc_query_response),
         Err(err) => match err {
             near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
                 vm_error,
@@ -1165,7 +1165,7 @@ impl JsonRpcHandler {
             .await
         {
             Ok(result) => match result {
-                NetworkClientResponses::AdvResult(value) => serialise_response(value),
+                NetworkClientResponses::AdvResult(value) => serialize_response(value),
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
@@ -1181,7 +1181,7 @@ impl JsonRpcHandler {
             .await
         {
             Ok(result) => match result {
-                NetworkClientResponses::AdvResult(value) => serialise_response(value),
+                NetworkClientResponses::AdvResult(value) => serialize_response(value),
                 _ => Err(RpcError::server_error::<String>(None)),
             },
             _ => Err(RpcError::server_error::<String>(None)),
@@ -1230,7 +1230,7 @@ impl JsonRpcHandler {
             ))
             .await
             .map_err(RpcError::rpc_from)?;
-        serialise_response(response.as_peer_id_result())
+        serialize_response(response.as_peer_id_result())
     }
 
     async fn adv_get_routing_table(&self, _params: Option<Value>) -> Result<Value, RpcError> {
@@ -1242,7 +1242,7 @@ impl JsonRpcHandler {
         match result {
             near_network::types::PeerManagerMessageResponse::GetRoutingTable { edges_info } => {
                 let edges_info = edges_info.iter().map(|x| x.to_simple_edge()).collect();
-                serialise_response(near_network::routing::GetRoutingTableResult { edges_info })
+                serialize_response(near_network::routing::GetRoutingTableResult { edges_info })
             }
             _ => Ok(Value::Null),
         }
