@@ -1,13 +1,32 @@
-use crate::types::PeerMessage;
+use crate::network_protocol::Encoding;
 use near_metrics::{
-    do_create_int_counter_vec, try_create_histogram, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, Histogram, IntCounter, IntCounterVec,
-    IntGauge,
+    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
-use near_network_primitives::types::RoutedMessageBody;
+use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use strum::VariantNames;
+
+static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    near_metrics::try_create_int_gauge_vec(
+        "near_peer_connections",
+        "Number of connected peers",
+        &["peer_type", "encoding"],
+    )
+    .unwrap()
+});
+
+pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
+    for ((pt, enc), v) in values {
+        PEER_CONNECTIONS
+            .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
+            .set(v);
+    }
+}
+
+#[cfg(feature = "test_features")]
+use std::sync::{Arc, Mutex};
 
 pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
@@ -90,13 +109,6 @@ pub static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static DROP_MESSAGE_UNKNOWN_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_drop_message_unknown_account",
-        "Total messages dropped because target account is not known",
-    )
-    .unwrap()
-});
 pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "received_info_about_itself",
@@ -104,10 +116,12 @@ pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static DROPPED_MESSAGES_COUNT: Lazy<IntCounter> = Lazy::new(|| {
-    near_metrics::try_create_int_counter(
-        "near_dropped_messages_count",
-        "Total count of messages which were dropped, because write buffer was full",
+static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    near_metrics::try_create_int_counter_vec(
+        "near_dropped_message_by_type_and_reason_count",
+        "Total count of messages which were dropped by type of message and \
+         reason why the message has been dropped",
+        &["type", "reason"],
     )
     .unwrap()
 });
@@ -119,47 +133,70 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
-#[derive(Clone, Debug, actix::MessageResponse)]
+static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
+    near_metrics::try_create_int_counter_vec(
+        "near_broadcast_msg",
+        "Broadcasted messages",
+        &["type"],
+    )
+    .unwrap()
+});
+
+pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_network_routed_msg_latency",
+        "Latency of network messages, assuming clocks are perfectly synchronized",
+        &["routed"],
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+#[derive(Clone, Copy, strum::AsRefStr)]
+pub(crate) enum MessageDropped {
+    NoRouteFound,
+    UnknownAccount,
+    InputTooLong,
+    MaxCapacityExceeded,
+}
+
+impl MessageDropped {
+    pub fn inc(self, msg: &RoutedMessageBody) {
+        self.inc_msg_type(msg.into())
+    }
+
+    pub fn inc_unknown_msg(self) {
+        self.inc_msg_type("unknown")
+    }
+
+    fn inc_msg_type(self, msg_type: &str) {
+        let reason = self.as_ref();
+        DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
+    }
+}
+
+#[derive(Clone, Debug, Default, actix::MessageResponse)]
 pub struct NetworkMetrics {
-    // received messages
-    peer_messages: HashMap<String, IntCounter>,
     // sent messages (broadcast style)
-    pub broadcast_messages: IntCounterVec,
+    #[cfg(feature = "test_features")]
+    broadcast_messages: Arc<Mutex<HashMap<&'static str, u64>>>,
 }
 
 impl NetworkMetrics {
-    pub fn new() -> Self {
-        Self {
-            peer_messages: PeerMessage::VARIANTS
-                .iter()
-                .filter(|&name| *name != "Routed")
-                .chain(RoutedMessageBody::VARIANTS.iter())
-                .filter_map(|name: &&str| {
-                    let counter_name = Self::peer_message_dropped(name);
-                    try_create_int_counter(&counter_name, &counter_name)
-                        .ok()
-                        .map(|counter| (counter_name, counter))
-                })
-                .collect(),
-            broadcast_messages: do_create_int_counter_vec(
-                "near_broadcast_msg",
-                "Broadcasted messages",
-                &["type"],
-            ),
+    pub fn inc_broadcast(&self, message_name: &'static str) {
+        BROADCAST_MESSAGES.with_label_values(&[message_name]).inc();
+
+        #[cfg(feature = "test_features")]
+        {
+            let mut map = self.broadcast_messages.lock().unwrap();
+            let count = map.entry(message_name).or_insert(0);
+            *count += 1;
         }
     }
 
-    pub fn peer_message_dropped(message_name: &str) -> String {
-        format!("near_{}_dropped", message_name.to_lowercase())
-    }
-
-    pub fn inc(&self, message_name: &str) {
-        if let Some(counter) = self.peer_messages.get(message_name) {
-            counter.inc();
-        }
-    }
-
-    pub fn inc_broadcast(&self, message_name: &str) {
-        self.broadcast_messages.with_label_values(&[message_name]).inc();
+    #[cfg(feature = "test_features")]
+    pub fn get_broadcast_count(&self, msg_type: &'static str) -> u64 {
+        let hm = self.broadcast_messages.lock().unwrap();
+        hm.get(msg_type).map_or(0, |v| *v)
     }
 }

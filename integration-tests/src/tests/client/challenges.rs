@@ -1,15 +1,9 @@
-use std::path::Path;
-use std::sync::Arc;
-
+use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 
-use near_chain::missing_chunks::MissingChunksPool;
-use near_chain::types::BlockEconomicsConfig;
+use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::validate::validate_challenge;
-use near_chain::{
-    Block, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind,
-    Provenance,
-};
+use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
@@ -19,15 +13,17 @@ use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId, StateRoot};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -35,12 +31,71 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::NightshadeRuntime;
+use std::path::Path;
+use std::sync::Arc;
+
+/// Check that block containing a challenge is rejected.
+/// TODO (#2445): Enable challenges when they are working correctly.
+#[test]
+fn test_block_with_challenges() {
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+
+    let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
+    let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
+
+    {
+        let body = match &mut block {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => Arc::make_mut(body),
+        };
+        let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: genesis.header().try_to_vec().unwrap(),
+            right_block_header: genesis.header().try_to_vec().unwrap(),
+        });
+        let challenge = Challenge::produce(challenge_body, &*signer);
+        body.challenges = vec![challenge];
+        block.mut_header().get_mut().inner_rest.challenges_root =
+            Block::compute_challenges_root(&body.challenges);
+        block.mut_header().resign(&*signer);
+    }
+
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err(), Error::InvalidChallengeRoot);
+}
+
+/// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
+#[test]
+fn test_invalid_chunk_state() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    env.produce_block(0, 1);
+    let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
+
+    {
+        let mut chunk_extra = ChunkExtra::clone(
+            &env.clients[0].chain.get_chunk_extra(&block_hash, &ShardUId::single_shard()).unwrap(),
+        );
+        let store = env.clients[0].chain.mut_store();
+        let mut store_update = store.store_update();
+        assert_ne!(chunk_extra.state_root(), &CryptoHash::default());
+        *chunk_extra.state_root_mut() = CryptoHash::default();
+        store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
+        store_update.commit().unwrap();
+    }
+
+    let block = env.clients[0].produce_block(2).unwrap().unwrap();
+    let (_, result) = env.clients[0].process_block(block.into(), Provenance::NONE);
+    assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
+}
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);
@@ -168,7 +223,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -204,7 +259,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(challenge_result.unwrap_err().kind(), ErrorKind::MaliciousChallenge);
+    assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
 #[test]
@@ -271,7 +326,6 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let transaction_validity_period = genesis.config.transaction_validity_period;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
@@ -283,7 +337,6 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let genesis_block = env.clients[0].chain.genesis_block().clone();
     env.produce_block(0, 1);
     env.clients[0].process_tx(
         SignedTransaction::send_money(
@@ -301,7 +354,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap().clone();
+    let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap();
     let total_parts = env.clients[0].runtime_adapter.num_total_parts();
     let data_parts = env.clients[0].runtime_adapter.num_data_parts();
     let parity_parts = total_parts - data_parts;
@@ -336,6 +389,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             merkle_paths,
             vec![],
             client.chain.mut_store(),
+            0,
         )
         .unwrap();
 
@@ -347,8 +401,9 @@ fn test_verify_chunk_invalid_state_challenge() {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }
-    let mut block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap().clone();
+    let block_merkle_tree =
+        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+    let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
@@ -373,67 +428,58 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
     );
 
-    let challenge_body = {
-        use near_chain::chain::{ChainUpdate, OrphanBlockPool};
-        let chain = &mut client.chain;
-        let adapter = chain.runtime_adapter.clone();
-        let epoch_length = chain.epoch_length;
-        let empty_block_pool = OrphanBlockPool::new();
-        let empty_chunks_pool = MissingChunksPool::new();
-        let chain_genesis = ChainGenesis::from(&genesis);
-        let economics_config = BlockEconomicsConfig::from(&chain_genesis);
-
-        let mut chain_update = ChainUpdate::new(
-            chain.mut_store(),
-            adapter,
-            &empty_block_pool,
-            &empty_chunks_pool,
-            epoch_length,
-            &economics_config,
-            DoomslugThresholdMode::NoApprovals,
-            &genesis_block,
-            transaction_validity_period,
-            None,
-        );
-
-        chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()
-    };
+    let challenge_body =
+        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
     {
         let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
-        assert_eq!(
-            challenge_body.partial_state.0,
-            vec![
-                vec![
-                    1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
-                    227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
-                    171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
-                    148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
-                    0, 0, 0
-                ],
-                vec![
-                    3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
-                    236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
-                    133, 232, 213, 5, 0, 0, 0, 0, 0, 0
-                ]
-            ],
-        );
+        // TODO (#6316): enable storage proof generation
+        assert_eq!(challenge_body.partial_state.0, Vec::<StateItem>::new());
+        // assert_eq!(
+        //     challenge_body.partial_state.0,
+        //     vec![
+        //         vec![
+        //             1, 5, 0, 10, 178, 228, 151, 124, 13, 70, 6, 146, 31, 193, 111, 108, 60, 102,
+        //             227, 106, 220, 133, 45, 144, 104, 255, 30, 155, 129, 215, 15, 43, 202, 26, 122,
+        //             171, 30, 7, 228, 175, 99, 17, 113, 5, 94, 136, 200, 39, 136, 37, 110, 166, 241,
+        //             148, 128, 55, 131, 173, 97, 98, 201, 68, 82, 244, 223, 70, 86, 161, 5, 0, 0, 0,
+        //             0, 0, 0
+        //         ],
+        //         vec![
+        //             3, 1, 0, 0, 0, 16, 49, 233, 115, 11, 86, 10, 193, 50, 45, 253, 137, 126, 230,
+        //             236, 254, 86, 230, 148, 94, 141, 44, 46, 130, 154, 189, 73, 179, 223, 178, 17,
+        //             133, 232, 213, 5, 0, 0, 0, 0, 0, 0
+        //         ]
+        //     ],
+        // );
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
     let runtime_adapter = client.chain.runtime_adapter.clone();
-    assert_eq!(
+    // Invalidate chunk state challenges because they are not supported yet.
+    // TODO (#2445): Enable challenges when they are working correctly.
+    assert_matches!(
         validate_challenge(
             &*runtime_adapter,
             block.header().epoch_id(),
             block.header().prev_hash(),
             &challenge,
         )
-        .unwrap(),
-        (*block.hash(), vec!["test0".parse().unwrap()])
+        .unwrap_err(),
+        Error::MaliciousChallenge
     );
+    // assert_eq!(
+    //     validate_challenge(
+    //         &*runtime_adapter,
+    //         block.header().epoch_id(),
+    //         block.header().prev_hash(),
+    //         &challenge,
+    //     )
+    //     .unwrap(),
+    //     (*block.hash(), vec!["test0".parse().unwrap()])
+    // );
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
     // And the same challenge created and sent out.
@@ -457,7 +503,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
-    let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
+    let block1 = env.clients[0].chain.get_block_by_height(1).unwrap();
     env.process_block(1, block1, Provenance::NONE);
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
@@ -467,7 +513,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
             chunk.clone(),
             merkle_paths.clone(),
             receipts.clone(),
-            client.chain.mut_store()
+            client.chain.mut_store(),
+            0,
         )
         .is_err());
     let (_, result) = client.process_block(block.clone().into(), Provenance::NONE);
@@ -694,8 +741,8 @@ fn test_challenge_in_different_epoch() {
             assert!(result.is_ok());
         } else {
             if let Err(e) = result {
-                match e.kind() {
-                    ErrorKind::ChunksMissing(_) => {}
+                match e {
+                    Error::ChunksMissing(_) => {}
                     _ => panic!("unexpected error: {}", e),
                 }
             }

@@ -6,19 +6,12 @@ use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
-use near_primitives::version::DbVersion;
 
-use crate::db::{DBError, RocksDB};
-use crate::{create_store, DBCol, Store, StoreUpdate};
-use std::path::Path;
-
-pub fn get_store_version(path: &Path) -> Result<DbVersion, DBError> {
-    RocksDB::get_version(path)
-}
+use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
 fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
     store_update.set(
-        DBCol::ColDbVersion,
+        DBCol::DbVersion,
         crate::db::VERSION_KEY,
         &serde_json::to_vec(&db_version).expect("Failed to serialize version"),
     );
@@ -125,17 +118,17 @@ where
     Ok(())
 }
 
-pub fn migrate_28_to_29(path: &Path) {
-    let store = create_store(path);
+pub fn migrate_28_to_29(store_opener: &StoreOpener) {
+    let store = store_opener.open();
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::_ColNextBlockWithNewChunk);
-    store_update.delete_all(DBCol::_ColLastBlockWithNewChunk);
+    store_update.delete_all(DBCol::_NextBlockWithNewChunk);
+    store_update.delete_all(DBCol::_LastBlockWithNewChunk);
     store_update.commit().unwrap();
 
     set_store_version(&store, 29);
 }
 
-pub fn migrate_29_to_30(path: &Path) {
+pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -147,7 +140,7 @@ pub fn migrate_29_to_30(path: &Path) {
     };
     use std::collections::BTreeMap;
 
-    let store = create_store(path);
+    let store = store_opener.open();
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
@@ -177,11 +170,11 @@ pub fn migrate_29_to_30(path: &Path) {
         pub last_block_hash: CryptoHash,
     }
 
-    map_col(&store, DBCol::ColChunkExtra, ChunkExtra::V1).unwrap();
+    map_col(&store, DBCol::ChunkExtra, ChunkExtra::V1).unwrap();
 
-    map_col(&store, DBCol::ColBlockInfo, BlockInfo::V1).unwrap();
+    map_col(&store, DBCol::BlockInfo, BlockInfo::V1).unwrap();
 
-    map_col(&store, DBCol::ColEpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
+    map_col(&store, DBCol::EpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
         prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
         all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
         validator_kickout: info.validator_kickout,
@@ -190,10 +183,10 @@ pub fn migrate_29_to_30(path: &Path) {
     })
     .unwrap();
 
-    // DBCol::ColEpochInfo has a special key which contains a different type than all other
+    // DBCol::EpochInfo has a special key which contains a different type than all other
     // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
     // the AGGREGATOR_KEY differently from all others.
-    let col = DBCol::ColEpochInfo;
+    let col = DBCol::EpochInfo;
     let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for key in keys {

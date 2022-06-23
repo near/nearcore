@@ -1,4 +1,5 @@
 use crate::routing::routing_table_view::RoutingTableView;
+use crate::store;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
@@ -6,7 +7,7 @@ use near_store::test_utils::create_test_store;
 
 #[test]
 fn announcement_same_epoch() {
-    let store = create_test_store();
+    let store = store::Store::new(create_test_store());
 
     let peer_id0 = random_peer_id();
     let peer_id1 = random_peer_id();
@@ -48,11 +49,11 @@ fn dont_load_on_build() {
     let epoch_id0 = random_epoch_id();
     let epoch_id1 = random_epoch_id();
 
-    let mut routing_table = RoutingTableView::new(store.clone());
+    let mut routing_table = RoutingTableView::new(store::Store::new(store.clone()));
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
-        peer_id: peer_id0.clone(),
+        peer_id: peer_id0,
         epoch_id: epoch_id0,
         signature: Signature::default(),
     };
@@ -71,7 +72,7 @@ fn dont_load_on_build() {
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
 
-    let routing_table1 = RoutingTableView::new(store);
+    let routing_table1 = RoutingTableView::new(store::Store::new(store));
     assert_eq!(routing_table1.get_announce_accounts().count(), 0);
 }
 
@@ -82,8 +83,8 @@ fn load_from_disk() {
     let peer_id0 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let mut routing_table = RoutingTableView::new(store.clone());
-    let mut routing_table1 = RoutingTableView::new(store);
+    let mut routing_table = RoutingTableView::new(store::Store::new(store.clone()));
+    let mut routing_table1 = RoutingTableView::new(store::Store::new(store));
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),

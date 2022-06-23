@@ -16,16 +16,23 @@ For those changes, we may want to have several months of testing before we are c
 ### Nightly Protocol features
 
 To make protocol upgrades more robust, we introduce the concept of nightly protocol version together with the protocol feature flags to allow easy testing of the cutting-edge protocol changes without jeopardizing the stability of the codebase overall.
-In `Cargo.toml` file of the crates we have in nearcore, we introduce rust compile-time features `nightly_protocol` and `nightly_protocol_features`
+In `Cargo.toml` file of the crates we have in nearcore, we introduce rust compile-time features `nightly_protocol` and `nightly`
 ```
 nightly_protocol = []
-nightly_protocol_features = [...]
+nightly = [
+    "nightly_protocol",
+    ...
+]
 ```
-where `nightly_protocol` is a marker feature that indicates that we are on nightly protocol whereas `nightly_protocol_features` is a collection of new protocol features.
+where `nightly_protocol` is a marker feature that indicates that we are on nightly protocol whereas `nightly` is a collection of new protocol features which also implies `nightly_protocol`.
 For example, when we introduce EVM as a new protocol change, suppose the current protocol version is 40, then we would do the following change in Cargo.toml:
 ```
 nightly_protocol = []
-nightly_protocol_features = [“protocol_features_evm”, ...]
+nightly = [
+    "nightly_protocol",
+    "protocol_features_evm",
+    ...
+]
 ```
 In [core/primitives/src/version.rs](../core/primitives/src/version.rs), we would change the protocol version by:
 ```
@@ -38,7 +45,7 @@ This way the stable versions remain unaffected after the change. Note that night
 
 To determine whether a protocol feature is enabled, we do the following:
 - We maintain a `ProtocolFeature` enum where each variant corresponds to some protocol feature. For nightly protocol features,
-the variant is gated by the corresponding rust compile-time feature. 
+the variant is gated by the corresponding rust compile-time feature.
 - We implement a function `protocol_version` to return, for each variant, the corresponding protocol version in which the
 feature is enabled.
 - When we need to decide whether to use the new feature based on the protocol version of the current network, we can simply compare it to the protocol version of the feature. To make this simpler, we also introduced a macro `checked_feature`
@@ -50,7 +57,7 @@ For more details, please refer to [core/primitives/src/version.rs](../core/primi
 It is worth mentioning that there are two types of checks related to protocol features:
 - For stable features, we check whether they should be enabled by checking the protocol version of the current epoch.
 This does not involve any rust compile-time features.
-  
+
 - For nightly features, we have both the check of protocol version and the rust compile-time feature gating.
 
 ### Testing
@@ -58,7 +65,7 @@ This does not involve any rust compile-time features.
 Nightly protocol features allow us to enable the most bleeding-edge code in some testing environment. We can choose to
 enable all nightly protocol features by
 ```
-cargo build -p neard --release --features nightly_protocol_features
+cargo build -p neard --release --features nightly
 ```
 or enable some specific protocol feature by
 ```

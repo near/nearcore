@@ -7,9 +7,11 @@ use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
+use near_primitives::checked_feature;
+use near_primitives::config::ViewConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -18,8 +20,8 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
+use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -145,6 +147,16 @@ impl<'a> VMLogic<'a> {
             current_protocol_version,
             receipt_manager: ReceiptManager::default(),
         }
+    }
+
+    /// Returns reference to logs that have been created so far.
+    pub fn logs(&self) -> &[String] {
+        &self.logs
+    }
+
+    /// Returns receipt metadata for created receipts
+    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
+        &self.receipt_manager.action_receipts
     }
 
     #[allow(dead_code)]
@@ -807,7 +819,6 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -851,7 +862,6 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -896,7 +906,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1011,9 +1020,9 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
 
-        let value_hash = ripemd160::Ripemd160::digest(&value);
+        let value_hash = ripemd::Ripemd160::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
@@ -1870,13 +1879,13 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_action_base(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
         self.gas_counter.pay_action_per_byte(
             &self.fees_config.action_creation_config.add_key_cost.function_call_cost_per_byte,
             num_bytes,
             sir,
-            ActionCosts::function_call,
+            ActionCosts::add_key,
         )?;
 
         self.receipt_manager.append_action_add_key_with_function_call(
@@ -2663,6 +2672,13 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    /// Add a cost for loading the contract code in the VM.
+    ///
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
     pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
         self.gas_counter.pay_base(contract_loading_base)
@@ -2678,6 +2694,62 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
+
+    /// VM independent setup before loading the executable.
+    ///
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
+        &mut self,
+        method_name: &str,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if method_name.is_empty() {
+            let error =
+                VMError::FunctionCallError(near_vm_errors::FunctionCallError::MethodResolveError(
+                    near_vm_errors::MethodResolveError::MethodEmptyName,
+                ));
+            return Err(error);
+        }
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                let error =
+                    VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_loading_executable(
+        &mut self,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                return Err(VMError::FunctionCallError(
+                    near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

@@ -3,7 +3,6 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
@@ -18,11 +17,7 @@ use crate::vm_kind::VMKind;
 use crate::VMResult;
 
 fn test_contract() -> ContractCode {
-    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
+    let code = near_test_contracts::rs_contract();
     ContractCode::new(code.to_vec(), None)
 }
 
@@ -77,47 +72,6 @@ pub fn test_read_write() {
             None,
         );
         assert_run_result(result, 20);
-    });
-}
-
-#[test]
-pub fn test_stablized_host_function() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
-        let mut fake_external = MockedExternal::new();
-
-        let context = create_context(vec![]);
-        let config = VMConfig::test();
-        let fees = RuntimeFeesConfig::test();
-
-        let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context.clone(),
-            &fees,
-            &promise_results,
-            LATEST_PROTOCOL_VERSION,
-            None,
-        );
-        assert_eq!(result.error(), None);
-
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            ProtocolFeature::MathExtension.protocol_version() - 1,
-            None,
-        );
-        match result.error() {
-            Some(&VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
-            _ => panic!("should return a link error due to missing import"),
-        }
     });
 }
 

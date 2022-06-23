@@ -1,28 +1,21 @@
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::store;
 use itertools::Itertools;
 use lru::LruCache;
-use near_network_primitives::types::{Edge, PeerIdOrHash, Ping, Pong};
+use near_network_primitives::time;
+use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::Clock;
 use near_primitives::types::AccountId;
-use near_store::{ColAccountAnnouncements, Store};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
-/// Routing table will clean edges if there is at least one node that is not reachable
-/// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
-/// seconds will be removed from cache and persisted in disk.
-pub(crate) const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
-pub(crate) const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 
-pub struct RoutingTableView {
+pub(crate) struct RoutingTableView {
     /// PeerId associated for every known account id.
     account_peers: LruCache<AccountId, AnnounceAccount>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -32,17 +25,11 @@ pub struct RoutingTableView {
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
-    store: Store,
+    store: store::Store,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
     route_nonce: LruCache<PeerId, usize>,
-    /// Ping received by nonce.
-    ping_info: LruCache<usize, (Ping, usize)>,
-    /// Ping received by nonce.
-    pong_info: LruCache<usize, (Pong, usize)>,
-    /// List of pings sent for which we haven't received any pong yet.
-    waiting_pong: LruCache<PeerId, LruCache<usize, Instant>>,
 }
 
 #[derive(Debug)]
@@ -54,7 +41,7 @@ pub(crate) enum FindRouteError {
 }
 
 impl RoutingTableView {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: store::Store) -> Self {
         // Find greater nonce on disk and set `component_nonce` to this value.
 
         Self {
@@ -64,9 +51,6 @@ impl RoutingTableView {
             route_back: RouteBackCache::default(),
             store,
             route_nonce: LruCache::new(ROUND_ROBIN_NONCE_CACHE_SIZE),
-            ping_info: LruCache::new(PING_PONG_CACHE_SIZE),
-            pong_info: LruCache::new(PING_PONG_CACHE_SIZE),
-            waiting_pong: LruCache::new(PING_PONG_CACHE_SIZE),
         }
     }
 
@@ -110,13 +94,21 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
+    pub(crate) fn find_route(
+        &mut self,
+        clock: &time::Clock,
+        target: &PeerIdOrHash,
+    ) -> Result<PeerId, FindRouteError> {
         match target {
             PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
+                self.fetch_route_back(clock, *hash).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
+    }
+
+    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
+        self.peer_forwarding.get(peer_id)
     }
 
     /// Find peer that owns this AccountId.
@@ -136,11 +128,7 @@ impl RoutingTableView {
         self.account_peers.put(account_id.clone(), announce_account.clone());
 
         // Add account to store
-        let mut update = self.store.store_update();
-        if let Err(e) = update
-            .set_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
-            .and_then(|_| update.commit())
-        {
+        if let Err(e) = self.store.set_account_announcement(&account_id, &announce_account) {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
         }
     }
@@ -158,62 +146,22 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.insert(hash, peer_id);
+    pub(crate) fn add_route_back(
+        &mut self,
+        clock: &time::Clock,
+        hash: CryptoHash,
+        peer_id: PeerId,
+    ) {
+        self.route_back.insert(clock, hash, peer_id);
     }
 
     // Find route back with given hash and removes it from cache.
-    fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.remove(&hash)
+    fn fetch_route_back(&mut self, clock: &time::Clock, hash: CryptoHash) -> Option<PeerId> {
+        self.route_back.remove(clock, &hash)
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
         self.route_back.get(&hash).map_or(false, |value| value == peer_id)
-    }
-
-    pub(crate) fn add_ping(&mut self, ping: Ping) {
-        let cnt = self.ping_info.get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
-
-        self.ping_info.put(ping.nonce as usize, (ping, cnt + 1));
-    }
-
-    /// Return time of the round trip of ping + pong
-    pub(crate) fn add_pong(&mut self, pong: Pong) -> Option<f64> {
-        let mut res = None;
-
-        if let Some(nonces) = self.waiting_pong.get_mut(&pong.source) {
-            res = nonces.pop(&(pong.nonce as usize)).map(|sent| {
-                Clock::instant().saturating_duration_since(sent).as_secs_f64() * 1000f64
-            });
-        }
-
-        let cnt = self.pong_info.get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
-
-        self.pong_info.put(pong.nonce as usize, (pong, (cnt + 1)));
-
-        res
-    }
-
-    // for unit tests
-    pub(crate) fn sending_ping(&mut self, nonce: usize, target: PeerId) {
-        let entry = if let Some(entry) = self.waiting_pong.get_mut(&target) {
-            entry
-        } else {
-            self.waiting_pong.put(target.clone(), LruCache::new(10));
-            self.waiting_pong.get_mut(&target).unwrap()
-        };
-
-        entry.put(nonce, Clock::instant());
-    }
-
-    /// Fetch `ping_info` and `pong_info` for units tests.
-    pub(crate) fn fetch_ping_pong(
-        &self,
-    ) -> (
-        impl Iterator<Item = (&usize, &(Ping, usize))> + ExactSizeIterator,
-        impl Iterator<Item = (&usize, &(Pong, usize))> + ExactSizeIterator,
-    ) {
-        (self.ping_info.iter(), self.pong_info.iter())
     }
 
     pub(crate) fn info(&self) -> RoutingTableInfo {
@@ -239,25 +187,21 @@ impl RoutingTableView {
         self.account_peers.iter().map(|(_k, v)| v)
     }
 
-    /// Get account announce from
+    /// Get AnnounceAccount for the given AccountId.
     pub(crate) fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.get(account_id) {
-            Some(announce_account.clone())
-        } else {
-            self.store
-                .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
-                .map(|res: Option<AnnounceAccount>| {
-                    if let Some(announce_account) = res {
-                        self.account_peers.put(account_id.clone(), announce_account.clone());
-                        Some(announce_account)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|e| {
-                    warn!(target: "network", "Error loading announce account from store: {:?}", e);
-                    None
-                })
+            return Some(announce_account.clone());
+        }
+        match self.store.get_account_announcement(&account_id) {
+            Err(e) => {
+                warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                None
+            }
+            Ok(None) => None,
+            Ok(Some(a)) => {
+                self.account_peers.put(account_id.clone(), a.clone());
+                Some(a)
+            }
         }
     }
 

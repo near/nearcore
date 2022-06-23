@@ -13,7 +13,7 @@ use near_primitives::borsh::BorshSerialize;
 use near_primitives::network::PeerId;
 use near_primitives::utils::index_to_bytes;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
-use near_store::DBCol::{ColComponentEdges, ColLastComponentNonce, ColPeerComponent};
+use near_store::DBCol;
 use near_store::{Store, StoreUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -45,9 +45,6 @@ pub enum Prune {
 pub struct RoutingTableActor {
     /// Data structure with all edges. It's guaranteed that `peer.0` < `peer.1`.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
-    /// Data structure used for exchanging routing tables.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    pub peer_ibf_set: crate::routing::ibf_peer_set::IbfPeerSet,
     /// Current view of the network represented by undirected graph.
     /// Nodes are Peers and edges are active connections.
     pub raw_graph: Graph,
@@ -60,11 +57,11 @@ pub struct RoutingTableActor {
     /// If any of them become reachable again, we re-add whole component.
     ///
     /// To store components, we have following column in the DB.
-    /// ColLastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
+    /// DBCol::LastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
     ///                          hasn't been used yet. If new component gets created it will use
     ///                          this nonce.
-    /// ColComponentEdges     -> Mapping from `component_nonce` to list of edges
-    /// ColPeerComponent      -> Mapping from `peer_id` to last component nonce if there
+    /// DBCol::ComponentEdges     -> Mapping from `component_nonce` to list of edges
+    /// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce if there
     ///                          exists one it belongs to.
     store: Store,
     /// First component nonce id that hasn't been used. Used for creating new components.
@@ -83,14 +80,12 @@ pub struct RoutingTableActor {
 impl RoutingTableActor {
     pub fn new(my_peer_id: PeerId, store: Store) -> Self {
         let component_nonce = store
-            .get_ser::<u64>(ColLastComponentNonce, &[])
+            .get_ser::<u64>(DBCol::LastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
         let edge_validator_pool = SyncArbiter::start(4, || EdgeValidatorActor {});
         Self {
             edges_info: Default::default(),
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            peer_ibf_set: Default::default(),
             raw_graph: Graph::new(my_peer_id),
             peer_forwarding: Default::default(),
             peer_last_time_reachable: Default::default(),
@@ -110,9 +105,6 @@ impl RoutingTableActor {
     }
 
     pub fn remove_edge(&mut self, edge: &Edge) {
-        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-        self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
-
         let key = edge.key();
         if self.edges_info.remove(key).is_some() {
             self.raw_graph.remove_edge(&edge.key().0, &edge.key().1);
@@ -137,8 +129,6 @@ impl RoutingTableActor {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            self.peer_ibf_set.add_edge(&edge.to_simple_edge());
             self.edges_info.insert(key.clone(), edge);
             true
         }
@@ -233,7 +223,7 @@ impl RoutingTableActor {
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
                                 update.delete(
-                                    ColPeerComponent,
+                                    DBCol::PeerComponent,
                                     peer_id.try_to_vec().unwrap().as_ref(),
                                 );
                             }
@@ -330,7 +320,7 @@ impl RoutingTableActor {
         // component that the edge belonged to.
         for peer_id in peers_to_remove.iter() {
             let _ = update.set_ser(
-                ColPeerComponent,
+                DBCol::PeerComponent,
                 peer_id.try_to_vec().unwrap().as_ref(),
                 &self.next_available_component_nonce,
             );
@@ -347,14 +337,15 @@ impl RoutingTableActor {
             .collect();
 
         let _ = update.set_ser(
-            ColComponentEdges,
+            DBCol::ComponentEdges,
             &index_to_bytes(self.next_available_component_nonce),
             &edges_to_remove,
         );
 
         self.next_available_component_nonce += 1;
         // Stores next available nonce.
-        let _ = update.set_ser(ColLastComponentNonce, &[], &self.next_available_component_nonce);
+        let _ =
+            update.set_ser(DBCol::LastComponentNonce, &[], &self.next_available_component_nonce);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
@@ -367,9 +358,12 @@ impl RoutingTableActor {
         self.edges_info.get(key).map_or(0, |x| x.nonce()) < nonce
     }
 
-    /// Get edges stored in DB under `ColPeerComponent` column at `peer_id` key.
+    /// Get edges stored in DB under `DBCol::PeerComponent` column at `peer_id` key.
     fn component_nonce_from_peer(&self, peer_id: &PeerId) -> Result<u64, ()> {
-        match self.store.get_ser::<u64>(ColPeerComponent, peer_id.try_to_vec().unwrap().as_ref()) {
+        match self
+            .store
+            .get_ser::<u64>(DBCol::PeerComponent, peer_id.try_to_vec().unwrap().as_ref())
+        {
             Ok(Some(nonce)) => Ok(nonce),
             _ => Err(()),
         }
@@ -383,12 +377,12 @@ impl RoutingTableActor {
     ) -> Result<Vec<Edge>, ()> {
         let enc_nonce = index_to_bytes(component_nonce);
 
-        let res = match self.store.get_ser::<Vec<Edge>>(ColComponentEdges, enc_nonce.as_ref()) {
+        let res = match self.store.get_ser::<Vec<Edge>>(DBCol::ComponentEdges, enc_nonce.as_ref()) {
             Ok(Some(edges)) => Ok(edges),
             _ => Err(()),
         };
 
-        update.delete(ColComponentEdges, enc_nonce.as_ref());
+        update.delete(DBCol::ComponentEdges, enc_nonce.as_ref());
 
         res
     }
@@ -454,22 +448,9 @@ pub enum RoutingTableMessages {
     /// `signature1` is valid.
     AddVerifiedEdges { edges: Vec<Edge> },
     /// Remove edges for unit tests
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AdvRemoveEdges(Vec<Edge>),
     /// Get `RoutingTable` for debugging purposes.
     RequestRoutingTable,
-    /// Add `PeerId` and generate `IbfSet`.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    AddPeerIfMissing(PeerId, Option<u64>),
-    /// Remove `PeerId` from `IbfSet`
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    RemovePeer(PeerId),
-    /// Do new routing table exchange algorithm.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    ProcessIbfMessage { peer_id: PeerId, ibf_msg: crate::types::RoutingVersion2 },
-    /// Start new routing table sync.
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync { seed: u64 },
     /// Request routing table update and maybe prune edges.
     RoutingTableUpdate { prune: Prune, prune_edges_not_reachable_for: Duration },
     /// Gets list of edges to validate from another peer.
@@ -480,21 +461,11 @@ pub enum RoutingTableMessages {
 
 #[derive(actix::MessageResponse, Debug)]
 pub enum RoutingTableMessagesResponse {
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    AddPeerResponse {
-        seed: u64,
-    },
     Empty,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    ProcessIbfMessageResponse {
-        ibf_msg: Option<crate::types::RoutingVersion2>,
-    },
     RequestRoutingTableResponse {
         edges_info: Vec<Edge>,
     },
     AddVerifiedEdgesResponse(Vec<Edge>),
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSyncResponse(crate::types::RoutingSyncV2),
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
@@ -504,32 +475,6 @@ pub enum RoutingTableMessagesResponse {
         /// List of peers to ban for sending invalid edges.
         peers_to_ban: Vec<PeerId>,
     },
-}
-
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl RoutingTableActor {
-    pub fn exchange_routing_tables_using_ibf(
-        &self,
-        peer_id: &PeerId,
-        ibf_set: &crate::routing::IbfSet<near_network_primitives::types::SimpleEdge>,
-        ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
-        ibf_vec: &[crate::routing::ibf::IbfBox],
-        seed: u64,
-    ) -> (Vec<near_network_primitives::types::SimpleEdge>, Vec<u64>, u64) {
-        let ibf = ibf_set.get_ibf(ibf_level);
-
-        let mut new_ibf = crate::routing::ibf::Ibf::from_vec(ibf_vec, seed ^ (ibf_level.0 as u64));
-
-        if !new_ibf.merge(&ibf.data, seed ^ (ibf_level.0 as u64)) {
-            tracing::error!(target: "network", "exchange routing tables failed with peer {}", peer_id);
-            return (Default::default(), Default::default(), 0);
-        }
-
-        let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
-        let (known, unknown_edges) = self.peer_ibf_set.split_edges_for_peer(peer_id, &edge_hashes);
-
-        (known, unknown_edges, unknown_edges_count)
-    }
 }
 
 impl Handler<RoutingTableMessages> for RoutingTableActor {
@@ -572,18 +517,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
             }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            RoutingTableMessages::StartRoutingTableSync { seed } => {
-                RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
-                    crate::types::RoutingSyncV2::Version2(crate::types::RoutingVersion2 {
-                        known_edges: self.edges_info.len() as u64,
-                        seed,
-                        edges: Default::default(),
-                        routing_state: crate::types::RoutingState::InitializeIbf,
-                    }),
-                )
-            }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AdvRemoveEdges(edges) => {
                 for edge in edges.iter() {
                     self.remove_edge(edge);
@@ -593,146 +526,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             RoutingTableMessages::RequestRoutingTable => {
                 RoutingTableMessagesResponse::RequestRoutingTableResponse {
                     edges_info: self.edges_info.iter().map(|(_k, v)| v.clone()).collect(),
-                }
-            }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
-                let seed = self.peer_ibf_set.add_peer(peer_id, ibf_set, &mut self.edges_info);
-                RoutingTableMessagesResponse::AddPeerResponse { seed }
-            }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            RoutingTableMessages::RemovePeer(peer_id) => {
-                self.peer_ibf_set.remove_peer(&peer_id);
-                RoutingTableMessagesResponse::Empty
-            }
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            RoutingTableMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
-                match ibf_msg.routing_state {
-                    crate::types::RoutingState::PartialSync(partial_sync) => {
-                        if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
-                            let seed = ibf_msg.seed;
-                            let (edges_for_peer, unknown_edge_hashes, unknown_edges_count) = self
-                                .exchange_routing_tables_using_ibf(
-                                    &peer_id,
-                                    ibf_set,
-                                    partial_sync.ibf_level,
-                                    &partial_sync.ibf,
-                                    ibf_msg.seed,
-                                );
-
-                            let edges_for_peer = edges_for_peer
-                                .iter()
-                                .filter_map(|x| self.edges_info.get(x.key()).cloned())
-                                .collect();
-                            // Prepare message
-                            let ibf_msg = if unknown_edges_count == 0
-                                && !unknown_edge_hashes.is_empty()
-                            {
-                                crate::types::RoutingVersion2 {
-                                    known_edges: self.edges_info.len() as u64,
-                                    seed,
-                                    edges: edges_for_peer,
-                                    routing_state: crate::types::RoutingState::RequestMissingEdges(
-                                        unknown_edge_hashes,
-                                    ),
-                                }
-                            } else if unknown_edges_count == 0 && unknown_edge_hashes.is_empty() {
-                                crate::types::RoutingVersion2 {
-                                    known_edges: self.edges_info.len() as u64,
-                                    seed,
-                                    edges: edges_for_peer,
-                                    routing_state: crate::types::RoutingState::Done,
-                                }
-                            } else if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
-                                let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
-                                crate::types::RoutingVersion2 {
-                                    known_edges: self.edges_info.len() as u64,
-                                    seed,
-                                    edges: edges_for_peer,
-                                    routing_state: crate::types::RoutingState::PartialSync(
-                                        crate::types::PartialSync {
-                                            ibf_level: new_ibf_level,
-                                            ibf: ibf_vec.clone(),
-                                        },
-                                    ),
-                                }
-                            } else {
-                                crate::types::RoutingVersion2 {
-                                    known_edges: self.edges_info.len() as u64,
-                                    seed,
-                                    edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
-                                    routing_state: crate::types::RoutingState::RequestAllEdges,
-                                }
-                            };
-                            RoutingTableMessagesResponse::ProcessIbfMessageResponse {
-                                ibf_msg: Some(ibf_msg),
-                            }
-                        } else {
-                            tracing::error!(target: "network", "Peer not found {}", peer_id);
-                            RoutingTableMessagesResponse::Empty
-                        }
-                    }
-                    crate::types::RoutingState::InitializeIbf => {
-                        self.peer_ibf_set.add_peer(
-                            peer_id.clone(),
-                            Some(ibf_msg.seed),
-                            &mut self.edges_info,
-                        );
-                        if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
-                            let seed = ibf_set.get_seed();
-                            let ibf_vec =
-                                ibf_set.get_ibf_vec(crate::routing::ibf_peer_set::MIN_IBF_LEVEL);
-                            RoutingTableMessagesResponse::ProcessIbfMessageResponse {
-                                ibf_msg: Some(crate::types::RoutingVersion2 {
-                                    known_edges: self.edges_info.len() as u64,
-                                    seed,
-                                    edges: Default::default(),
-                                    routing_state: crate::types::RoutingState::PartialSync(
-                                        crate::types::PartialSync {
-                                            ibf_level: crate::routing::ibf_peer_set::MIN_IBF_LEVEL,
-                                            ibf: ibf_vec.clone(),
-                                        },
-                                    ),
-                                }),
-                            }
-                        } else {
-                            tracing::error!(target: "network", "Peer not found {}", peer_id);
-                            RoutingTableMessagesResponse::Empty
-                        }
-                    }
-                    crate::types::RoutingState::RequestMissingEdges(requested_edges) => {
-                        let seed = ibf_msg.seed;
-                        let (edges_for_peer, _) =
-                            self.peer_ibf_set.split_edges_for_peer(&peer_id, &requested_edges);
-
-                        let edges_for_peer = edges_for_peer
-                            .iter()
-                            .filter_map(|x| self.edges_info.get(x.key()).cloned())
-                            .collect();
-
-                        let ibf_msg = crate::types::RoutingVersion2 {
-                            known_edges: self.edges_info.len() as u64,
-                            seed,
-                            edges: edges_for_peer,
-                            routing_state: crate::types::RoutingState::Done,
-                        };
-                        RoutingTableMessagesResponse::ProcessIbfMessageResponse {
-                            ibf_msg: Some(ibf_msg),
-                        }
-                    }
-                    crate::types::RoutingState::RequestAllEdges => {
-                        RoutingTableMessagesResponse::ProcessIbfMessageResponse {
-                            ibf_msg: Some(crate::types::RoutingVersion2 {
-                                known_edges: self.edges_info.len() as u64,
-                                seed: ibf_msg.seed,
-                                edges: self.get_all_edges(),
-                                routing_state: crate::types::RoutingState::Done,
-                            }),
-                        }
-                    }
-                    crate::types::RoutingState::Done => {
-                        RoutingTableMessagesResponse::ProcessIbfMessageResponse { ibf_msg: None }
-                    }
                 }
             }
         }

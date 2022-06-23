@@ -149,19 +149,19 @@ pub enum ProtocolFeature {
     ChunkNodesCache,
     /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
     LowerStorageKeyLimit,
-
-    // nightly features
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
+
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    RoutingExchangeAlgorithm,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
+    /// Charge for contract loading before it happens.
+    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+    FixContractLoadingCost,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -171,14 +171,19 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
-/// Version used by this binary.
-#[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-/// Current latest nightly version of the protocol.
-#[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 128;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "nightly_protocol")] {
+        /// Current latest nightly version of the protocol.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 129;
+    } else if #[cfg(feature = "shardnet")] {
+        /// Protocol version for shardnet.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 100;
+    } else {
+        pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
+    }
+}
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -233,16 +238,15 @@ impl ProtocolFeature {
             | ProtocolFeature::LimitContractLocals
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::AltBn128 => 55,
 
-            // Nightly features
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            ProtocolFeature::AltBn128 => 105,
+            // Nightly & shardnet features
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 124,
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            ProtocolFeature::ChunkOnlyProducers => 100,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
+            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            ProtocolFeature::FixContractLoadingCost => 129,
         }
     }
 }

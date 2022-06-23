@@ -4,23 +4,15 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
-use near_store::{create_store, DBCol};
-use std::path::Path;
-
-lazy_static_include::lazy_static_include_bytes! {
-    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
-    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
-    /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
-}
+use near_store::DBCol;
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
-    let store = create_store(path);
+pub fn migrate_30_to_31(store_opener: &near_store::StoreOpener, near_config: &crate::NearConfig) {
+    let store = store_opener.open();
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
         let head = chain_store.head().unwrap();
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut count = 0;
@@ -30,15 +22,11 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
                 let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
                 let block_hash_from_block_ordinal =
                     chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
-                if *block_hash_from_block_ordinal != block_hash {
+                if block_hash_from_block_ordinal != block_hash {
                     println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
                     count += 1;
                     store_update
-                        .set_ser(
-                            DBCol::ColBlockOrdinal,
-                            &index_to_bytes(block_ordinal),
-                            &block_hash,
-                        )
+                        .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
                         .expect("BorshSerialize should not fail");
                 }
             }
@@ -49,14 +37,6 @@ pub fn migrate_30_to_31(path: &Path, near_config: &crate::NearConfig) {
     set_store_version(&store, 31);
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    /// File with account ids and deltas that need to be applied in order to fix storage usage
-    /// difference between actual and stored usage, introduced due to bug in access key deletion,
-    /// see https://github.com/near/nearcore/issues/3824
-    /// This file was generated using tools/storage-usage-delta-calculator
-    MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
-}
-
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
@@ -65,7 +45,7 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         storage_usage_delta: if is_mainnet {
-            serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
+            near_mainnet_res::mainnet_storage_usage_delta()
         } else {
             Vec::new()
         },
@@ -75,8 +55,7 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
             0
         },
         restored_receipts: if is_mainnet {
-            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
-                .expect("File with receipts restored after apply_chunks fix have to be correct")
+            near_mainnet_res::mainnet_restored_receipts()
         } else {
             ReceiptResult::default()
         },
@@ -86,14 +65,18 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_mainnet_res::mainnet_restored_receipts;
+    use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
     use near_primitives::serialize::to_base;
 
     #[test]
     fn test_migration_data() {
         assert_eq!(
-            to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
-            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+            to_base(&hash(
+                serde_json::to_string(&mainnet_storage_usage_delta()).unwrap().as_bytes()
+            )),
+            "2fEgaLFBBJZqgLQEvHPsck4NS3sFzsgyKaMDqTw5HVvQ"
         );
         let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
@@ -104,8 +87,8 @@ mod tests {
     #[test]
     fn test_restored_receipts_data() {
         assert_eq!(
-            to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
-            "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
+            to_base(&hash(serde_json::to_string(&mainnet_restored_receipts()).unwrap().as_bytes())),
+            "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
         let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);

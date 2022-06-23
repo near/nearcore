@@ -70,9 +70,9 @@ pub mod testbed;
 pub mod config;
 mod function_call;
 mod gas_metering;
+mod trie;
 
-use std::convert::{TryFrom, TryInto};
-use std::iter;
+use std::convert::TryFrom;
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
@@ -80,7 +80,6 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::config::default_read_cached_trie_node;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -92,13 +91,12 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
-use num_rational::Ratio;
 use rand::Rng;
 use serde_json::json;
 use utils::{
-    aggregate_per_block_measurements, fn_cost, fn_cost_count, fn_cost_with_setup,
-    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
-    transaction_cost, transaction_cost_ext,
+    aggregate_per_block_measurements, average_cost, fn_cost, fn_cost_count, fn_cost_in_contract,
+    fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
+    read_resource, transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -131,8 +129,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
-    (Cost::ActionFunctionCallBaseV2, action_function_call_base_v2),
-    (Cost::ActionFunctionCallPerByteV2, action_function_call_per_byte_v2),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -188,6 +184,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ContractCompileBaseV2, contract_compile_base_v2),
     (Cost::ContractCompileBytesV2, contract_compile_bytes_v2),
     (Cost::DeployBytes, pure_deploy_bytes),
+    (Cost::ContractLoadingBase, contract_loading_base),
+    (Cost::ContractLoadingPerByte, contract_loading_per_byte),
+    (Cost::FunctionCallPerStorageByte, function_call_per_storage_byte),
     (Cost::GasMeteringBase, gas_metering_base),
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
@@ -385,7 +384,7 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(100),
                 receiver_id,
-                method_names: vec!["method1".to_string()],
+                method_names: vec!["m".to_string()],
             });
             add_key_transaction(tb, sender, permission)
         };
@@ -400,8 +399,15 @@ fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+    let base_cost = action_add_function_access_key_base(ctx) + action_sir_receipt_creation(ctx);
+
+    // Set up estimation with varying method length and total bytes.
+    let mut estimate = |method_len: usize, total_len: usize| {
+        // Nothing prevents a key to list the same method many times. Performance should not be affected.
+        let method_name = "x".repeat(method_len);
+        let num_methods = total_len / (method_len + 1);
+        let method_names = vec![method_name; num_methods];
+
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
@@ -409,19 +415,37 @@ fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCos
             let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(100),
                 receiver_id,
-                method_names: many_methods.clone(),
+                method_names: method_names.clone(),
             });
             add_key_transaction(tb, sender, permission)
         };
-        transaction_cost(ctx, &mut make_transaction)
+
+        let total_cost = transaction_cost(ctx, &mut make_transaction);
+        // +1 for null-terminator
+        let actual_total_len = num_methods * (method_len + 1);
+        let per_byte_cost = total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+            / actual_total_len as u64;
+
+        if ctx.config.debug {
+            eprintln!("{num_methods}x{method_len}: {per_byte_cost:?}");
+        }
+        per_byte_cost
     };
 
-    let base_cost = action_add_function_access_key_base(ctx);
+    // A single action can have up to 2kB bytes of comma-separated method names.
+    // As defined by the parameter `max_number_bytes_method_names`.
+    let max_bytes = 2_000;
+    // Methods name lengths are limited by the runtime parameter `max_length_method_name`.
+    let max_method_len = 256;
 
-    // 1k methods for 10 bytes each
-    let bytes_per_transaction = 10 * 1000;
+    // Try a couple of combinations that could potentially be the worst-case.
+    let cost_a = estimate(max_method_len, max_bytes);
+    let cost_b = estimate(1, max_bytes); // This is the worst at time of writing.
+    let cost_c = estimate(8, max_bytes);
+    let cost_d = estimate(max_method_len, max_method_len + 1);
+    let cost_e = estimate(max_method_len / 2, max_bytes / 2);
 
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
+    [cost_a, cost_b, cost_c, cost_d, cost_e].into_iter().max().unwrap()
 }
 
 fn add_key_transaction(
@@ -626,8 +650,9 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     costs
 }
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let small_code = generate_data_only_contract(0);
-    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize);
+    let vm_config = VMConfig::test();
+    let small_code = generate_data_only_contract(0, &vm_config);
+    let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
     let small_code_len = small_code.len();
     let large_code_len = large_code.len();
     let cost_empty = deploy_contract_cost(ctx, small_code, Some(b"main"));
@@ -643,46 +668,64 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", vec![0; 1024 * 1024])
-        };
-        transaction_cost(ctx, &mut make_transaction)
-    };
+    // X values below 1M have a rather high variance. Therefore, use one small X
+    // value and two larger values to fit a curve that gets the slope about
+    // right.
+    let xs = [1, 1_000_000, 4_000_000];
+    let ys: Vec<GasCost> = xs
+        .iter()
+        .map(|&arg_len| inner_action_function_call_per_byte(ctx, arg_len as usize))
+        .collect();
 
-    let base_cost = noop_function_call_cost(ctx);
-
-    let bytes_per_transaction = 1024 * 1024;
-
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
-}
-
-fn action_function_call_base_v2(ctx: &mut EstimatorContext) -> GasCost {
-    let (base, _per_byte) = action_function_call_base_per_byte_v2(ctx);
-    base
-}
-fn action_function_call_per_byte_v2(ctx: &mut EstimatorContext) -> GasCost {
-    let (_base, per_byte) = action_function_call_base_per_byte_v2(ctx);
+    let (_base, per_byte) = GasCost::least_squares_method_gas_cost(
+        &xs,
+        &ys,
+        &LeastSquaresTolerance::default().factor_rel_nn_tolerance(0.001),
+        ctx.config.debug,
+    );
     per_byte
 }
-fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
-    if let Some(base_byte_cost) = ctx.cached.action_function_call_base_per_byte_v2.clone() {
+
+fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usize) -> GasCost {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let args = tb.random_vec(arg_len);
+        tb.transaction_from_function_call(sender, "noop", args)
+    };
+    let block_size = 5;
+    let block_latency = 0;
+    transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
+}
+
+fn contract_loading_base(ctx: &mut EstimatorContext) -> GasCost {
+    let (base, _per_byte) = contract_loading_base_per_byte(ctx);
+    base
+}
+fn contract_loading_per_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let (_base, per_byte) = contract_loading_base_per_byte(ctx);
+    per_byte
+}
+fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
+    if let Some(base_byte_cost) = ctx.cached.contract_loading_base_per_byte.clone() {
         return base_byte_cost;
     }
 
-    let (base, byte) =
-        crate::function_call::test_function_call(ctx.config.metric, ctx.config.vm_kind);
-    let convert_ratio = |r: Ratio<i128>| -> Ratio<u64> {
-        Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
-    };
-    let base_byte_cost = (
-        GasCost::from_gas(convert_ratio(base), ctx.config.metric),
-        GasCost::from_gas(convert_ratio(byte), ctx.config.metric),
-    );
+    let (base, per_byte) = crate::function_call::contract_loading_cost(ctx.config);
+    ctx.cached.contract_loading_base_per_byte = Some((base.clone(), per_byte.clone()));
+    (base, per_byte)
+}
+fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let vm_config = VMConfig::test();
+    let block_size = 5;
 
-    ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
-    base_byte_cost
+    let small_code = generate_data_only_contract(0, &vm_config);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, block_size);
+
+    let large_code = generate_data_only_contract(4_000_000, &vm_config);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, block_size);
+
+    large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
+        / (large_code.len() - small_code.len()) as u64
 }
 
 fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -727,10 +770,10 @@ fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
 fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
-    let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-        "test-contract/res/nightly_large_contract.wasm"
+    let code = read_resource(if cfg!(feature = "nightly") {
+        "test-contract/res/nightly_contract.wasm"
     } else {
-        "test-contract/res/stable_large_contract.wasm"
+        "test-contract/res/stable_contract.wasm"
     });
 
     let n_iters = 10;
@@ -875,57 +918,29 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_multiexp_1_1k", ExtCosts::alt_bn128_g1_multiexp_base, 1000);
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+    fn_cost(ctx, "alt_bn128_g1_multiexp_1_10", ExtCosts::alt_bn128_g1_multiexp_base, 10)
 }
 fn alt_bn128g1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(
-        ctx,
-        "alt_bn128_g1_multiexp_10_1k",
-        ExtCosts::alt_bn128_g1_multiexp_element,
-        10 * 1000,
-    );
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+    fn_cost(ctx, "alt_bn128_g1_multiexp_10_10", ExtCosts::alt_bn128_g1_multiexp_element, 10 * 10)
 }
 
 fn alt_bn128g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_sum_1_1k", ExtCosts::alt_bn128_g1_sum_base, 1000);
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+    fn_cost(ctx, "alt_bn128_g1_sum_1_1k", ExtCosts::alt_bn128_g1_sum_base, 1000)
 }
 fn alt_bn128g1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 10 * 1000);
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+    fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_element, 10 * 1000)
 }
 
 fn alt_bn128_pairing_check_base(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(
-        ctx,
-        "alt_bn128_pairing_check_1_1k",
-        ExtCosts::alt_bn128_pairing_check_base,
-        1000,
-    );
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+    fn_cost(ctx, "alt_bn128_pairing_check_1_10", ExtCosts::alt_bn128_pairing_check_base, 10)
 }
 fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    return fn_cost(
+    fn_cost(
         ctx,
-        "alt_bn128_pairing_check_10_1k",
+        "alt_bn128_pairing_check_10_10",
         ExtCosts::alt_bn128_pairing_check_element,
-        10 * 1000,
-    );
-    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost::zero(ctx.config.metric);
+        10 * 10,
+    )
 }
 
 fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -1045,65 +1060,16 @@ fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     return std::cmp::max(read, write);
 }
 
-fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
-    GasCost::from_gas(default_read_cached_trie_node().into(), ctx.config.metric)
-}
-
 fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.touching_trie_node_read.clone() {
         return cost;
     }
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
-    let mut testbed = ctx.testbed();
-    let tb = testbed.transaction_builder();
-
     // Number of bytes in the final key. Will create 2x that many nodes.
     // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
     let final_key_len = 1000;
-
-    // Prepare a long chain in the trie
-    let signer = tb.random_account();
-    let key = "j".repeat(final_key_len);
-    let mut setup_block = Vec::new();
-    for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
-        let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
-    }
-
-    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
-    blocks.push(setup_block);
-
-    blocks.extend(
-        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key.as_str()[0..1])])
-            .take(measured_iters + warmup_iters),
-    );
-    blocks.extend(
-        iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key)])
-            .take(measured_iters + warmup_iters),
-    );
-
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
-    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
-
-    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        &ctx.config,
-        1,
-        short_key_results[warmup_iters..].to_vec(),
-    );
-    let (cost_long_key, ext_cost_long_key) =
-        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
-
-    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
-        - ext_cost_short_key[&ExtCosts::touching_trie_node];
-    // The exact number of touched nodes is a implementation that we don't want
-    // to test here but it should be close to 2*final_key_len
-    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
-    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
-    let cost_delta =
-        cost_long_key.saturating_sub(&cost_short_key, &NonNegativeTolerance::PER_MILLE);
-    let cost = cost_delta / nodes_touched_delta;
+    let cost = trie::read_node_from_db(ctx, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_read = Some(cost.clone());
     cost
@@ -1115,64 +1081,25 @@ fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
     }
     let warmup_iters = ctx.config.warmup_iters_per_block;
     let measured_iters = ctx.config.iter_per_block;
-    let mut testbed = ctx.testbed();
-    let tb = testbed.transaction_builder();
-
     // Number of bytes in the final key. Will create 2x that many nodes.
     // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
     let final_key_len = 1000;
-
-    // Prepare a long chain in the trie
-    let signer = tb.random_account();
-    let key = std::iter::repeat('j').take(final_key_len).collect::<String>();
-    let mut setup_block = Vec::new();
-    for key_len in 0..final_key_len {
-        let key = &key.as_str()[..key_len];
-        let value = "0";
-        setup_block.push(tb.account_insert_key(signer.clone(), key, value));
-    }
-
-    let mut blocks = Vec::with_capacity(1 + 2 * warmup_iters + 2 * measured_iters);
-    blocks.push(setup_block);
-
-    blocks.extend(
-        ["1", "2", "3"]
-            .iter()
-            .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key.as_str()[0..1], value)])
-            .take(measured_iters + warmup_iters),
-    );
-    blocks.extend(
-        ["1", "2", "3"]
-            .iter()
-            .cycle()
-            .map(|value| vec![tb.account_insert_key(signer.clone(), &key, value)])
-            .take(measured_iters + warmup_iters),
-    );
-
-    let results = &testbed.measure_blocks(blocks, 0)[1..];
-    let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
-
-    let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        &ctx.config,
-        1,
-        short_key_results[warmup_iters..].to_vec(),
-    );
-    let (cost_long_key, ext_cost_long_key) =
-        aggregate_per_block_measurements(&ctx.config, 1, long_key_results[warmup_iters..].to_vec());
-
-    let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
-        - ext_cost_short_key[&ExtCosts::touching_trie_node];
-    // The exact number of touched nodes is a implementation that we don't want
-    // to test here but it should be close to 2*final_key_len
-    assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
-    assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
-    let cost_delta =
-        cost_long_key.saturating_sub(&cost_short_key, &NonNegativeTolerance::PER_MILLE);
-    let cost = cost_delta / nodes_touched_delta;
+    let cost = trie::write_node(ctx, warmup_iters, measured_iters, final_key_len);
 
     ctx.cached.touching_trie_node_write = Some(cost.clone());
     cost
+}
+
+fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
+    let warmup_iters = ctx.config.warmup_iters_per_block;
+    let iters = ctx.config.iter_per_block;
+    let mut testbed = ctx.testbed();
+
+    let results = (0..(warmup_iters + iters))
+        .map(|_| trie::read_node_from_chunk_cache(&mut testbed))
+        .skip(warmup_iters)
+        .collect::<Vec<_>>();
+    average_cost(ctx.config, &results)
 }
 
 fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
@@ -1188,7 +1115,8 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
     let measurements = testbed.measure_blocks(blocks, 0);
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
-    let (gas_cost, _ext_costs) = aggregate_per_block_measurements(testbed.config, 1, measurements);
+    let (gas_cost, _ext_costs) =
+        aggregate_per_block_measurements(testbed.config, 1, measurements, None);
 
     ctx.cached.apply_block = Some(gas_cost.clone());
 

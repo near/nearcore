@@ -53,7 +53,8 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert_eq!(result.outcome().used_gas, 0);
+        let expected_gas = crate::tests::prepaid_loading_gas(code.len());
+        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
@@ -61,7 +62,7 @@ fn test_does_not_cache_io_error() {
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert_eq!(result.outcome().used_gas, 0);
+        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
             result.error(),
             Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))
@@ -88,7 +89,7 @@ fn make_cached_contract_call_vm(
         &code,
         method_name,
         &mut fake_external,
-        context.clone(),
+        context,
         &fees,
         &promise_results,
         LATEST_PROTOCOL_VERSION,
@@ -105,23 +106,23 @@ fn test_wasmer2_artifact_output_stability() {
     // fall through the cracks here, but hopefully it should catch most of the fish just fine.
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
-        4956511664052417334,
-        13266258595277126792,
-        11794508683191255560,
-        4769993623179083711,
-        10062359189500799005,
-        12997491198579188147,
-        4736731759770276858,
+        12248437801724644735,
+        2647244875869025389,
+        892153519407678490,
+        8592050243596620350,
+        2309330154575012917,
+        9323529151210819831,
+        11488755771702465226,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        2482866579380424992,
-        12522401137476924800,
-        14535116066862320239,
-        14541379784010931226,
-        14081546286930060080,
-        13351538055512369264,
-        10243003885523827708,
+        5827744486935367002,
+        3163481497450515654,
+        12932669301919595047,
+        4509630115775888919,
+        5285162149441033812,
+        15892844827657184765,
+        7871022777077203514,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {

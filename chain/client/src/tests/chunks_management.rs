@@ -16,7 +16,7 @@ fn test_request_chunk_restart() {
         env.produce_block(0, i);
         env.network_adapters[0].pop();
     }
-    let block1 = env.clients[0].chain.get_block_by_height(3).unwrap().clone();
+    let block1 = env.clients[0].chain.get_block_by_height(3).unwrap();
     let request = PartialEncodedChunkRequestMsg {
         chunk_hash: block1.chunks()[0].chunk_hash(),
         part_ords: vec![0],

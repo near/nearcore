@@ -7,26 +7,18 @@ use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::RocksDB;
-use near_store::migrations::{
-    get_store_version, migrate_28_to_29, migrate_29_to_30, set_store_version,
-};
-use near_store::DBCol;
-use near_store::{create_store, create_store_with_config, Store};
+use near_store::db::{Mode, RocksDB};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
+use near_store::{DBCol, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -39,23 +31,6 @@ mod metrics;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
-
-const STORE_PATH: &str = "data";
-
-pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
-    fs::canonicalize(path).is_ok()
-}
-
-pub fn get_store_path(base_path: &Path) -> PathBuf {
-    let mut store_path = base_path.to_owned();
-    store_path.push(STORE_PATH);
-    if store_path_exists(&store_path) {
-        info!(target: "near", "Opening store database at {:?}", store_path);
-    } else {
-        info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
-    }
-    store_path
-}
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -99,7 +74,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::new(&path, &near_config.config.store)?;
+    let db = RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -108,12 +83,23 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
     Ok(checkpoint_path)
 }
 
-/// Function checks current version of the database and applies migrations to the database.
-fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
-    let db_version = get_store_version(&path)?;
-    if db_version == near_primitives::version::DB_VERSION {
-        return Ok(());
-    }
+/// Checks current version of the database and applies migrations if needed.
+///
+/// Returns whether the database exists in the first place.  If it doesn’t,
+/// returns false and does nothing.  If it does, performs any necessary
+/// migrations and returns true.
+///
+/// Other than regular database errors, returns an error if the database has
+/// unsupported version: either too far in the past or a future version.
+fn apply_store_migrations_if_exists(
+    store_opener: &StoreOpener,
+    near_config: &NearConfig,
+) -> anyhow::Result<bool> {
+    let db_version = match store_opener.get_version_if_exists()? {
+        None => return Ok(false),
+        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        Some(db_version) => db_version,
+    };
 
     anyhow::ensure!(
         db_version < near_primitives::version::DB_VERSION,
@@ -138,7 +124,7 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(path, near_config).context(
+        let checkpoint_path = create_db_checkpoint(&store_opener.get_path(), near_config).context(
             "Failed to create a database migration snapshot.\n\
              You can change the location of the snapshot by adjusting `config.json`:\n\
              \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
@@ -158,41 +144,37 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         unreachable!();
     }
     if db_version <= 27 {
-        // version 27 => 28: add ColStateChangesForSplitStates
-        // Does not need to do anything since open db with option `create_missing_column_families`
-        // Nevertheless need to bump db version, because db_version 27 binary can't open db_version 28 db
-        info!(target: "near", "Migrate DB from version 27 to 28");
-        let store = create_store(path);
-        set_store_version(&store, 28);
+        // version 27 => 28: add DBCol::StateChangesForSplitStates
+        // Does not need to do anything since open db with option
+        // `create_missing_column_families`.  Nevertheless need to bump db
+        // version, because db_version 27 binary can't open db_version 28 db.
+        // Combine it with migration from 28 to 29; don’t do anything here.
     }
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(path);
+        migrate_28_to_29(store_opener);
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(path);
+        migrate_29_to_30(store_opener);
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(path, &near_config);
+        migrate_30_to_31(store_opener, &near_config);
     }
 
-    #[cfg(feature = "nightly_protocol")]
-    {
-        let store = create_store(&path);
-
+    if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
+        let store = store_opener.open();
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
-    }
-
-    #[cfg(not(feature = "nightly_protocol"))]
-    {
-        let db_version = get_store_version(&path)?;
-        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
+    } else {
+        debug_assert_eq!(
+            Some(near_primitives::version::DB_VERSION),
+            store_opener.get_version_if_exists()?
+        );
     }
 
     // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
@@ -215,20 +197,33 @@ fn apply_store_migrations(path: &Path, near_config: &NearConfig) -> anyhow::Resu
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let path = get_store_path(home_dir);
-    let store_exists = store_path_exists(&path);
-    if store_exists {
-        apply_store_migrations(&path, near_config)?;
-    }
-    let store =
-        create_store_with_config(&path, &near_config.config.store.clone().with_read_only(false));
-    if !store_exists {
+    let opener = Store::opener(home_dir, &near_config.config.store);
+    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    let store = opener.open();
+    if !exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
+
+    // Check if the storage is an archive and if it is make sure we are too.
+    // If the store is not marked as archive but we are an archival node that is
+    // fine and we just need to mark the store as archival.
+    let store_is_archive: bool =
+        store.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
+    let client_is_archive = near_config.client_config.archive;
+    anyhow::ensure!(
+        !store_is_archive || client_is_archive,
+        "The node is configured as non-archival but is using database of an archival node."
+    );
+    if !store_is_archive && client_is_archive {
+        let mut update = store.store_update();
+        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
+        update.commit()?;
+    }
+
     Ok(store)
 }
 
@@ -236,7 +231,7 @@ pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -252,22 +247,14 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
+    let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv =
-        Arc::new(std::sync::RwLock::new(AdversarialControls::new(config.client_config.archive)));
+    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -275,7 +262,6 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
@@ -287,43 +273,37 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer,
         telemetry,
         shutdown_signal,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
     );
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
     config.network_config.verify().with_context(|| "start_with_config")?;
-    let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
-    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let routing_table_addr2 = routing_table_addr.clone();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(
-            store,
-            network_config,
-            client_actor1,
-            view_client1,
-            routing_table_addr,
-        )
-        .unwrap()
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
+        let client_actor = client_actor.clone();
+        let view_client = view_client.clone();
+        move |_ctx| {
+            PeerManagerActor::new(
+                store,
+                config.network_config,
+                client_actor.recipient(),
+                view_client.recipient(),
+            )
+            .unwrap()
+        }
     });
+    network_adapter.set_recipient(network_actor.clone().recipient());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
+        rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
             #[cfg(feature = "test_features")]
-            network_actor.clone(),
-            #[cfg(feature = "test_features")]
-            routing_table_addr2,
+            network_actor,
         ));
     }
 
@@ -339,8 +319,6 @@ pub fn start_with_config_and_synchronization(
             ),
         ));
     }
-
-    network_adapter.set_recipient(network_actor.recipient());
 
     rpc_servers.shrink_to_fit();
 
@@ -374,13 +352,13 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let archive = config.archive;
     let mut skip_columns = Vec::new();
     if archive && !opts.keep_partial_chunks {
-        skip_columns.push(near_store::DBCol::ColPartialChunks);
+        skip_columns.push(DBCol::PartialChunks);
     }
     if archive && !opts.keep_invalid_chunks {
-        skip_columns.push(near_store::DBCol::ColInvalidChunks);
+        skip_columns.push(DBCol::InvalidChunks);
     }
     if archive && !opts.keep_trie_changes {
-        skip_columns.push(near_store::DBCol::ColTrieChanges);
+        skip_columns.push(DBCol::TrieChanges);
     }
 
     // Make sure we can open at least two databases and have some file
@@ -395,37 +373,46 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_dir = home_dir.join(STORE_PATH);
-    anyhow::ensure!(
-        store_path_exists(&src_dir),
-        "{}: source storage doesn’t exist",
-        src_dir.display()
-    );
-    let db_version = get_store_version(&src_dir)?;
-    anyhow::ensure!(
-        db_version == near_primitives::version::DB_VERSION,
-        "{}: expected DB version {} but got {}",
-        src_dir.display(),
-        near_primitives::version::DB_VERSION,
-        db_version
-    );
+    let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
+    let src_path = src_opener.get_path();
+    if let Some(db_version) = src_opener.get_version_if_exists()? {
+        anyhow::ensure!(
+            db_version == near_primitives::version::DB_VERSION,
+            "{}: expected DB version {} but got {}",
+            src_path.display(),
+            near_primitives::version::DB_VERSION,
+            db_version
+        );
+    } else {
+        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
+    }
 
+    let mut dst_config = config.store.clone();
+    dst_config.path = Some(opts.dest_dir);
+    // Note: opts.dest_dir is resolved relative to current working directory
+    // (since it’s a command line option) which is why we set home to cwd.
+    let cwd = std::env::current_dir()?;
+    let dst_opener = Store::opener(&cwd, &dst_config);
+    let dst_path = dst_opener.get_path();
     anyhow::ensure!(
-        !store_path_exists(&opts.dest_dir),
+        !dst_opener.check_if_exists(),
         "{}: directory already exists",
-        opts.dest_dir.display()
+        dst_path.display()
     );
 
-    info!(target: "recompress", src = %src_dir.display(), dest = %opts.dest_dir.display(), "Recompressing database");
-    let src_store = create_store_with_config(&src_dir, &config.store.clone().with_read_only(true));
+    info!(target: "recompress",
+          src = %src_path.display(), dest = %dst_path.display(),
+          "Recompressing database");
 
-    let final_head_height = if skip_columns.contains(&DBCol::ColPartialChunks) {
+    let src_store = src_opener.open();
+
+    let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
-            src_store.get_ser(DBCol::ColBlockMisc, near_store::FINAL_HEAD_KEY)?;
+            src_store.get_ser(DBCol::BlockMisc, near_store::FINAL_HEAD_KEY)?;
         anyhow::ensure!(
             tip.is_some(),
             "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
-            src_dir.display(),
+            src_path.display(),
             std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
         );
         tip.map(|tip| tip.height)
@@ -433,7 +420,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = create_store_with_config(&opts.dest_dir, &config.store);
+    let dst_store = dst_opener.open();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
@@ -482,21 +469,21 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         store_update.commit()?;
     }
 
-    // If we’re not keeping ColPartialChunks, update chunk tail to point to
+    // If we’re not keeping DBCol::PartialChunks, update chunk tail to point to
     // current final block.  If we don’t do that, the gc will try to work its
     // way from the genesis even though chunks at those heights have been
     // deleted.
-    if skip_columns.contains(&DBCol::ColPartialChunks) {
+    if skip_columns.contains(&DBCol::PartialChunks) {
         let chunk_tail = final_head_height.unwrap();
         info!(target: "recompress", %chunk_tail, "Setting chunk tail");
         let mut store_update = dst_store.store_update();
-        store_update.set_ser(DBCol::ColBlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+        store_update.set_ser(DBCol::BlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
         store_update.commit()?;
     }
 
     core::mem::drop(dst_store);
     core::mem::drop(src_store);
 
-    info!(target: "recompress", dest_dir = ?opts.dest_dir, "Database recompressed");
+    info!(target: "recompress", dest = %dst_path.display(), "Database recompressed");
     Ok(())
 }

@@ -6,9 +6,8 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
+use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
-use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::path::Path;
 use std::sync::Arc;
@@ -28,9 +27,8 @@ impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let store_path = get_store_path(workdir.path());
-        let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
+        let tries = ShardTries::test(store, 1);
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
@@ -52,7 +50,6 @@ impl RuntimeTestbed {
             max_number_input_data_dependencies: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
-            max_number_bytes_method_names: u64::MAX,
 
             ..VMLimitConfig::test()
         };
@@ -143,8 +140,10 @@ impl RuntimeTestbed {
 
     /// Flushes RocksDB memtable
     pub fn flush_db_write_buffer(&mut self) {
-        let store = self.tries.get_store();
-        let rocksdb = store.get_rocksdb().unwrap();
-        rocksdb.flush().unwrap();
+        self.tries.get_store().flush().unwrap();
+    }
+
+    pub fn store(&mut self) -> Store {
+        self.tries.get_store()
     }
 }

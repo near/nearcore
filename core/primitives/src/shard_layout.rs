@@ -262,7 +262,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -294,7 +294,7 @@ impl ShardUId {
 }
 
 impl TryFrom<&[u8]> for ShardUId {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     /// Deserialize `bytes` to shard uid
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
@@ -319,7 +319,7 @@ pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec
 #[allow(unused)]
 pub fn get_block_shard_uid_rev(
     key: &[u8],
-) -> Result<(CryptoHash, ShardUId), Box<dyn std::error::Error>> {
+) -> Result<(CryptoHash, ShardUId), Box<dyn std::error::Error + Send + Sync>> {
     if key.len() != 40 {
         return Err(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()

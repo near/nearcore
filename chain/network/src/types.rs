@@ -1,15 +1,14 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use actix::{MailboxError, Message};
 use futures::future::BoxFuture;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
     KnownProducer, OutboundTcpConnect, PartialEdgeInfo, PartialEncodedChunkForwardMsg,
@@ -23,13 +22,34 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::{NetworkInfoView, PeerInfoView, QueryRequest};
-use std::collections::HashMap;
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
 use std::fmt::Debug;
-use strum::AsStaticStr;
+
+/// Peer stats query.
+#[derive(actix::Message)]
+#[rtype(result = "PeerStatsResult")]
+pub struct QueryPeerStats {
+    pub(crate) context: opentelemetry::Context,
+}
+
+/// Peer stats result
+#[derive(Debug, actix::MessageResponse)]
+pub struct PeerStatsResult {
+    /// Chain info.
+    pub chain_info: PeerChainInfoV2,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Returns if this peer is abusive and should be banned.
+    pub is_abusive: bool,
+    /// Counts of incoming/outgoing messages from given peer.
+    pub message_counts: (usize, usize),
+    /// Encoding used for communication.
+    pub encoding: Option<Encoding>,
+}
 
 /// Message from peer to peer manager
 #[derive(actix::Message, strum::AsRefStr, Clone, Debug)]
@@ -38,7 +58,7 @@ pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
-    ReceivedMessage(PeerId, Instant),
+    ReceivedMessage(PeerId, time::Instant),
 }
 
 #[cfg(feature = "deepsize_feature")]
@@ -55,9 +75,9 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
-/// A struct wrapped std::Instant to support the deepsize feature
+/// A struct wrapped Instant to support the deepsize feature
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WrappedInstant(pub Instant);
+pub struct WrappedInstant(pub std::time::Instant);
 
 #[cfg(feature = "deepsize_feature")]
 impl deepsize::DeepSizeOf for WrappedInstant {
@@ -83,8 +103,7 @@ pub struct PeersResponse {
 /// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
@@ -99,14 +118,12 @@ pub enum PeerManagerMessageRequest {
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY allows for modifying the internal routing table.
     SetRoutingTable(crate::test_utils::SetRoutingTable),
+    /// TEST-ONLY allows for fetching the internal routing table.
+    GetRoutingTable,
 }
 
 impl PeerManagerMessageRequest {
@@ -142,14 +159,14 @@ pub enum PeerManagerMessageResponse {
     InboundTcpConnect(()),
     Unregister(()),
     Ban(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(()),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY
     SetRoutingTable(()),
+    GetRoutingTable {
+        /// List of all the known_edges.
+        edges_info: Vec<Edge>,
+    },
 }
 
 impl PeerManagerMessageResponse {
@@ -210,7 +227,6 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 }
 
 // TODO(#1313): Use Box
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkResponses")]
@@ -316,19 +332,13 @@ pub enum NetworkRequests {
     ResponseUpdateNonce(Edge),
 
     /// (Unit tests) Start ping to `PeerId` with `nonce`.
-    PingTo(usize, PeerId),
-    /// (Unit tests) Fetch all received ping and pong so far.
-    FetchPingPongInfo,
+    PingTo {
+        nonce: u64,
+        target: PeerId,
+    },
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
-
-    // IbfMessage
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    IbfMessage {
-        peer_id: PeerId,
-        ibf_msg: RoutingSyncV2,
-    },
 }
 
 /// Combines peer address info, chain and edge information.
@@ -350,6 +360,7 @@ impl From<&FullPeerInfo> for PeerInfoView {
             height: full_peer_info.chain_info.height,
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
+            peer_id: full_peer_info.peer_info.id.public_key().clone(),
         }
     }
 }
@@ -377,6 +388,18 @@ impl From<NetworkInfo> for NetworkInfoView {
                 .iter()
                 .map(|full_peer_info| full_peer_info.into())
                 .collect::<Vec<_>>(),
+            known_producers: network_info
+                .known_producers
+                .iter()
+                .map(|it| KnownProducerView {
+                    account_id: it.account_id.clone(),
+                    peer_id: it.peer_id.public_key().clone(),
+                    next_hops: it
+                        .next_hops
+                        .as_ref()
+                        .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
+                })
+                .collect(),
         }
     }
 }
@@ -385,22 +408,19 @@ impl From<NetworkInfo> for NetworkInfoView {
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
-    PingPongInfo { pings: HashMap<usize, (Ping, usize)>, pongs: HashMap<usize, (Pong, usize)> },
+    PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, AsStaticStr)]
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
-
-    #[cfg(feature = "sandbox")]
-    Sandbox(near_network_primitives::types::NetworkSandboxMessage),
 
     /// Received transaction.
     Transaction {
@@ -426,7 +446,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
@@ -445,10 +465,6 @@ pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "test_features")]
     AdvResult(u64),
-
-    /// Sandbox controls
-    #[cfg(feature = "sandbox")]
-    SandboxResult(near_network_primitives::types::SandboxResponse),
 
     /// No response.
     NoResponse,

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use near_cache::CellLruCache;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -7,9 +7,9 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use lru::LruCache;
+use once_cell::sync::Lazy;
 
-pub use columns::DBCol::{self, *};
+pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
@@ -29,21 +29,26 @@ use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 pub use crate::db::refcount::decode_value_with_rc;
 use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, RocksDBOptions, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries, Trie,
-    TrieChanges, WrappedTrieChanges,
+    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
+    Trie, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    WrappedTrieChanges,
 };
 
 mod columns;
+mod config;
 pub mod db;
+mod metrics;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
+
+pub use crate::config::{StoreConfig, StoreOpener};
 
 #[derive(Clone)]
 pub struct Store {
@@ -51,12 +56,32 @@ pub struct Store {
 }
 
 impl Store {
+    /// Initialises a new opener with given home directory and store config.
+    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
+        StoreOpener::new(home_dir, config)
+    }
+
+    /// Initialises an opener for a new temporary test store.
+    ///
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
+    ///
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
+        let dir = tempfile::tempdir().unwrap();
+        let opener = Self::opener(dir.path(), &CONFIG);
+        (dir, opener)
+    }
+
     pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
         Store { storage }
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage.get(column, key).map_err(io::Error::from)
+        self.storage.get(column, key)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -141,13 +166,14 @@ impl Store {
             let mut value = vec![0; value_len];
             file.read_exact(&mut value)?;
 
-            transaction.insert(column, key, value);
+            transaction.set(column, key, value);
         }
-        self.storage.write(transaction).map_err(io::Error::from)
+        self.storage.write(transaction)
     }
 
-    pub fn get_rocksdb(&self) -> Option<&RocksDB> {
-        self.storage.as_rocksdb()
+    /// If the storage is backed by disk, flushes any in-memory data to disk.
+    pub fn flush(&self) -> io::Result<()> {
+        self.storage.flush()
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -175,23 +201,56 @@ impl StoreUpdate {
         StoreUpdate { storage, transaction, tries: Some(tries) }
     }
 
+    /// Inserts a new value into the database.
+    ///
+    /// It is a programming error if `insert` overwrites an existing, different
+    /// value. Use it for insert-only columns.
+    pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        assert!(column.is_insert_only(), "can't insert: {column:?}");
+        self.transaction.insert(column, key.to_vec(), value.to_vec())
+    }
+
+    pub fn insert_ser<T: BorshSerialize>(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> io::Result<()> {
+        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
+        let data = value.try_to_vec()?;
+        self.insert(column, key, &data);
+        Ok(())
+    }
+
+    /// Inserts a new reference-counted value into the database, or adjusts its
+    /// reference count if it is already there.
+    ///
+    /// It is a programming error if `update_refcount` supplies a different
+    /// value than the one stored in te database. Use it for rc columns.
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
-        assert!(column.is_rc());
+        assert!(column.is_rc(), "can't update refcount: {column:?}");
         let value = encode_value_with_rc(value, rc_delta);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
 
+    /// Modifies a value in the database.
+    ///
+    /// Unlike `insert` or `update_refcount`, arbitrary modifications are
+    /// allowed, and extra care must be taken to aviod consistency anomalies.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!column.is_rc());
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
+        self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
+    /// Saves a BorshSerialized value.
+    /// Must not be used for RC columns - please use 'update_refcount' instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -204,10 +263,13 @@ impl StoreUpdate {
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
+    /// Deletes the given key from the database.
+    /// Must not be used for RC columns (use update_refcount instead).
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
+        assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -234,9 +296,9 @@ impl StoreUpdate {
                     .ops
                     .iter()
                     .filter_map(|op| match op {
-                        DBOp::Insert { col, key, .. } | DBOp::Delete { col, key } => {
-                            Some((*col as u8, key))
-                        }
+                        DBOp::Set { col, key, .. }
+                        | DBOp::Insert { col, key, .. }
+                        | DBOp::Delete { col, key } => Some((*col as u8, key)),
                         DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
                     })
                     .collect::<Vec<_>>();
@@ -253,7 +315,7 @@ impl StoreUpdate {
             assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
             tries.update_cache(&self.transaction)?;
         }
-        self.storage.write(self.transaction).map_err(io::Error::from)
+        self.storage.write(self.transaction)
     }
 }
 
@@ -263,6 +325,7 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  * {:?} {}", col, to_base(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
                     writeln!(f, "  +- {:?} {}", col, to_base(key))?
                 }
@@ -274,121 +337,20 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
     storage: &Store,
     col: DBCol,
-    cache: &'a mut LruCache<Vec<u8>, T>,
+    cache: &'a CellLruCache<Vec<u8>, T>,
     key: &[u8],
-) -> io::Result<Option<&'a T>> {
-    // Note: Due to `&mut -> &` conversions, it's not possible to avoid double
-    // hash map lookups here.
-    if cache.contains(key) {
-        return Ok(cache.get(key));
+) -> io::Result<Option<T>> {
+    if let Some(value) = cache.get(key) {
+        return Ok(Some(value));
     }
-    if let Some(result) = storage.get_ser(col, key)? {
-        cache.put(key.to_vec(), result);
-        return Ok(cache.get(key));
+    if let Some(result) = storage.get_ser::<T>(col, key)? {
+        cache.put(key.to_vec(), result.clone());
+        return Ok(Some(result));
     }
     Ok(None)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StoreConfig {
-    /// Attempted writes to the DB will fail. Doesn't require a `LOCK` file.
-    #[serde(skip)]
-    pub read_only: bool,
-
-    /// Re-export storage layer statistics as prometheus metrics.
-    /// Minor performance impact is expected.
-    #[serde(default)]
-    pub enable_statistics: bool,
-
-    /// Maximum number of store files being opened simultaneously.
-    /// Default value: 512.
-    /// The underlying storage can require simultaneously opening a large number of files.
-    /// Increasing this value helps to prevent the storage constantly closing/opening files it
-    /// needs.
-    /// Increasing this value up to a value higher than 1024 also requires setting `ulimit -n` in
-    /// Linux.
-    #[serde(default = "default_max_open_files")]
-    pub max_open_files: u32,
-
-    /// Cache size for ColState column.
-    /// Default value: 512MiB.
-    /// Increasing ColState cache size helps making storage more efficient. On the other hand we
-    /// don't want to increase hugely requirements for running a node so currently we use a small
-    /// default value for it.
-    #[serde(default = "default_col_state_cache_size")]
-    pub col_state_cache_size: usize,
-
-    /// Block size used internally in RocksDB.
-    /// Default value: 16KiB.
-    /// We're still experimented with this parameter and it seems decreasing its value can improve
-    /// the performance of the storage
-    #[serde(default = "default_block_size")]
-    pub block_size: usize,
-}
-
-fn default_max_open_files() -> u32 {
-    StoreConfig::DEFAULT_MAX_OPEN_FILES
-}
-
-fn default_col_state_cache_size() -> usize {
-    StoreConfig::DEFAULT_COL_STATE_CACHE_SIZE
-}
-
-fn default_block_size() -> usize {
-    StoreConfig::DEFAULT_BLOCK_SIZE
-}
-
-impl StoreConfig {
-    /// We've used a value of 512 for max_open_files since 3 Dec 2019. As it turned out we were
-    /// hitting that limit and store had to constantly close/reopen the same set of files.
-    /// Running state viewer on a dense set of 500 blocks did almost 200K file opens (having less
-    /// than 7K unique files opened, some files were opened 400+ times).
-    /// Using 10K limit for max_open_files led to performance improvement of ~11%.
-    pub const DEFAULT_MAX_OPEN_FILES: u32 = 10_000;
-
-    /// We used to have the same cache size for all columns 32MB. When some RocksDB
-    /// inefficiencies were found ColState cache size was increased up to 512MB.
-    /// This was done Nov 13 2021 and we consider increasing the value.
-    /// Tests have shown that increase of col_state_cache_size up to 25GB (we've used this big
-    /// value to estimate performance improvement headroom) having max_open_files=10K improved
-    /// performance of state viewer by 60%.
-    pub const DEFAULT_COL_STATE_CACHE_SIZE: usize = 512 * bytesize::MIB as usize;
-
-    /// Earlier this value was taken from the openethereum default parameter and we use it since
-    /// then.
-    pub const DEFAULT_BLOCK_SIZE: usize = 16 * bytesize::KIB as usize;
-
-    pub fn read_only() -> StoreConfig {
-        StoreConfig::read_write().with_read_only(true)
-    }
-
-    pub fn read_write() -> StoreConfig {
-        StoreConfig {
-            read_only: false,
-            enable_statistics: false,
-            max_open_files: default_max_open_files(),
-            col_state_cache_size: default_col_state_cache_size(),
-            block_size: default_block_size(),
-        }
-    }
-
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
-        self
-    }
-}
-
-pub fn create_store(path: &Path) -> Store {
-    create_store_with_config(path, &StoreConfig::read_write())
-}
-
-pub fn create_store_with_config(path: &Path, store_config: &StoreConfig) -> Store {
-    let db =
-        RocksDBOptions::default().open(path, &store_config).expect("Failed to open the database");
-    Store::new(Arc::new(db))
 }
 
 /// Reads an object from Trie.
@@ -571,22 +533,22 @@ pub fn remove_account(
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    store.get_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY)
+    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
 
 pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
-    store.get_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY)
+    store.get_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY)
 }
 
 pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
     store_update
-        .set_ser::<CryptoHash>(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
+        .set_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
         .expect("Borsh cannot fail");
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::ColBlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -595,18 +557,18 @@ pub struct StoreCompiledContractCache {
 }
 
 /// Cache for compiled contracts code using Store for keeping data.
-/// We store contracts in VM-specific format in DBCol::ColCachedContractCode.
+/// We store contracts in VM-specific format in DBCol::CachedContractCode.
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &[u8], value: &[u8]) -> io::Result<()> {
         let mut store_update = self.store.store_update();
-        store_update.set(DBCol::ColCachedContractCode, key, value);
+        store_update.set(DBCol::CachedContractCode, key, value);
         store_update.commit()
     }
 
     fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.store.get(DBCol::ColCachedContractCode, key)
+        self.store.get(DBCol::CachedContractCode, key)
     }
 }
 
@@ -616,5 +578,64 @@ mod tests {
     fn test_no_cache_disabled() {
         #[cfg(feature = "no_cache")]
         panic!("no cache is enabled");
+    }
+
+    /// Asserts that elements in the vector are sorted.
+    fn assert_sorted(want_count: usize, keys: Vec<Box<[u8]>>) {
+        assert_eq!(want_count, keys.len());
+        for (pos, pair) in keys.windows(2).enumerate() {
+            let (fst, snd) = (&pair[0], &pair[1]);
+            assert!(fst <= snd, "{fst:?} > {snd:?} at {pos}");
+        }
+    }
+
+    /// Checks that keys are sorted when iterating.
+    fn test_iter_order_impl(store: crate::Store, count: usize) {
+        use rand::Rng;
+
+        // An arbitrary non-rc non-insert-only column we can write data into.
+        const COLUMN: crate::DBCol = crate::DBCol::Peers;
+        assert!(!COLUMN.is_rc());
+        assert!(!COLUMN.is_insert_only());
+
+        // Fill column with random keys.  We're inserting three sets of keys.
+        // One set prefixed by "foo", second by "bar" and last by "baz".  Each
+        // set is `count` keys (for total of `3*count` keys).
+        let mut rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(0x3243f6a8885a308d);
+        let mut update = store.store_update();
+        let mut buf = [0u8; 20];
+        for prefix in [b"foo", b"bar", b"baz"] {
+            buf[..prefix.len()].clone_from_slice(prefix);
+            for _ in 0..count {
+                rng.fill(&mut buf[prefix.len()..]);
+                update.set(COLUMN, &buf, &buf);
+            }
+        }
+        update.commit().unwrap();
+
+        // Check that full scan produces keys in proper order.
+        let keys: Vec<Box<[u8]>> = store.iter(COLUMN).map(|(key, _)| key).collect();
+        assert_sorted(3 * count, keys);
+
+        let keys: Vec<Box<[u8]>> = store.iter_raw_bytes(COLUMN).map(|(key, _)| key).collect();
+        assert_sorted(3 * count, keys);
+
+        // Check that prefix scan produces keys in proper order.
+        let keys: Vec<Box<[u8]>> = store.iter_prefix(COLUMN, b"baz").map(|(key, _)| key).collect();
+        for (pos, key) in keys.iter().enumerate() {
+            assert_eq!(b"baz", &key[0..3], "Expected ‘baz’ prefix but got {key:?} at {pos}");
+        }
+        assert_sorted(count, keys);
+    }
+
+    #[test]
+    fn rocksdb_iter_order() {
+        let (_tmp_dir, opener) = crate::Store::test_opener();
+        test_iter_order_impl(opener.open(), 10_000);
+    }
+
+    #[test]
+    fn testdb_iter_order() {
+        test_iter_order_impl(crate::test_utils::create_test_store(), 10_000);
     }
 }

@@ -4,12 +4,8 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
-
-[[bin]]
-path = "src/bin/start_mock_network.rs"
-name = "start_mock_network"
 
 [dependencies]
 actix = "0.13.0"
@@ -22,11 +18,10 @@ clap = { version = "3.1.6", features = ["derive"] }
 futures = "0.3"
 hex = "0.4"
 once_cell = "1.5"
-parking_lot = "0.11.2"
+parking_lot = "0.12.1"
 primitive-types = "0.10.1"
 rand = "0.7"
-rayon = "1.5"
-regex = "1"
+smart-default = "0.6"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
@@ -48,6 +43,7 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
+near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
@@ -61,6 +57,7 @@ near-logger-utils = { path = "../test-utils/logger" }
 
 [dev-dependencies]
 assert_matches = "1.3"
+insta = "1"
 near-logger-utils = { path = "../test-utils/logger" }
 
 [features]
@@ -70,31 +67,19 @@ performance_stats = [
 ]
 expensive_tests = []
 test_features = ["nearcore/test_features"]
-protocol_feature_alt_bn128 = [
-    "near-primitives/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128",
-]
 protocol_feature_chunk_only_producers = [
   "near-client/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_access_key_nonce_for_implicit_accounts = [
-  "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
-  "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
-]
-nightly_protocol_features = [
-  "nearcore/nightly_protocol_features",
-  "protocol_feature_alt_bn128",
+nightly = [
+  "nightly_protocol",
+  "nearcore/nightly",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_access_key_nonce_for_implicit_accounts",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [
-  "near-network/sandbox",
   "near-chain/sandbox",
   "node-runtime/sandbox",
   "near-client/sandbox",
 ]
 no_cache = ["nearcore/no_cache"]
-mock_network = ["near-chain/mock_network", "near-epoch-manager/mock_network"]

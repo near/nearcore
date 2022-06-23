@@ -5,7 +5,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.61.0"
 edition = "2021"
 
 [dependencies]
@@ -41,7 +41,6 @@ protocol_feature_chunk_only_producers = [
   "near-store/protocol_feature_chunk_only_producers",
   "near-chain-configs/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_access_key_nonce_for_implicit_accounts = ["near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [
@@ -49,12 +48,6 @@ no_cache = [
   "near-store/no_cache",
 ]
 
-protocol_feature_alt_bn128 = [
-    "near-primitives/protocol_feature_alt_bn128",
-    "near-vm-logic/protocol_feature_alt_bn128",
-    "near-vm-runner/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128",
-]
 sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]

@@ -16,8 +16,11 @@ use near_primitives::types::{StateRoot, StateRootNode};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage, TrieStorage};
+pub use crate::trie::shard_tries::{
+    KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
+};
+pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
+use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
@@ -467,7 +470,7 @@ pub struct ApplyStatePartResult {
 }
 
 impl Trie {
-    pub fn new(store: Box<dyn TrieStorage>, _shard_uid: ShardUId) -> Self {
+    pub fn new(store: Box<dyn TrieStorage>) -> Self {
         Trie { storage: store }
     }
 
@@ -756,6 +759,32 @@ impl Trie {
     }
 }
 
+/// Methods used in the runtime-parameter-estimator for measuring trie internal
+/// operations.
+pub mod estimator {
+    use super::RawTrieNode;
+    use super::RawTrieNodeWithSize;
+    use near_primitives::hash::hash;
+
+    /// Create an encoded extension node with the given value as the key.
+    /// This serves no purpose other than for the estimator.
+    pub fn encode_extension_node(key: Vec<u8>) -> Vec<u8> {
+        let h = hash(&key);
+        let node = RawTrieNode::Extension(key, h);
+        let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
+        node_with_size.encode().unwrap()
+    }
+    /// Decode am extension node and return its inner key.
+    /// This serves no purpose other than for the estimator.
+    pub fn decode_extension_node(bytes: &[u8]) -> Vec<u8> {
+        let node = RawTrieNodeWithSize::decode(bytes).unwrap();
+        match node.node {
+            RawTrieNode::Extension(v, _) => v,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::Rng;
@@ -764,7 +793,7 @@ mod tests {
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
-    use crate::DBCol::ColState;
+    use crate::DBCol;
 
     use super::*;
 
@@ -1056,7 +1085,7 @@ mod tests {
                         .as_caching_storage()
                         .unwrap()
                         .store
-                        .iter(ColState)
+                        .iter(DBCol::State)
                         .peekable()
                         .peek()
                         .is_none(),
@@ -1069,7 +1098,7 @@ mod tests {
     #[test]
     fn test_trie_restart() {
         let store = create_test_store();
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let tries = ShardTries::test(store.clone(), 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1081,7 +1110,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let tries2 = ShardTries::new(store, 0, 1);
+        let tries2 = ShardTries::test(store, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
         assert_eq!(trie2.get(&root, b"doge"), Ok(Some(b"coin".to_vec())));
     }
@@ -1090,7 +1119,7 @@ mod tests {
     #[test]
     fn test_trie_recording_reads() {
         let store = create_test_store();
-        let tries = ShardTries::new(store, 0, 1);
+        let tries = ShardTries::test(store, 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1117,7 +1146,7 @@ mod tests {
     #[test]
     fn test_trie_recording_reads_update() {
         let store = create_test_store();
-        let tries = ShardTries::new(store, 0, 1);
+        let tries = ShardTries::test(store, 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1152,7 +1181,7 @@ mod tests {
     #[test]
     fn test_dump_load_trie() {
         let store = create_test_store();
-        let tries = ShardTries::new(store.clone(), 0, 1);
+        let tries = ShardTries::test(store.clone(), 1);
         let empty_root = Trie::empty_root();
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1160,10 +1189,10 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         let dir = tempfile::Builder::new().prefix("test_dump_load_trie").tempdir().unwrap();
-        store.save_to_file(ColState, &dir.path().join("test.bin")).unwrap();
+        store.save_to_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
-        store2.load_from_file(ColState, &dir.path().join("test.bin")).unwrap();
-        let tries2 = ShardTries::new(store2, 0, 1);
+        store2.load_from_file(DBCol::State, &dir.path().join("test.bin")).unwrap();
+        let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard());
         assert_eq!(trie2.get(&root, b"doge").unwrap().unwrap(), b"coin");
     }

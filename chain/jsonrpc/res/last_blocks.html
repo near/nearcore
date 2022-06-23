@@ -29,13 +29,17 @@
         tr.active {
             background-color: #eff8bf;
         }
+
+        .skippedChunk {
+            background-color: grey;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
         function createHashElement(hashValue, creator) {
             var element = $('<span>');
             element.addClass('hashElem');
-            element.attr("hashValue", hashValue);
+            element.attr("hashvalue", hashValue);
             element.attr("creator", creator);
             element.css("font-family", "monospace");
             var suffix = "...";
@@ -58,37 +62,40 @@
             root.html("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "/debug/api/block_status",
                 success: function (data) {
                     var root = $("#blocks_table_tbody");
                     root.html("");
                     var max_shard = 0;
-                    data.detailed_debug_status.last_blocks.forEach(element => {
+                    data.status_response.BlockStatus.forEach(element => {
                         element.chunks.forEach(chunk => {
                             if (chunk.shard_id > max_shard) {
                                 max_shard = chunk.shard_id;
                             }
                         });
                     });
+                    let chunks_by_index = {};
 
                     prepareTableHeader(max_shard);
-                    data.detailed_debug_status.last_blocks.forEach(element => {
-                        console.log(element.block_hash);
+                    data.status_response.BlockStatus.forEach(element => {
                         var row = $('<tr>');
 
                         row.append($('<td>').text(element.block_height));
-                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer)));
+                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer, "block_id")));
 
                         row.append($('<td>').text(element.processing_time_ms));
                         row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
+                        row.append($('<td>').text(element.gas_price_ratio));
 
 
                         let shards_cells = []
                         for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
                             shards_cells.push($('<td>'));
                         }
-                        element.chunks.forEach(chunk => {
-                            shards_cells[chunk.shard_id * 3].append(createHashElement(chunk.chunk_hash, chunk.chunk_producer));
+                        element.chunks.forEach((chunk, index) => {
+                            let element = createHashElement(chunk.chunk_hash, chunk.chunk_producer);
+                            (chunks_by_index[index] = chunks_by_index[index] || []).push(element);
+                            shards_cells[chunk.shard_id * 3].append(element);
                             shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
                             shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
                         });
@@ -99,6 +106,19 @@
                         root.append(row);
 
                     });
+
+                    for (let i = 0; i <= max_shard; i += 1) {
+                        let previous_hash = ""
+                        for (let j = chunks_by_index[i].length - 1; j >= 0; j -= 1) {
+                            let new_hash = chunks_by_index[i][j][0].attributes['hashvalue'].value;
+                            if (previous_hash == new_hash) {
+                                chunks_by_index[i][j].addClass('skippedChunk')
+                            }
+                            previous_hash = new_hash;
+                        }
+
+                    }
+
                     return;
                 },
                 dataType: "json",
@@ -116,9 +136,10 @@
         });
 
         function prepareTableHeader(max_shard) {
-            var headers = '<th>Block id</th> <th>Block hash</th><th>Processing Time(ms)</th><th>Next block time(s)</th>';
+            var headers = '<th>Block id</th> <th>Block hash</th>' +
+                '<th>Processing Time(ms)</th> <th>Next block time(s)</th> <th>Gas price ratio</th>';
             for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += `<th colspan=3>Shard ${i} (hash/gas/time)</th>`;
+                headers += `<th colspan=3>Shard ${i} (hash/gas(Tgas)/time(ms))</th>`;
             }
             $("#blocks_table_thead")[0].innerHTML = headers;
         }
@@ -129,6 +150,8 @@
     <h1>
         Most recent blocks.
     </h1>
+    Skipped chunks have grey background.<br>
+    Skipped blocks have hashes set to 11111... <br>
     <button class="expand_all">Expand all</button><br>
     <div id="blocks_table">
         <table>

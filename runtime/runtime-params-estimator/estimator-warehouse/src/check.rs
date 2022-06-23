@@ -1,12 +1,8 @@
-use std::collections::BTreeSet;
-
+use crate::db::{Db, EstimationRow};
+use crate::zulip::{ZulipEndpoint, ZulipReport};
+use crate::Metric;
 use clap::Parser;
-
-use crate::{
-    db::{Db, EstimationRow},
-    zulip::{ZulipEndpoint, ZulipReport},
-    Metric,
-};
+use std::collections::BTreeSet;
 
 #[derive(Parser, Debug)]
 pub(crate) struct CheckConfig {
@@ -21,14 +17,15 @@ pub(crate) struct CheckConfig {
     /// Checks have to be done on one specific metric.
     #[clap(long, arg_enum)]
     metric: Metric,
-    /// Base commit for comparisons. If not specified, the latest two commits
-    /// are compared.
+    /// First git commit hash used for comparisons, used as base to calculate
+    /// the relative changes. If left unspecified, the two commits that were
+    /// inserted most recently are compared.
     #[clap(long)]
-    commit_a: Option<String>,
-    /// Second commit for comparisons. If not specified, the latest two commits
-    /// are compared.
+    commit_before: Option<String>,
+    /// Second git commit hash used for comparisons. If left unspecified, the
+    /// two commits that were inserted most recently are compared.
     #[clap(long)]
-    commit_b: Option<String>,
+    commit_after: Option<String>,
     /// Names of estimations that should be checked. Leave empty to perform
     /// comparison on all available estimations.
     #[clap(long)]
@@ -42,12 +39,12 @@ pub(crate) enum Status {
     // Critical = 2,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Notice {
     RelativeChange(RelativeChange),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct RelativeChange {
     pub estimation: String,
     pub before: f64,
@@ -55,30 +52,11 @@ pub(crate) struct RelativeChange {
 }
 
 pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
-    let (commit_a, commit_b) = match (&config.commit_a, &config.commit_b) {
-        (Some(a), Some(b)) => (a.clone(), b.clone()),
-        (None, None) => {
-            let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
-            if commits.len() < 2 {
-                anyhow::bail!("Need data for at least 2 commits to perform comparison.");
-            }
-            (commits.pop().unwrap().0, commits.pop().unwrap().0)
-        }
-        _ => anyhow::bail!("You have to either specify both commits for comparison or neither."),
-    };
+    let report = create_report(db, config)?;
 
-    let estimations = if config.estimations.len() > 0 {
-        config.estimations.clone()
-    } else {
-        let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_a, config.metric)?;
-        let rows_b = EstimationRow::select_by_commit_and_metric(db, &commit_b, config.metric)?;
-        let estimations_a = rows_a.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
-        let estimations_b = rows_b.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
-        estimations_a.intersection(&estimations_b).cloned().collect()
-    };
-    let warnings = estimation_changes(db, &estimations, &commit_a, &commit_b, 0.1, Metric::Time)?;
-    for warning in &warnings {
-        println!("{warning:?}");
+    // This is the check command output to observe directly in the terminal.
+    for change in report.changes() {
+        println!("{change:?}");
     }
 
     let zulip_receiver = {
@@ -92,34 +70,140 @@ pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
     };
 
     if let Some(zulip) = zulip_receiver {
-        let mut report = ZulipReport::new(commit_a, commit_b);
-        warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
         zulip.post(&report)?;
     }
     Ok(())
 }
 
+pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<ZulipReport> {
+    let (commit_after, commit_before) = match (&config.commit_after, &config.commit_before) {
+        (Some(a), Some(b)) => (a.clone(), b.clone()),
+        (None, None) => {
+            let mut commits = EstimationRow::commits_sorted_by_date(db, Some(config.metric))?;
+            if commits.len() < 2 {
+                anyhow::bail!("need data for at least 2 commits to perform comparison");
+            }
+            (commits.pop().unwrap().0, commits.pop().unwrap().0)
+        }
+        _ => anyhow::bail!("you have to either specify both commits for comparison or neither"),
+    };
+    let estimations = if config.estimations.len() > 0 {
+        config.estimations.clone()
+    } else {
+        let rows_a = EstimationRow::select_by_commit_and_metric(db, &commit_after, config.metric)?;
+        let rows_b = EstimationRow::select_by_commit_and_metric(db, &commit_before, config.metric)?;
+        let estimations_a = rows_a.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        let estimations_b = rows_b.into_iter().map(|row| row.name).collect::<BTreeSet<_>>();
+        estimations_a.intersection(&estimations_b).cloned().collect()
+    };
+    let warnings =
+        estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
+
+    let mut report = ZulipReport::new(commit_before, commit_after);
+    warnings.into_iter().for_each(|w| report.add(w, Status::Warn));
+    Ok(report)
+}
+
 fn estimation_changes(
     db: &Db,
     estimation_names: &[String],
-    commit_a: &str,
-    commit_b: &str,
+    commit_before: &str,
+    commit_after: &str,
     tolerance: f64,
     metric: Metric,
 ) -> anyhow::Result<Vec<Notice>> {
     let mut warnings = Vec::new();
     for name in estimation_names {
-        let a = &EstimationRow::get(db, name, commit_a, metric)?[0];
-        let b = &EstimationRow::get(db, name, commit_b, metric)?[0];
-        let rel_change = if a.gas == 0.0 { 100.0 } else { (a.gas - b.gas).abs() / a.gas };
+        let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
+        let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
+        let rel_change = (b.gas - a.gas).abs() / b.gas;
         if rel_change > tolerance {
             warnings.push(Notice::RelativeChange(RelativeChange {
                 estimation: name.clone(),
-                before: a.gas,
-                after: b.gas,
+                before: b.gas,
+                after: a.gas,
             }))
         }
     }
 
     Ok(warnings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[track_caller]
+    fn generate_test_report(input: &str, metric: Metric, estimations: &[&str]) -> ZulipReport {
+        let db = Db::test_with_data(input);
+        let config = CheckConfig {
+            zulip_stream: None,
+            zulip_user: None,
+            metric,
+            commit_before: None,
+            commit_after: None,
+            estimations: estimations.iter().map(|&s| s.to_owned()).collect(),
+        };
+        create_report(&db, &config).unwrap()
+    }
+
+    #[test]
+    fn test_check_command() {
+        let input_a = r#"
+        0000a
+        {"computed_in":{"nanos":800,"secs":44},"name":"LogBase","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":809,"secs":26},"name":"LogByte","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+
+        0001a
+        {"computed_in":{"nanos":814,"secs":9},"name":"LogBase","result":{"gas":2000000000.0,"instructions":16000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":694,"secs":33},"name":"LogByte","result":{"gas":1002000000.0,"instructions":8016.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+
+        0002a
+        {"computed_in":{"nanos":331,"secs":24},"name":"LogBase","result":{"gas":3000000000.0,"instructions":24000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":511,"secs":52},"name":"LogByte","result":{"gas":1004000000.0,"instructions":8032.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+
+        0003a
+        {"computed_in":{"nanos":633,"secs":7},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":655,"secs":56},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
+
+        0004a
+        {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        "#;
+
+        // Only "LogBase" changes enough to show up in report.
+        let report = generate_test_report(input_a, Metric::ICount, &[]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Add more data and verify the notifications are updated.
+        let input_b = input_a.to_owned()
+            + r#"
+
+        WAIT
+
+        0000b
+        {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
+        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":10.0,"time_ns":10,"metric":"time","uncertain_reason":null}}
+        "#;
+
+        // Now both estimations have changed.
+        let report = generate_test_report(&input_b, Metric::ICount, &[]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Verify that filter for specific estimations works.
+        let report = generate_test_report(&input_b, Metric::ICount, &["LogBase"]);
+        insta::assert_snapshot!(report.to_string());
+
+        // Filter for metric.
+        let report = generate_test_report(&input_b, Metric::Time, &[]);
+        insta::assert_snapshot!(report.to_string());
+    }
 }

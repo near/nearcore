@@ -323,31 +323,6 @@ pub struct ValidatorInfo {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DebugChunkStatus {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub chunk_producer: String,
-    pub gas_used: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub processing_time_ms: Option<u64>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DebugBlockStatus {
-    pub block_hash: CryptoHash,
-    pub block_height: u64,
-    pub block_producer: String,
-    pub chunks: Vec<DebugChunkStatus>,
-    // Time that was spent processing a given block.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub processing_time_ms: Option<u64>,
-    // Time between this block and the next one in chain.
-    pub timestamp_delta: u64,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerInfoView {
     pub addr: String,
@@ -355,6 +330,17 @@ pub struct PeerInfoView {
     pub height: BlockHeight,
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
+    pub peer_id: PublicKey,
+}
+
+/// Information about a Producer: its account name, peer_id and a list of connected peers that
+/// the node can use to send message for this producer.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct KnownProducerView {
+    pub account_id: AccountId,
+    pub peer_id: PublicKey,
+    pub next_hops: Option<Vec<PublicKey>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -363,6 +349,7 @@ pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
+    pub known_producers: Vec<KnownProducerView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -386,25 +373,33 @@ impl From<Tip> for BlockStatusView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EpochInfoView {
-    pub epoch_id: CryptoHash,
+pub struct BlockByChunksView {
     pub height: BlockHeight,
-    pub first_block_hash: CryptoHash,
-    pub start_time: String,
-    pub validators: Vec<ValidatorInfo>,
+    pub hash: CryptoHash,
+    pub block_status: String,
+    pub chunk_status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChunkInfoView {
+    pub num_of_blocks_in_progress: usize,
+    pub num_of_chunks_in_progress: usize,
+    pub num_of_orphans: usize,
+    pub next_blocks_by_chunks: Vec<BlockByChunksView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DetailedDebugStatus {
-    pub last_blocks: Vec<DebugBlockStatus>,
     pub network_info: NetworkInfoView,
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub orphans: Vec<BlockStatusView>,
     pub blocks_with_missing_chunks: Vec<BlockStatusView>,
-    pub epoch_info: EpochInfoView,
+    pub block_production_delay_millis: u64,
+    pub chunk_info: ChunkInfoView,
 }
 
 // TODO: add more information to status.
@@ -428,7 +423,7 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
-    /// Information about last blocks, sync, epoch and chain info.
+    /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }
@@ -575,7 +570,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV1(Box::new(header))
+            BlockHeader::BlockHeaderV1(Arc::new(header))
         } else if last_header_v2_version.is_none()
             || view.latest_protocol_version <= last_header_v2_version.unwrap()
         {
@@ -607,7 +602,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV2(Box::new(header))
+            BlockHeader::BlockHeaderV2(Arc::new(header))
         } else {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
@@ -639,7 +634,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV3(Box::new(header))
+            BlockHeader::BlockHeaderV3(Arc::new(header))
         }
     }
 }
@@ -875,12 +870,6 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    StakeChunkOnly {
-        #[serde(with = "u128_dec_format")]
-        stake: Balance,
-        public_key: PublicKey,
-    },
 }
 
 impl From<Action> for ActionView {
@@ -908,16 +897,12 @@ impl From<Action> for ActionView {
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(action) => {
-                ActionView::StakeChunkOnly { stake: action.stake, public_key: action.public_key }
-            }
         }
     }
 }
 
 impl TryFrom<ActionView> for Action {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
         Ok(match action_view {
@@ -945,10 +930,6 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ActionView::StakeChunkOnly { stake, public_key } => {
-                Action::StakeChunkOnly(StakeAction { stake, public_key })
             }
         })
     }
@@ -1270,8 +1251,6 @@ pub mod validator_stake_view {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
         V1(ValidatorStakeViewV1),
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        V2(ValidatorStakeViewV2),
     }
 
     impl ValidatorStakeView {
@@ -1283,8 +1262,6 @@ pub mod validator_stake_view {
         pub fn take_account_id(self) -> AccountId {
             match self {
                 Self::V1(v1) => v1.account_id,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                Self::V2(v2) => v2.account_id,
             }
         }
 
@@ -1292,8 +1269,6 @@ pub mod validator_stake_view {
         pub fn account_id(&self) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.account_id,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                Self::V2(v2) => &v2.account_id,
             }
         }
     }
@@ -1319,13 +1294,6 @@ pub mod validator_stake_view {
                     public_key: v1.public_key,
                     stake: v1.stake,
                 }),
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                ValidatorStake::V2(v2) => Self::V2(ValidatorStakeViewV2 {
-                    account_id: v2.account_id,
-                    public_key: v2.public_key,
-                    stake: v2.stake,
-                    is_chunk_only: v2.is_chunk_only,
-                }),
             }
         }
     }
@@ -1334,10 +1302,6 @@ pub mod validator_stake_view {
         fn from(view: ValidatorStakeView) -> Self {
             match view {
                 ValidatorStakeView::V1(v1) => Self::new_v1(v1.account_id, v1.public_key, v1.stake),
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                ValidatorStakeView::V2(v2) => {
-                    Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only)
-                }
             }
         }
     }
@@ -1423,7 +1387,7 @@ impl From<Receipt> for ReceiptView {
 }
 
 impl TryFrom<ReceiptView> for Receipt {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
         Ok(Receipt {

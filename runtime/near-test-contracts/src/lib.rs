@@ -6,24 +6,37 @@ use rand::{Fill, SeedableRng};
 use std::path::Path;
 
 /// Trivial contact with a do-nothing main function.
+pub fn wat_contract(wat: &str) -> Vec<u8> {
+    wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
+}
+
+/// Trivial contact with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT
-        .get_or_init(|| wat::parse_str(r#"(module (func (export "main")))"#).unwrap())
-        .as_slice()
+    CONTRACT.get_or_init(|| wat_contract(r#"(module (func (export "main")))"#)).as_slice()
 }
 
 /// Contract with exact size in bytes.
 pub fn sized_contract(size: usize) -> Vec<u8> {
     let payload = "x".repeat(size);
-    let base_size =
-        wat::parse_str(format!("(module (data \"{payload}\") (func (export \"main\")))"))
-            .unwrap()
-            .len();
+    let base_size = wat_contract(&format!(
+        r#"(module
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    ))
+    .len();
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
-    let code = format!("(module (data \"{payload}\") (func (export \"main\")))");
-    let contract = wat::parse_str(code).unwrap();
+    let code = format!(
+        r#"(module 
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    );
+    let contract = wat_contract(&code);
     assert_eq!(contract.len(), size);
     contract
 }
@@ -86,43 +99,66 @@ fn smoke_test() {
     assert!(!base_rs_contract().is_empty());
 }
 
-/// Construct a contract with many entitites.
-///
-/// Currently supports constructing contracts that contain a specified number of functions with the
-/// specified number of locals each.
-///
-/// Exports a function called `main` that does nothing.
-pub fn large_contract(functions: u32, locals: u32) -> Vec<u8> {
-    use wasm_encoder::{
-        CodeSection, Export, ExportSection, Function, FunctionSection, Instruction, Module,
-        TypeSection, ValType,
-    };
-    // Won't generate a valid WASM without functions.
-    assert!(functions >= 1, "must specify at least 1 function to be generated");
-    let mut module = Module::new();
-    let mut type_section = TypeSection::new();
-    type_section.function([], []);
-    module.section(&type_section);
+pub struct LargeContract {
+    pub functions: u32,
+    pub locals_per_function: u32,
+    pub panic_imports: u32, // How many times to import `env.panic`
+}
 
-    let mut functions_section = FunctionSection::new();
-    for _ in 0..functions {
-        functions_section.function(0);
+impl Default for LargeContract {
+    fn default() -> Self {
+        Self { functions: 1, locals_per_function: 0, panic_imports: 0 }
     }
-    module.section(&functions_section);
+}
 
-    let mut exports_section = ExportSection::new();
-    exports_section.export("main", Export::Function(0));
-    module.section(&exports_section);
+impl LargeContract {
+    /// Construct a contract with many entitites.
+    ///
+    /// Currently supports constructing contracts that contain a specified number of functions with the
+    /// specified number of locals each.
+    ///
+    /// Exports a function called `main` that does nothing.
+    pub fn make(&self) -> Vec<u8> {
+        use wasm_encoder::{
+            CodeSection, EntityType, Export, ExportSection, Function, FunctionSection,
+            ImportSection, Instruction, Module, TypeSection, ValType,
+        };
 
-    let mut code_section = CodeSection::new();
-    for _ in 0..functions {
-        let mut f = Function::new([(locals, ValType::I64)]);
-        f.instruction(&Instruction::End);
-        code_section.function(&f);
+        // Won't generate a valid WASM without functions.
+        assert!(self.functions >= 1, "must specify at least 1 function to be generated");
+        let mut module = Module::new();
+        let mut type_section = TypeSection::new();
+        type_section.function([], []);
+        module.section(&type_section);
+
+        if self.panic_imports != 0 {
+            let mut import_section = ImportSection::new();
+            for _ in 0..self.panic_imports {
+                import_section.import("env", "panic", EntityType::Function(0));
+            }
+            module.section(&import_section);
+        }
+
+        let mut functions_section = FunctionSection::new();
+        for _ in 0..self.functions {
+            functions_section.function(0);
+        }
+        module.section(&functions_section);
+
+        let mut exports_section = ExportSection::new();
+        exports_section.export("main", Export::Function(0));
+        module.section(&exports_section);
+
+        let mut code_section = CodeSection::new();
+        for _ in 0..self.functions {
+            let mut f = Function::new([(self.locals_per_function, ValType::I64)]);
+            f.instruction(&Instruction::End);
+            code_section.function(&f);
+        }
+        module.section(&code_section);
+
+        module.finish()
     }
-    module.section(&code_section);
-
-    module.finish()
 }
 
 /// Generate an arbitrary valid contract.
@@ -143,7 +179,7 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     config.exceptions_enabled = false;
     config.saturating_float_to_int_enabled = false;
     config.sign_extension_enabled = false;
-    config.available_imports = Some(rs_contract().to_vec());
+    config.available_imports = Some(base_rs_contract().to_vec());
     let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
     module.to_bytes()
 }
