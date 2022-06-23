@@ -674,6 +674,12 @@ dependencies = [
 
 [[package]]
 name = "byteorder"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fc10e8cc6b2580fda3f36eb6dc5316657f812a3df879a44a66fc9f0fdbc4855"
+
+[[package]]
+name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
@@ -761,6 +767,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c24dab4283a142afa2fdca129b80ad2c6284e073930f964c3a1293c225ee39a"
 dependencies = [
  "rustc_version 0.4.0",
+]
+
+[[package]]
+name = "cbor"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e56053652b4b5c0ded5ae6183c7cd547ad2dd6bcce149658bef052a4995533bd"
+dependencies = [
+ "byteorder 0.5.3",
+ "rustc-serialize",
 ]
 
 [[package]]
@@ -1241,7 +1257,7 @@ version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b9fdf9972b2bd6af2d913799d9ebc165ea4d2e65878e329d9c6b372c4491b61"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "digest 0.9.0",
  "rand_core 0.5.1",
  "subtle",
@@ -1254,7 +1270,7 @@ version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c359b7249347e46fb28804470d071c921156ad62b3eef5d34e2ba867533dec8"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "digest 0.9.0",
  "rand_core 0.6.3",
  "subtle-ng",
@@ -1421,7 +1437,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "add9a102807b524ec050363f09e06f1504214b0e1c7797f64261c891022dce8b"
 dependencies = [
  "bitflags",
- "byteorder",
+ "byteorder 1.4.3",
  "lazy_static",
  "proc-macro-error",
  "proc-macro2",
@@ -1435,7 +1451,7 @@ version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64fba5a42bd76a17cad4bfa00de168ee1cbfa06a5e8ce992ae880218c05641a9"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "dynasm",
  "memmap2",
 ]
@@ -1633,7 +1649,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcf0ed7fe52a17a03854ec54a9f76d6d84508d1c0e66bc1793301c73fc8493c"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "rand 0.8.5",
  "rustc-hex",
  "static_assertions",
@@ -1811,7 +1827,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
 ]
 
 [[package]]
@@ -2574,7 +2590,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58c38e2799fc0978b65dfff8023ec7843e2330bb462f19198840b34b6582397d"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "keccak",
  "rand_core 0.6.3",
  "zeroize",
@@ -3219,7 +3235,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
@@ -3345,7 +3361,7 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "bytesize",
  "derive_more",
  "elastic-array",
@@ -3417,7 +3433,7 @@ dependencies = [
  "base64 0.13.0",
  "borsh",
  "bs58",
- "byteorder",
+ "byteorder 1.4.3",
  "ed25519-dalek",
  "hex",
  "near-account-id",
@@ -3427,6 +3443,7 @@ dependencies = [
  "near-vm-errors",
  "ripemd",
  "schnorrkel",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2 0.10.2",
@@ -3500,7 +3517,7 @@ dependencies = [
  "awc",
  "bencher",
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "chrono",
  "delay-detector",
  "dirs",
@@ -3602,7 +3619,7 @@ dependencies = [
  "assert_matches",
  "base64 0.11.0",
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "hex",
  "indicatif",
  "near-chain-configs",
@@ -4308,7 +4325,7 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f7a12f176deee919f4ba55326ee17491c8b707d0987aed822682c821b660192"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "log",
  "parity-wasm 0.41.0",
 ]
@@ -4820,7 +4837,7 @@ dependencies = [
 name = "runtime-tester"
 version = "0.0.0"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "cpu-time",
  "libfuzzer-sys",
  "near-chain",
@@ -4882,6 +4899,12 @@ name = "rustc-hex"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e75f6a532d0fd9f7f13144f392b6ad56a32696bfcd9c78f797f16bbb6f072d6"
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -4976,6 +4999,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
+name = "secp256k1"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61f7ccaeed44ae6e882660d11a9ac86ace19695c40802ccb66178abfae2ef2f9"
+dependencies = [
+ "cbor",
+ "secp256k1-sys",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7058dc8eaf3f2810d7828680320acda0b25a288f6d288e19278e249bbf74226b"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "security-framework"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5037,7 +5079,7 @@ version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d733da87e79faaac25616e33d26299a41143fd4cd42746cbb0e91d8feea243fd"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "serde",
 ]
 
@@ -5490,7 +5532,7 @@ dependencies = [
 name = "testlib"
 version = "0.0.0"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -5569,7 +5611,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b82ca8f46f95b3ce96081fe3dd89160fdea970c254bb72925255d1b62aae692e"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "integer-encoding",
  "log",
  "ordered-float",
@@ -5869,7 +5911,7 @@ version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12f03af7ccf01dd611cc450a0d10dbc9b745770d096473e2faf0ca6e2d66d1e0"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "crunchy",
  "hex",
  "static_assertions",
@@ -6151,7 +6193,7 @@ version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86f34bf0625219766759851c1f92e0797787b8b10b424c0a273ee4e0328a2ff7"
 dependencies = [
- "byteorder",
+ "byteorder 1.4.3",
  "dynasm",
  "dynasmrt",
  "lazy_static",
@@ -6254,7 +6296,7 @@ checksum = "5f6edd0ba6c0bcf9b279186d4dbe81649dda3e5ef38f586865943de4dcd653f8"
 dependencies = [
  "bincode",
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "dynasm",
  "dynasmrt",
  "lazy_static",
@@ -6676,7 +6718,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71e61de68ede9ffdd69c01664f65a178c5188b73f78faa21f0936016a888ff7c"
 dependencies = [
  "borsh",
- "byteorder",
+ "byteorder 1.4.3",
  "crunchy",
  "lazy_static",
  "rand 0.8.5",

@@ -34,6 +34,7 @@ bn = { package = "zeropool-bn", version = "0.5.11", features = [] }
 tracing = { version = "0.1.13", optional = true}
 ed25519-dalek = { version = "1.0.1" }
 schnorrkel = { version = "0.10.2" }
+secp256k1 = { version = "0.23.0", features = ["global-context", "recovery"] }
 
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }
