@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased]
+## 1.28.0 [2022-07-27]
 
 ### Protocol Changes
 
