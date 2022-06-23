@@ -8,14 +8,15 @@
 //!
 //! The reference counts are stored together with the values by simply attaching
 //! little-endian encoded 64-bit signed integer at the end of it.  See
-//! [`encode_value_with_rc`] for more details about the encoding.  During
-//! compaction, RocksDB merges the values by adding the reference counts.  When
-//! the reference count reaches zero RocksDB removes the key from the database.
+//! [`add_positive_refcount`] and [`encode_negative_refcount`] functions for
+//! a way to encode reference count.  During compaction, RocksDB merges the
+//! values by adding the reference counts.  When the reference count reaches
+//! zero RocksDB removes the key from the database.
 
 use std::cmp::Ordering;
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::compaction_filter::Decision;
 
 use crate::db::RocksDB;
@@ -84,22 +85,21 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     }
 }
 
-/// Encodes value with reference count.
+/// Encode a positive reference count into the value.
+pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
+    let rc = i64::from(rc.get());
+    let mut value = Vec::with_capacity(data.len() + 8);
+    value.extend_from_slice(data);
+    value.extend_from_slice(&rc.to_le_bytes());
+    value
+}
+
+/// Returns empty value with encoded negative reference count.
 ///
-/// Returned value depends on the reference count.
-/// - rc = 0 ⇒ an empty vector,
-/// - rc < 0 ⇒ reference count encoded in little endian,
-/// - rc > 0 ⇒ data followed by the reference count encoded in little endian.
-pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
-    if rc == 0 {
-        return vec![];
-    }
-    let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 8));
-    if rc > 0 {
-        cursor.write_all(data).unwrap();
-    }
-    cursor.write_i64::<LittleEndian>(rc).unwrap();
-    cursor.into_inner()
+/// `rc` gives the absolute value of the reference count.
+pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
+    let rc = -i64::from(rc.get());
+    rc.to_le_bytes().to_vec()
 }
 
 /// Merge reference counted values together.
@@ -211,7 +211,7 @@ mod test {
     }
 
     #[test]
-    fn test_decode_value_with_rc() {
+    fn decode_value_with_rc() {
         fn test(want_value: Option<&[u8]>, want_rc: i64, bytes: &[u8]) {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
@@ -233,17 +233,17 @@ mod test {
     }
 
     #[test]
-    fn test_encode_value_with_rc() {
-        fn test(want: &[u8], data: &[u8], rc: i64) {
-            assert_eq!(want, &super::encode_value_with_rc(data, rc));
+    fn add_encode_refcount() {
+        fn test(want: &[u8], data: &[u8], rc: u32) {
+            let rc = std::num::NonZeroU32::new(rc).unwrap();
+            assert_eq!(want, &super::add_positive_refcount(data, rc));
         }
 
-        test(b"", b"", 0);
-        test(b"", b"foo", 0);
-        test(MINUS_TWO, b"", -2);
-        test(MINUS_TWO, b"foo", -2);
         test(PLUS_TWO, b"", 2);
         test(b"foo\x02\0\0\0\0\0\0\0", b"foo", 2);
+
+        let rc = std::num::NonZeroU32::new(2).unwrap();
+        assert_eq!(MINUS_TWO, &super::encode_negative_refcount(rc));
     }
 
     #[test]
