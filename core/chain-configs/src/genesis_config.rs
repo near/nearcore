@@ -45,6 +45,10 @@ fn default_online_max_threshold() -> Rational {
     Rational::new(99, 100)
 }
 
+fn default_block_reward_percentage() -> Rational {
+    Rational::new(30, 100)
+}
+
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
@@ -133,6 +137,9 @@ pub struct GenesisConfig {
     #[serde(default = "default_online_max_threshold")]
     #[default(Rational::new(99, 100))]
     pub online_max_threshold: Rational,
+    #[serde(default = "default_block_reward_percentage")]
+    #[default(Rational::new(30, 100))]
+    pub block_reward_percentage: Rational,
     /// Gas price adjustment rate
     #[default(Rational::from_integer(0))]
     pub gas_price_adjustment_rate: Rational,

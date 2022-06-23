@@ -666,6 +666,7 @@ fn test_validator_reward_one_validator() {
         protocol_treasury_account: "near".parse().unwrap(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        block_reward_percentage: Rational::new(30, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -764,6 +765,7 @@ fn test_validator_reward_weight_by_stake() {
         protocol_treasury_account: "near".parse().unwrap(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        block_reward_percentage: Rational::new(30, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -870,6 +872,7 @@ fn test_reward_multiple_shards() {
         protocol_treasury_account: "near".parse().unwrap(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
+        block_reward_percentage: Rational::new(30, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
