@@ -441,7 +441,7 @@ impl Client {
             return Ok(None);
         }
 
-        let mut approvals_map = self.doomslug.remove_witness(&prev_hash, prev_height, next_height);
+        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, next_height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
