@@ -340,21 +340,28 @@ impl Database for RocksDB {
         col: DBCol,
         key_prefix: &'a [u8],
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        // NOTE: There is no Clone implementation for ReadOptions, so we cannot really reuse
-        // `self.read_options` here.
         let mut read_options = rocksdb_read_options();
-        read_options.set_prefix_same_as_start(true);
-        let cf_handle = self.cf_handle(col);
-        // This implementation is copied from RocksDB implementation of `prefix_iterator_cf` since
-        // there is no `prefix_iterator_cf_opt` method.
-        let iterator = self
-            .db
-            .iterator_cf_opt(
-                cf_handle,
-                read_options,
-                IteratorMode::From(key_prefix, Direction::Forward),
-            )
-            .take_while(move |(key, _value)| key.starts_with(key_prefix));
+
+        // prefix_same_as_start doesn’t do anything for us.  It takes effect
+        // only if prefix extractor is configured for the column family which is
+        // something we’re not doing.  Setting this option is thus pointless.
+        //     read_options.set_prefix_same_as_start(true);
+
+        // We’re running the iterator in From mode so there’s no need to set the
+        // lower bound.
+        //    read_options.set_iterate_lower_bound(key_prefix);
+
+        // Upper bound is exclusive so if we set it to the next prefix iterator
+        // will stop once keys no longer start with our desired prefix.
+        if let Some(upper) = next_prefix(key_prefix) {
+            read_options.set_iterate_upper_bound(upper);
+        }
+
+        let iterator = self.db.iterator_cf_opt(
+            self.cf_handle(col),
+            read_options,
+            IteratorMode::From(key_prefix, Direction::Forward),
+        );
         refcount::iter_with_rc_logic(col, iterator)
     }
 
@@ -420,6 +427,19 @@ impl Database for RocksDB {
         }
         None
     }
+}
+
+fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut prefix = prefix.to_vec();
+    for digit in prefix.iter_mut().rev() {
+        *digit = digit.wrapping_add(1);
+        if *digit != 0 {
+            return Some(prefix);
+        }
+    }
+    // If we’re hear, prefix consisted of \xff bytes.  There is no prefix that
+    // follows it.
+    None
 }
 
 impl Database for TestDB {
