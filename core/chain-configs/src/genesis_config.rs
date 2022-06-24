@@ -318,8 +318,6 @@ impl GenesisConfig {
                     account_info.account_id.clone(),
                     account_info.public_key.clone(),
                     account_info.amount,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )
             })
             .collect()

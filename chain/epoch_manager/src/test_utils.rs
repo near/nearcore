@@ -98,8 +98,6 @@ pub fn epoch_info_with_num_seats(
                     account_id.clone(),
                     SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
                     stake,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )
             })
             .collect()
@@ -159,13 +157,7 @@ pub fn epoch_config(
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
-    ValidatorStake::new(
-        account_id,
-        public_key,
-        amount,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        false,
-    )
+    ValidatorStake::new(account_id, public_key, amount)
 }
 
 /// No-op reward calculator. Will produce no reward

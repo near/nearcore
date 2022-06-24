@@ -454,19 +454,19 @@ impl Doomslug {
             && (approved_stake2 > threshold2 || threshold2 == 0)
     }
 
-    pub fn remove_witness(
-        &mut self,
+    pub fn get_witness(
+        &self,
         prev_hash: &CryptoHash,
         parent_height: BlockHeight,
         target_height: BlockHeight,
     ) -> HashMap<AccountId, Approval> {
         let hash_or_height = ApprovalInner::new(prev_hash, parent_height, target_height);
-        if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
+        if let Some(approval_trackers_at_height) = self.approval_tracking.get(&target_height) {
             let approvals_tracker =
-                approval_trackers_at_height.approval_trackers.remove(&hash_or_height);
+                approval_trackers_at_height.approval_trackers.get(&hash_or_height);
             match approvals_tracker {
                 None => HashMap::new(),
-                Some(approvals_tracker) => approvals_tracker.witness,
+                Some(approvals_tracker) => approvals_tracker.witness.clone(),
             }
         } else {
             HashMap::new()
