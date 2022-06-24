@@ -10,9 +10,6 @@ jobs:
     runs-on: macOS-m1
 
     steps:
-    - uses: hecrj/setup-rust-action@v1
-      with:
-        rust-version: nightly-2020-03-19
     - uses: actions/checkout@master
     - uses: isbang/setup-awscli@v0.1.0
     - run: scripts/mac-release.sh
