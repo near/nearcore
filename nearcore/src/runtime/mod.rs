@@ -1980,7 +1980,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
-    use num_rational::Rational;
+    use num_rational::Ratio;
 
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -2145,7 +2145,7 @@ mod test {
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = Rational::from_integer(0);
+                genesis.config.max_inflation_rate = Ratio::from_integer(0);
             }
             if let Some(minimum_stake_divisor) = minimum_stake_divisor {
                 genesis.config.minimum_stake_divisor = minimum_stake_divisor;

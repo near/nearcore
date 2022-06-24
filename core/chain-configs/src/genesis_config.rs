@@ -10,7 +10,7 @@ use std::{fmt, io};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use num_rational::Rational;
+use num_rational::Rational64;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
@@ -37,28 +37,28 @@ use near_primitives::{
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
-fn default_online_min_threshold() -> Rational {
-    Rational::new(90, 100)
+fn default_online_min_threshold() -> Rational64 {
+    Rational64::new(90, 100)
 }
 
-fn default_online_max_threshold() -> Rational {
-    Rational::new(99, 100)
+fn default_online_max_threshold() -> Rational64 {
+    Rational64::new(99, 100)
 }
 
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
 
-fn default_protocol_upgrade_stake_threshold() -> Rational {
-    Rational::new(8, 10)
+fn default_protocol_upgrade_stake_threshold() -> Rational64 {
+    Rational64::new(8, 10)
 }
 
 fn default_shard_layout() -> ShardLayout {
     ShardLayout::v0_single_shard()
 }
 
-fn default_minimum_stake_ratio() -> Rational {
-    Rational::new(160, 1_000_000)
+fn default_minimum_stake_ratio() -> Rational64 {
+    Rational64::new(160, 1_000_000)
 }
 
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -107,8 +107,8 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
-    #[default(Rational::new(8, 10))]
-    pub protocol_upgrade_stake_threshold: Rational,
+    #[default(Rational64::new(8, 10))]
+    pub protocol_upgrade_stake_threshold: Rational64,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
@@ -127,25 +127,25 @@ pub struct GenesisConfig {
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
-    #[default(Rational::new(90, 100))]
-    pub online_min_threshold: Rational,
+    #[default(Rational64::new(90, 100))]
+    pub online_min_threshold: Rational64,
     /// Online maximum threshold above which validator gets full reward.
     #[serde(default = "default_online_max_threshold")]
-    #[default(Rational::new(99, 100))]
-    pub online_max_threshold: Rational,
+    #[default(Rational64::new(99, 100))]
+    pub online_max_threshold: Rational64,
     /// Gas price adjustment rate
-    #[default(Rational::from_integer(0))]
-    pub gas_price_adjustment_rate: Rational,
+    #[default(Rational64::from_integer(0 as i64))]
+    pub gas_price_adjustment_rate: Rational64,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    #[default(Rational::from_integer(0))]
-    pub protocol_reward_rate: Rational,
+    #[default(Rational64::from_integer(0))]
+    pub protocol_reward_rate: Rational64,
     /// Maximum inflation on the total supply every epoch.
-    #[default(Rational::from_integer(0))]
-    pub max_inflation_rate: Rational,
+    #[default(Rational64::from_integer(0))]
+    pub max_inflation_rate: Rational64,
     /// Total supply of tokens at genesis.
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
@@ -179,8 +179,8 @@ pub struct GenesisConfig {
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
     #[serde(default = "default_minimum_stake_ratio")]
-    #[default(Rational::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational,
+    #[default(Rational64::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational64,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -603,7 +603,7 @@ pub struct ProtocolConfigView {
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    pub protocol_upgrade_stake_threshold: Rational,
+    pub protocol_upgrade_stake_threshold: Rational64,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
@@ -619,19 +619,19 @@ pub struct ProtocolConfigView {
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational,
+    pub online_min_threshold: Rational64,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational,
+    pub online_max_threshold: Rational64,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: Rational,
+    pub gas_price_adjustment_rate: Rational64,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    pub protocol_reward_rate: Rational,
+    pub protocol_reward_rate: Rational64,
     /// Maximum inflation on the total supply every epoch.
-    pub max_inflation_rate: Rational,
+    pub max_inflation_rate: Rational64,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account

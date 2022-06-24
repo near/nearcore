@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use num_rational::Rational;
+use num_rational::Rational64;
 use primitive_types::U256;
 
 use near_chain_configs::GenesisConfig;
@@ -13,13 +13,13 @@ pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
-    pub max_inflation_rate: Rational,
+    pub max_inflation_rate: Rational64,
     pub num_blocks_per_year: u64,
     pub epoch_length: u64,
-    pub protocol_reward_rate: Rational,
+    pub protocol_reward_rate: Rational64,
     pub protocol_treasury_account: AccountId,
-    pub online_min_threshold: Rational,
-    pub online_max_threshold: Rational,
+    pub online_min_threshold: Rational64,
+    pub online_max_threshold: Rational64,
     pub num_seconds_per_year: u64,
 }
 
@@ -53,9 +53,12 @@ impl RewardCalculator {
         let use_hardcoded_value = genesis_protocol_version < protocol_version
             && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
         let max_inflation_rate =
-            if use_hardcoded_value { Rational::new_raw(1, 20) } else { self.max_inflation_rate };
-        let protocol_reward_rate =
-            if use_hardcoded_value { Rational::new_raw(1, 10) } else { self.protocol_reward_rate };
+            if use_hardcoded_value { Rational64::new_raw(1, 20) } else { self.max_inflation_rate };
+        let protocol_reward_rate = if use_hardcoded_value {
+            Rational64::new_raw(1, 10)
+        } else {
+            self.protocol_reward_rate
+        };
         let epoch_total_reward: u128 =
             if checked_feature!("stable", RectifyInflation, protocol_version) {
                 (U256::from(*max_inflation_rate.numer() as u64)
@@ -135,20 +138,20 @@ mod tests {
     use crate::RewardCalculator;
     use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
     use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Rational;
+    use num_rational::Ratio;
     use std::collections::HashMap;
 
     #[test]
     fn test_zero_produced_and_expected() {
         let epoch_length = 1;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Rational::new(0, 1),
+            max_inflation_rate: Ratio::new(0, 1),
             num_blocks_per_year: 1000000,
             epoch_length,
-            protocol_reward_rate: Rational::new(0, 1),
+            protocol_reward_rate: Ratio::new(0, 1),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Rational::new(9, 10),
-            online_max_threshold: Rational::new(1, 1),
+            online_min_threshold: Ratio::new(9, 10),
+            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 1000000,
         };
         let validator_block_chunk_stats = vec![
@@ -199,13 +202,13 @@ mod tests {
     fn test_reward_validator_different_online() {
         let epoch_length = 1000;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Rational::new(1, 100),
+            max_inflation_rate: Ratio::new(1, 100),
             num_blocks_per_year: 1000,
             epoch_length,
-            protocol_reward_rate: Rational::new(0, 10),
+            protocol_reward_rate: Ratio::new(0, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Rational::new(9, 10),
-            online_max_threshold: Rational::new(99, 100),
+            online_min_threshold: Ratio::new(9, 10),
+            online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = vec![
@@ -271,14 +274,14 @@ mod tests {
     fn test_reward_no_overflow() {
         let epoch_length = 60 * 60 * 12;
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Rational::new(5, 100),
+            max_inflation_rate: Ratio::new(5, 100),
             num_blocks_per_year: 60 * 60 * 24 * 365,
             // half a day
             epoch_length,
-            protocol_reward_rate: Rational::new(1, 10),
+            protocol_reward_rate: Ratio::new(1, 10),
             protocol_treasury_account: "near".parse().unwrap(),
-            online_min_threshold: Rational::new(9, 10),
-            online_max_threshold: Rational::new(1, 1),
+            online_min_threshold: Ratio::new(9, 10),
+            online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
         let validator_block_chunk_stats = vec![(

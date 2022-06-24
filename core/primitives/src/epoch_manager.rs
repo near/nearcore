@@ -1,9 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
 use crate::challenge::SlashedValidator;
 use crate::checked_feature;
+use crate::num_rational::Rational64;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
 use crate::types::{
@@ -37,15 +37,15 @@ pub struct EpochConfig {
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational,
+    pub online_min_threshold: Rational64,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational,
+    pub online_max_threshold: Rational64,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    pub protocol_upgrade_stake_threshold: Rational,
+    pub protocol_upgrade_stake_threshold: Rational64,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Shard layout of this epoch, may change from epoch to epoch
@@ -119,8 +119,8 @@ pub struct ValidatorSelectionConfig {
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
-    #[default(Rational::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational,
+    #[default(Rational64::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational64,
 }
 
 #[cfg(feature = "deepsize_feature")]

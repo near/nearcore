@@ -4,7 +4,7 @@ use crate::genesis_config::{Genesis, GenesisConfig};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use num_rational::Rational;
+use num_rational::Rational64;
 
 /// Validate genesis config and records. Panics if genesis is ill-formed.
 pub fn validate_genesis(genesis: &Genesis) {
@@ -106,7 +106,7 @@ impl<'a> GenesisValidator<'a> {
             "Online max threshold smaller than min threshold"
         );
         assert!(
-            self.genesis_config.online_max_threshold <= Rational::from_integer(1),
+            self.genesis_config.online_max_threshold <= Rational64::from_integer(1_i64),
             "Online max threshold must be less or equal than 1"
         );
         assert!(
@@ -126,7 +126,7 @@ impl<'a> GenesisValidator<'a> {
             "Denominator is too large, may lead to overflow."
         );
         assert!(
-            self.genesis_config.gas_price_adjustment_rate < Rational::from_integer(1),
+            self.genesis_config.gas_price_adjustment_rate < Rational64::from_integer(1_i64),
             "Gas price adjustment rate must be less than 1"
         );
     }

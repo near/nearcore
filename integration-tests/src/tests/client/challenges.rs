@@ -15,7 +15,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -84,7 +84,7 @@ fn test_verify_block_double_sign_challenge() {
         b1.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::from_integer(0),
         0,
         100,
         None,
@@ -384,7 +384,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::from_integer(0),
         0,
         100,
         None,
