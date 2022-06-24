@@ -15,13 +15,13 @@ pub enum Event {
     PeerManager(crate::peer_manager::peer_manager_actor::Event),
 }
 
-pub struct Handler {
+pub struct ActorHandler {
     pub cfg: NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     _actix: ActixSystem<PeerManagerActor>,
 }
 
-pub async fn start(chain: Arc<data::Chain>, cfg: NetworkConfig) -> Handler {
+pub async fn start(chain: Arc<data::Chain>, cfg: NetworkConfig) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();
@@ -35,7 +35,7 @@ pub async fn start(chain: Arc<data::Chain>, cfg: NetworkConfig) -> Handler {
         }
     })
     .await;
-    let mut h = Handler { cfg, _actix: actix, events: recv };
+    let mut h = ActorHandler { cfg, _actix: actix, events: recv };
     // Wait for the server to start.
     assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
     h
