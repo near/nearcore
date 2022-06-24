@@ -464,6 +464,82 @@ fn test_sha256() {
 }
 
 #[test]
+fn test_sha512() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.sha512(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 64];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            252, 57, 52, 83, 249, 244, 124, 10, 130, 53, 94, 254, 236, 56, 187, 138, 111, 90, 249,
+            157, 88, 16, 31, 248, 200, 168, 184, 23, 173, 137, 10, 105, 115, 203, 114, 74, 204, 79,
+            253, 230, 53, 231, 214, 42, 122, 223, 120, 116, 239, 238, 47, 12, 176, 219, 58, 230,
+            55, 32, 221, 255, 214, 164, 183, 15
+        ]
+    );
+}
+
+#[test]
+fn test_sha512_truncated() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.sha512_truncated(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            252, 57, 52, 83, 249, 244, 124, 10, 130, 53, 94, 254, 236, 56, 187, 138, 111, 90, 249,
+            157, 88, 16, 31, 248, 200, 168, 184, 23, 173, 137, 10, 105,
+        ]
+    );
+}
+
+#[test]
+fn test_sha3_512() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.sha3_512(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 64];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            133, 196, 48, 30, 203, 238, 194, 158, 186, 246, 118, 238, 42, 158, 212, 27, 178, 72,
+            90, 229, 98, 108, 195, 221, 222, 161, 96, 219, 252, 99, 2, 48, 224, 15, 95, 220, 35,
+            209, 27, 250, 43, 168, 250, 10, 21, 25, 97, 135, 235, 61, 5, 142, 182, 85, 36, 179, 23,
+            126, 161, 14, 21, 118, 180, 231
+        ]
+    );
+}
+
+#[test]
+fn test_blake2_256() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = b"tesdsst";
+
+    logic.blake2_256(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[
+            138, 169, 237, 5, 162, 52, 60, 246, 71, 130, 202, 107, 119, 4, 179, 36, 198, 44, 230,
+            128, 158, 77, 83, 102, 154, 217, 73, 171, 215, 178, 27, 176
+        ]
+    );
+}
+
+#[test]
 fn test_keccak256() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));

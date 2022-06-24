@@ -953,6 +953,77 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// Hashes the given value using sha256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    pub fn sha512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        // TODO: gas
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha512::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
+    /// Hashes the given value using sha256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    pub fn sha512_truncated(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        // TODO: gas
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        use sha2::Digest;
+
+        let value_hash = sha2::Sha512::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice()[..32].to_vec())
+    }
+
+    /// Hashes the given value using sha256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        // TODO: gas
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        use sha3::Digest;
+
+        let value_hash = sha3::Sha3_512::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
+    pub fn blake2_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        // TODO: gas
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        use blake2::Digest;
+
+        let value_hash = blake2::Blake2s256::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
+    }
+
     /// Hashes the given value using keccak256 and returns it into `register_id`.
     ///
     /// # Errors
