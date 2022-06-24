@@ -664,10 +664,10 @@ mod tests {
     }
 
     /// Asserts that elements in the vector are sorted.
-    fn assert_sorted(want_count: usize, keys: Vec<(Box<[u8]>, Box<[u8]>)>) {
+    fn assert_sorted(want_count: usize, keys: Vec<Box<[u8]>>) {
         assert_eq!(want_count, keys.len());
         for (pos, pair) in keys.windows(2).enumerate() {
-            let ((fst, _), (snd, _)) = (&pair[0], &pair[1]);
+            let (fst, snd) = (&pair[0], &pair[1]);
             assert!(fst <= snd, "{fst:?} > {snd:?} at {pos}");
         }
     }
@@ -700,15 +700,19 @@ mod tests {
         }
         update.commit().unwrap();
 
+        fn collect<'a>(iter: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)>) -> Vec<Box<[u8]>> {
+            iter.map(|(key, _)| key).collect()
+        }
+
         // Check that full scan produces keys in proper order.
-        assert_sorted(PREFIXES.len() * COUNT, store.iter(COLUMN).collect());
-        assert_sorted(PREFIXES.len() * COUNT, store.iter_raw_bytes(COLUMN).collect());
-        assert_sorted(PREFIXES.len() * COUNT, store.iter_prefix(COLUMN, b"").collect());
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter(COLUMN)));
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter_raw_bytes(COLUMN)));
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter_prefix(COLUMN, b"")));
 
         // Check that prefix scan produces keys in proper order.
         for prefix in PREFIXES.iter() {
-            let keys: Vec<_> = store.iter_prefix(COLUMN, prefix).collect();
-            for (pos, (key, _)) in keys.iter().enumerate() {
+            let keys = collect(store.iter_prefix(COLUMN, prefix));
+            for (pos, key) in keys.iter().enumerate() {
                 assert_eq!(
                     prefix,
                     &key[0..4],
