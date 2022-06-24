@@ -14,6 +14,13 @@ pub mod routing;
 pub(crate) mod stats;
 pub(crate) mod store;
 pub mod test_utils;
+
 #[cfg(test)]
-mod tests;
-pub mod types;
+pub(crate) mod testonly;
+
+// TODO(gprusak): these should be testonly, once all network integration tests are moved to near_network.
+pub mod broadcast;
+pub mod sink;
+
+#[cfg(test)]
+mod broadcast_test;
