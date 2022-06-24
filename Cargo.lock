@@ -2705,6 +2705,7 @@ dependencies = [
  "near-cache",
  "near-chain-configs",
  "near-chain-primitives",
+ "near-client-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
