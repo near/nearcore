@@ -225,9 +225,10 @@ impl DoomslugApprovalsTracker {
 
     // Get witnesses together with their arrival time.
     fn get_witnesses(&self) -> Vec<(AccountId, chrono::DateTime<chrono::Utc>)> {
-        self.witness.iter().map(|(key, (_, arrival_time))| {
-            (key.clone(), arrival_time.clone())
-        }).collect::<Vec<_>>()
+        self.witness
+            .iter()
+            .map(|(key, (_, arrival_time))| (key.clone(), arrival_time.clone()))
+            .collect::<Vec<_>>()
     }
 }
 
@@ -317,7 +318,8 @@ impl DoomslugApprovalsTrackersAtHeight {
             .filter_map(|(_, tracker)| tracker.time_passed_threshold)
             .min()
             .map(|ts| {
-                chrono::Utc::now() - chrono::Duration::from_std(ts.elapsed()).unwrap_or(chrono::Duration::days(1))
+                chrono::Utc::now()
+                    - chrono::Duration::from_std(ts.elapsed()).unwrap_or(chrono::Duration::days(1))
             });
         ApprovalAtHeightStatus { approvals, ready_at: threshold_approval }
     }
