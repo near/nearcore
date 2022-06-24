@@ -217,8 +217,6 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
-    #[cfg(feature = "test_features")]
-    peer_manager_addr: Addr<near_network::PeerManagerActor>,
 }
 
 impl JsonRpcHandler {
@@ -1390,7 +1388,6 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1413,8 +1410,6 @@ pub fn start_http(
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
-                #[cfg(feature = "test_features")]
-                peer_manager_addr: peer_manager_addr.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
