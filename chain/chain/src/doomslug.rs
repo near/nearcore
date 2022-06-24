@@ -303,10 +303,10 @@ impl DoomslugApprovalsTrackersAtHeight {
         let approvals = self
             .approval_trackers
             .iter()
-            .flat_map(|tracker| {
-                let witnesses = tracker.1.get_witnesses();
+            .flat_map(|(approval, tracker)| {
+                let witnesses = tracker.get_witnesses();
                 witnesses.into_iter().map(|(account_name, approval_time)| {
-                    (account_name, (tracker.0.clone(), approval_time))
+                    (account_name, (approval.clone(), approval_time))
                 })
             })
             .collect::<HashMap<_, _>>();
