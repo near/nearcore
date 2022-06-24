@@ -144,6 +144,7 @@ fn get_epoch_ids(
 fn iterate_and_filter(store: Store, predicate: impl Fn(EpochInfo) -> bool) -> Vec<EpochId> {
     store
         .iter(DBCol::EpochInfo)
+        .map(Result::unwrap)
         .filter_map(|(key, value)| {
             if key.as_ref() == AGGREGATOR_KEY {
                 None

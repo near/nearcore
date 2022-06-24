@@ -274,7 +274,9 @@ impl Store {
         &self,
     ) -> impl Iterator<Item = Result<(<C::Key as Format>::T, <C::Value as Format>::T), Error>> + '_
     {
-        self.0.iter(C::COL).map(|(k, v)| Ok((C::Key::decode(&k)?, C::Value::decode(&v)?)))
+        self.0
+            .iter(C::COL)
+            .map(|item| item.and_then(|(k, v)| Ok((C::Key::decode(&k)?, C::Value::decode(&v)?))))
     }
     pub fn get<C: Column>(
         &self,

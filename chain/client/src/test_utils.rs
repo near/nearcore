@@ -1686,7 +1686,7 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+    while !client.chain.store().iterate_state_sync_infos().unwrap().is_empty() {
         let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);

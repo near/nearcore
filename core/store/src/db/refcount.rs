@@ -19,6 +19,7 @@
 //! zero RocksDB removes the key from the database.
 
 use std::cmp::Ordering;
+use std::io;
 
 use rocksdb::compaction_filter::Decision;
 
@@ -101,30 +102,29 @@ pub(crate) fn refcount_merge<'a>(
 /// values are treated as values with reference count zero.
 pub(crate) fn get_with_rc_logic(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
     if column.is_rc() {
-        let mut value = value?;
-        match decode_value_with_rc(&value) {
-            (None, _) => None,
-            (Some(_), _) => {
-                value.truncate(value.len() - 8);
-                Some(value)
-            }
-        }
+        value.and_then(get_payload)
     } else {
         value
     }
 }
 
+fn get_payload(value: Vec<u8>) -> Option<Vec<u8>> {
+    decode_value_with_rc(&value).0.map(|v| v.to_vec())
+}
+
 /// Iterator treats empty value as no value and strips refcount
-pub(crate) fn iter_with_rc_logic<'a, I>(
+pub(crate) fn iter_with_rc_logic<'a>(
     column: DBCol,
-    iterator: I,
-) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
-where
-    I: Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
-{
+    iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
+) -> crate::db::DBIterator<'a> {
     if column.is_rc() {
-        Box::new(iterator.filter_map(|(k, v_rc)| {
-            decode_value_with_rc(&v_rc).0.map(|v| (k, v.to_vec().into_boxed_slice()))
+        Box::new(iterator.filter_map(|item| {
+            let item = if let Ok((key, value)) = item {
+                Ok((key, get_payload(value.into_vec())?.into_boxed_slice()))
+            } else {
+                item
+            };
+            Some(item)
         }))
     } else {
         Box::new(iterator)
@@ -318,8 +318,9 @@ mod test {
             use std::ops::Deref;
 
             const KEY: &[u8] = b"key";
-            let iter = values.into_iter().map(|value| (into_box(KEY), into_box(value)));
+            let iter = values.into_iter().map(|value| Ok((into_box(KEY), into_box(value))));
             let got = super::iter_with_rc_logic(col, iter)
+                .map(Result::unwrap)
                 .map(|(key, value)| {
                     assert_eq!(KEY, key.deref());
                     value

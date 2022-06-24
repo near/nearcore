@@ -421,14 +421,20 @@ impl ChainStore {
         ChainStoreUpdate::new(self)
     }
 
-    pub fn iterate_state_sync_infos(&self) -> Vec<(CryptoHash, StateSyncInfo)> {
+    pub fn iterate_state_sync_infos(&self) -> Result<Vec<(CryptoHash, StateSyncInfo)>, Error> {
         self.store
             .iter(DBCol::StateDlInfos)
-            .map(|(k, v)| {
-                (
-                    CryptoHash::try_from(k.as_ref()).unwrap(),
-                    StateSyncInfo::try_from_slice(v.as_ref()).unwrap(),
-                )
+            .map(|item| match item {
+                Ok((k, v)) => Ok((
+                    CryptoHash::try_from(k.as_ref()).map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("wrong key length: {k:?}"),
+                        )
+                    })?,
+                    StateSyncInfo::try_from_slice(v.as_ref())?,
+                )),
+                Err(err) => Err(err.into()),
             })
             .collect()
     }
@@ -2149,8 +2155,8 @@ impl<'a> ChainStoreUpdate<'a> {
             .chain_store
             .store()
             .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|(key, _)| key)
-            .collect();
+            .map(|item| item.map(|(key, _)| key))
+            .collect::<io::Result<Vec<_>>>()?;
         for key in stored_state_changes {
             self.gc_col(DBCol::StateChanges, &key);
         }
