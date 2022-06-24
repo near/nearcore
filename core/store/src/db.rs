@@ -437,7 +437,7 @@ fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
             return Some(prefix);
         }
     }
-    // If we’re hear, prefix consisted of \xff bytes.  There is no prefix that
+    // If we’re here, prefix consisted of \xff bytes.  There is no prefix that
     // follows it.
     None
 }
