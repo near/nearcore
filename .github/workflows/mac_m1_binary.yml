@@ -11,7 +11,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@master
-    - uses: isbang/setup-awscli@v0.1.0
     - run: scripts/mac-release.sh
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
