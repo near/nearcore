@@ -79,7 +79,9 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage.get(column, key)
+        self.storage
+            .get_raw_bytes(column, key)
+            .map(|result| refcount::get_with_rc_logic(column, result))
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -150,7 +152,7 @@ impl Store {
     pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
-        let mut transaction = self.storage.transaction();
+        let mut transaction = DBTransaction::new();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
                 Ok(key_len) => key_len as usize,
@@ -194,14 +196,15 @@ impl StoreUpdate {
     };
 
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: None }
+        StoreUpdate { storage, transaction: DBTransaction::new(), tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        let storage = Arc::clone(&tries.get_store().storage);
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries) }
+        StoreUpdate {
+            storage: Arc::clone(&tries.get_store().storage),
+            transaction: DBTransaction::new(),
+            tries: Some(tries),
+        }
     }
 
     /// Inserts a new value into the database.
@@ -623,10 +626,41 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
 #[cfg(test)]
 mod tests {
+    use super::{DBCol, Store};
+
     #[test]
     fn test_no_cache_disabled() {
         #[cfg(feature = "no_cache")]
         panic!("no cache is enabled");
+    }
+
+    fn test_clear_column(store: Store) {
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(DBCol::State);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+    }
+
+    #[test]
+    fn clear_column_rocksdb() {
+        let (_tmp_dir, opener) = Store::test_opener();
+        test_clear_column(opener.open());
+    }
+
+    #[test]
+    fn clear_column_testdb() {
+        test_clear_column(crate::test_utils::create_test_store());
     }
 
     /// Asserts that elements in the vector are sorted.
@@ -639,11 +673,11 @@ mod tests {
     }
 
     /// Checks that keys are sorted when iterating.
-    fn test_iter_order_impl(store: crate::Store, count: usize) {
+    fn test_iter_order_impl(store: Store, count: usize) {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: crate::DBCol = crate::DBCol::Peers;
+        const COLUMN: DBCol = DBCol::Peers;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
@@ -679,7 +713,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        let (_tmp_dir, opener) = crate::Store::test_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         test_iter_order_impl(opener.open(), 10_000);
     }
 
