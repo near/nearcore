@@ -454,7 +454,7 @@ pub(crate) fn block_epoch_exists(
     Ok(())
 }
 
-pub(crate) fn block_increase_refcount(
+pub(crate) fn block_increment_refcount(
     sv: &mut StoreValidator,
     _block_hash: &CryptoHash,
     block: &Block,
