@@ -72,7 +72,7 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
 /// debug assertions panics if this is not true.
 pub(crate) fn refcount_merge<'a>(
     existing: Option<&'a [u8]>,
-    operands: impl std::iter::IntoIterator<Item = &'a [u8]>,
+    operands: impl IntoIterator<Item = &'a [u8]>,
 ) -> Vec<u8> {
     let (mut payload, mut rc) = existing.map_or((None, 0), decode_value_with_rc);
     for (new_payload, delta) in operands.into_iter().map(decode_value_with_rc) {
@@ -102,9 +102,13 @@ pub(crate) fn refcount_merge<'a>(
 pub(crate) fn get_with_rc_logic(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
     if column.is_rc() {
         let mut value = value?;
-        decode_value_with_rc(&value).0?;
-        value.truncate(value.len() - 8);
-        Some(value)
+        match decode_value_with_rc(&value) {
+            (None, _) => None,
+            (Some(_), _) => {
+                value.truncate(value.len() - 8);
+                Some(value)
+            }
+        }
     } else {
         value
     }
