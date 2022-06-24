@@ -216,22 +216,22 @@ pub struct PeerManagerActor {
     txns_since_last_block: Arc<AtomicUsize>,
     /// Number of active peers, used for rate limiting.
     peer_counter: Arc<AtomicUsize>,
-    /// Used for testing, for disabling features.
-    adv_helper: AdvHelper,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
-    /// test-only, defaults to () (a noop counter).
-    ping_counter: Box<dyn PingCounter>,
+    /// test-only.
+    event_sink: Sink<Event>,
 }
 
 // test-only
-pub trait PingCounter {
-    fn add_ping(&self, _ping: &Ping) {}
-    fn add_pong(&self, _pong: &Pong) {}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Event {
+    ServerStarted,
+    RoutedMessageDropped,
+    RoutingTableUpdate(Arc<routing::RoutingTable>),
+    Ping(Ping),
+    Pong(Pong),
 }
-
-impl PingCounter for () {}
 
 impl Actor for PeerManagerActor {
     type Context = Context<Self>;
@@ -392,6 +392,7 @@ impl PeerManagerActor {
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
+                    act.event_sink.push(Event::RoutingTableUpdate(routing_table));
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
@@ -2270,11 +2271,11 @@ impl PeerManagerActor {
             match &msg.msg.body {
                 RoutedMessageBody::Ping(ping) => {
                     self.send_pong(ping.nonce as usize, msg.hash());
-                    self.ping_counter.add_ping(ping);
+                    self.event_sink.push(Event::Ping(ping.clone()));
                     false
                 }
                 RoutedMessageBody::Pong(pong) => {
-                    self.ping_counter.add_pong(pong);
+                    self.event_sink.push(Event::Pong(pong.clone()));
                     false
                 }
                 _ => true,
@@ -2283,6 +2284,7 @@ impl PeerManagerActor {
             if msg.decrease_ttl() {
                 self.send_signed_message_to_peer(msg);
             } else {
+                self.event_sink.push(Event::RoutedMessageDropped);
                 warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
             }
             false
