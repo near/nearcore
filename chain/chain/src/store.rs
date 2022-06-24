@@ -2271,7 +2271,7 @@ impl<'a> ChainStoreUpdate<'a> {
             Ok(receipt_ids) => {
                 for receipt_id in receipt_ids {
                     let key: Vec<u8> = receipt_id.into();
-                    store_update.update_refcount(DBCol::ReceiptIdToShardId, &key, &[], -1);
+                    store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
                     self.chain_store.receipt_id_to_shard_id.pop(&key);
                     self.inc_gc(DBCol::ReceiptIdToShardId);
                 }
@@ -2377,11 +2377,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 panic!("Must use gc_outgoing_receipts");
             }
             DBCol::Transactions => {
-                store_update.update_refcount(col, key, &[], -1);
+                store_update.decrement_refcount(col, key);
                 self.chain_store.transactions.pop(key);
             }
             DBCol::Receipts => {
-                store_update.update_refcount(col, key, &[], -1);
+                store_update.decrement_refcount(col, key);
                 self.chain_store.receipts.pop(key);
             }
             DBCol::Chunks => {
@@ -2692,22 +2692,20 @@ impl<'a> ChainStoreUpdate<'a> {
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions().iter() {
                 let bytes = tx.try_to_vec().expect("Borsh cannot fail");
-                store_update.update_refcount(
+                store_update.increment_refcount(
                     DBCol::Transactions,
                     tx.get_hash().as_ref(),
                     &bytes,
-                    1,
                 );
             }
 
             // Increase receipt refcounts for all included receipts
             for receipt in chunk.receipts().iter() {
                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
-                store_update.update_refcount(
+                store_update.increment_refcount(
                     DBCol::Receipts,
                     receipt.get_hash().as_ref(),
                     &bytes,
-                    1,
                 );
             }
 
@@ -2770,7 +2768,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             let data = shard_id.try_to_vec()?;
-            store_update.update_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data, 1);
+            store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
             store_update.set_ser(DBCol::BlockRefCount, block_hash.as_ref(), refcount)?;
