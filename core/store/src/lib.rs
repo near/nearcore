@@ -26,10 +26,8 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
-pub use crate::db::refcount::decode_value_with_rc;
-use crate::db::refcount::encode_value_with_rc;
 use crate::db::{
-    DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
+    refcount, DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -81,7 +79,9 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage.get(column, key)
+        self.storage
+            .get_raw_bytes(column, key)
+            .map(|result| refcount::get_with_rc_logic(column, result))
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -152,7 +152,7 @@ impl Store {
     pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = BufReader::new(file);
-        let mut transaction = self.storage.transaction();
+        let mut transaction = DBTransaction::new();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
                 Ok(key_len) => key_len as usize,
@@ -190,15 +190,21 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
+    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+        Some(num) => num,
+        None => panic!(),
+    };
+
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: None }
+        StoreUpdate { storage, transaction: DBTransaction::new(), tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        let storage = Arc::clone(&tries.get_store().storage);
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries) }
+        StoreUpdate {
+            storage: Arc::clone(&tries.get_store().storage),
+            transaction: DBTransaction::new(),
+            tries: Some(tries),
+        }
     }
 
     /// Inserts a new value into the database.
@@ -222,28 +228,72 @@ impl StoreUpdate {
         Ok(())
     }
 
-    /// Inserts a new reference-counted value into the database, or adjusts its
-    /// reference count if it is already there.
+    /// Inserts a new reference-counted value or increases its reference count
+    /// if it’s already there.
     ///
-    /// It is a programming error if `update_refcount` supplies a different
-    /// value than the one stored in te database. Use it for rc columns.
-    pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
+    /// It is a programming error if `increment_refcount_by` supplies a different
+    /// value than the one stored in the database.  It may lead to data
+    /// corruption or panics.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn increment_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        data: &[u8],
+        increase: std::num::NonZeroU32,
+    ) {
         assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = encode_value_with_rc(value, rc_delta);
+        let value = refcount::add_positive_refcount(data, increase);
+        self.transaction.update_refcount(column, key.to_vec(), value);
+    }
+
+    /// Same as `self.increment_refcount_by(column, key, data, 1)`.
+    pub fn increment_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
+        self.increment_refcount_by(column, key, data, Self::ONE)
+    }
+
+    /// Decreases value of an existing reference-counted value.
+    ///
+    /// Since decrease of reference count is encoded without the data, only key
+    /// and reference count delta arguments are needed.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn decrement_refcount_by(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        decrease: std::num::NonZeroU32,
+    ) {
+        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
+    }
+
+    /// Same as `self.decrement_refcount_by(column, key, 1)`.
+    pub fn decrement_refcount(&mut self, column: DBCol, key: &[u8]) {
+        self.decrement_refcount_by(column, key, Self::ONE)
     }
 
     /// Modifies a value in the database.
     ///
-    /// Unlike `insert` or `update_refcount`, arbitrary modifications are
-    /// allowed, and extra care must be taken to aviod consistency anomalies.
+    /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
+    /// modifications are allowed, and extra care must be taken to aviod
+    /// consistency anomalies.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
     /// Saves a BorshSerialized value.
-    /// Must not be used for RC columns - please use 'update_refcount' instead.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -267,7 +317,9 @@ impl StoreUpdate {
     }
 
     /// Deletes the given key from the database.
-    /// Must not be used for RC columns (use update_refcount instead).
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         assert!(!column.is_rc(), "can't delete: {column:?}");
         self.transaction.delete(column, key.to_vec());
@@ -574,10 +626,41 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
 #[cfg(test)]
 mod tests {
+    use super::{DBCol, Store};
+
     #[test]
     fn test_no_cache_disabled() {
         #[cfg(feature = "no_cache")]
         panic!("no cache is enabled");
+    }
+
+    fn test_clear_column(store: Store) {
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(DBCol::State);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+    }
+
+    #[test]
+    fn clear_column_rocksdb() {
+        let (_tmp_dir, opener) = Store::test_opener();
+        test_clear_column(opener.open());
+    }
+
+    #[test]
+    fn clear_column_testdb() {
+        test_clear_column(crate::test_utils::create_test_store());
     }
 
     /// Asserts that elements in the vector are sorted.
@@ -590,11 +673,11 @@ mod tests {
     }
 
     /// Checks that keys are sorted when iterating.
-    fn test_iter_order_impl(store: crate::Store, count: usize) {
+    fn test_iter_order_impl(store: Store, count: usize) {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: crate::DBCol = crate::DBCol::Peers;
+        const COLUMN: DBCol = DBCol::Peers;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
@@ -630,7 +713,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        let (_tmp_dir, opener) = crate::Store::test_opener();
+        let (_tmp_dir, opener) = Store::test_opener();
         test_iter_order_impl(opener.open(), 10_000);
     }
 
