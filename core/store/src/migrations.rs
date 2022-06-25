@@ -9,17 +9,9 @@ use near_primitives::types::AccountId;
 
 use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
-fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
-    store_update.set(
-        DBCol::DbVersion,
-        crate::db::VERSION_KEY,
-        &serde_json::to_vec(&db_version).expect("Failed to serialize version"),
-    );
-}
-
 pub fn set_store_version(store: &Store, db_version: u32) {
     let mut store_update = store.store_update();
-    set_store_version_inner(&mut store_update, db_version);
+    store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
     store_update.commit().expect("Failed to write version to database");
 }
 
