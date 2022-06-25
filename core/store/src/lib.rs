@@ -1,4 +1,3 @@
-use near_cache::CellLruCache;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -387,22 +386,6 @@ impl fmt::Debug for StoreUpdate {
         }
         writeln!(f, "}}")
     }
-}
-
-pub fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
-    storage: &Store,
-    col: DBCol,
-    cache: &'a CellLruCache<Vec<u8>, T>,
-    key: &[u8],
-) -> io::Result<Option<T>> {
-    if let Some(value) = cache.get(key) {
-        return Ok(Some(value));
-    }
-    if let Some(result) = storage.get_ser::<T>(col, key)? {
-        cache.put(key.to_vec(), result.clone());
-        return Ok(Some(result));
-    }
-    Ok(None)
 }
 
 /// Reads an object from Trie.

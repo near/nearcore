@@ -34,9 +34,9 @@ use near_primitives::types::{
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    read_with_cache, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
+    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::types::{Block, BlockHeader, LatestKnown};
@@ -67,6 +67,22 @@ fn get_height_shard_id(height: BlockHeight, shard_id: ShardId) -> Vec<u8> {
     res.extend_from_slice(&height.to_le_bytes());
     res.extend_from_slice(&shard_id.to_le_bytes());
     res
+}
+
+fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
+    storage: &Store,
+    col: DBCol,
+    cache: &'a CellLruCache<Vec<u8>, T>,
+    key: &[u8],
+) -> io::Result<Option<T>> {
+    if let Some(value) = cache.get(key) {
+        return Ok(Some(value));
+    }
+    if let Some(result) = storage.get_ser::<T>(col, key)? {
+        cache.put(key.to_vec(), result.clone());
+        return Ok(Some(result));
+    }
+    Ok(None)
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
