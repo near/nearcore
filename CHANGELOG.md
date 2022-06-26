@@ -19,7 +19,8 @@
 * Key files can use `private_key` field instead of `secret_key` now;
   this improves interoperability with near cli which uses the former
   name [#7030](https://github.com/near/nearcore/issues/7030)
-* Measure latency of network messages [#7050](https://github.com/near/nearcore/issues/7050)
+* Latency of network messages is new measured
+  [#7050](https://github.com/near/nearcore/issues/7050)
 
 ## 1.27.0 [2022-06-22]
 
