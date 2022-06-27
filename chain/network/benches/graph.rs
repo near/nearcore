@@ -2,7 +2,7 @@
 extern crate criterion;
 
 use criterion::{black_box, Criterion};
-use near_network::routing::graph::Graph;
+use near_network::routing::Graph;
 use near_network::test_utils::random_peer_id;
 
 fn build_graph(depth: usize, size: usize) -> Graph {

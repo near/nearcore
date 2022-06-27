@@ -16,18 +16,20 @@ use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
 };
-use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, ValidatorInfoIdentifier};
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter,
+    ChainGenesis, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
-    DebugStatus, DebugStatusResponse, Error, GetNetworkInfo, NetworkInfoResponse,
-    ShardSyncDownload, ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
+    StatusError, StatusSyncInfo, SyncStatus,
 };
+
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
@@ -40,19 +42,14 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{
-    get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
-};
+use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{
-    DebugBlockStatus, DebugChunkStatus, DetailedDebugStatus, EpochInfoView, TrackedShardsView,
-    ValidatorInfo,
-};
+use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
@@ -72,15 +69,11 @@ const BLOCK_HORIZON: u64 = 500;
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
-// Constants for debug requests.
-const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
-const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
-
 pub struct ClientActor {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
 
-    client: Client,
+    pub(crate) client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
@@ -263,8 +256,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages")
+            handler="NetworkClientMessages",
+            msg=msg.as_ref())
         .entered();
+
         self.check_triggers(ctx);
 
         let _d = delay_detector::DelayDetector::new(|| {
@@ -378,39 +373,6 @@ impl ClientActor {
                         }
                     }
                     _ => panic!("invalid adversary message"),
-                };
-            }
-            #[cfg(feature = "sandbox")]
-            NetworkClientMessages::Sandbox(sandbox_msg) => {
-                return match sandbox_msg {
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchState(state) => {
-                        self.client.chain.patch_state(state);
-                        NetworkClientResponses::NoResponse
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxPatchStateStatus => {
-                        NetworkClientResponses::SandboxResult(
-                            near_network_primitives::types::SandboxResponse::SandboxPatchStateFinished(
-                                !self.client.chain.patch_state_in_progress(),
-                            ),
-                        )
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForward(delta_height) => {
-                        if self.fastforward_delta > 0 {
-                            return NetworkClientResponses::SandboxResult(
-                                near_network_primitives::types::SandboxResponse::SandboxFastForwardFailed(
-                                    "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string()));
-                        }
-
-                        self.fastforward_delta = delta_height;
-                        NetworkClientResponses::NoResponse
-                    }
-                    near_network_primitives::types::NetworkSandboxMessage::SandboxFastForwardStatus => {
-                        NetworkClientResponses::SandboxResult(
-                            near_network_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                                self.fastforward_delta == 0,
-                            ),
-                        )
-                    }
                 };
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
@@ -653,284 +615,40 @@ impl ClientActor {
         }
     }
 }
-impl ClientActor {
-    /// Gets the information about the epoch that contains a given block.
-    /// Also returns the hash of the last block of the previous epoch.
-    fn get_epoch_info_view(
+#[cfg(feature = "sandbox")]
+impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
+    type Result = near_client_primitives::types::SandboxResponse;
+
+    fn handle(
         &mut self,
-        current_block: CryptoHash,
-    ) -> Result<(EpochInfoView, CryptoHash), Error> {
-        let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
-
-        let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
-        let epoch_id = block.header().epoch_id();
-        let validators: Vec<ValidatorInfo> = self
-            .client
-            .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &current_block)?
-            .into_iter()
-            .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                account_id: validator_stake.take_account_id(),
-                is_slashed,
-            })
-            .collect();
-
-        let shards_size_and_parts: Vec<(u64, u64)> = block
-            .chunks()
-            .iter()
-            .enumerate()
-            .map(|(shard_id, chunk)| {
-                let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                    shard_id as u64,
-                    block.hash(),
-                    &chunk.prev_state_root(),
-                );
-                if let Ok(state_root_node) = state_root_node {
-                    (
-                        state_root_node.memory_usage,
-                        get_num_state_parts(state_root_node.memory_usage),
-                    )
-                } else {
-                    (0, 0)
-                }
-            })
-            .collect();
-
-        let state_header_exists: Vec<bool> = (0..block.chunks().len())
-            .map(|shard_id| {
-                warn!("state header looking for {:?}", block.hash());
-                let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
-                match key {
-                    Ok(key) => {
-                        if let Ok(Some(_)) =
-                            self.client
-                                .chain
-                                .store()
-                                .store()
-                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
-                        {
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    Err(_) => false,
-                }
-            })
-            .collect();
-
-        let shards_size_and_parts = shards_size_and_parts
-            .iter()
-            .zip(state_header_exists.iter())
-            .map(|((a, b), c)| (a.clone(), b.clone(), c.clone()))
-            .collect();
-
-        return Ok((
-            EpochInfoView {
-                epoch_id: epoch_id.0,
-                height: block.header().height(),
-                first_block: Some((block.header().hash().clone(), block.header().timestamp())),
-                validators: validators.to_vec(),
-                protocol_version: self
-                    .client
-                    .runtime_adapter
-                    .get_epoch_protocol_version(epoch_id)
-                    .unwrap_or(0),
-                shards_size_and_parts,
-            },
-            // Last block of the previous epoch.
-            *block.header().prev_hash(),
-        ));
-    }
-
-    fn get_next_epoch_view(&self) -> Result<EpochInfoView, Error> {
-        let head = self.client.chain.head()?;
-        let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
-
-        Ok(EpochInfoView {
-            epoch_id: head.next_epoch_id.0,
-            // Expected height of the next epoch.
-            height: epoch_start_height + self.client.config.epoch_length,
-            first_block: None,
-            validators: self
-                .client
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&head.next_epoch_id, &head.last_block_hash)?
-                .into_iter()
-                .map(|(validator_stake, is_slashed)| ValidatorInfo {
-                    account_id: validator_stake.take_account_id(),
-                    is_slashed,
-                })
-                .collect(),
-            protocol_version: self
-                .client
-                .runtime_adapter
-                .get_epoch_protocol_version(&head.next_epoch_id)?,
-            shards_size_and_parts: vec![],
-        })
-    }
-
-    fn get_tracked_shards_view(&self) -> Result<TrackedShardsView, near_chain_primitives::Error> {
-        let epoch_id = self.client.chain.header_head()?.epoch_id;
-        let fetch_hash = self.client.chain.header_head()?.last_block_hash;
-        let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-
-        let tracked_shards: Vec<(bool, bool)> =
-            (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                .map(|x| {
-                    (
-                        self.client.runtime_adapter.cares_about_shard(
-                            me.as_ref(),
-                            &fetch_hash,
-                            x,
-                            true,
-                        ),
-                        self.client.runtime_adapter.will_care_about_shard(
-                            me.as_ref(),
-                            &fetch_hash,
-                            x,
-                            true,
-                        ),
-                    )
-                })
-                .collect();
-        Ok(TrackedShardsView {
-            shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
-            shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
-        })
-    }
-
-    fn get_recent_epoch_info(
-        &mut self,
-    ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
-        // Next epoch id
-        let mut epochs_info: Vec<EpochInfoView> = Vec::new();
-
-        if let Ok(next_epoch) = self.get_next_epoch_view() {
-            epochs_info.push(next_epoch);
-        }
-        let head = self.client.chain.head()?;
-        let mut current_block = head.last_block_hash;
-        for _ in 0..DEBUG_EPOCHS_TO_FETCH {
-            if let Ok((epoch_view, block_previous_epoch)) = self.get_epoch_info_view(current_block)
-            {
-                current_block = block_previous_epoch;
-                epochs_info.push(epoch_view);
-            } else {
-                break;
-            }
-        }
-        Ok(epochs_info)
-    }
-
-    fn get_last_blocks_info(
-        &mut self,
-    ) -> Result<Vec<DebugBlockStatus>, near_chain_primitives::Error> {
-        let head = self.client.chain.head()?;
-
-        let mut blocks_debug: Vec<DebugBlockStatus> = Vec::new();
-        let mut last_block_hash = head.last_block_hash;
-        let mut last_block_timestamp: u64 = 0;
-        let mut last_block_height = head.height + 1;
-
-        let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
-
-        // Fetch last 50 blocks (we can fetch more blocks in the future if needed)
-        for _ in 0..DEBUG_BLOCKS_TO_FETCH {
-            let block = match self.client.chain.get_block(&last_block_hash) {
-                Ok(block) => block,
-                Err(_) => break,
-            };
-            // If there is a gap - and some blocks were not produced - make sure to report this
-            // (and mention who was supposed to be a block producer).
-            for height in (block.header().height() + 1..last_block_height).rev() {
-                let block_producer = self
-                    .client
-                    .runtime_adapter
-                    .get_block_producer(block.header().epoch_id(), height)
-                    .map(|account| account.to_string())
-                    .unwrap_or_default();
-                blocks_debug.push(DebugBlockStatus {
-                    block_hash: CryptoHash::default(),
-                    block_height: height,
-                    block_producer,
-                    chunks: vec![],
-                    processing_time_ms: None,
-                    timestamp_delta: 0,
-                    gas_price_ratio: 1.0,
-                });
-            }
-
-            let block_producer = self
-                .client
-                .runtime_adapter
-                .get_block_producer(block.header().epoch_id(), block.header().height())
-                .map(|f| f.to_string())
-                .unwrap_or_default();
-
-            let chunks = block
-                .chunks()
-                .iter()
-                .map(|chunk| DebugChunkStatus {
-                    shard_id: chunk.shard_id(),
-                    chunk_hash: chunk.chunk_hash(),
-                    chunk_producer: self
-                        .client
-                        .runtime_adapter
-                        .get_chunk_producer(
-                            block.header().epoch_id(),
-                            block.header().height(),
-                            chunk.shard_id(),
-                        )
-                        .map(|f| f.to_string())
-                        .unwrap_or_default(),
-                    gas_used: chunk.gas_used(),
-                    processing_time_ms: CryptoHashTimer::get_timer_value(chunk.chunk_hash().0)
-                        .map(|s| s.as_millis() as u64),
-                })
-                .collect();
-
-            blocks_debug.push(DebugBlockStatus {
-                block_hash: last_block_hash,
-                block_height: block.header().height(),
-                block_producer: block_producer,
-                chunks,
-                processing_time_ms: CryptoHashTimer::get_timer_value(last_block_hash)
-                    .map(|s| s.as_millis() as u64),
-                timestamp_delta: if last_block_timestamp > 0 {
-                    last_block_timestamp.saturating_sub(block.header().raw_timestamp())
-                } else {
-                    0
-                },
-                gas_price_ratio: block.header().gas_price() as f64 / initial_gas_price as f64,
-            });
-            last_block_hash = block.header().prev_hash().clone();
-            last_block_timestamp = block.header().raw_timestamp();
-            last_block_height = block.header().height();
-        }
-        Ok(blocks_debug)
-    }
-}
-
-impl Handler<DebugStatus> for ClientActor {
-    type Result = Result<DebugStatusResponse, StatusError>;
-
-    #[perf]
-    fn handle(&mut self, msg: DebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
+        msg: near_client_primitives::types::SandboxMessage,
+        _ctx: &mut Context<Self>,
+    ) -> near_client_primitives::types::SandboxResponse {
         match msg {
-            DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+            near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
+                self.client.chain.patch_state(
+                    near_primitives::sandbox_state_patch::SandboxStatePatch::new(state),
+                );
+                near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
-            DebugStatus::TrackedShards => {
-                Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
+            near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus => {
+                near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(
+                    !self.client.chain.patch_state_in_progress(),
+                )
             }
-            DebugStatus::EpochInfo => {
-                Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info()?))
+            near_client_primitives::types::SandboxMessage::SandboxFastForward(delta_height) => {
+                if self.fastforward_delta > 0 {
+                    return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                        "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
+                }
+
+                self.fastforward_delta = delta_height;
+                near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
-            DebugStatus::BlockStatus => {
-                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info()?))
+            near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
+                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
+                    self.fastforward_delta == 0,
+                )
             }
         }
     }
@@ -1218,6 +936,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
+            debug!(target:"client", "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1246,6 +965,13 @@ impl ClientActor {
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
+        // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
+        if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
+            debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
+        } else {
+            debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
+        }
+
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1267,7 +993,7 @@ impl ClientActor {
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", "Block production failed: {}", err);
+                        error!(target: "client", height, "Block production failed: {}", err);
                     } else {
                         self.post_block_production();
                     }
@@ -1410,7 +1136,7 @@ impl ClientActor {
     /// Produce block if we are block producer for given `next_height` height.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block").entered();
+        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let peer_id = self.node_id.clone();

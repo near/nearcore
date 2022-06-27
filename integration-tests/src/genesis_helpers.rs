@@ -18,7 +18,7 @@ pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
 pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(genesis);
+    let chain_genesis = ChainGenesis::new(genesis);
     let runtime = Arc::new(NightshadeRuntime::test(dir.path(), store, genesis));
     let chain =
         Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, true).unwrap();
@@ -29,7 +29,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
 pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::from(genesis);
+    let chain_genesis = ChainGenesis::new(genesis);
     let runtime = Arc::new(NightshadeRuntime::test(dir.path(), store, genesis));
     let chain =
         Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds, true).unwrap();

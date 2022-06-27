@@ -7,7 +7,6 @@ use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
 };
@@ -107,14 +106,11 @@ fn setup_network_node(
             adv,
         );
 
-        let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
-
         PeerManagerActor::new(
             store.clone(),
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
-            routing_table_addr,
         )
         .unwrap()
         .with_ping_counter(Box::new(ping_counter))

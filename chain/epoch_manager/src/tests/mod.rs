@@ -2391,3 +2391,55 @@ fn test_epoch_validators_cache() {
         epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators_unique, *epoch_validators_unique_in_cache);
 }
+
+#[test]
+fn test_chunk_producers() {
+    let amount_staked = 1_000_000;
+    // Make sure that last validator has at least 160/1'000'000  / num_shards of stake.
+    // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
+    let validators = vec![
+        ("test1".parse().unwrap(), amount_staked),
+        ("test2".parse().unwrap(), amount_staked),
+        ("chunk_only".parse().unwrap(), 200),
+        ("not_enough_producer".parse().unwrap(), 100),
+    ];
+
+    // There are 2 shards, and 2 block producers seats.
+    // So test1 and test2 should become block producers, and chunk_only should become chunk only producer.
+    let mut epoch_manager = setup_default_epoch_manager(validators, 2, 2, 2, 0, 90, 60);
+    let h = hash_range(10);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..=4 {
+        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    let epoch_id = EpochId(h[2]);
+
+    let block_producers = epoch_manager
+        .get_all_block_producers_settlement(&epoch_id, &h[4])
+        .unwrap()
+        .iter()
+        .map(|(stake, _)| stake.account_id().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(vec!(String::from("test1"), String::from("test2")), block_producers);
+
+    let mut chunk_producers = epoch_manager
+        .get_all_chunk_producers(&epoch_id)
+        .unwrap()
+        .to_vec()
+        .iter()
+        .map(|stake| stake.account_id().to_string())
+        .collect::<Vec<_>>();
+    chunk_producers.sort();
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    {
+        assert_eq!(
+            vec!(String::from("chunk_only"), String::from("test1"), String::from("test2")),
+            chunk_producers
+        );
+        println!("! Testing feature");
+    }
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+    assert_eq!(vec!(String::from("test1"), String::from("test2")), chunk_producers);
+}

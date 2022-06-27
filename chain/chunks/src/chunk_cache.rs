@@ -30,8 +30,6 @@ const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 /// A chunk header is out of horizon if its height + CHUNK_HEADER_HORIZON < largest_seen_height
 const CHUNK_HEADER_HEIGHT_HORIZON: BlockHeightDelta = 10;
-/// Max number of entries stored in `block_hash_to_chunk_headers`
-const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
 /// When a PartialEncodedChunk is received, it can be merged to the existing EncodedChunksCacheEntry
@@ -66,7 +64,8 @@ pub struct EncodedChunksCache {
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers: lru::LruCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
+    block_hash_to_chunk_headers:
+        HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -103,7 +102,7 @@ impl EncodedChunksCache {
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
             incomplete_chunks: HashMap::new(),
-            block_hash_to_chunk_headers: lru::LruCache::new(NUM_BLOCK_HASH_TO_CHUNK_HEADER),
+            block_hash_to_chunk_headers: HashMap::new(),
         }
     }
 
@@ -232,7 +231,26 @@ impl EncodedChunksCache {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
                     if !requested_chunks.contains_key(&chunk_hash) {
-                        self.remove(&chunk_hash);
+                        if let Some(entry) = self.remove(&chunk_hash) {
+                            self.remove_chunk_header(&entry.header);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove the chunk header from the `block_hash_to_chunk_headers` map.
+    fn remove_chunk_header(&mut self, header: &ShardChunkHeader) {
+        let prev_block_hash = header.prev_block_hash();
+        let shard_id = header.shard_id();
+        let chunk_hash = header.chunk_hash();
+        if let Some(chunk_headers) = self.block_hash_to_chunk_headers.get_mut(prev_block_hash) {
+            if let Some(chunk_header) = chunk_headers.get(&shard_id) {
+                if chunk_header.0.chunk_hash() == chunk_hash {
+                    chunk_headers.remove(&shard_id);
+                    if chunk_headers.is_empty() {
+                        self.block_hash_to_chunk_headers.remove(prev_block_hash);
                     }
                 }
             }
@@ -246,22 +264,25 @@ impl EncodedChunksCache {
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
             let prev_block_hash = header.prev_block_hash().clone();
-            let mut block_hash_to_chunk_headers = self
-                .block_hash_to_chunk_headers
-                .pop(&prev_block_hash)
-                .unwrap_or_else(|| HashMap::new());
-            block_hash_to_chunk_headers.insert(shard_id, header);
-            self.block_hash_to_chunk_headers.put(prev_block_hash, block_hash_to_chunk_headers);
+            self.block_hash_to_chunk_headers
+                .entry(prev_block_hash.clone())
+                .or_insert(HashMap::new())
+                .insert(shard_id, (header, chrono::Utc::now()));
         }
     }
 
     /// Returns all chunk headers to be included in the next block after `prev_block_hash`
-    /// Also removes these chunk headers from the map
+    /// Note that this function does NOT remove these chunk headers from the map because
+    /// it is possible that the node can use these chunks to produce another block, if there are no
+    /// new blocks in between.
     pub fn get_chunk_headers_for_block(
-        &mut self,
+        &self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, ShardChunkHeader> {
-        self.block_hash_to_chunk_headers.pop(prev_block_hash).unwrap_or_else(|| HashMap::new())
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
+        self.block_hash_to_chunk_headers
+            .get(prev_block_hash)
+            .cloned()
+            .unwrap_or_else(|| HashMap::new())
     }
 
     /// Returns number of chunks that are ready to be included in the next block
@@ -333,14 +354,20 @@ mod tests {
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let partial_encoded_chunk = PartialEncodedChunkV2 {
-            header: create_chunk_header(1, 0),
-            parts: vec![],
-            receipts: vec![],
-        };
+        let header = create_chunk_header(1, 0);
+        let partial_encoded_chunk =
+            PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
+        cache.insert_chunk_header(0, header.clone());
+        assert!(!cache.encoded_chunks.is_empty());
+        assert!(!cache.height_map.is_empty());
+        let headers = cache.get_chunk_headers_for_block(&CryptoHash::default());
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get(&0).unwrap().0, header);
+
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());
+        assert!(cache.get_chunk_headers_for_block(&CryptoHash::default()).is_empty());
     }
 }

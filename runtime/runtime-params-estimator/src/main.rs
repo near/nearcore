@@ -7,7 +7,6 @@ use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKind;
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::utils::read_resource;
 use runtime_params_estimator::{
     costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
 };
@@ -17,7 +16,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
 use std::time;
 
 #[derive(Parser)]
@@ -90,25 +88,6 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        let result = std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-        if !result.status.success() {
-            anyhow::bail!(
-                "Failed to build test contract, {}, stderr: {}",
-                result.status,
-                String::from_utf8_lossy(&result.stderr)
-            );
-        }
-    }
-
     let temp_dir;
     let state_dump_path = match cli_args.home {
         Some(it) => it,
@@ -118,11 +97,16 @@ fn main() -> anyhow::Result<()> {
         }
     };
     if state_dump_path.read_dir()?.next().is_none() {
-        let contract_code = read_resource(if cfg!(feature = "nightly") {
-            "test-contract/res/nightly_small_contract.wasm"
-        } else {
-            "test-contract/res/stable_small_contract.wasm"
-        });
+        // Every created account gets this smart contract deployed, such that
+        // any account can be used to perform estimations that require this
+        // contract.
+        // Note: This contract no longer has a fixed size, which means that
+        // changes to the test contract might affect all kinds of estimations.
+        // (Larger code = more time spent on reading it from the database, for
+        // example.) But this is generally a sign of a badly designed
+        // estimation, therefore we make no effort to guarantee a fixed size.
+        // Also, continuous estimation should be able to pick up such changes.
+        let contract_code = near_test_contracts::estimator_contract();
 
         nearcore::init_configs(
             &state_dump_path,
@@ -143,20 +127,15 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store =
-            near_store::StoreOpener::new(&state_dump_path, &near_config.config.store).open();
-        GenesisBuilder::from_config_and_store(
-            &state_dump_path,
-            Arc::new(near_config.genesis),
-            store,
-        )
-        .add_additional_accounts(cli_args.additional_accounts_num)
-        .add_additional_accounts_contract(contract_code)
-        .print_progress()
-        .build()
-        .unwrap()
-        .dump_state()
-        .unwrap();
+        let store = near_store::Store::opener(&state_dump_path, &near_config.config.store).open();
+        GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
+            .add_additional_accounts(cli_args.additional_accounts_num)
+            .add_additional_accounts_contract(contract_code.to_vec())
+            .print_progress()
+            .build()
+            .unwrap()
+            .dump_state()
+            .unwrap();
     }
 
     if cli_args.docker {

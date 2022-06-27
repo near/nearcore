@@ -201,8 +201,6 @@ mod tests {
                 "test".parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 100,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                false,
             )],
         )
         .unwrap()

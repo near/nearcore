@@ -17,6 +17,12 @@ weight = 10
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=3072"]
 
 [[target]]
+crate = "runtime/near-vm-runner/fuzz"
+runner = "diffrunner"
+weight = 10
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=3072"]
+
+[[target]]
 # Disabled for now because of the frequent intermittent failures,
 # should re-enable once they've been investigated
 crate = "test-utils/runtime-tester/fuzz"

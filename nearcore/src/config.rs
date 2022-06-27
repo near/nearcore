@@ -767,13 +767,6 @@ fn test_generate_or_load_key() {
     test_err("bad_key", "fred", "");
 }
 
-pub fn mainnet_genesis() -> Genesis {
-    lazy_static_include::lazy_static_include_bytes! {
-        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
-}
-
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -841,7 +834,7 @@ pub fn init_configs(
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let genesis = mainnet_genesis();
+            let genesis = near_mainnet_res::mainnet_genesis();
 
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
@@ -849,7 +842,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for official testnet");
             }

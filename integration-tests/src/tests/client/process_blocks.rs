@@ -170,7 +170,7 @@ fn prepare_env_with_congestion(
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -802,14 +802,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 InvalidBlockMode::InvalidBlock => {
                                     // produce an invalid block whose invalidity cannot be verified by just
                                     // having its header.
-                                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                                    let proposals = vec![ValidatorStake::new(
-                                        "test1".parse().unwrap(),
-                                        PublicKey::empty(KeyType::ED25519),
-                                        0,
-                                        false,
-                                    )];
-                                    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
                                     let proposals = vec![ValidatorStake::new(
                                         "test1".parse().unwrap(),
                                         PublicKey::empty(KeyType::ED25519),
@@ -1346,6 +1338,7 @@ fn test_bad_chunk_mask() {
                     merkle_paths.clone(),
                     receipts.clone(),
                     &mut chain_store,
+                    0,
                 )
                 .unwrap();
         }
@@ -1822,7 +1815,7 @@ fn test_gas_price_change() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -1869,7 +1862,7 @@ fn test_gas_price_overflow() {
     genesis.config.epoch_length = 43200;
     genesis.config.max_gas_price = max_gas_price;
 
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -1913,7 +1906,7 @@ fn test_invalid_block_root() {
 #[test]
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("../../../.."),
         create_test_store(),
@@ -2004,7 +1997,7 @@ fn test_block_merkle_proof() {
 
 #[test]
 fn test_block_merkle_proof_same_hash() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let proof =
         env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
@@ -2112,14 +2105,6 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    let proposals = vec![ValidatorStake::new(
-        "test1".parse().unwrap(),
-        PublicKey::empty(KeyType::ED25519),
-        0,
-        false,
-    )];
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
@@ -2236,7 +2221,7 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
         .shards_mgr
-        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store)
+        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store, 0)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     let accepted_blocks = env.clients[0].process_blocks_with_missing_chunks();
@@ -2262,7 +2247,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        &chunks.get(&0).cloned().unwrap(),
+        &chunks.get(&0).cloned().unwrap().0,
     )
     .is_ok());
 }
@@ -2279,7 +2264,7 @@ fn test_gas_price_change_no_chunk() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.min_gas_price = min_gas_price;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -2309,7 +2294,7 @@ fn test_catchup_gas_price_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
@@ -2409,7 +2394,7 @@ fn test_block_execution_outcomes() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -2495,7 +2480,7 @@ fn test_refund_receipts_processing() {
     genesis.config.min_gas_price = min_gas_price;
     // set gas limit to be small
     genesis.config.gas_limit = 1_000_000;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -2611,7 +2596,7 @@ fn test_wasmer2_upgrade() {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
@@ -2705,7 +2690,7 @@ fn test_execution_metadata() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
@@ -2803,7 +2788,7 @@ fn test_epoch_protocol_version_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let genesis_height = genesis.config.genesis_height;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
@@ -2831,6 +2816,7 @@ fn test_epoch_protocol_version_change() {
                     merkle_paths.clone(),
                     receipts.clone(),
                     &mut chain_store,
+                    0,
                 )
                 .unwrap();
         }
@@ -2872,7 +2858,7 @@ fn test_query_final_state() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -3110,7 +3096,7 @@ fn test_header_version_downgrade() {
     use borsh::ser::BorshSerialize;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -3341,7 +3327,7 @@ fn verify_contract_limits_upgrade(
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
             vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
@@ -3472,7 +3458,7 @@ fn test_catchup_no_sharding_change() {
     init_integration_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(1)
         .validator_seats(1)
@@ -3509,7 +3495,7 @@ fn test_deploy_cost_increased() {
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
             vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
@@ -3794,7 +3780,13 @@ mod access_key_nonce_range_tests {
         );
         env.clients[0]
             .shards_mgr
-            .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store)
+            .distribute_encoded_chunk(
+                encoded_shard_chunk,
+                merkle_path,
+                receipts,
+                &mut chain_store,
+                0,
+            )
             .unwrap();
         let (_, res) = env.clients[0].process_block(block.into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -3871,7 +3863,7 @@ mod access_key_nonce_range_tests {
         genesis.config.shard_layout = ShardLayout::v1_test();
         genesis.config.num_block_producer_seats_per_shard =
             vec![num_validators, num_validators, num_validators, num_validators];
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
@@ -4017,7 +4009,7 @@ mod access_key_nonce_range_tests {
         genesis.config.shard_layout = ShardLayout::v1_test();
         genesis.config.num_block_producer_seats_per_shard =
             vec![num_validators, num_validators, num_validators, num_validators];
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..2)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
@@ -4105,7 +4097,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         genesis.config.chain_id = String::from(chain_id);
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtime = nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             create_test_store(),
@@ -4245,7 +4237,7 @@ mod storage_usage_fix_tests {
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
@@ -4747,7 +4739,7 @@ mod chunk_nodes_cache_test {
         let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
             vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
@@ -4840,7 +4832,7 @@ mod lower_storage_key_limit_test {
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
             genesis.config.protocol_version = old_protocol_version;
-            let chain_genesis = ChainGenesis::from(&genesis);
+            let chain_genesis = ChainGenesis::new(&genesis);
             let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
                 vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),

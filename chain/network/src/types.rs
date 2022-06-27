@@ -2,13 +2,13 @@
 pub use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
-pub use crate::network_protocol::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, Unregister,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use actix::{MailboxError, Message};
 use futures::future::BoxFuture;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect,
     KnownProducer, OutboundTcpConnect, PartialEdgeInfo, PartialEncodedChunkForwardMsg,
@@ -22,7 +22,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
@@ -31,7 +30,9 @@ use std::fmt::Debug;
 /// Peer stats query.
 #[derive(actix::Message)]
 #[rtype(result = "PeerStatsResult")]
-pub struct QueryPeerStats {}
+pub struct QueryPeerStats {
+    pub(crate) context: opentelemetry::Context,
+}
 
 /// Peer stats result
 #[derive(Debug, actix::MessageResponse)]
@@ -57,7 +58,7 @@ pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
-    ReceivedMessage(PeerId, Instant),
+    ReceivedMessage(PeerId, time::Instant),
 }
 
 #[cfg(feature = "deepsize_feature")]
@@ -74,9 +75,9 @@ impl deepsize::DeepSizeOf for PeerRequest {
     }
 }
 
-/// A struct wrapped std::Instant to support the deepsize feature
+/// A struct wrapped Instant to support the deepsize feature
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WrappedInstant(pub Instant);
+pub struct WrappedInstant(pub std::time::Instant);
 
 #[cfg(feature = "deepsize_feature")]
 impl deepsize::DeepSizeOf for WrappedInstant {
@@ -102,7 +103,6 @@ pub struct PeersResponse {
 /// List of all messages, which `PeerManagerActor` accepts through `Actix`. There is also another list
 /// which contains reply for each message to `PeerManager`.
 /// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
 pub enum PeerManagerMessageRequest {
@@ -118,14 +118,12 @@ pub enum PeerManagerMessageRequest {
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(crate::private_actix::StartRoutingTableSync),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY allows for modifying the internal routing table.
     SetRoutingTable(crate::test_utils::SetRoutingTable),
+    /// TEST-ONLY allows for fetching the internal routing table.
+    GetRoutingTable,
 }
 
 impl PeerManagerMessageRequest {
@@ -161,14 +159,14 @@ pub enum PeerManagerMessageResponse {
     InboundTcpConnect(()),
     Unregister(()),
     Ban(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    StartRoutingTableSync(()),
-    #[cfg(feature = "test_features")]
+    /// TEST-ONLY
     SetAdvOptions(()),
-    #[cfg(feature = "test_features")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    /// TEST-ONLY
     SetRoutingTable(()),
+    GetRoutingTable {
+        /// List of all the known_edges.
+        edges_info: Vec<Edge>,
+    },
 }
 
 impl PeerManagerMessageResponse {
@@ -229,7 +227,6 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 }
 
 // TODO(#1313): Use Box
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(actix::Message, Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 #[rtype(result = "NetworkResponses")]
@@ -342,12 +339,6 @@ pub enum NetworkRequests {
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
-
-    // IbfMessage
-    IbfMessage {
-        peer_id: PeerId,
-        ibf_msg: RoutingSyncV2,
-    },
 }
 
 /// Combines peer address info, chain and edge information.
@@ -431,9 +422,6 @@ pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
     Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
 
-    #[cfg(feature = "sandbox")]
-    Sandbox(near_network_primitives::types::NetworkSandboxMessage),
-
     /// Received transaction.
     Transaction {
         transaction: SignedTransaction,
@@ -458,7 +446,7 @@ pub enum NetworkClientMessages {
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, Instant),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
@@ -477,10 +465,6 @@ pub enum NetworkClientResponses {
     /// Adv controls.
     #[cfg(feature = "test_features")]
     AdvResult(u64),
-
-    /// Sandbox controls
-    #[cfg(feature = "sandbox")]
-    SandboxResult(near_network_primitives::types::SandboxResponse),
 
     /// No response.
     NoResponse,

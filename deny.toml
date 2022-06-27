@@ -70,9 +70,7 @@ skip = [
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
-    { name = "parking_lot", version = "=0.11.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
-    { name = "parking_lot_core", version = "=0.8.5" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
 

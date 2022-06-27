@@ -109,7 +109,8 @@ pub trait VM {
 impl VMKind {
     /// Make a [`Runtime`] for this [`VMKind`].
     ///
-    /// This is not intended to be used by code other than standalone-vm-runner.
+    /// This is not intended to be used by code other than internal tools like
+    /// the estimator.
     pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]

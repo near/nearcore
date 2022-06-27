@@ -27,7 +27,7 @@ impl PartialEdgeInfo {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge(pub Arc<EdgeInner>);
 
@@ -41,6 +41,11 @@ impl Edge {
         signature1: Signature,
     ) -> Self {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
+    }
+
+    pub fn with_removal_info(mut self, ri: Option<(bool, Signature)>) -> Edge {
+        Arc::make_mut(&mut self.0).removal_info = ri;
+        self
     }
 
     pub fn key(&self) -> &(PeerId, PeerId) {
@@ -223,7 +228,7 @@ impl Edge {
 /// We need to keep explicitly `Removed` edges, in order to be able to proof, that given `Edge`
 /// isn't `Active` anymore. In case, someone delivers a proof that the edge existed.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeInner {
     /// Each edge consists of unordered pair of public keys of both peers.
