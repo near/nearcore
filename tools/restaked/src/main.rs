@@ -76,7 +76,7 @@ fn main() {
 
     let key_path = home_dir.join(&config.validator_key_file);
     let key_file = KeyFile::from_file(&key_path)
-        .unwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
+        junwrap_or_else(|e| panic!("Failed to open key file at {:?}: {:#}", &key_path, e));
     // Support configuring if there is another key.
     let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
         panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
