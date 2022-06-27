@@ -8,7 +8,7 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::config::VMConfig;
-use near_primitives::num_rational::{Ratio, Rational64};
+use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
@@ -158,7 +158,7 @@ fn deploy_test_contract(
 /// Create environment and set of transactions which cause congestion on the chain.
 fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
-    gas_price_adjustment_rate: Option<Rational64>,
+    gas_price_adjustment_rate: Option<Rational32>,
     number_of_transactions: u64,
 ) -> (TestEnv, Vec<CryptoHash>) {
     init_test_logger();

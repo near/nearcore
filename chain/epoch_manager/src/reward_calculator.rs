@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use num_rational::Rational64;
+use num_rational::Rational32;
 use primitive_types::U256;
 
 use near_chain_configs::GenesisConfig;
@@ -13,13 +13,13 @@ pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
 #[derive(Clone, Debug)]
 pub struct RewardCalculator {
-    pub max_inflation_rate: Rational64,
+    pub max_inflation_rate: Rational32,
     pub num_blocks_per_year: u64,
     pub epoch_length: u64,
-    pub protocol_reward_rate: Rational64,
+    pub protocol_reward_rate: Rational32,
     pub protocol_treasury_account: AccountId,
-    pub online_min_threshold: Rational64,
-    pub online_max_threshold: Rational64,
+    pub online_min_threshold: Rational32,
+    pub online_max_threshold: Rational32,
     pub num_seconds_per_year: u64,
 }
 
@@ -53,9 +53,9 @@ impl RewardCalculator {
         let use_hardcoded_value = genesis_protocol_version < protocol_version
             && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
         let max_inflation_rate =
-            if use_hardcoded_value { Rational64::new_raw(1, 20) } else { self.max_inflation_rate };
+            if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
         let protocol_reward_rate = if use_hardcoded_value {
-            Rational64::new_raw(1, 10)
+            Rational32::new_raw(1, 10)
         } else {
             self.protocol_reward_rate
         };
