@@ -3328,7 +3328,6 @@ dependencies = [
  "enum-map",
  "fs2",
  "lru",
- "near-cache",
  "near-crypto",
  "near-metrics",
  "near-o11y",
