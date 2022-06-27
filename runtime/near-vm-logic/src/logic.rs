@@ -2875,38 +2875,6 @@ impl<'a> VMLogic<'a> {
         let value = pub_key.verify_simple(b"substrate", &msg, &signature).is_ok();
         self.internal_write_register(register_id, vec![u8::from(value)])
     }
-
-    /// Recovers an ECDSA signer address from a message and a corresponding signature.
-    /// Returns the public key if the recovery was successful.
-    pub fn ecdsa_recover_compressed(
-        &mut self,
-        sig_len: u64,
-        sig_ptr: u64,
-        msg_len: u64,
-        msg_ptr: u64,
-        register_id: u64,
-    ) -> Result<()> {
-        use secp256k1::{
-            ecdsa::{RecoverableSignature, RecoveryId},
-            Message,
-        };
-
-        // TODO: calculate gas costs
-        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let message = Message::from_slice(&msg)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
-
-        let recovery_id = RecoveryId::from_i32(signature_array[64] as _)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
-        let signature = RecoverableSignature::from_compact(&signature_array[..64], recovery_id)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
-
-        let value = signature
-            .recover(&message)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
-        self.internal_write_register(register_id, value.serialize().to_vec())
-    }
 }
 
 #[derive(Clone, PartialEq)]

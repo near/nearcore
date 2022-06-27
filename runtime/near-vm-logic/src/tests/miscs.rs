@@ -4,7 +4,6 @@ use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
 use hex::FromHex;
 use near_vm_errors::HostError;
-use secp256k1::{Message, PublicKey, SecretKey};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::from_slice;
 use std::{fmt::Display, fs};
@@ -1043,66 +1042,4 @@ fn test_sr25519_verify() {
         .unwrap();
     logic.read_register(0, res.as_ptr() as _).expect("OK");
     assert_eq!(res.as_slice(), &[0]);
-}
-
-fn sign_recovery<C: secp256k1::Signing>(
-    secp: &secp256k1::Secp256k1<C>,
-    msg: &[u8],
-    seckey: [u8; 32],
-) -> secp256k1::ecdsa::RecoverableSignature {
-    let msg = Message::from_slice(&msg).unwrap();
-    let seckey = SecretKey::from_slice(&seckey).unwrap();
-    secp.sign_ecdsa_recoverable(&msg, &seckey)
-}
-
-#[test]
-fn test_ecdsa_recover_compressed() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
-
-    let message: [u8; 32] = [
-        107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
-        107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
-    ];
-
-    let seckey = [
-        59, 148, 11, 85, 134, 130, 61, 253, 2, 174, 59, 70, 27, 180, 51, 107, 94, 203, 174, 253,
-        102, 39, 170, 146, 46, 252, 4, 143, 236, 12, 136, 28,
-    ];
-
-    let secp = secp256k1::Secp256k1::new();
-    let expected_pubkey =
-        PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&seckey).unwrap());
-
-    let signature = sign_recovery(&secp, &message, seckey);
-    let (recovery_id, serialize_sig) = signature.serialize_compact();
-    let signature = [serialize_sig.to_vec(), vec![recovery_id.to_i32() as u8]].concat();
-
-    logic
-        .ecdsa_recover_compressed(
-            65,
-            signature.as_ptr() as _,
-            message.len() as _,
-            message.as_ptr() as _,
-            0,
-        )
-        .unwrap();
-
-    let res = &vec![0u8; 33];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
-    assert_eq!(expected_pubkey, PublicKey::from_slice(&res.as_slice()).unwrap());
-
-    logic
-        .ecdsa_recover_compressed(
-            65,
-            signature.as_ptr() as _,
-            message.len() as _,
-            [1; 32].as_ptr() as _,
-            0,
-        )
-        .unwrap();
-
-    let res = &vec![0u8; 33];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
-    assert!(!(expected_pubkey == PublicKey::from_slice(&res.as_slice()).unwrap()));
 }
