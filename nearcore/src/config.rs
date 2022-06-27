@@ -949,13 +949,7 @@ pub fn init_configs(
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational32::new(99, 100),
-                online_min_threshold: Rational32::new(
-                    BLOCK_PRODUCER_KICKOUT_THRESHOLD as i3core
-                        / primitives
-                        / benches
-                        / serialization.rs2,
-                    100,
-                ),
+                online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
