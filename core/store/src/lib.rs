@@ -14,7 +14,6 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_o11y::log_assert;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -185,7 +184,7 @@ pub struct StoreUpdate {
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    tries: Option<ShardTries>,
+    shard_tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
@@ -195,14 +194,14 @@ impl StoreUpdate {
     };
 
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        StoreUpdate { storage, transaction: DBTransaction::new(), tries: None }
+        StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
         StoreUpdate {
             storage: Arc::clone(&tries.get_store().storage),
             transaction: DBTransaction::new(),
-            tries: Some(tries),
+            shard_tries: Some(tries),
         }
     }
 
@@ -328,14 +327,25 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Merge another store update into this one.
-    pub fn merge(&mut self, other: StoreUpdate) {
-        match (&self.tries, other.tries) {
-            (_, None) => (),
-            (None, Some(tries)) => self.tries = Some(tries),
-            (Some(t1), Some(t2)) => log_assert!(t1.is_same(&t2)),
+    /// Set shard_tries to given object.
+    ///
+    /// Panics if shard_tries are already set to a different object.
+    fn set_shard_tries(&mut self, tries: ShardTries) {
+        if let Some(our) = &self.shard_tries {
+            assert!(tries.is_same(our));
+        } else {
+            self.shard_tries = Some(tries);
         }
+    }
 
+    /// Merge another store update into this one.
+    ///
+    /// Panics if `self` and `other` both have shard_tries set to different
+    /// objects.
+    pub fn merge(&mut self, other: StoreUpdate) {
+        if let Some(tries) = other.shard_tries {
+            self.set_shard_tries(tries);
+        }
         self.transaction.merge(other.transaction)
     }
 
@@ -359,7 +369,7 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(tries) = self.tries {
+        if let Some(tries) = self.shard_tries {
             // Note: avoid comparing wide pointers here to work-around
             // https://github.com/rust-lang/rust/issues/69757
             let addr = |arc| Arc::as_ptr(arc) as *const u8;

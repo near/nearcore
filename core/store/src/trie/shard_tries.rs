@@ -154,7 +154,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.tries = Some(tries);
+        store_update.set_shard_tries(tries);
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let rc = match std::num::NonZeroU32::new(*rc) {
                 None => continue,
@@ -174,7 +174,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.tries = Some(tries);
+        store_update.set_shard_tries(tries);
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
