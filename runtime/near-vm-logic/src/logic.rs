@@ -2876,7 +2876,8 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, vec![u8::from(value)])
     }
 
-    /// Verify an Schnorrkel signature given a message and a public key.
+    /// Recovers an ECDSA signer address from a message and a corresponding signature.
+    /// Returns the public key if the recovery was successful.
     pub fn ecdsa_recover_compressed(
         &mut self,
         sig_len: u64,
