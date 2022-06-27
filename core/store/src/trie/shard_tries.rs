@@ -86,7 +86,7 @@ impl ShardTries {
             .collect()
     }
 
-    pub fn is_same(&self, other: &Self) -> bool {
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
@@ -176,6 +176,10 @@ impl ShardTries {
 
     pub fn get_store(&self) -> Store {
         self.0.store.clone()
+    }
+
+    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
+        &self.0.store.storage
     }
 
     pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
