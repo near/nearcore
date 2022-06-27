@@ -97,7 +97,7 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 2_000_000)],
+            trie_cache_capacities: Default::default(),
         }
     }
 }
@@ -156,7 +156,7 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> Result<Option<DbVersion>, crate::db::DBError> {
+    pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
             Some(crate::RocksDB::get_version(&self.path)).transpose()
         } else {

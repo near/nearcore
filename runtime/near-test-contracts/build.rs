@@ -21,6 +21,12 @@ fn try_main() -> Result<(), Error> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
+    build_contract("./estimator-contract", &[], "stable_estimator_contract")?;
+    build_contract(
+        "./estimator-contract",
+        &["--features", "nightly"],
+        "nightly_estimator_contract",
+    )?;
     Ok(())
 }
 
