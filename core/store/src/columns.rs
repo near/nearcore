@@ -270,9 +270,9 @@ impl DBCol {
     /// such columns you must not use `set`, `set_ser` or `delete` operations,
     /// but 'increment_refcount' and `decrement_refcount` instead.
     ///
-    /// Under the hood, we’re using custom merge operator (`refcount_merge`) to
-    /// properly ‘join’ the refcounted cells.  This means that the 'value' for
-    /// a given key must never change.
+    /// Under the hood, we’re using custom merge operator (see
+    /// [`RocksDB::refcount_merge`]) to properly ‘join’ the refcounted cells.
+    /// This means that the 'value' for a given key must never change.
     ///
     /// Example:
     ///

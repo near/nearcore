@@ -6,6 +6,11 @@
 //! The key is really removed from the database when reference count reaches
 //! zero.
 //!
+//! Note that it is an error to try to store different values under the same
+//! key.  That is, when increasing the reference count of an existing key, the
+//! same value must be inserted.  If different values are inserted it’s not
+//! defined which one will be later read from the database.
+//!
 //! The reference counts are stored together with the values by simply attaching
 //! little-endian encoded 64-bit signed integer at the end of it.  See
 //! [`add_positive_refcount`] and [`encode_negative_refcount`] functions for
@@ -14,54 +19,11 @@
 //! zero RocksDB removes the key from the database.
 
 use std::cmp::Ordering;
-use std::io::Cursor;
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use rocksdb::compaction_filter::Decision;
 
 use crate::db::RocksDB;
 use crate::DBCol;
-
-/// Refcounted columns store value with rc.
-///
-/// Write write refcount records, reads merge them.
-/// The merged rc should always be positive, if it's not there is a bug in gc.
-///
-/// Refcount record format:
-/// rc = 0 => empty
-/// rc < 0 => 8 bytes little endian rc
-/// rc > 0 => value followed by 8 bytes little endian rc
-///
-pub(crate) fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) {
-    let (bytes, add_rc) = decode_value_with_rc(val);
-    if add_rc == 0 {
-        return;
-    }
-    let (result_bytes, result_rc) = decode_value_with_rc(result);
-    if result_rc == 0 {
-        result.extend_from_slice(val);
-    } else {
-        let rc = result_rc + add_rc;
-        debug_assert!(result_rc <= 0 || add_rc <= 0 || result_bytes == bytes);
-        match rc.cmp(&0) {
-            Ordering::Less => {
-                result.clear();
-                result.extend_from_slice(&rc.to_le_bytes());
-            }
-            Ordering::Equal => {
-                result.clear();
-            }
-            Ordering::Greater => {
-                if result_rc < 0 {
-                    result.clear();
-                    result.extend_from_slice(val);
-                }
-                let len = result.len();
-                result[len - 8..].copy_from_slice(&rc.to_le_bytes());
-            }
-        }
-    }
-}
 
 /// Extracts reference count from raw value and returns it along with the value.
 ///
@@ -76,30 +38,25 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         debug_assert!(bytes.is_empty());
         return (None, 0);
     }
-    let mut cursor = Cursor::new(&bytes[bytes.len() - 8..]);
-    let rc = cursor.read_i64::<LittleEndian>().unwrap();
-    if rc < 0 {
+    let (head, tail) = bytes.split_at(bytes.len() - 8);
+    let rc = i64::from_le_bytes(tail.try_into().unwrap());
+    if rc <= 0 {
         (None, rc)
     } else {
-        (Some(&bytes[..bytes.len() - 8]), rc)
+        (Some(head), rc)
     }
 }
 
 /// Encode a positive reference count into the value.
 pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
-    let rc = i64::from(rc.get());
-    let mut value = Vec::with_capacity(data.len() + 8);
-    value.extend_from_slice(data);
-    value.extend_from_slice(&rc.to_le_bytes());
-    value
+    [data, &i64::from(rc.get()).to_le_bytes()].concat()
 }
 
 /// Returns empty value with encoded negative reference count.
 ///
 /// `rc` gives the absolute value of the reference count.
 pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
-    let rc = -i64::from(rc.get());
-    rc.to_le_bytes().to_vec()
+    (-i64::from(rc.get())).to_le_bytes().to_vec()
 }
 
 /// Merge reference counted values together.
@@ -113,18 +70,25 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
 /// Assumes that all provided values with positive reference count have the same
 /// value so that the function is free to pick any of the values.  In build with
 /// debug assertions panics if this is not true.
-fn refcount_merge<'a>(
+pub(crate) fn refcount_merge<'a>(
     existing: Option<&'a [u8]>,
-    operands: impl std::iter::IntoIterator<Item = &'a [u8]>,
-) -> Option<Vec<u8>> {
-    let mut result = vec![];
-    if let Some(val) = existing {
-        merge_refcounted_records(&mut result, val);
+    operands: impl IntoIterator<Item = &'a [u8]>,
+) -> Vec<u8> {
+    let (mut payload, mut rc) = existing.map_or((None, 0), decode_value_with_rc);
+    for (new_payload, delta) in operands.into_iter().map(decode_value_with_rc) {
+        if payload.is_none() {
+            payload = new_payload;
+        } else if new_payload.is_some() {
+            debug_assert_eq!(payload, new_payload);
+        }
+        rc += delta;
     }
-    for val in operands {
-        merge_refcounted_records(&mut result, val);
+
+    match rc.cmp(&0) {
+        Ordering::Less => rc.to_le_bytes().to_vec(),
+        Ordering::Equal => Vec::new(),
+        Ordering::Greater => [payload.unwrap_or(b""), &rc.to_le_bytes()].concat(),
     }
-    Some(result)
 }
 
 /// Returns value with reference count stripped if column is refcounted.
@@ -137,7 +101,14 @@ fn refcount_merge<'a>(
 /// values are treated as values with reference count zero.
 pub(crate) fn get_with_rc_logic(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
     if column.is_rc() {
-        value.and_then(|vec| decode_value_with_rc(&vec).0.map(|v| v.to_vec()))
+        let mut value = value?;
+        match decode_value_with_rc(&value) {
+            (None, _) => None,
+            (Some(_), _) => {
+                value.truncate(value.len() - 8);
+                Some(value)
+            }
+        }
     } else {
         value
     }
@@ -161,7 +132,6 @@ where
 }
 
 impl RocksDB {
-    /// DBCol::State has refcounted values.
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
     pub(crate) fn refcount_merge(
@@ -169,7 +139,7 @@ impl RocksDB {
         existing: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
-        self::refcount_merge(existing, operands)
+        Some(self::refcount_merge(existing, operands))
     }
 
     /// Compaction filter for DBCol::State
@@ -220,9 +190,8 @@ mod test {
         test(None, -2, MINUS_TWO);
         test(None, -2, b"foobar\xfe\xff\xff\xff\xff\xff\xff\xff");
         test(None, 0, b"");
-        // TODO(mina86): The next two should return None.
-        test(Some(b""), 0, ZERO);
-        test(Some(b"bar"), 0, b"bar\0\0\0\0\0\0\0\0");
+        test(None, 0, ZERO);
+        test(None, 0, b"bar\0\0\0\0\0\0\0\0");
         test(Some(b""), 2, PLUS_TWO);
         test(Some(b"baz"), 2, b"baz\x02\0\0\0\0\0\0\0");
 
@@ -250,10 +219,13 @@ mod test {
     fn refcount_merge() {
         fn test(want: &[u8], operands: &[&[u8]]) {
             let it = operands.into_iter().copied();
-            assert_eq!(want, super::refcount_merge(None, it).unwrap().as_slice());
+            let got = super::refcount_merge(None, it);
+            assert_eq!(want, got.as_slice());
+
             if !operands.is_empty() {
                 let it = operands[1..].into_iter().copied();
-                assert_eq!(want, &super::refcount_merge(Some(operands[0]), it).unwrap());
+                let got = super::refcount_merge(Some(operands[0]), it);
+                assert_eq!(want, got.as_slice());
             }
         }
 
@@ -322,9 +294,8 @@ mod test {
         test(None, RC_COL, MINUS_ONE);
         test(None, RC_COL, b"foo\xff\xff\xff\xff\xff\xff\xff\xff");
         test(None, RC_COL, b"");
-        // TODO(mina86): The next two should return None.
-        test(Some(b""), RC_COL, ZERO);
-        test(Some(b"foo"), RC_COL, b"foo\x00\0\0\0\0\0\0\0");
+        test(None, RC_COL, ZERO);
+        test(None, RC_COL, b"foo\x00\0\0\0\0\0\0\0");
         test(Some(b""), RC_COL, PLUS_ONE);
         test(Some(b"foo"), RC_COL, b"foo\x01\0\0\0\0\0\0\0");
 
@@ -371,7 +342,7 @@ mod test {
         assert!(RC_COL.is_rc());
 
         test(
-            &[b"", b"foo", b"", b"foo"],
+            &[b"", b"foo"],
             RC_COL,
             &[
                 MINUS_ONE,
