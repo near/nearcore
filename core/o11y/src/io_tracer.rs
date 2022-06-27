@@ -1,8 +1,11 @@
+#![cfg(feature = "io_trace")]
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::{fs::File, sync::Mutex};
 use tracing::{span, Subscriber};
-use tracing_subscriber::{registry::LookupSpan, Layer};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::Layer;
 
 /// Tracing layer that produces a record of IO operations.
 pub struct IoTraceLayer {
@@ -54,18 +57,37 @@ struct SpanInfo {
 }
 
 impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
-    fn on_enter(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_new_span(
+        &self,
+        attrs: &span::Attributes<'_>,
+        id: &span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         let span = ctx.span(id).unwrap();
-        span.extensions_mut().replace(OutputBuffer(vec![]));
-        span.extensions_mut().replace(SpanInfo::default());
+
+        // Store span field values to be printed on exit, after they are
+        // enhanced with additional information from events.
+        let mut span_info = SpanInfo::default();
+        attrs.record(&mut span_info);
+        span.extensions_mut().insert(span_info);
+
+        // This will be used to add lines that should be printed below the span
+        // opening line.
+        span.extensions_mut().insert(OutputBuffer(vec![]));
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
         if event.metadata().target() == "io_tracer" {
             // Events specifically added to add more info to spans in IO Tracer.
             // Marked with `target: "io_tracer"`.
-            if let Some(span) = ctx.event_span(event) {
-                event.record(span.extensions_mut().get_mut::<SpanInfo>().unwrap());
+            let mut span = ctx.event_span(event);
+            while let Some(parent) = span {
+                if let Some(span_info) = parent.extensions_mut().get_mut::<SpanInfo>() {
+                    event.record(span_info);
+                    break;
+                } else {
+                    span = parent.parent();
+                }
             }
         } else {
             // All other events.
@@ -249,6 +271,10 @@ impl tracing::field::Visit for SpanInfo {
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
-        self.key_values.push(format!("{name}={value:?}"));
+        // Some fields are too verbose for the trace, ignore them on a case-by-case basis.
+        let ignore = ["message", "node_counter"];
+        if !ignore.contains(&name) {
+            self.key_values.push(format!("{name}={value:?}"));
+        }
     }
 }

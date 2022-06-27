@@ -2346,6 +2346,7 @@ impl<'a> VMLogic<'a> {
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
 
+        #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "vm_logic",
             storage_op = "write",
@@ -2435,11 +2436,12 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        let tn_mem_reads = nodes_delta.mem_reads;
-        let tn_db_reads = nodes_delta.db_reads;
+        #[cfg(feature = "io_trace")]
+        let (tn_mem_reads, tn_db_reads) = (nodes_delta.mem_reads, nodes_delta.db_reads);
         self.gas_counter.add_trie_fees(nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
+        #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "vm_logic",
             storage_op = "read",
@@ -2501,6 +2503,7 @@ impl<'a> VMLogic<'a> {
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
 
+        #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "vm_logic",
             storage_op = "remove",
@@ -2558,6 +2561,7 @@ impl<'a> VMLogic<'a> {
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
 
+        #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "vm_logic",
             storage_op = "exists",

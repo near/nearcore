@@ -3,7 +3,6 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
-use io_tracer::IoTraceLayer;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use std::borrow::Cow;
@@ -200,20 +199,25 @@ fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
     }
 }
 
-/// The constructed layer writes storage and DB events in JSON format to a
+/// The constructed layer writes storage and DB events in a custom format to a
 /// specified file.
 ///
 /// This layer is useful to collect detailed IO access patterns for block
-/// production. Typically used for debugging IO.
+/// production. Typically used for debugging IO and to replay on the estimator.
+#[cfg(feature = "io_trace")]
 pub fn make_io_tracing_layer<S>(
-    writer: std::sync::Mutex<std::fs::File>,
-) -> Filtered<IoTraceLayer, EnvFilter, S>
+    file: std::fs::File,
+) -> Filtered<io_tracer::IoTraceLayer, EnvFilter, S>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
-    IoTraceLayer::new(writer).with_filter(tracing_subscriber::filter::EnvFilter::new(
-        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace",
-    ))
+    use std::sync::Mutex;
+
+    io_tracer::IoTraceLayer::new(Mutex::new(file)).with_filter(
+        tracing_subscriber::filter::EnvFilter::new(
+            "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace",
+        ),
+    )
 }
 
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
@@ -250,17 +254,17 @@ pub async fn default_subscriber(
     let (log_layer, handle) = tracing_subscriber::reload::Layer::new(log_layer);
     LOG_LAYER_RELOAD_HANDLE.set(handle).unwrap();
 
-    let io_trace_layer = options.record_io_trace.as_ref().map(|output_path| {
-        make_io_tracing_layer(std::sync::Mutex::new(
-            std::fs::File::create(output_path)
-                .expect("unable to create or truncate IO trace output file"),
-        ))
-    });
-
     let subscriber = tracing_subscriber::registry();
     let subscriber = subscriber.with(log_layer);
     let subscriber = subscriber.with(make_opentelemetry_layer(options).await);
-    let subscriber = subscriber.with(io_trace_layer);
+
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        )
+    }));
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),

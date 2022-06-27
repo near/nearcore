@@ -13,11 +13,10 @@ use runtime_params_estimator::{
 };
 use std::env;
 use std::fmt::Write;
-use std::fs::{self, File};
+use std::fs::{self};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
 use std::time;
 use tracing_subscriber::Layer;
 
@@ -211,13 +210,18 @@ fn main() -> anyhow::Result<()> {
         use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
         let log_layer = tracing_subscriber::fmt::layer()
             .with_filter(tracing_subscriber::EnvFilter::from_default_env());
-        let io_layer = cli_args.record_io_trace.map(|path| {
-            let log_file = Mutex::new(
-                File::create(path).expect("unable to create or truncate IO trace output file"),
-            );
+        let subscriber = tracing_subscriber::registry().with(log_layer);
+        #[cfg(feature = "io_trace")]
+        let subscriber = subscriber.with(cli_args.record_io_trace.map(|path| {
+            let log_file =
+                fs::File::create(path).expect("unable to create or truncate IO trace output file");
             near_o11y::make_io_tracing_layer(log_file)
-        });
-        let subscriber = tracing_subscriber::registry().with(log_layer).with(io_layer);
+        }));
+
+        #[cfg(not(feature = "io_trace"))]
+        if cli_args.record_io_trace.is_some() {
+            anyhow::bail!("`--record-io-trace` requires `--feature=io_trace`");
+        }
 
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");

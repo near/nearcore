@@ -28,7 +28,6 @@ tracing = "0.1"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.11", features = ["fmt", "registry"] }
 
-
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -67,3 +66,4 @@ nightly = [
 ]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = ["node-runtime/sandbox"]
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
