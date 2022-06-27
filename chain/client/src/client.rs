@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use near_client_primitives::debug::BlockProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
@@ -66,6 +67,9 @@ pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
+/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
+pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
+
 pub struct Client {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
@@ -111,6 +115,11 @@ pub struct Client {
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+
+    /// Block and chunk production timing information.
+    /// used only for debug purposes.
+    pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
+    pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
 }
 
 // Debug information about the upcoming block.
@@ -231,6 +240,8 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
+            block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
         })
     }
 
@@ -457,7 +468,7 @@ impl Client {
                 if is_slashed {
                     None
                 } else {
-                    approvals_map.remove(&account_id).map(|x| x.signature)
+                    approvals_map.remove(&account_id).map(|x| x.0.signature)
                 }
             })
             .collect();
@@ -503,8 +514,21 @@ impl Client {
         let prev_block = self.chain.get_block(&prev_hash)?;
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
+        // Add debug information about the block production (and info on when did the chunks arrive).
+        self.block_production_times.put(
+            next_height,
+            BlockProduction {
+                block_production_time: Some(chrono::Utc::now()),
+                chunks_collection_time: (0..chunks.len() as u64)
+                    .map(|shard_id| {
+                        new_chunks.get(&shard_id).map(|(_, arrival_time)| arrival_time.clone())
+                    })
+                    .collect::<Vec<_>>(),
+            },
+        );
+
         // Collect new chunks.
-        for (shard_id, mut chunk_header) in new_chunks {
+        for (shard_id, (mut chunk_header, _)) in new_chunks {
             *chunk_header.height_included_mut() = next_height;
             chunks[shard_id as usize] = chunk_header;
         }
@@ -582,6 +606,7 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+        let timer = Instant::now();
         let _timer = metrics::PRODUCE_CHUNK_TIME
             .with_label_values(&[&format!("{}", shard_id)])
             .start_timer();
@@ -674,16 +699,18 @@ impl Client {
 
         debug!(
             target: "client",
-            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
-            next_height,
+            height=next_height,
             shard_id,
+            me=%validator_signer.validator_id(),
+            chunk_hash=%encoded_chunk.chunk_hash().0,
+            %prev_block_hash,
+            "Produced chunk with {} txs and {} receipts",
             num_filtered_transactions,
             outgoing_receipts.len(),
-            validator_signer.validator_id(),
-            encoded_chunk.chunk_hash().0,
         );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
+        self.chunk_production_times.put((next_height, shard_id), timer.elapsed());
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
