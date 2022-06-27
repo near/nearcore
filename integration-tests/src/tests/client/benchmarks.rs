@@ -16,7 +16,7 @@ use nearcore::config::GenesisExt;
 /// How long does it take to produce a large chunk?
 ///
 /// Chunk production work does **not** include any transaction execution: it is
-/// just about packing receipts and a bunch of txes from a pool togethre and
+/// just about packing receipts and a bunch of txes from a pool together and
 /// computing merkle proof and erasure-codes for this. This is still pretty
 /// computationally intensive.
 ///
