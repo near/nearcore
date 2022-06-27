@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use rand::Rng;
 
 use crate::genesis_helpers::genesis_hash;
@@ -54,7 +54,7 @@ fn init_test_staking(
     genesis.config.chunk_producer_kickout_threshold = 20;
     genesis.config.minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = Rational::from_integer(0);
+        genesis.config.max_inflation_rate = Ratio::from_integer(0);
         genesis.config.min_gas_price = 0;
     }
     let first_node = open_port();

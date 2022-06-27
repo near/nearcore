@@ -1,4 +1,3 @@
-use near_cache::CellLruCache;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -389,22 +388,6 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: BorshDeserialize + Clone + 'a>(
-    storage: &Store,
-    col: DBCol,
-    cache: &'a CellLruCache<Vec<u8>, T>,
-    key: &[u8],
-) -> io::Result<Option<T>> {
-    if let Some(value) = cache.get(key) {
-        return Ok(Some(value));
-    }
-    if let Some(result) = storage.get_ser::<T>(col, key)? {
-        cache.put(key.to_vec(), result.clone());
-        return Ok(Some(result));
-    }
-    Ok(None)
-}
-
 /// Reads an object from Trie.
 /// # Errors
 /// see StorageError
@@ -673,7 +656,7 @@ mod tests {
     }
 
     /// Checks that keys are sorted when iterating.
-    fn test_iter_order_impl(store: Store, count: usize) {
+    fn test_iter_order_impl(store: Store) {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
@@ -681,44 +664,55 @@ mod tests {
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
-        // Fill column with random keys.  We're inserting three sets of keys.
-        // One set prefixed by "foo", second by "bar" and last by "baz".  Each
-        // set is `count` keys (for total of `3*count` keys).
+        const COUNT: usize = 10_000;
+        const PREFIXES: [[u8; 4]; 6] =
+            [*b"foo0", *b"foo1", *b"foo2", *b"foo\xff", *b"fop\0", *b"\xff\xff\xff\xff"];
+
+        // Fill column with random keys.  We're inserting multiple sets of keys
+        // with different four-byte prefixes..  Each set is `COUNT` keys (for
+        // total of `PREFIXES.len()*COUNT` keys).
         let mut rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(0x3243f6a8885a308d);
         let mut update = store.store_update();
         let mut buf = [0u8; 20];
-        for prefix in [b"foo", b"bar", b"baz"] {
+        for prefix in PREFIXES.iter() {
             buf[..prefix.len()].clone_from_slice(prefix);
-            for _ in 0..count {
+            for _ in 0..COUNT {
                 rng.fill(&mut buf[prefix.len()..]);
                 update.set(COLUMN, &buf, &buf);
             }
         }
         update.commit().unwrap();
 
-        // Check that full scan produces keys in proper order.
-        let keys: Vec<Box<[u8]>> = store.iter(COLUMN).map(|(key, _)| key).collect();
-        assert_sorted(3 * count, keys);
+        fn collect<'a>(iter: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)>) -> Vec<Box<[u8]>> {
+            iter.map(|(key, _)| key).collect()
+        }
 
-        let keys: Vec<Box<[u8]>> = store.iter_raw_bytes(COLUMN).map(|(key, _)| key).collect();
-        assert_sorted(3 * count, keys);
+        // Check that full scan produces keys in proper order.
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter(COLUMN)));
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter_raw_bytes(COLUMN)));
+        assert_sorted(PREFIXES.len() * COUNT, collect(store.iter_prefix(COLUMN, b"")));
 
         // Check that prefix scan produces keys in proper order.
-        let keys: Vec<Box<[u8]>> = store.iter_prefix(COLUMN, b"baz").map(|(key, _)| key).collect();
-        for (pos, key) in keys.iter().enumerate() {
-            assert_eq!(b"baz", &key[0..3], "Expected ‘baz’ prefix but got {key:?} at {pos}");
+        for prefix in PREFIXES.iter() {
+            let keys = collect(store.iter_prefix(COLUMN, prefix));
+            for (pos, key) in keys.iter().enumerate() {
+                assert_eq!(
+                    prefix,
+                    &key[0..4],
+                    "Expected {prefix:?} prefix but got {key:?} key at {pos}"
+                );
+            }
+            assert_sorted(COUNT, keys);
         }
-        assert_sorted(count, keys);
     }
 
     #[test]
     fn rocksdb_iter_order() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        test_iter_order_impl(opener.open(), 10_000);
+        test_iter_order_impl(Store::test_opener().1.open());
     }
 
     #[test]
     fn testdb_iter_order() {
-        test_iter_order_impl(crate::test_utils::create_test_store(), 10_000);
+        test_iter_order_impl(crate::test_utils::create_test_store());
     }
 }

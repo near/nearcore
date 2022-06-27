@@ -38,9 +38,6 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let _env_guard_one = sh.push_env("CARGO_PROFILE_RELEASE_LTO", "fat");
     let _env_guard_two = sh.push_env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
 
-    // Rebuild test contract
-    cmd!(sh, "{git_root}/runtime/runtime-params-estimator/test-contract/build.sh").run()?;
-
     // Build estimator
     cmd!(sh, "cargo build --release -p runtime-params-estimator --features runtime-params-estimator/required").run()?;
     // Find binary, some users have CARGO_TARGET_DIR pointing to a custom target directory

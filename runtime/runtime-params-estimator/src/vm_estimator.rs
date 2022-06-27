@@ -125,11 +125,11 @@ fn precompilation_cost(
     // Contracts binaries are taken from near-sdk-rs examples, ae20fc458858144e4a35faf58be778d13c2b0511.
     let validate_contracts = vec![
         // File 139637.
-        read_resource("test-contract/res/status_message.wasm"),
+        read_resource("res/status_message.wasm"),
         // File 157010.
-        read_resource("test-contract/res/mission_control.wasm"),
+        read_resource("res/mission_control.wasm"),
         // File 218444.
-        read_resource("test-contract/res/fungible_token.wasm"),
+        read_resource("res/fungible_token.wasm"),
     ];
 
     for raw_bytes in validate_contracts {
