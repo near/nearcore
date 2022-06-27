@@ -35,6 +35,7 @@ near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
+near-test-contracts = { path = "../near-test-contracts" }
 near-primitives = { path = "../../core/primitives" }
 
 nearcore = { path = "../../nearcore" }
@@ -63,5 +64,5 @@ wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly = [
     "nightly_protocol",
 ]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = ["near-primitives/nightly_protocol", "near-test-contracts/nightly"]
 sandbox = ["node-runtime/sandbox"]
