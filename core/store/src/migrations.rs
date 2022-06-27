@@ -11,6 +11,8 @@ use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
 pub fn set_store_version(store: &Store, db_version: u32) {
     let mut store_update = store.store_update();
+    // Contrary to other integers, we’re using textual representation for
+    // storing DbVersion in VERSION_KEY thus to_string rather than to_le_bytes.
     store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
     store_update.commit().expect("Failed to write version to database");
 }
