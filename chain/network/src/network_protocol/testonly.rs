@@ -11,7 +11,7 @@ use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunkPart,
     ReedSolomonWrapper, ShardChunk,
@@ -56,7 +56,7 @@ pub fn make_block(
         EpochId::default(),                                    // next_epoch_id
         None,                                                  // epoch_sync_data_hash
         vec![],                                                // approvals
-        Rational::from_integer(0),                             // gas_price_adjustment_rate
+        Ratio::from_integer(0),                                // gas_price_adjustment_rate
         0,                                                     // min_gas_price
         0,                                                     // max_gas_price
         Some(0),                                               // minted_amount
