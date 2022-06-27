@@ -510,8 +510,8 @@ fn action_deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
     }
 
     let cost = {
-        let code = read_resource("../near-test-contracts/res/smallest_contract.wasm");
-        deploy_contract_cost(ctx, code, Some(b"sum"))
+        let code = near_test_contracts::smallest_rs_contract();
+        deploy_contract_cost(ctx, code.to_vec(), Some(b"sum"))
     };
 
     ctx.cached.deploy_contract_base = Some(cost.clone());

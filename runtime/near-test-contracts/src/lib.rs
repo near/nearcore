@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 use rand::{Fill, SeedableRng};
 use std::path::Path;
 
-/// Trivial contact with a do-nothing main function.
+/// Parse a WASM contract from WAT representation.
 pub fn wat_contract(wat: &str) -> Vec<u8> {
     wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
 }
@@ -79,10 +79,30 @@ pub fn fuzzing_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
 }
 
-/// Smallest (reasonable) contract possible to build from Rust code.
+/// Smallest (reasonable) contract possible to build.
+///
+/// This contract is guaranteed to have a "sum" function
 pub fn smallest_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("smallest_contract")).as_slice()
+    CONTRACT
+        .get_or_init(|| {
+            wat_contract(
+                r#"(module
+            (func $input (import "env" "input") (param i64))
+            (func $sum (export "sum") (param i32 i32) (result i32)
+            (call $input
+              (i64.const 0))
+            (i32.add
+              (local.get 1)
+              (local.get 0)))
+            (memory 16)
+            (memory (export "memory") 16)
+            (global (mut i32) (i32.const 1048576))
+            (global (export "__data_end") i32 (i32.const 1048576))
+            (global (export "__heap_base") i32 (i32.const 1048576)))"#,
+            )
+        })
+        .as_slice()
 }
 
 /// Contract that has all methods required by the gas parameter estimator.
