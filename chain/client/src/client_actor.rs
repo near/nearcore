@@ -74,7 +74,7 @@ pub struct ClientActor {
     pub adv: crate::adversarial::Controls,
 
     // Address of this ClientActor. Can be used to send messages to self.
-    address: Addr<ClientActor>,
+    my_address: Addr<ClientActor>,
     pub(crate) client: Client,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
@@ -172,7 +172,7 @@ impl ClientActor {
         let now = Utc::now();
         Ok(ClientActor {
             adv,
-            address,
+            my_address: address,
             client,
             network_adapter,
             node_id,
@@ -1315,7 +1315,7 @@ impl ClientActor {
     /// the processing of new blocks. This callback will be called at the end of applying chunks
     /// for every block.
     fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
-        let addr = self.address.clone();
+        let addr = self.my_address.clone();
         Arc::new(move |_| {
             addr.do_send(ApplyChunksDoneMessage {});
         })

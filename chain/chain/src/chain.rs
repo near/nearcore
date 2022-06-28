@@ -2012,7 +2012,7 @@ impl Chain {
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
         let provenance = block_preprocess_info.provenance.clone();
-        let block_received_time = block_preprocess_info.block_start_processing_time.clone();
+        let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
         let new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
         chain_update.commit()?;
@@ -2042,8 +2042,12 @@ impl Chain {
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
-        metrics::BLOCK_PROCESSING_TIME
-            .observe(Clock::instant().saturating_duration_since(block_received_time).as_secs_f64());
+        metrics::BLOCK_PROCESSING_TIME.observe(
+            Clock::instant()
+                .saturating_duration_since(block_start_processing_time.clone())
+                .as_secs_f64(),
+        );
+        let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
         self.check_orphans(
             me,
