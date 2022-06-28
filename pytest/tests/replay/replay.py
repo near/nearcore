@@ -104,8 +104,10 @@ def fix_json_fields_by_tx_type(py_tx, tx_type):
         py_tx.stake = int(py_tx.stake)
         py_tx.publicKey = convert_json_public_key_to_py_public_key(py_tx.publicKey)
     elif tx_type == "AddKey":
-        raise ValueError('Unsupported tx type: %s' % tx_type)
+        # Ignoring AddKey because all keys have been replaced with the spoofed key
+        pass
     elif tx_type == "DeleteKey":
+        # Ignoring DeleteKey because all keys have been replaced with the spoofed key
         py_tx.publicKey = convert_json_public_key_to_py_public_key(py_tx.publicKey)
     else:
         raise ValueError('Unknown tx type: %s' % tx_type)
@@ -123,7 +125,8 @@ def convert_json_action_to_py_action(action_dict):
 
 def send_resigned_transactions(tx_path, home_dir):
     with open(os.path.join(home_dir, 'node0/', 'node_key.json'), 'r') as fin:
-        key_pair = json.load(fin)
+        key_pair_json = json.load(fin)
+    key_pair = Key(key_pair_json['account_id'], key_pair_json['public_key'], key_pair_json['secret_key'])
     base_block_hash = mocknet_helpers.get_latest_block_hash(addr=LOCALHOST)
     my_account = Account(key_pair,
                          init_nonce=0,
@@ -155,7 +158,7 @@ def send_resigned_transactions(tx_path, home_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Setup replay')
-    parser.add_argument('operation', type=str, required=True, help="choose between [generate/send]")
+    parser.add_argument('operation', type=str, help="choose between [generate/send]")
     parser.add_argument('--tx-json', type=str, required=False, help="Path of tx history json")
     parser.add_argument('--genesis', type=str, required=False, help="Path of genesis")
     parser.add_argument('--home-dir', type=str, required=True, help="Path of the new home directory")
@@ -165,13 +168,13 @@ if __name__ == '__main__':
         if args.genesis:
             key_pair = generate_new_key()
             save_genesis_with_new_key_pair(args.genesis, key_pair, args.home_dir)
-            prompt_to_launch_localnet(args.output_dir)
+            prompt_to_launch_localnet(args.home_dir)
         else:
             parser.error('Cannot run generate without genesis')
     elif args.operation == 'send':
         if args.tx_json:
             send_resigned_transactions(args.tx_json, args.home_dir)
         else:
-            parser.error('Cannot run sent without tx history')
+            parser.error('Cannot run send without tx history')
     else:
         parser.error('Unsupported positional argument: replay [operation] where operation = %s' % args.opeartion)
