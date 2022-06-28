@@ -1,28 +1,21 @@
+use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
-use crate::tests::actix::ActixSystem;
-use crate::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, RoutingTableUpdate,
-};
+use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::testonly::actix::ActixSystem;
+use crate::testonly::fake_client;
+use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler, StreamHandler as _};
 use near_crypto::InMemorySigner;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2,
 };
 use near_performance_metrics::framed_write::FramedWrite;
-use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::Challenge;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
-use near_primitives::syncing::EpochSyncResponse;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
@@ -61,41 +54,32 @@ impl PeerConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Response {
-    HandshakeDone,
-    BlockRequest(CryptoHash),
-    Block(Block),
-    BlockHeadersRequest(Vec<CryptoHash>),
-    BlockHeaders(Vec<BlockHeader>),
-    Chunk(Vec<PartialEncodedChunkPart>),
-    ChunkRequest(ChunkHash),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Event {
+    HandshakeDone(Edge),
+    Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
     PeersResponse(Vec<PeerInfo>),
-    Transaction(SignedTransaction),
-    Challenge(Challenge),
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(EpochSyncResponse),
-    EpochSyncFinalizationRequest(EpochId),
+    Client(fake_client::Event),
 }
 
-struct FakeActor {
+struct FakePeerManagerActor {
     cfg: Arc<PeerConfig>,
-    responses: tokio::sync::mpsc::UnboundedSender<Response>,
+    event_sink: crate::sink::Sink<Event>,
 }
 
-impl Actor for FakeActor {
+impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
 }
 
-impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for FakeActor {
-    type Result = ActixMessageResponse<PeerManagerMessageResponse>;
+impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for FakePeerManagerActor {
+    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
 
     fn handle(
         &mut self,
-        msg: ActixMessageWrapper<PeerManagerMessageRequest>,
+        msg: ActixMessageWrapper<PeerToManagerMsg>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let (msg, throttle_token) = msg.take();
@@ -106,124 +90,61 @@ impl Handler<ActixMessageWrapper<PeerManagerMessageRequest>> for FakeActor {
     }
 }
 
-impl Handler<NetworkViewClientMessages> for FakeActor {
-    type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
-        println!("{}: view client message {}", self.cfg.id(), Into::<&'static str>::into(&msg));
-        match msg {
-            NetworkViewClientMessages::GetChainInfo => {
-                let ci = self.cfg.chain.get_info();
-                NetworkViewClientResponses::ChainInfo {
-                    genesis_id: ci.genesis_id,
-                    height: ci.height,
-                    tracked_shards: ci.tracked_shards,
-                    archival: ci.archival,
-                }
-            }
-            NetworkViewClientMessages::BlockRequest(block_hash) => {
-                self.responses.send(Response::BlockRequest(block_hash)).unwrap();
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::BlockHeadersRequest(req) => {
-                self.responses.send(Response::BlockHeadersRequest(req)).unwrap();
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncRequest { epoch_id } => {
-                self.responses.send(Response::EpochSyncRequest(epoch_id)).unwrap();
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id } => {
-                self.responses.send(Response::EpochSyncFinalizationRequest(epoch_id)).unwrap();
-                NetworkViewClientResponses::NoResponse
-            }
-            _ => panic!("unsupported message"),
-        }
-    }
-}
-
-impl Handler<NetworkClientMessages> for FakeActor {
-    type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Self::Context) -> Self::Result {
-        println!("{}: client message {}", self.cfg.id(), Into::<&'static str>::into(&msg));
-        let mut resp = NetworkClientResponses::NoResponse;
-        match msg {
-            NetworkClientMessages::Block(b, _, _) => {
-                self.responses.send(Response::Block(b)).unwrap()
-            }
-            NetworkClientMessages::BlockHeaders(bhs, _) => {
-                self.responses.send(Response::BlockHeaders(bhs)).unwrap()
-            }
-            NetworkClientMessages::PartialEncodedChunkResponse(resp, _) => {
-                self.responses.send(Response::Chunk(resp.parts)).unwrap()
-            }
-            NetworkClientMessages::PartialEncodedChunkRequest(req, _) => {
-                self.responses.send(Response::ChunkRequest(req.chunk_hash)).unwrap()
-            }
-            NetworkClientMessages::Transaction { transaction, .. } => {
-                self.responses.send(Response::Transaction(transaction)).unwrap();
-                resp = NetworkClientResponses::ValidTx;
-            }
-            NetworkClientMessages::Challenge(c) => {
-                self.responses.send(Response::Challenge(c)).unwrap()
-            }
-            NetworkClientMessages::EpochSyncResponse(_, resp) => {
-                self.responses.send(Response::EpochSyncResponse(*resp)).unwrap()
-            }
-            _ => panic!("unsupported message"),
-        };
-        resp
-    }
-}
-
-impl Handler<PeerManagerMessageRequest> for FakeActor {
-    type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, _ctx: &mut Self::Context) -> Self::Result {
+impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
+    type Result = PeerToManagerMsgResp;
+    fn handle(&mut self, msg: PeerToManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
         let msg_type: &str = (&msg).into();
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
-            PeerManagerMessageRequest::RegisterPeer(msg) => {
-                self.responses.send(Response::HandshakeDone).unwrap();
-                PeerManagerMessageResponse::RegisterPeerResponse(RegisterPeerResponse::Accept(
+            PeerToManagerMsg::RegisterPeer(msg) => {
+                let this_edge_info = match &msg.this_edge_info {
+                    Some(info) => info.clone(),
+                    None => {
+                        self.cfg.partial_edge_info(&msg.peer_info.id, msg.other_edge_info.nonce)
+                    }
+                };
+                let edge = Edge::new(
+                    self.cfg.id(),
+                    msg.peer_info.id.clone(),
+                    this_edge_info.nonce,
+                    this_edge_info.signature.clone(),
+                    msg.other_edge_info.signature,
+                );
+                self.event_sink.push(Event::HandshakeDone(edge.clone()));
+                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept(
                     match msg.this_edge_info {
                         Some(_) => None,
-                        None => Some(
-                            self.cfg
-                                .partial_edge_info(&msg.peer_info.id, msg.other_edge_info.nonce),
-                        ),
+                        None => Some(this_edge_info),
                     },
                 ))
             }
-            PeerManagerMessageRequest::RoutedMessageFrom(_) => {
-                // Accept all incoming routed messages
-                PeerManagerMessageResponse::RoutedMessageFrom(true)
+            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
+                self.event_sink.push(Event::Routed(rmf.msg.clone()));
+                // Reject all incoming routed messages.
+                PeerToManagerMsgResp::RoutedMessageFrom(false)
             }
-            PeerManagerMessageRequest::NetworkRequests(req) => {
-                self.responses
-                    .send(match req {
-                        NetworkRequests::SyncRoutingTable { routing_table_update, .. } => {
-                            Response::RoutingTable(routing_table_update)
-                        }
-                        NetworkRequests::RequestUpdateNonce(_, edge) => {
-                            Response::RequestUpdateNonce(edge)
-                        }
-                        NetworkRequests::ResponseUpdateNonce(edge) => {
-                            Response::ResponseUpdateNonce(edge)
-                        }
-                        _ => panic!("unsupported message"),
-                    })
-                    .unwrap();
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+            PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
+                self.event_sink.push(Event::RoutingTable(routing_table_update));
+                PeerToManagerMsgResp::Empty
             }
-            PeerManagerMessageRequest::PeersRequest(_) => {
+            PeerToManagerMsg::RequestUpdateNonce(_, edge) => {
+                self.event_sink.push(Event::RequestUpdateNonce(edge));
+                PeerToManagerMsgResp::Empty
+            }
+            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
+                self.event_sink.push(Event::ResponseUpdateNonce(edge));
+                PeerToManagerMsgResp::Empty
+            }
+            PeerToManagerMsg::PeersRequest(_) => {
                 // PeerActor would panic if we returned a different response.
                 // This also triggers sending a message to the peer.
-                PeerManagerMessageResponse::PeerRequestResult(PeerRequestResult {
+                PeerToManagerMsgResp::PeersRequest(PeerRequestResult {
                     peers: self.cfg.peers.clone(),
                 })
             }
-            PeerManagerMessageRequest::PeersResponse(resp) => {
-                self.responses.send(Response::PeersResponse(resp.peers)).unwrap();
-                PeerManagerMessageResponse::PeersResponseResult(())
+            PeerToManagerMsg::PeersResponse(resp) => {
+                self.event_sink.push(Event::PeersResponse(resp.peers));
+                PeerToManagerMsgResp::Empty
             }
             _ => panic!("unsupported message"),
         }
@@ -233,14 +154,10 @@ impl Handler<PeerManagerMessageRequest> for FakeActor {
 pub struct PeerHandle {
     pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
-    responses: tokio::sync::mpsc::UnboundedReceiver<Response>,
+    pub events: broadcast::Receiver<Event>,
 }
 
 impl PeerHandle {
-    pub async fn recv(&mut self) -> Response {
-        self.responses.recv().await.unwrap()
-    }
-
     pub async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
@@ -249,17 +166,25 @@ impl PeerHandle {
             .unwrap();
     }
 
+    pub async fn complete_handshake(&mut self) -> Edge {
+        match self.events.recv().await {
+            Event::HandshakeDone(edge) => edge,
+            ev => panic!("want HandshakeDone, got {ev:?}"),
+        }
+    }
+
     pub fn routed_message(
         &self,
         body: RoutedMessageBody,
         peer_id: PeerId,
-        utc: Utc,
+        ttl: u8,
+        utc: Option<Utc>,
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
             &self.cfg.signer.secret_key,
-            /*ttl=*/ 1,
-            Some(utc),
+            ttl,
+            utc,
         )
     }
 
@@ -269,15 +194,15 @@ impl PeerHandle {
         stream: TcpStream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
-        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
-
         let cfg_ = cfg.clone();
+        let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
             let my_addr = stream.local_addr().unwrap();
             let peer_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
             let handshake_timeout = time::Duration::seconds(5);
-            let fa = FakeActor { cfg: cfg.clone(), responses: send }.start();
+            let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
+            let fc = fake_client::start(cfg.chain.clone(), send.sink().compose(Event::Client));
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {
@@ -299,10 +224,10 @@ impl PeerHandle {
                     cfg.peer_type(),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     handshake_timeout,
-                    fa.clone().recipient(),
-                    fa.clone().recipient(),
-                    fa.clone().recipient(),
-                    fa.clone().recipient(),
+                    fpm.clone().recipient(),
+                    fpm.clone().recipient(),
+                    fc.clone().recipient(),
+                    fc.clone().recipient(),
                     cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
@@ -312,7 +237,7 @@ impl PeerHandle {
             })
         })
         .await;
-        Self { actix, cfg: cfg_, responses: recv }
+        Self { actix, cfg: cfg_, events: recv }
     }
 
     pub async fn start_connection() -> (TcpStream, TcpStream) {

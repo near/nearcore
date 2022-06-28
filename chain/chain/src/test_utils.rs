@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
-use num_rational::Rational;
+use num_rational::Ratio;
 use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
@@ -180,8 +180,6 @@ impl KeyValueRuntime {
                                 SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
                                     .public_key(),
                                 1_000_000,
-                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                                false,
                             )
                         })
                         .collect()
@@ -1255,7 +1253,7 @@ pub fn setup_with_tx_validity_period(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
             protocol_version: PROTOCOL_VERSION,
@@ -1303,7 +1301,7 @@ pub fn setup_with_validators(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
             protocol_version: PROTOCOL_VERSION,
@@ -1423,7 +1421,7 @@ impl ChainGenesis {
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
             protocol_version: PROTOCOL_VERSION,

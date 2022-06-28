@@ -64,7 +64,8 @@ pub struct EncodedChunksCache {
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
     /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers: HashMap<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
+    block_hash_to_chunk_headers:
+        HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -246,7 +247,7 @@ impl EncodedChunksCache {
         let chunk_hash = header.chunk_hash();
         if let Some(chunk_headers) = self.block_hash_to_chunk_headers.get_mut(prev_block_hash) {
             if let Some(chunk_header) = chunk_headers.get(&shard_id) {
-                if chunk_header.chunk_hash() == chunk_hash {
+                if chunk_header.0.chunk_hash() == chunk_hash {
                     chunk_headers.remove(&shard_id);
                     if chunk_headers.is_empty() {
                         self.block_hash_to_chunk_headers.remove(prev_block_hash);
@@ -266,7 +267,7 @@ impl EncodedChunksCache {
             self.block_hash_to_chunk_headers
                 .entry(prev_block_hash.clone())
                 .or_insert(HashMap::new())
-                .insert(shard_id, header);
+                .insert(shard_id, (header, chrono::Utc::now()));
         }
     }
 
@@ -277,7 +278,7 @@ impl EncodedChunksCache {
     pub fn get_chunk_headers_for_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, ShardChunkHeader> {
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
         self.block_hash_to_chunk_headers
             .get(prev_block_hash)
             .cloned()
@@ -362,7 +363,7 @@ mod tests {
         assert!(!cache.height_map.is_empty());
         let headers = cache.get_chunk_headers_for_block(&CryptoHash::default());
         assert_eq!(headers.len(), 1);
-        assert_eq!(headers.get(&0), Some(&header));
+        assert_eq!(headers.get(&0).unwrap().0, header);
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());

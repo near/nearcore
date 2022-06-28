@@ -18,7 +18,7 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use num_rational::Rational;
+use num_rational::Ratio;
 
 impl EpochManager {
     /// Returns number of produced and expected blocks by given validator.
@@ -659,13 +659,13 @@ fn test_validator_reward_one_validator() {
     let epoch_length = 2;
     let total_supply = validators.iter().map(|(_, stake)| stake).sum();
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -757,13 +757,13 @@ fn test_validator_reward_weight_by_stake() {
     let epoch_length = 2;
     let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -863,13 +863,13 @@ fn test_reward_multiple_shards() {
     let epoch_length = 10;
     let total_supply = stake_amount * validators.len() as u128;
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 1_000_000,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
@@ -2217,9 +2217,9 @@ fn test_protocol_version_switch_with_many_seats() {
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 60,
         fishermen_threshold: 0,
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
-        protocol_upgrade_stake_threshold: Rational::new(80, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),

@@ -32,6 +32,7 @@ near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-cache = { path = "../../utils/near-cache" }
+near-client-primitives = { path = "../client-primitives"}
 
 [dev-dependencies]
 insta = "1"

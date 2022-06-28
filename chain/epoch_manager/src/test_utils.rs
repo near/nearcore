@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use num_rational::Rational;
+use num_rational::Ratio;
 
 use crate::proposals::find_threshold;
 use crate::RewardCalculator;
@@ -98,8 +98,6 @@ pub fn epoch_info_with_num_seats(
                     account_id.clone(),
                     SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
                     stake,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )
             })
             .collect()
@@ -146,9 +144,9 @@ pub fn epoch_config(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
-        protocol_upgrade_stake_threshold: Rational::new(80, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
         validator_selection_config: Default::default(),
@@ -159,25 +157,19 @@ pub fn epoch_config(
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
-    ValidatorStake::new(
-        account_id,
-        public_key,
-        amount,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        false,
-    )
+    ValidatorStake::new(account_id, public_key, amount)
 }
 
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
     RewardCalculator {
-        max_inflation_rate: Rational::from_integer(0),
+        max_inflation_rate: Ratio::from_integer(0),
         num_blocks_per_year: 1,
         epoch_length: 1,
-        protocol_reward_rate: Rational::from_integer(0),
+        protocol_reward_rate: Ratio::from_integer(0),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }

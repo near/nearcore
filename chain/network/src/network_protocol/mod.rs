@@ -66,7 +66,7 @@ pub struct SignedValidator {
     payload: AccountKeySignedPayload,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
