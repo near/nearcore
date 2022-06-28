@@ -2,7 +2,7 @@ use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::store;
 use crate::store::testonly::Component;
-use crate::tests::util;
+use crate::testonly::make_rng;
 use near_crypto::Signature;
 use near_network_primitives::time;
 use near_network_primitives::types::Edge;
@@ -18,7 +18,7 @@ fn edge(p0: &PeerId, p1: &PeerId, nonce: u64) -> Edge {
 
 struct RoutingTableTest {
     clock: time::FakeClock,
-    rng: util::Rng,
+    rng: crate::testonly::Rng,
     store: near_store::Store,
     graph: Arc<RwLock<routing::GraphWithCache>>,
     // This is the system runner attached to the given test's system thread.
@@ -43,7 +43,7 @@ impl RoutingTableTest {
     }
 
     fn new() -> Self {
-        let mut rng = util::make_rng(87927345);
+        let mut rng = make_rng(87927345);
         let clock = time::FakeClock::default();
         let me = data::make_peer_id(&mut rng);
         let store = create_test_store();
