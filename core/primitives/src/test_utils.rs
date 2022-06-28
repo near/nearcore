@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use num_rational::Rational;
-
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
@@ -12,6 +10,7 @@ use crate::block_header::{BlockHeader, BlockHeaderV3};
 use crate::errors::{EpochError, TxExecutionError};
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::num_rational::Ratio;
 use crate::serialize::from_base64;
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
@@ -444,7 +443,7 @@ impl Block {
             next_epoch_id,
             None,
             approvals,
-            Rational::from_integer(0),
+            Ratio::new(0, 1),
             0,
             0,
             Some(0),

@@ -29,7 +29,7 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
-use num_rational::Rational;
+use num_rational::Ratio;
 
 /// Query account from view client
 #[test]
@@ -82,7 +82,7 @@ fn query_status_not_crash() {
                 EpochId(block.header.hash),
                 None,
                 vec![],
-                Rational::from_integer(0),
+                Ratio::from_integer(0),
                 0,
                 100,
                 None,
