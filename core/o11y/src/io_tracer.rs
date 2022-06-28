@@ -98,6 +98,10 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
     }
 
     fn on_exit(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+        // When the span exits, produce one line for the span itself that
+        // includes key=value pairs from `SpanInfo`. Then also add indentation
+        // to all lines buffered in the `OutputBuffer` extension.
+        // If no parent span exists, print all buffered lines.
         let span = ctx.span(id).unwrap();
         let name = span.name();
         let span_line = {
@@ -124,6 +128,25 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
             writeln!(out, "{span_line}").unwrap();
             for BufferedLine { indent, output_line } in exiting_buffer.drain(..) {
                 writeln!(out, "{:indent$}{output_line}", "").unwrap();
+            }
+        }
+    }
+
+    fn on_record(
+        &self,
+        span: &span::Id,
+        values: &span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        // Similar to how span fields are recorded on the `SpanInfo` extension,
+        // add records to the same.
+        let mut span = ctx.span(span);
+        while let Some(parent) = span {
+            if let Some(span_info) = parent.extensions_mut().get_mut::<SpanInfo>() {
+                values.record(span_info);
+                break;
+            } else {
+                span = parent.parent();
             }
         }
     }
