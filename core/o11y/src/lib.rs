@@ -76,6 +76,8 @@ pub struct DefaultSubscriberGuard<S> {
     local_subscriber_guard: Option<tracing::subscriber::DefaultGuard>,
     #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
+    #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
+    io_trace_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
@@ -223,14 +225,16 @@ fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
 #[cfg(feature = "io_trace")]
 pub fn make_io_tracing_layer<S>(
     file: std::fs::File,
-) -> Filtered<io_tracer::IoTraceLayer, EnvFilter, S>
+) -> (Filtered<io_tracer::IoTraceLayer, EnvFilter, S>, tracing_appender::non_blocking::WorkerGuard)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
     use std::io::BufWriter;
-    io_tracer::IoTraceLayer::new(BufWriter::new(file)).with_filter(tracing_subscriber::filter::EnvFilter::new(
+    let (base_io_layer, guard) = io_tracer::IoTraceLayer::new(BufWriter::new(file));
+    let io_layer = base_io_layer.with_filter(tracing_subscriber::filter::EnvFilter::new(
         "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace,io_tracer_count=trace",
-    ))
+    ));
+    (io_layer, guard)
 }
 
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
@@ -271,18 +275,23 @@ pub async fn default_subscriber(
     let subscriber = subscriber.with(log_layer);
     let subscriber = subscriber.with(make_opentelemetry_layer(options).await);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
     #[cfg(feature = "io_trace")]
     let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
-        make_io_tracing_layer(
+        let (sub, guard) = make_io_tracing_layer(
             std::fs::File::create(output_path)
                 .expect("unable to create or truncate IO trace output file"),
-        )
+        );
+        io_trace_guard = Some(guard);
+        sub
     }));
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard,
+        io_trace_guard,
     }
 }
 

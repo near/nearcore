@@ -180,6 +180,9 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    #[cfg(feature = "io_trace")]
+    let mut _maybe_writer_guard = None;
+
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
     } else {
@@ -191,7 +194,9 @@ fn main() -> anyhow::Result<()> {
         let subscriber = subscriber.with(cli_args.record_io_trace.map(|path| {
             let log_file =
                 fs::File::create(path).expect("unable to create or truncate IO trace output file");
-            near_o11y::make_io_tracing_layer(log_file)
+            let (subscriber, guard) = near_o11y::make_io_tracing_layer(log_file);
+            _maybe_writer_guard = Some(guard);
+            subscriber
         }));
 
         #[cfg(not(feature = "io_trace"))]
@@ -201,7 +206,7 @@ fn main() -> anyhow::Result<()> {
 
         tracing::subscriber::set_global_default(subscriber)
             .expect("setting default subscriber failed");
-    }
+    };
 
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;

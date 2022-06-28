@@ -3331,6 +3331,7 @@ dependencies = [
  "lru",
  "near-crypto",
  "near-metrics",
+ "near-o11y",
  "near-primitives",
  "num_cpus",
  "once_cell",

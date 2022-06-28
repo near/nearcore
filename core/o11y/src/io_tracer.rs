@@ -28,7 +28,6 @@ use tracing_subscriber::Layer;
 /// Tracing layer that produces a record of IO operations.
 pub struct IoTraceLayer {
     make_writer: NonBlocking,
-    _guard: WorkerGuard,
 }
 
 enum IoEventType {
@@ -173,9 +172,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
 }
 
 impl IoTraceLayer {
-    pub(crate) fn new<W: 'static + Write + Send + Sync>(out: W) -> Self {
-        let (make_writer, _guard) = NonBlocking::new(out);
-        Self { make_writer, _guard }
+    pub(crate) fn new<W: 'static + Write + Send + Sync>(out: W) -> (Self, WorkerGuard) {
+        let (make_writer, guard) = NonBlocking::new(out);
+        (Self { make_writer }, guard)
     }
 
     /// Print or buffer formatted tracing events that look like an IO event.
