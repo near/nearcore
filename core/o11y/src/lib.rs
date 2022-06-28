@@ -20,6 +20,22 @@ use tracing_subscriber::{EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 mod io_tracer;
 
+/// Produce a tracing-event for target "io_tracer" that will be consumed by the
+/// IO-tracer, if the feature has been enabled.
+#[macro_export]
+#[cfg(feature = "io_trace")]
+macro_rules! io_trace {
+    (count: $name:expr) => { tracing::trace!( target: "io_tracer.count", counter = $name) };
+    ($($fields:tt)*) => { tracing::trace!( target: "io_tracer", $($fields)*) };
+}
+
+#[macro_export]
+#[cfg(not(feature = "io_trace"))]
+macro_rules! io_trace {
+    (count: $name:expr) => {};
+    ($($fields:tt)*) => {};
+}
+
 static LOG_LAYER_RELOAD_HANDLE: OnceCell<
     Handle<
         Filtered<
@@ -212,7 +228,7 @@ where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
     io_tracer::IoTraceLayer::new(file).with_filter(tracing_subscriber::filter::EnvFilter::new(
-        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace",
+        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace,io_tracer.count=trace",
     ))
 }
 

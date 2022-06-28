@@ -40,6 +40,8 @@ enum IoEventType {
 enum StorageOp {
     Read,
     Write,
+    Remove,
+    Exists,
     Other,
 }
 #[derive(strum::Display)]
@@ -96,9 +98,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
-        if event.metadata().target() == "io_tracer" {
+        if event.metadata().target() == "io_tracer.count" {
             // Events specifically added to add more info to spans in IO Tracer.
-            // Marked with `target: "io_tracer"`.
+            // Marked with `target: "io_tracer.count"`.
             let mut span = ctx.event_span(event);
             while let Some(parent) = span {
                 if let Some(span_info) = parent.extensions_mut().get_mut::<SpanInfo>() {
@@ -109,7 +111,8 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
                 }
             }
         } else {
-            // All other events.
+            // All other events. These can be for target "io_tracer" or
+            // something else, that has values for the `IoEventVisitor`.
             self.record_io_event(event, ctx);
         }
     }
@@ -267,6 +270,8 @@ impl tracing::field::Visit for IoEventVisitor {
                 let op = match value {
                     "write" => StorageOp::Write,
                     "read" => StorageOp::Read,
+                    "exists" => StorageOp::Exists,
+                    "remove" => StorageOp::Remove,
                     _ => StorageOp::Other,
                 };
                 self.t = Some(IoEventType::StorageOp(op));
@@ -305,7 +310,7 @@ impl tracing::field::Visit for IoEventVisitor {
 impl tracing::field::Visit for SpanInfo {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         // "count" is a special field, everything else are key values pairs.
-        if field.name() == "count" {
+        if field.name() == "counter" {
             *self.counts.entry(format!("{value}")).or_default() += 1;
         } else {
             self.record_debug(field, &value);

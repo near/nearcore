@@ -3397,6 +3397,7 @@ dependencies = [
  "hex",
  "near-account-id",
  "near-crypto",
+ "near-o11y",
  "near-primitives",
  "near-primitives-core",
  "near-vm-errors",
