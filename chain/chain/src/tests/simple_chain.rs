@@ -8,7 +8,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
-use num_rational::Rational;
+use num_rational::Ratio;
 use std::time::Instant;
 
 #[test]
@@ -95,7 +95,7 @@ fn build_chain_with_orhpans() {
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::from_integer(0),
         0,
         100,
         Some(0),

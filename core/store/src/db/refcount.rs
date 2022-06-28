@@ -38,6 +38,9 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         debug_assert!(bytes.is_empty());
         return (None, 0);
     }
+    // TODO(mina86): Use rsplit_array_ref once split_array feature is stabilised
+    //    let (head, tail) = bytes.rsplit_array_ref<8>();
+    //    let rc = i64::from_le_bytes(tail);
     let (head, tail) = bytes.split_at(bytes.len() - 8);
     let rc = i64::from_le_bytes(tail.try_into().unwrap());
     if rc <= 0 {

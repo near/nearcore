@@ -11,7 +11,7 @@ use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_primitives::time::Utc;
-use num_rational::Rational;
+use num_rational::Ratio;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -105,7 +105,7 @@ pub fn setup(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -196,7 +196,7 @@ pub fn setup_only_view(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -1655,7 +1655,7 @@ pub fn create_chunk(
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::new(0, 1),
         0,
         100,
         None,

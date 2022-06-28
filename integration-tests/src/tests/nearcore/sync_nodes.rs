@@ -18,7 +18,7 @@ use near_network::types::NetworkClientMessages;
 use near_network_primitives::types::PeerInfo;
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
@@ -75,7 +75,7 @@ fn add_blocks(
                 )
                 .signature,
             )],
-            Rational::from_integer(0),
+            Ratio::from_integer(0),
             0,
             1000,
             Some(0),
