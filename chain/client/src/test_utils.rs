@@ -99,7 +99,7 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
     }
 
     pub fn process_block_test_no_produce_chunk(

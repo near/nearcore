@@ -1,6 +1,6 @@
 use crate::near_chain_primitives::error::BlockKnownError;
-use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, Error};
+use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
+use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
@@ -9,6 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[test]
@@ -117,6 +118,13 @@ fn build_chain_with_orhpans() {
         Error::Orphan
     );
     chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(
+            &None,
+            &mut BlockProcessingArtifact::default(),
+            Arc::new(|_| {}),
+        );
+    }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
