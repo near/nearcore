@@ -1,4 +1,4 @@
-# TODO(#): this test is run manually and not meant to be executed nightly.
+# TODO(#7132): Convert this test to a nightly regression test.
 
 from account import Account
 from collections import OrderedDict
