@@ -77,7 +77,8 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        let value = self.storage
+        let value = self
+            .storage
             .get_raw_bytes(column, key)
             .map(|result| refcount::get_with_rc_logic(column, result))?;
         tracing::trace!(
