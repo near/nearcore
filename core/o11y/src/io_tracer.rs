@@ -98,9 +98,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, S>) {
-        if event.metadata().target() == "io_tracer.count" {
+        if event.metadata().target() == "io_tracer_count" {
             // Events specifically added to add more info to spans in IO Tracer.
-            // Marked with `target: "io_tracer.count"`.
+            // Marked with `target: "io_tracer_count"`.
             let mut span = ctx.event_span(event);
             while let Some(parent) = span {
                 if let Some(span_info) = parent.extensions_mut().get_mut::<SpanInfo>() {

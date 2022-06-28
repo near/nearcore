@@ -25,7 +25,7 @@ mod io_tracer;
 #[macro_export]
 #[cfg(feature = "io_trace")]
 macro_rules! io_trace {
-    (count: $name:expr) => { tracing::trace!( target: "io_tracer.count", counter = $name) };
+    (count: $name:expr) => { tracing::trace!( target: "io_tracer_count", counter = $name) };
     ($($fields:tt)*) => { tracing::trace!( target: "io_tracer", $($fields)*) };
 }
 
@@ -227,8 +227,9 @@ pub fn make_io_tracing_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
-    io_tracer::IoTraceLayer::new(file).with_filter(tracing_subscriber::filter::EnvFilter::new(
-        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace,io_tracer.count=trace",
+    use std::io::BufWriter;
+    io_tracer::IoTraceLayer::new(BufWriter::new(file)).with_filter(tracing_subscriber::filter::EnvFilter::new(
+        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace,io_tracer_count=trace",
     ))
 }
 
