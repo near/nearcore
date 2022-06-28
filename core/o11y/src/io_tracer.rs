@@ -2,14 +2,16 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::{fs::File, sync::Mutex};
 use tracing::{span, Subscriber};
+use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
 /// Tracing layer that produces a record of IO operations.
 pub struct IoTraceLayer {
-    file: Mutex<File>,
+    make_writer: NonBlocking,
+    _guard: WorkerGuard,
 }
 
 enum IoEventType {
@@ -118,7 +120,7 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
                 line
             }));
         } else {
-            let mut out = self.file.lock().unwrap();
+            let mut out = self.make_writer.make_writer();
             writeln!(out, "{span_line}").unwrap();
             for BufferedLine { indent, output_line } in exiting_buffer.drain(..) {
                 writeln!(out, "{:indent$}{output_line}", "").unwrap();
@@ -128,8 +130,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
 }
 
 impl IoTraceLayer {
-    pub fn new(file: Mutex<File>) -> Self {
-        Self { file }
+    pub(crate) fn new<W: 'static + Write + Send + Sync>(out: W) -> Self {
+        let (make_writer, _guard) = NonBlocking::new(out);
+        Self { make_writer, _guard }
     }
 
     /// Print or buffer formatted tracing events that look like an IO event.
@@ -162,7 +165,7 @@ impl IoTraceLayer {
                         .push(BufferedLine { indent: 2, output_line });
                 } else {
                     // Print top level unbuffered.
-                    writeln!(self.file.lock().unwrap(), "{output_line}").unwrap();
+                    writeln!(self.make_writer.make_writer(), "{output_line}").unwrap();
                 }
             }
             Some(IoEventType::StorageOp(storage_op)) => {

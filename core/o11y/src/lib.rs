@@ -211,13 +211,9 @@ pub fn make_io_tracing_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
-    use std::sync::Mutex;
-
-    io_tracer::IoTraceLayer::new(Mutex::new(file)).with_filter(
-        tracing_subscriber::filter::EnvFilter::new(
-            "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace",
-        ),
-    )
+    io_tracer::IoTraceLayer::new(file).with_filter(tracing_subscriber::filter::EnvFilter::new(
+        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace",
+    ))
 }
 
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
