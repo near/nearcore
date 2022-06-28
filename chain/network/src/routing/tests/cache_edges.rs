@@ -55,13 +55,13 @@ impl RoutingTableTest {
     fn new_actor(&self) -> routing::actor::Actor {
         routing::actor::Actor::new(
             self.clock.clock(),
-            store::Store::new(self.store.clone()),
+            store::Store::from(&self.store),
             self.graph.clone(),
         )
     }
 
     fn check(&mut self, want_mem: &[Edge], want_db: &[Component]) {
-        let store = store::Store::new(self.store.clone());
+        let store = store::Store::from(&self.store);
         let got_mem = self.graph.read().edges().clone();
         let got_mem: HashMap<_, _> = got_mem.iter().collect();
         let mut want_mem_map = HashMap::new();
