@@ -19,7 +19,7 @@ fn benchmark_write_then_read_successful(
     let tmp_dir = tempfile::tempdir().unwrap();
     // Use default StoreConfig rather than Store::test_opener so we’re using the
     // same configuration as in production.
-    let store = Store::opener(tmp_dir.path(), &Default::default()).open();
+    let store = Store::opener(tmp_dir.path(), Default::default()).open();
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 

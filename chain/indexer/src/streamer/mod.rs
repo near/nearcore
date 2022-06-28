@@ -287,7 +287,7 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let indexer_db_path = near_store::Store::opener(&indexer_config.home_dir, &store_config)
+    let indexer_db_path = near_store::Store::opener(&indexer_config.home_dir, store_config.clone())
         .get_path()
         .join("indexer");
 

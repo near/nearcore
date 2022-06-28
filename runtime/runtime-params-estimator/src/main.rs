@@ -131,7 +131,8 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store = near_store::Store::opener(&state_dump_path, &near_config.config.store).open();
+        let store =
+            near_store::Store::opener(&state_dump_path, near_config.config.store.clone()).open();
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())

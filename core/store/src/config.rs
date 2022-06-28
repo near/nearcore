@@ -111,7 +111,7 @@ impl Default for StoreConfig {
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
-pub struct StoreOpener<'a> {
+pub struct StoreOpener {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
@@ -119,15 +119,15 @@ pub struct StoreOpener<'a> {
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
-    config: &'a StoreConfig,
+    config: StoreConfig,
 
     /// Which mode to open storeg in.
     mode: Mode,
 }
 
-impl<'a> StoreOpener<'a> {
+impl StoreOpener {
     /// Initialises a new opener with given home directory and store config.
-    pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
+    pub(crate) fn new(home_dir: &std::path::Path, config: StoreConfig) -> Self {
         let path =
             home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
         Self { path, config, mode: Mode::ReadWrite }

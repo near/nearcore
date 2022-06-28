@@ -53,7 +53,7 @@ pub struct Store {
 
 impl Store {
     /// Initialises a new opener with given home directory and store config.
-    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
+    pub fn opener(home_dir: &std::path::Path, config: StoreConfig) -> StoreOpener {
         StoreOpener::new(home_dir, config)
     }
 
@@ -65,10 +65,10 @@ impl Store {
     ///
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = Self::opener(dir.path(), CONFIG.clone());
         (dir, opener)
     }
 

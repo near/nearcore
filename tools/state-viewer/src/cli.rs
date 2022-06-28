@@ -75,7 +75,7 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
-            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
+            near_store::Store::opener(home_dir, near_config.config.store.clone()).mode(mode);
         let store = store_opener.open();
         match self {
             StateViewerSubCommand::Peers => peers(store),
