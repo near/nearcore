@@ -103,14 +103,8 @@ def fix_json_fields_by_tx_type(py_tx, tx_type):
     elif tx_type == "Stake":
         py_tx.stake = int(py_tx.stake)
         py_tx.publicKey = convert_json_public_key_to_py_public_key(py_tx.publicKey)
-    elif tx_type == "AddKey":
-        # Ignoring AddKey because all keys have been replaced with the spoofed key
-        pass
-    elif tx_type == "DeleteKey":
-        # Ignoring DeleteKey because all keys have been replaced with the spoofed key
-        py_tx.publicKey = convert_json_public_key_to_py_public_key(py_tx.publicKey)
     else:
-        raise ValueError('Unknown tx type: %s' % tx_type)
+        raise ValueError('Unsupported tx type: %s' % tx_type)
     return py_tx
 
 def convert_json_action_to_py_action(action_dict):
@@ -141,7 +135,10 @@ def send_resigned_transactions(tx_path, home_dir):
         if hasattr(tx, 'blockHash'):
             tx.blockHash = base_block_hash
         if hasattr(tx, 'actions'):
-            tx.actions = [convert_json_action_to_py_action(action_dict) for action_dict in tx.actions]
+            try:
+                tx.actions = [convert_json_action_to_py_action(action_dict) for action_dict in tx.actions]
+            except ValueError:
+                continue
         tx.publicKey = PublicKey()
         tx.publicKey.keyType = 0
         tx.publicKey.data = key_pair.decoded_pk()
