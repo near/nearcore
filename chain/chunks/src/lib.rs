@@ -733,7 +733,12 @@ impl ShardsManager {
 
     /// Check whether the node should wait for chunk parts being forwarded to it
     /// Chunks will be forwarded to validators if feature ForwardChunkParts is enabled
-    fn should_wait_for_chunk_forwarding(&self, prev_hash: &CryptoHash) -> Result<bool, Error> {
+    fn should_wait_for_chunk_forwarding(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+        chunk_height: BlockHeight,
+    ) -> Result<bool, Error> {
         // chunks will not be forwarded to non-validators
         if self.me.is_none() {
             return Ok(false);
@@ -743,10 +748,20 @@ impl ShardsManager {
         if !checked_feature!("stable", ForwardChunkParts, protocol_version) {
             return Ok(false);
         }
-        Ok(self
-            .runtime_adapter
-            .get_validator_by_account_id(&epoch_id, prev_hash, self.me.as_ref().unwrap())
-            .is_ok())
+        let block_producers =
+            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
+        let me = self.me.as_ref().unwrap();
+        for (bp, _) in block_producers {
+            if bp.account_id() == me {
+                return Ok(true);
+            }
+        }
+        let chunk_producer =
+            self.runtime_adapter.get_chunk_producer(&epoch_id, shard_id, chunk_height)?;
+        if &chunk_producer == me {
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     /// Only marks this chunk as being requested
@@ -842,15 +857,20 @@ impl ShardsManager {
     ) where
         T: IntoIterator<Item = ShardChunkHeader>,
     {
-        let is_chunk_forwarding_enabled =
-            self.should_wait_for_chunk_forwarding(&prev_hash).unwrap_or_else(|_| {
-                // prev_hash must be accepted because we don't request missing chunks through this
-                // this function for orphans
-                debug_assert!(false, "{:?} must be accepted", prev_hash);
-                error!(target:"chunks", "requesting chunks for orphan {:?}", prev_hash);
-                false
-            });
         for chunk_header in chunks_to_request {
+            let is_chunk_forwarding_enabled = self
+                .should_wait_for_chunk_forwarding(
+                    &prev_hash,
+                    chunk_header.shard_id(),
+                    chunk_header.height_created() + 1,
+                )
+                .unwrap_or_else(|_| {
+                    // prev_hash must be accepted because we don't request missing chunks through this
+                    // this function for orphans
+                    debug_assert!(false, "{:?} must be accepted", prev_hash);
+                    error!(target:"chunks", "requesting chunks for orphan {:?}", prev_hash);
+                    false
+                });
             self.request_chunk_single(
                 &chunk_header,
                 prev_hash,
@@ -883,15 +903,15 @@ impl ShardsManager {
             return;
         }
 
-        let should_wait_for_chunk_forwarding =
-            self.should_wait_for_chunk_forwarding(&ancestor_hash).unwrap_or_else(|_| {
-                // ancestor_hash must be accepted because we don't request missing chunks through this
-                // this function for orphans
-                debug_assert!(false, "{:?} must be accepted", ancestor_hash);
-                error!(target:"chunks", "requesting chunks for orphan whose ancestor_hash {:?} is not accepted", ancestor_hash);
-                false
-            });
         for chunk_header in chunks_to_request {
+            let should_wait_for_chunk_forwarding =
+                self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1).unwrap_or_else(|_| {
+                    // ancestor_hash must be accepted because we don't request missing chunks through this
+                    // this function for orphans
+                    debug_assert!(false, "{:?} must be accepted", ancestor_hash);
+                    error!(target:"chunks", "requesting chunks for orphan whose ancestor_hash {:?} is not accepted", ancestor_hash);
+                    false
+                });
             self.request_chunk_single(
                 &chunk_header,
                 ancestor_hash,
@@ -1902,11 +1922,21 @@ impl ShardsManager {
 
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
+        let current_chunk_height = partial_encoded_chunk.header.height_created();
+        let next_chunk_producer = self.runtime_adapter.get_chunk_producer(
+            &epoch_id,
+            current_chunk_height + 1,
+            shard_id,
+        )?;
+        let mut next_chunk_producer_forwarded = false;
         for (bp, _) in block_producers {
             let bp_account_id = bp.take_account_id();
             // no need to send anything to myself
             if me == &bp_account_id {
                 continue;
+            }
+            if &bp_account_id == &next_chunk_producer {
+                next_chunk_producer_forwarded = true;
             }
 
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
@@ -1923,6 +1953,15 @@ impl ShardsManager {
                     },
                 ));
             }
+        }
+
+        if !next_chunk_producer_forwarded {
+            self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkForward {
+                    account_id: next_chunk_producer,
+                    forward: forward.clone(),
+                },
+            ));
         }
 
         Ok(())
