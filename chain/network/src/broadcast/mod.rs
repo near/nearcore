@@ -1,7 +1,10 @@
+//! TEST-ONLY: unbounded version of tokio::sync::broadcast channel.
+//! It never forgets values, so should be only used in tests.
 use crate::sink::Sink;
-/// TEST-ONLY: unbounded version of tokio::sync::broadcast channel.
-/// It never forgets values, so should be only used in tests.
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 pub fn unbounded_channel<T>() -> (Sender<T>, Receiver<T>) {
     let ch = Arc::new(Channel {
