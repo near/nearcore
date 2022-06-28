@@ -82,7 +82,7 @@ impl fmt::Debug for PeerId {
 
 /// Account announcement information
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
     pub account_id: AccountId,
