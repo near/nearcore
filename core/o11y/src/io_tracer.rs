@@ -276,16 +276,8 @@ impl tracing::field::Visit for IoEventVisitor {
                 };
                 self.t = Some(IoEventType::StorageOp(op));
             }
-            // GET operation has a `Debug` printed `Option<usize>` for size.
             "size" => {
-                if value == "None" {
-                    self.size = None;
-                } else {
-                    debug_assert!(value.starts_with("Some("));
-                    let start = 5;
-                    let end = value.len() - 1;
-                    self.size = value[start..end].parse().ok();
-                }
+                self.size = value.parse().ok();
             }
             "db_op" => {
                 let op = match value {

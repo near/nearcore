@@ -82,7 +82,13 @@ impl Store {
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let value = self.storage.get(column, key).map_err(io::Error::from)?;
-        tracing::trace!(target: "store", db_op = "get", col = ?column, key = %to_base(key), size = ?value.as_ref().map(Vec::len));
+        tracing::trace!(
+            target: "store",
+            db_op = "get",
+            col = ?column,
+            key = %to_base(key),
+            size = value.as_ref().map(Vec::len)
+        );
         Ok(value)
     }
 
