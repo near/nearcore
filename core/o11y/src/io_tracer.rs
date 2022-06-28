@@ -1,4 +1,21 @@
 #![cfg(feature = "io_trace")]
+//! `tracing` layer to collect the sequence of IO operations executed.
+//!
+//! This module contains a somewhat quirky way of collecting a detailed log of
+//! which IO operations have been executed. The `tracing` crate is abused for
+//! this, as it provides an easy way to globally emit such events and organize
+//! them in a hierarchy of spans.
+//!
+//! The goal is to have something to look at to understand what requests are
+//! sent to the DB and for what reason. Not necessarily timing of events.(Timing
+//! might be affected by the sheer amount of details that this instrumentation
+//! is capable of producing.) But rather something that makes it obvious, for
+//! example, how effective an existing caching layer is for a workload by
+//! showing when the cache was hit and when it was missed.
+//!
+//! Another, equally important, use case is replaying the output for further
+//! analysis. The estimator has a replay command that understands the output
+//! produced by the IO trace.
 
 use std::collections::HashMap;
 use std::io::Write;
