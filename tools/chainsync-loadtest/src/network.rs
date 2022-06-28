@@ -11,7 +11,7 @@ use actix::{Actor, Context, Handler};
 use log::info;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest, WrappedInstant,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -248,7 +248,7 @@ impl Network {
                                 part_ords: (0..ppc).collect(),
                                 tracking_shards: Default::default(),
                             },
-                            create_time: WrappedInstant(Clock::instant()),
+                            create_time: Clock::instant().into(),
                         }
                     })
                 });

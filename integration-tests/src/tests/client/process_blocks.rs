@@ -8,7 +8,7 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::config::VMConfig;
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
@@ -157,7 +157,7 @@ fn deploy_test_contract(
 /// Create environment and set of transactions which cause congestion on the chain.
 fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
-    gas_price_adjustment_rate: Option<Rational>,
+    gas_price_adjustment_rate: Option<Rational32>,
     number_of_transactions: u64,
 ) -> (TestEnv, Vec<CryptoHash>) {
     init_test_logger();
@@ -371,7 +371,7 @@ fn receive_network_block() {
                 },
                 None,
                 vec![],
-                Rational::from_integer(0),
+                Ratio::from_integer(0),
                 0,
                 100,
                 None,
@@ -449,7 +449,7 @@ fn produce_block_with_approvals() {
                 },
                 None,
                 vec![],
-                Rational::from_integer(0),
+                Ratio::from_integer(0),
                 0,
                 100,
                 Some(0),
@@ -640,7 +640,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 },
                 None,
                 vec![],
-                Rational::from_integer(0),
+                Ratio::from_integer(0),
                 0,
                 100,
                 Some(0),
@@ -801,14 +801,6 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 InvalidBlockMode::InvalidBlock => {
                                     // produce an invalid block whose invalidity cannot be verified by just
                                     // having its header.
-                                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                                    let proposals = vec![ValidatorStake::new(
-                                        "test1".parse().unwrap(),
-                                        PublicKey::empty(KeyType::ED25519),
-                                        0,
-                                        false,
-                                    )];
-                                    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
                                     let proposals = vec![ValidatorStake::new(
                                         "test1".parse().unwrap(),
                                         PublicKey::empty(KeyType::ED25519),
@@ -1357,7 +1349,7 @@ fn test_minimum_gas_price() {
     let min_gas_price = 100;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = min_gas_price;
-    chain_genesis.gas_price_adjustment_rate = Rational::new(1, 10);
+    chain_genesis.gas_price_adjustment_rate = Ratio::new(1, 10);
     let mut env = TestEnv::builder(chain_genesis).build();
     for i in 1..=100 {
         env.produce_block(0, i);
@@ -1786,7 +1778,7 @@ fn test_gas_price_change() {
             + transaction_costs.action_receipt_creation_config.exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
-    let gas_price_adjustment_rate = Rational::new(1, 10);
+    let gas_price_adjustment_rate = Ratio::new(1, 10);
 
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = gas_limit;
@@ -1830,7 +1822,7 @@ fn test_gas_price_overflow() {
     let min_gas_price = 1000000;
     let max_gas_price = 10_u128.pow(20);
     let gas_limit = 450000000000;
-    let gas_price_adjustment_rate = Rational::from_integer(1);
+    let gas_price_adjustment_rate = Ratio::from_integer(1);
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
@@ -1967,7 +1959,7 @@ fn test_block_merkle_proof() {
 
 #[test]
 fn test_block_merkle_proof_same_hash() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let env = TestEnv::builder(ChainGenesis::test()).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let proof =
         env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
@@ -2075,14 +2067,6 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    let proposals = vec![ValidatorStake::new(
-        "test1".parse().unwrap(),
-        PublicKey::empty(KeyType::ED25519),
-        0,
-        false,
-    )];
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
@@ -2215,7 +2199,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        &chunks.get(&0).cloned().unwrap(),
+        &chunks.get(&0).cloned().unwrap().0,
     )
     .is_ok());
 }
@@ -4357,7 +4341,7 @@ mod cap_max_gas_price_tests {
 
     fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
         let mut env =
-            prepare_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+            prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
         let mut was_congested = false;
         let mut price_exceeded_limit = false;
 

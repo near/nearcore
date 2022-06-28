@@ -306,8 +306,6 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            false,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`

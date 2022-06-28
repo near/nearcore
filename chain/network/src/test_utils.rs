@@ -407,17 +407,5 @@ impl PeerManagerAdapter for NetworkRecipient {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
-    pub disable_edge_signature_verification: Option<bool>,
-    pub disable_edge_propagation: Option<bool>,
-    pub disable_edge_pruning: Option<bool>,
     pub set_max_peers: Option<u64>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<near_network_primitives::types::Edge>>,
-    pub remove_edges: Option<Vec<near_network_primitives::types::SimpleEdge>>,
-    pub prune_edges: Option<bool>,
 }

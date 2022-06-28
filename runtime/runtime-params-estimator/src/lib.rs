@@ -199,13 +199,13 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
 // We use core-contracts, e2f60b5b0930a9df2c413e1460e179c65c8876e3.
 static REAL_CONTRACTS_SAMPLE: [(&str, &str); 4] = [
     // File 341191, code 279965, data 56627.
-    ("test-contract/res/lockup_contract.wasm", "terminate_vesting"),
+    ("res/lockup_contract.wasm", "terminate_vesting"),
     // File 257516, code 203545, data 50419.
-    ("test-contract/res/staking_pool.wasm", "ping"),
+    ("res/staking_pool.wasm", "ping"),
     // File 135358, code 113152, data 19520.
-    ("test-contract/res/voting_contract.wasm", "ping"),
+    ("res/voting_contract.wasm", "ping"),
     // File 124250, code 103473, data 18176.
-    ("test-contract/res/whitelist.wasm", "add_staking_pool"),
+    ("res/whitelist.wasm", "add_staking_pool"),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -510,8 +510,8 @@ fn action_deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
     }
 
     let cost = {
-        let code = read_resource("test-contract/res/smallest_contract.wasm");
-        deploy_contract_cost(ctx, code, Some(b"sum"))
+        let code = near_test_contracts::smallest_rs_contract();
+        deploy_contract_cost(ctx, code.to_vec(), Some(b"sum"))
     };
 
     ctx.cached.deploy_contract_base = Some(cost.clone());
@@ -625,10 +625,9 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
         return costs;
     }
 
-    let smallest_contract = read_resource("test-contract/res/smallest_contract.wasm");
-
+    let smallest_contract = near_test_contracts::smallest_rs_contract();
     let smallest_cost =
-        compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &smallest_contract);
+        compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, smallest_contract);
     let smallest_size = smallest_contract.len() as u64;
 
     let mut max_bytes_cost = GasCost::zero(ctx.config.metric);
@@ -770,11 +769,7 @@ fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
 fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
-    let code = read_resource(if cfg!(feature = "nightly") {
-        "test-contract/res/nightly_contract.wasm"
-    } else {
-        "test-contract/res/stable_contract.wasm"
-    });
+    let code = near_test_contracts::estimator_contract();
 
     let n_iters = 10;
 

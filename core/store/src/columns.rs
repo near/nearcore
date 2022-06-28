@@ -264,22 +264,26 @@ impl DBCol {
     }
 
     /// Whethere this column is reference-counted.
-    /// This means, that we're storing additional 8 bytes at the end of the payload with the current RC value.
-    /// For such columns you must not use set, set_ser or delete, but 'update_refcount' instead.
     ///
-    /// Under the hood, we're using our custom merge operator (refcount_merge) to properly 'join' the refcounted cells.
-    /// WARNING: this means that the 'value' for a given key must never change.
+    /// A reference-counted column is one where we store additional 8-byte value
+    /// at the end of the payload with the current reference counter value.  For
+    /// such columns you must not use `set`, `set_ser` or `delete` operations,
+    /// but 'increment_refcount' and `decrement_refcount` instead.
+    ///
+    /// Under the hood, we’re using custom merge operator (see
+    /// [`RocksDB::refcount_merge`]) to properly ‘join’ the refcounted cells.
+    /// This means that the 'value' for a given key must never change.
     ///
     /// Example:
     ///
     /// ```ignore
-    /// update_refcount("foo", "bar", 1);
+    /// increment_refcount("foo", "bar");
     /// // good - after this call, the RC will be equal to 3.
-    /// update_refcount("foo", "bar", 2);
+    /// increment_refcount_by("foo", "bar", 2);
     /// // bad - the value is still 'bar'.
-    /// update_refcount("foo", "baz", 1);
+    /// increment_refcount("foo", "baz");
     /// // ok - the value will be removed now. (as rc == 0)
-    /// update_refcount("foo", "", -3)
+    /// decrement_refcount_by("foo", "", 3)
     /// ```
     ///
     /// Quick note on negative refcounts: if we have a key that ends up having
@@ -289,9 +293,10 @@ impl DBCol {
     /// Example:
     ///
     /// ```ignore
-    /// update_refcount("a", "b", 1);
-    /// update_refcount("a", -3);
-    /// // Now we have the entry in the database that has "a", empty value and refcount value of -2,
+    /// increment_refcount("a", "b");
+    /// decrement_refcount_by("a", 3);
+    /// // Now we have the entry in the database with key "a", empty payload and
+    /// // refcount value of -2,
     /// ```
     pub const fn is_rc(&self) -> bool {
         match self {
