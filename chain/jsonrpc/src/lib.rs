@@ -217,8 +217,6 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
-    #[cfg(feature = "test_features")]
-    peer_manager_addr: Addr<near_network::PeerManagerActor>,
 }
 
 impl JsonRpcHandler {
@@ -380,10 +378,6 @@ impl JsonRpcHandler {
             "adv_switch_to_height" => self.adv_switch_to_height(request.params).await,
             "adv_get_saved_blocks" => self.adv_get_saved_blocks(request.params).await,
             "adv_check_store" => self.adv_check_store(request.params).await,
-            "adv_set_options" => self.adv_set_options(request.params).await,
-            "adv_set_routing_table" => self.adv_set_routing_table(request.params).await,
-            "adv_get_peer_id" => self.adv_get_peer_id(request.params).await,
-            "adv_get_routing_table" => self.adv_get_routing_table(request.params).await,
             _ => return Err(request),
         })
     }
@@ -1190,65 +1184,6 @@ impl JsonRpcHandler {
             _ => Err(RpcError::server_error::<String>(None)),
         }
     }
-
-    async fn adv_set_options(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let params = crate::api::parse_params::<
-            near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest,
-        >(params)?;
-        self.peer_manager_addr
-            .send(near_network::types::PeerManagerMessageRequest::SetAdvOptions(
-                near_network::test_utils::SetAdvOptions {
-                    disable_edge_signature_verification: params.disable_edge_signature_verification,
-                    disable_edge_propagation: params.disable_edge_propagation,
-                    disable_edge_pruning: params.disable_edge_pruning,
-                    set_max_peers: None,
-                },
-            ))
-            .await
-            .map_err(|e| RpcError::rpc_from(e))?;
-        Ok(Value::Null)
-    }
-
-    async fn adv_set_routing_table(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let request = near_jsonrpc_adversarial_primitives::SetRoutingTableRequest::parse(params)?;
-        self.peer_manager_addr
-            .send(near_network::types::PeerManagerMessageRequest::SetRoutingTable(
-                near_network::test_utils::SetRoutingTable {
-                    add_edges: request.add_edges,
-                    remove_edges: request.remove_edges,
-                    prune_edges: request.prune_edges,
-                },
-            ))
-            .await
-            .map_err(RpcError::rpc_from)?;
-        Ok(Value::Null)
-    }
-
-    async fn adv_get_peer_id(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        let response = self
-            .peer_manager_addr
-            .send(near_network::types::PeerManagerMessageRequest::GetPeerId(
-                near_network::private_actix::GetPeerId {},
-            ))
-            .await
-            .map_err(RpcError::rpc_from)?;
-        serialize_response(response.as_peer_id_result())
-    }
-
-    async fn adv_get_routing_table(&self, _params: Option<Value>) -> Result<Value, RpcError> {
-        let result = self
-            .peer_manager_addr
-            .send(near_network::types::PeerManagerMessageRequest::GetRoutingTable)
-            .await
-            .map_err(RpcError::rpc_from)?;
-        match result {
-            near_network::types::PeerManagerMessageResponse::GetRoutingTable { edges_info } => {
-                let edges_info = edges_info.iter().map(|x| x.to_simple_edge()).collect();
-                serialize_response(near_network::routing::GetRoutingTableResult { edges_info })
-            }
-            _ => Ok(Value::Null),
-        }
-    }
 }
 
 fn rpc_handler(
@@ -1390,7 +1325,6 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    #[cfg(feature = "test_features")] peer_manager_addr: Addr<near_network::PeerManagerActor>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1413,8 +1347,6 @@ pub fn start_http(
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
-                #[cfg(feature = "test_features")]
-                peer_manager_addr: peer_manager_addr.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

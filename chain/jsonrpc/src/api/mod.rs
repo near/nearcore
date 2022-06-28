@@ -5,8 +5,6 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
 use near_primitives::borsh::BorshDeserialize;
 
-#[cfg(feature = "test_features")]
-mod adversarial;
 mod blocks;
 mod changes;
 mod chunks;
