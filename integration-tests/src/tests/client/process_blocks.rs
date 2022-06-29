@@ -3470,7 +3470,7 @@ fn test_catchup_no_sharding_change() {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::PRODUCED);
         res.unwrap();
-        assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos(), vec![]);
+        assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos().unwrap(), vec![]);
         assert_eq!(
             env.clients[0].chain.store().get_blocks_to_catchup(block.header().prev_hash()).unwrap(),
             vec![]
