@@ -102,6 +102,7 @@ nightly = [
     "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-vm-logic/sandbox"]
+io_trace = ["near-vm-logic/io_trace"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

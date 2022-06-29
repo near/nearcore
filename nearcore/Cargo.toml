@@ -145,3 +145,4 @@ sandbox = [
   "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
 ]
+io_trace = ["near-vm-runner/io_trace"]

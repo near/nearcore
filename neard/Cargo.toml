@@ -74,6 +74,11 @@ shardnet = [
   "protocol_feature_chunk_only_producers"
 ]
 
+# Compile with option to emit a detailed trace of IO operations and their
+# results that can be replayed on the estimator. To produce the output, compile
+# with this flag and then enable it at runtime with `--record-io-trace=path` option.
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
+
 sandbox = ["nearcore/sandbox"]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
