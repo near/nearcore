@@ -23,7 +23,9 @@ import nayduck
 # is covered here as well since those tests are not run on NayDuck any more.
 HELPER_SCRIPTS = [
     'delete_remote_nodes.py',
+    'loadtest/*',
     'mocknet/*',
+    'shardnet/*',
     'stress/hundred_nodes/*',
     'loadtest/*',
     'replay/*',
