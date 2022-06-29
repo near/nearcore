@@ -393,6 +393,19 @@ fn validate_add_key_action(
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
+        // Check whether `receiver_id` is a valid account_id. Historically, we
+        // allowed arbitrary strings there!
+        match limit_config.account_id_validity_rules_version {
+            near_vm_logic::AccountIdValidityRulesVersion::V0 => (),
+            near_vm_logic::AccountIdValidityRulesVersion::V1 => {
+                if let Err(_) = fc.receiver_id.parse::<AccountId>() {
+                    return Err(ActionsValidationError::InvalidAccountId {
+                        account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
+                    });
+                }
+            }
+        }
+
         // Checking method name length limits
         let mut total_number_of_bytes = 0;
         for method_name in &fc.method_names {
@@ -415,6 +428,30 @@ fn validate_add_key_action(
     }
 
     Ok(())
+}
+
+fn truncate_string(s: &str, limit: usize) -> String {
+    for i in (0..=limit).rev() {
+        if let Some(s) = s.get(..i) {
+            return s.to_string();
+        }
+    }
+    unreachable!()
+}
+
+#[test]
+fn test_truncate_string() {
+    fn check(input: &str, limit: usize, want: &str) {
+        let got = truncate_string(input, limit);
+        assert_eq!(got, want)
+    }
+    check("hello", 0, "");
+    check("hello", 2, "he");
+    check("hello", 4, "hell");
+    check("hello", 5, "hello");
+    check("hello", 6, "hello");
+    check("hello", 10, "hello");
+    check("привет", 3, "п");
 }
 
 #[cfg(test)]
