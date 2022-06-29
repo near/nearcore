@@ -142,7 +142,7 @@ impl Store {
     }
 }
 
-impl std::convert::From<near_store::Store> for Store {
+impl From<near_store::Store> for Store {
     fn from(store: near_store::Store) -> Self {
         Self(schema::Store::new(store))
     }
