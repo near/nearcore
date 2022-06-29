@@ -835,7 +835,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for
         // the limit, we compute it heuristically from the gas limit and the
-        // cost of roundtripping a byte of data through disk.
+        // cost of roundtripping a byte of data through disk. For today's value
+        // of parameters, this corresponds to about 13megs worth of
+        // transactions.
         let size_limit = transactions_gas_limit
             / (runtime_config.wasm_config.ext_costs.storage_write_value_byte
                 + runtime_config.wasm_config.ext_costs.storage_read_value_byte);

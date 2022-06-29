@@ -2526,7 +2526,6 @@ fn test_refund_receipts_processing() {
         let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
-                eprintln!("delayed_indices = {:?}", delayed_indices);
                 delayed_indices.next_available_index > 0
                     && delayed_indices.first_index == delayed_indices.next_available_index
             }
