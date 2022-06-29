@@ -161,7 +161,11 @@ fn apply_block_from_range(
             height
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
-        let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
+        let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+        let chunk = chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
+            panic!("Can't get chunk on height: {} chunk_hash: {:?} error: {}", height, chunk_hash, error);
+        });
+
 
         let prev_block = match chain_store.get_block(block.header().prev_hash()) {
             Ok(prev_block) => prev_block,
