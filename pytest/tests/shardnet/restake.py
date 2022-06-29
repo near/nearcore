@@ -21,11 +21,15 @@ def create_account(node, near_pk, near_sk):
     node.machine.run('bash', input=s)
 
 
-def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk, need_create_accounts):
-    if need_create_accounts and not node.instance_name.startswith('shardnet-boot'):
+def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk,
+                     need_create_accounts):
+    if need_create_accounts and not node.instance_name.startswith(
+            'shardnet-boot'):
         create_account(node, near_pk, near_sk)
 
-    node.machine.upload('tests/shardnet/scripts/restaked.sh', '/home/ubuntu', switch_user='ubuntu')
+    node.machine.upload('tests/shardnet/scripts/restaked.sh',
+                        '/home/ubuntu',
+                        switch_user='ubuntu')
     s = '''
         nohup bash ./restaked.sh {delay_sec} {stake_amount} 1>>/home/ubuntu/restaked.out 2>>/home/ubuntu/restaked.err </dev/null &
     '''.format(stake_amount=shlex.quote(str(random.randint(10**3, 10**5))),
@@ -55,4 +59,7 @@ if __name__ == '__main__':
     all_machines = mocknet.get_nodes(pattern='shardnet-')
     random.shuffle(all_machines)
 
-    pmap(lambda machine: restart_restaked(machine, restaked_url, delay_sec, near_pk, near_sk, need_create_accounts), all_machines)
+    pmap(
+        lambda machine:
+        restart_restaked(machine, restaked_url, delay_sec, near_pk, near_sk,
+                         need_create_accounts), all_machines)
