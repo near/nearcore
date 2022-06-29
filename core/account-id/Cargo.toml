@@ -21,4 +21,13 @@ serde = { version = "1", optional = true }
 deepsize = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
+bolero = "0.6.2"
 serde_json = "1"
+
+[[test]]
+name = "borsh"
+harness = false
+
+[[test]]
+name = "serde"
+harness = false
