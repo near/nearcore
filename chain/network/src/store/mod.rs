@@ -153,15 +153,3 @@ impl std::convert::From<&near_store::Store> for Store {
         Self(schema::Store::new(store.clone()))
     }
 }
-
-impl<'a> std::convert::From<near_store::StoreOpener<'a>> for Store {
-    fn from(opener: near_store::StoreOpener<'a>) -> Self {
-        Self::from(&opener)
-    }
-}
-
-impl<'a> std::convert::From<&'a near_store::StoreOpener<'a>> for Store {
-    fn from(opener: &'a near_store::StoreOpener<'a>) -> Self {
-        Self(schema::Store::new(opener.open()))
-    }
-}
