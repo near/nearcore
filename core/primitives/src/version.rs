@@ -1,7 +1,10 @@
-use crate::types::Balance;
+use std::str::FromStr;
+use std::collections::HashMap;
+
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -188,10 +191,12 @@ cfg_if::cfg_if! {
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
 const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
-    HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
+    HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>,
 > = Lazy::new(|| {
     let mut schedule = HashMap::new();
-    schedule.insert(52, None);
+    // Update to latest protocol version on release.
+    schedule
+        .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
     schedule
 });
 
@@ -201,7 +206,7 @@ pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> Pro
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        &*PROTOCOL_UPGRADE_SCHEDULE,
+        &PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 
