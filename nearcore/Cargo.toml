@@ -146,3 +146,5 @@ sandbox = [
   "near-jsonrpc/sandbox",
 ]
 io_trace = ["near-vm-runner/io_trace"]
+
+shardnet = ["protocol_feature_chunk_only_producers"]
