@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
-use num_rational::Rational;
+use num_rational::Rational32;
 
 use crate::DoomslugThresholdMode;
 use near_chain_configs::{Genesis, ProtocolConfig};
@@ -160,7 +160,7 @@ impl BlockHeaderInfo {
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
-    gas_price_adjustment_rate: Rational,
+    gas_price_adjustment_rate: Rational32,
     min_gas_price: Balance,
     max_gas_price: Balance,
     genesis_protocol_version: ProtocolVersion,
@@ -201,7 +201,7 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
+    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational32 {
         self.gas_price_adjustment_rate
     }
 }
@@ -226,7 +226,7 @@ pub struct ChainGenesis {
     pub min_gas_price: Balance,
     pub max_gas_price: Balance,
     pub total_supply: Balance,
-    pub gas_price_adjustment_rate: Rational,
+    pub gas_price_adjustment_rate: Rational32,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,

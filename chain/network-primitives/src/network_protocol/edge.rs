@@ -130,9 +130,6 @@ impl Edge {
             nonce + 1
         }
     }
-    pub fn to_simple_edge(&self) -> SimpleEdge {
-        SimpleEdge::new(self.key().0.clone(), self.key().1.clone(), self.nonce())
-    }
 
     /// Create the remove edge change from an added edge change.
     pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Edge {
@@ -278,38 +275,6 @@ impl EdgeInner {
 
     fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
-    }
-}
-
-/// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
-pub struct SimpleEdge {
-    key: (PeerId, PeerId),
-    nonce: u64,
-}
-
-impl SimpleEdge {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
-        let (peer0, peer1) = Edge::make_key(peer0, peer1);
-        SimpleEdge { key: (peer0, peer1), nonce }
-    }
-
-    pub fn key(&self) -> &(PeerId, PeerId) {
-        &self.key
-    }
-
-    pub fn nonce(&self) -> u64 {
-        self.nonce
-    }
-
-    pub fn edge_state(&self) -> EdgeState {
-        if self.nonce % 2 == 1 {
-            EdgeState::Active
-        } else {
-            EdgeState::Removed
-        }
     }
 }
 

@@ -27,6 +27,8 @@ HELPER_SCRIPTS = [
     'mocknet/*',
     'shardnet/*',
     'stress/hundred_nodes/*',
+    'loadtest/*',
+    'replay/*',
 ]
 
 PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')

@@ -25,13 +25,8 @@ pub(crate) struct Error(schema::Error);
 /// Store allows for performing synchronous atomic operations on the DB.
 /// In particular it doesn't implement Clone and requires &mut self for
 /// methods writing to the DB.
+#[derive(Clone)]
 pub(crate) struct Store(schema::Store);
-
-impl Store {
-    pub fn new(s: near_store::Store) -> Self {
-        Self(schema::Store::new(s))
-    }
-}
 
 /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
 /// them in components. We remove all of those edges from memory, and save them to database,
@@ -144,5 +139,17 @@ impl Store {
     /// Reads the whole Peers column.
     pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
         self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
+    }
+}
+
+impl From<near_store::Store> for Store {
+    fn from(store: near_store::Store) -> Self {
+        Self(schema::Store::new(store))
+    }
+}
+
+impl From<&near_store::Store> for Store {
+    fn from(store: &near_store::Store) -> Self {
+        Self(schema::Store::new(store.clone()))
     }
 }

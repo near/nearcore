@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use near_primitives::time::Clock;
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
@@ -139,16 +139,16 @@ pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes"
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
 /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-pub const GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new_raw(1, 100);
+pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
 
 /// Protocol treasury reward
-pub const PROTOCOL_REWARD_RATE: Rational = Rational::new_raw(1, 10);
+pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
+pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
-pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
+pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Serde default only supports functions without parameters.
 fn default_reduce_wait_for_missing_block() -> Duration {
@@ -948,8 +948,8 @@ pub fn init_configs(
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-                online_max_threshold: Rational::new(99, 100),
-                online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
+                online_max_threshold: Rational32::new(99, 100),
+                online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
