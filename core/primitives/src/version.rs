@@ -190,7 +190,7 @@ cfg_if::cfg_if! {
 const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
     HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
 > = Lazy::new(|| {
-        use std::str::FromStr;
+    use std::str::FromStr;
     let mut schedule = HashMap::new();
     schedule
         .insert(53, Some(ProtocolUpgradeVotingSchedule::from_str("2022-05-23 15:00:00").unwrap()));
