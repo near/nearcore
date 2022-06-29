@@ -77,9 +77,18 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage
+        let value = self
+            .storage
             .get_raw_bytes(column, key)
-            .map(|result| refcount::get_with_rc_logic(column, result))
+            .map(|result| refcount::get_with_rc_logic(column, result))?;
+        tracing::trace!(
+            target: "store",
+            db_op = "get",
+            col = ?column,
+            key = %to_base(key),
+            size = value.as_ref().map(Vec::len)
+        );
+        Ok(value)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -375,6 +384,26 @@ impl StoreUpdate {
             let addr = |arc| Arc::as_ptr(arc) as *const u8;
             assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
             tries.update_cache(&self.transaction)?;
+        }
+        let _span = tracing::trace_span!(target: "store", "commit").entered();
+        for op in &self.transaction.ops {
+            match op {
+                DBOp::Insert { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "insert", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::Set { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "set", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::UpdateRefcount { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "update_rc", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::Delete { col, key } => {
+                    tracing::trace!(target: "store", db_op = "delete", col = ?col, key =  %to_base(key))
+                }
+                DBOp::DeleteAll { col } => {
+                    tracing::trace!(target: "store", db_op = "delete_all", col = ?col)
+                }
+            }
         }
         self.storage.write(self.transaction)
     }
