@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -190,15 +190,14 @@ cfg_if::cfg_if! {
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
-    HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>,
-> = Lazy::new(|| {
-    let mut schedule = HashMap::new();
-    // Update to latest protocol version on release.
-    schedule
-        .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
-    schedule
-});
+const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>> =
+    Lazy::new(|| {
+        let mut schedule = HashMap::new();
+        // Update to latest protocol version on release.
+        schedule
+            .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+        schedule
+    });
 
 /// Gives new clients an option to upgrade without announcing that they support the new version.
 /// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
