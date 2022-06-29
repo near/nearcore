@@ -413,10 +413,6 @@ impl ChainStore {
         }
     }
 
-    pub fn owned_store(&self) -> &Store {
-        &self.store
-    }
-
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
         ChainStoreUpdate::new(self)
     }

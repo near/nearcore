@@ -974,15 +974,10 @@ pub fn setup_mock_all_validators(
                             };
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::SyncRoutingTable { .. }
-                        | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo { .. }
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
-                        | NetworkRequests::RequestUpdateNonce(_, _)
-                        | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
                     };
                 }

@@ -14,7 +14,6 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_o11y::log_assert;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -78,9 +77,18 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.storage
+        let value = self
+            .storage
             .get_raw_bytes(column, key)
-            .map(|result| refcount::get_with_rc_logic(column, result))
+            .map(|result| refcount::get_with_rc_logic(column, result))?;
+        tracing::trace!(
+            target: "store",
+            db_op = "get",
+            col = ?column,
+            key = %to_base(key),
+            size = value.as_ref().map(Vec::len)
+        );
+        Ok(value)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -176,7 +184,7 @@ pub struct StoreUpdate {
     storage: Arc<dyn Database>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
-    tries: Option<ShardTries>,
+    shard_tries: Option<ShardTries>,
 }
 
 impl StoreUpdate {
@@ -186,14 +194,14 @@ impl StoreUpdate {
     };
 
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        StoreUpdate { storage, transaction: DBTransaction::new(), tries: None }
+        StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
         StoreUpdate {
             storage: Arc::clone(&tries.get_store().storage),
             transaction: DBTransaction::new(),
-            tries: Some(tries),
+            shard_tries: Some(tries),
         }
     }
 
@@ -319,14 +327,25 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Merge another store update into this one.
-    pub fn merge(&mut self, other: StoreUpdate) {
-        match (&self.tries, other.tries) {
-            (_, None) => (),
-            (None, Some(tries)) => self.tries = Some(tries),
-            (Some(t1), Some(t2)) => log_assert!(t1.is_same(&t2)),
+    /// Set shard_tries to given object.
+    ///
+    /// Panics if shard_tries are already set to a different object.
+    fn set_shard_tries(&mut self, tries: ShardTries) {
+        if let Some(our) = &self.shard_tries {
+            assert!(tries.is_same(our));
+        } else {
+            self.shard_tries = Some(tries);
         }
+    }
 
+    /// Merge another store update into this one.
+    ///
+    /// Panics if `self` and `other` both have shard_tries set to different
+    /// objects.
+    pub fn merge(&mut self, other: StoreUpdate) {
+        if let Some(tries) = other.shard_tries {
+            self.set_shard_tries(tries);
+        }
         self.transaction.merge(other.transaction)
     }
 
@@ -350,12 +369,32 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(tries) = self.tries {
+        if let Some(tries) = self.shard_tries {
             // Note: avoid comparing wide pointers here to work-around
             // https://github.com/rust-lang/rust/issues/69757
             let addr = |arc| Arc::as_ptr(arc) as *const u8;
             assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
             tries.update_cache(&self.transaction)?;
+        }
+        let _span = tracing::trace_span!(target: "store", "commit").entered();
+        for op in &self.transaction.ops {
+            match op {
+                DBOp::Insert { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "insert", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::Set { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "set", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::UpdateRefcount { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "update_rc", col = ?col, key =  %to_base(key), size = value.len())
+                }
+                DBOp::Delete { col, key } => {
+                    tracing::trace!(target: "store", db_op = "delete", col = ?col, key =  %to_base(key))
+                }
+                DBOp::DeleteAll { col } => {
+                    tracing::trace!(target: "store", db_op = "delete_all", col = ?col)
+                }
+            }
         }
         self.storage.write(self.transaction)
     }

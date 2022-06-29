@@ -302,8 +302,6 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            #[cfg(feature = "test_features")]
-            network_actor,
         ));
     }
 
