@@ -1,6 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::tests::util::make_rng;
+use crate::testonly::make_rng;
 use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
 use near_network_primitives::time;
@@ -30,7 +30,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
     let a = data::make_signer(&mut rng);
     let b = data::make_signer(&mut rng);
-    let edge = data::make_edge(&mut rng, &a, &b);
+    let edge = data::make_edge(&a, &b);
     let epoch_id = EpochId(chain.blocks[1].hash().clone());
 
     let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();

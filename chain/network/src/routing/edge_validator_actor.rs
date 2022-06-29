@@ -40,12 +40,6 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
                 continue;
             }
 
-            #[cfg(feature = "test_features")]
-            if !msg.adv_disable_edge_signature_verification && !edge.verify() {
-                return false;
-            }
-
-            #[cfg(not(feature = "test_features"))]
             if !edge.verify() {
                 return false;
             }

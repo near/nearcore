@@ -62,13 +62,23 @@ protocol_feature_chunk_only_producers = [
   "nearcore/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 nightly = [
   "nightly_protocol",
   "nearcore/nightly"
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
+
+# Shardnet is the experimental network that we deploy for chunk-only producer testing.
+shardnet = [
+  "near-primitives/shardnet",
+  "protocol_feature_chunk_only_producers"
+]
+
+# Compile with option to emit a detailed trace of IO operations and their
+# results that can be replayed on the estimator. To produce the output, compile
+# with this flag and then enable it at runtime with `--record-io-trace=path` option.
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
 sandbox = ["nearcore/sandbox"]
 

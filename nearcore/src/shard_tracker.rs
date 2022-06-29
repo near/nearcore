@@ -156,7 +156,7 @@ mod tests {
     use near_primitives::utils::get_num_seats_per_shard;
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Rational;
+    use num_rational::Ratio;
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
@@ -174,19 +174,19 @@ mod tests {
             block_producer_kickout_threshold: 90,
             chunk_producer_kickout_threshold: 60,
             fishermen_threshold: 0,
-            online_max_threshold: Rational::from_integer(1),
-            online_min_threshold: Rational::new(90, 100),
+            online_max_threshold: Ratio::from_integer(1),
+            online_min_threshold: Ratio::new(90, 100),
             minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Rational::new(80, 100),
+            protocol_upgrade_stake_threshold: Ratio::new(80, 100),
             protocol_upgrade_num_epochs: 2,
             shard_layout: ShardLayout::v0(num_shards, 0),
             validator_selection_config: Default::default(),
         };
         let reward_calculator = RewardCalculator {
-            max_inflation_rate: Rational::from_integer(0),
+            max_inflation_rate: Ratio::from_integer(0),
             num_blocks_per_year: 1000000,
             epoch_length: 1,
-            protocol_reward_rate: Rational::from_integer(0),
+            protocol_reward_rate: Ratio::from_integer(0),
             protocol_treasury_account: "test".parse().unwrap(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
@@ -201,8 +201,6 @@ mod tests {
                 "test".parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 100,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                false,
             )],
         )
         .unwrap()

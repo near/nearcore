@@ -5,13 +5,13 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RawRoutedMessage,
-    RoutedMessage, RoutedMessageBody,
+    RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunkPart,
     ReedSolomonWrapper, ShardChunk,
@@ -56,7 +56,7 @@ pub fn make_block(
         EpochId::default(),                                    // next_epoch_id
         None,                                                  // epoch_sync_data_hash
         vec![],                                                // approvals
-        Rational::from_integer(0),                             // gas_price_adjustment_rate
+        Ratio::from_integer(0),                                // gas_price_adjustment_rate
         0,                                                     // min_gas_price
         0,                                                     // max_gas_price
         Some(0),                                               // minted_amount
@@ -101,7 +101,7 @@ pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
 }
 
 pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
-    let peer_id = PeerId::new(make_signer(rng).public_key);
+    let peer_id = make_peer_id(rng);
     let validator_signer = make_validator_signer(rng);
     let signature = validator_signer.sign_account_announce(
         validator_signer.validator_id(),
@@ -127,11 +127,11 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     )
 }
 
-pub fn make_edge<R: Rng>(rng: &mut R, a: &InMemorySigner, b: &InMemorySigner) -> Edge {
+pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
     let (a, b) = if a.public_key < b.public_key { (a, b) } else { (b, a) };
     let ap = PeerId::new(a.public_key.clone());
     let bp = PeerId::new(b.public_key.clone());
-    let nonce = rng.gen();
+    let nonce = 1; // Make it an active edge.
     let hash = Edge::build_hash(&ap, &bp, nonce);
     Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
 }
@@ -144,7 +144,7 @@ pub fn make_routing_table<R: Rng>(rng: &mut R, clock: &time::Clock) -> RoutingTa
             let mut e = vec![];
             for i in 0..signers.len() {
                 for j in 0..i {
-                    e.push(make_edge(rng, &signers[i], &signers[j]));
+                    e.push(make_edge(&signers[i], &signers[j]));
                 }
             }
             e
@@ -284,13 +284,14 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     )
 }
 
-pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<RoutedMessage> {
+pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<RoutedMessageV2> {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
     RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
         peer_id,
         &signer.secret_key,
         /*ttl=*/ 1,
+        None,
     )
 }
 pub fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {

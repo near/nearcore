@@ -112,17 +112,7 @@ protocol_feature_chunk_only_producers = [
   "near-rosetta-rpc/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_routing_exchange_algorithm = [
-  "near-primitives/protocol_feature_routing_exchange_algorithm",
-  "near-chain/protocol_feature_routing_exchange_algorithm",
-  "near-network/protocol_feature_routing_exchange_algorithm",
-  "near-client/protocol_feature_routing_exchange_algorithm",
-  "near-jsonrpc/protocol_feature_routing_exchange_algorithm",
-]
-protocol_feature_access_key_nonce_for_implicit_accounts = [
-  "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
-  "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
-]
+
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -137,8 +127,6 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-store/nightly",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
-  "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
 ]
@@ -157,3 +145,4 @@ sandbox = [
   "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
 ]
+io_trace = ["near-vm-runner/io_trace"]

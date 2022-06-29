@@ -63,35 +63,25 @@ impl RoutingTableView {
     /// Find peer that is connected to `source` and belong to the shortest path
     /// from `source` to `peer_id`.
     fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(peer_id) {
-            match (routes.iter())
-                .map(|peer_id| {
-                    (self.route_nonce.get(peer_id).cloned().unwrap_or_default(), peer_id)
-                })
-                .minmax()
-                .into_option()
-            {
-                None => Err(FindRouteError::Disconnected),
-                // Neighbor with minimum and maximum nonce respectively.
-                Some(((min_v, next_hop), (max_v, _))) => {
-                    // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-                    // nonce by one. Additionally if the difference between the highest nonce and the lowest
-                    // nonce is greater than some threshold increase the lowest nonce to be at least
-                    // max nonce - threshold.
-                    self.route_nonce.put(
-                        next_hop.clone(),
-                        std::cmp::max(
-                            min_v + 1,
-                            max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
-                        ),
-                    );
-
-                    Ok(next_hop.clone())
-                }
-            }
-        } else {
-            Err(FindRouteError::PeerNotFound)
-        }
+        let routes = self.peer_forwarding.get(peer_id).ok_or(FindRouteError::PeerNotFound)?;
+        // Neighbor with minimum and maximum nonce respectively.
+        let ((min_v, next_hop), (max_v, _)) = (routes.iter())
+            .map(|peer_id| (self.route_nonce.get(peer_id).cloned().unwrap_or_default(), peer_id))
+            .minmax()
+            .into_option()
+            .ok_or(FindRouteError::Disconnected)?;
+        // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
+        // nonce by one. Additionally if the difference between the highest nonce and the lowest
+        // nonce is greater than some threshold increase the lowest nonce to be at least
+        // max nonce - threshold.
+        self.route_nonce.put(
+            next_hop.clone(),
+            std::cmp::max(
+                min_v + 1,
+                max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
+            ),
+        );
+        Ok(next_hop.clone())
     }
 
     pub(crate) fn find_route(
@@ -122,7 +112,7 @@ impl RoutingTableView {
     }
 
     /// Add (account id, peer id) to routing table.
-    /// Note: There is at most on peer id per account id.
+    /// Note: There is at most one peer id per account id.
     pub(crate) fn add_account(&mut self, announce_account: AnnounceAccount) {
         let account_id = announce_account.account_id.clone();
         self.account_peers.put(account_id.clone(), announce_account.clone());

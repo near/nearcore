@@ -16,7 +16,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
-use num_rational::Rational;
+use num_rational::Rational32;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -59,7 +59,7 @@ fn create_block() -> Block {
         EpochId::default(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Rational32::from_integer(0),
         0,
         0,
         Some(0),

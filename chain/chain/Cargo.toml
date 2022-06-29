@@ -32,6 +32,7 @@ near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-cache = { path = "../../utils/near-cache" }
+near-client-primitives = { path = "../client-primitives"}
 
 [dev-dependencies]
 insta = "1"
@@ -51,11 +52,9 @@ protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
 
-protocol_feature_routing_exchange_algorithm = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",

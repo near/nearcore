@@ -7,6 +7,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::db::Mode;
 use near_store::Store;
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -70,11 +71,11 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
-            near_store::Store::opener(home_dir, &near_config.config.store).read_only(!readwrite);
+            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
         let store = store_opener.open();
         match self {
             StateViewerSubCommand::Peers => peers(store),

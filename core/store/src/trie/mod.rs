@@ -470,7 +470,7 @@ pub struct ApplyStatePartResult {
 }
 
 impl Trie {
-    pub fn new(store: Box<dyn TrieStorage>, _shard_uid: ShardUId) -> Self {
+    pub fn new(store: Box<dyn TrieStorage>) -> Self {
         Trie { storage: store }
     }
 

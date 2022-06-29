@@ -1,3 +1,4 @@
+use crate::time::Utc;
 /// `network_protocol.rs` contains types which are part of network protocol.
 /// We need to maintain backward compatibility in network protocol.
 /// All changes to this file should be reviewed.
@@ -21,6 +22,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 pub(crate) mod edge;
@@ -317,6 +319,35 @@ pub struct RoutedMessage {
     pub ttl: u8,
     /// Message
     pub body: RoutedMessageBody,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageV2 {
+    /// Message
+    pub msg: RoutedMessage,
+    /// The time the Routed message was created by `author`.
+    pub created_at: Option<Utc>,
+}
+
+#[cfg(feature = "deepsize_feature")]
+impl deepsize::DeepSizeOf for RoutedMessageV2 {
+    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
+        self.msg.deep_size_of_children(context) + std::mem::size_of::<Option<Utc>>()
+    }
+}
+
+impl Deref for RoutedMessageV2 {
+    type Target = RoutedMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.msg
+    }
+}
+
+impl DerefMut for RoutedMessageV2 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.msg
+    }
 }
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]

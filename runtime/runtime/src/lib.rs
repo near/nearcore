@@ -221,7 +221,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "process_transaction").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -407,8 +407,6 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -442,18 +440,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                )?;
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(stake) => {
-                action_stake(
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    stake,
-                    &apply_state.prev_block_hash,
-                    epoch_info_provider,
-                    true,
                 )?;
             }
         };
@@ -1266,7 +1252,11 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie.get_trie_nodes_count())
+                node_counter = ?state_update.trie.get_trie_nodes_count(),
+                predecessor = %receipt.predecessor_id,
+                receiver = %receipt.receiver_id,
+                id = %receipt.receipt_id,
+            )
             .entered();
             let result = self.process_receipt(
                 state_update,

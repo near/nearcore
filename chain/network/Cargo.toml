@@ -33,7 +33,7 @@ once_cell = "1.12.0"
 opentelemetry = { version = "0.17", features = ["trace"] }
 rand = "0.6"
 rand_pcg = "0.1"
-serde = { version = "1", features = ["alloc", "derive", "rc"], optional = true }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
 strum = { version = "0.24", features = ["derive"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec"] }
@@ -70,12 +70,8 @@ performance_stats = [
     "near-performance-metrics/performance_stats",
     "near-rust-allocator-proxy",
 ]
-protocol_feature_routing_exchange_algorithm = [
-    "near-primitives/protocol_feature_routing_exchange_algorithm",
-]
 test_features = [
   "near-network-primitives/test_features",
-  "serde",
 ]
 
 [[bench]]

@@ -29,13 +29,14 @@ use tokio::net::TcpStream;
 pub use crate::network_protocol::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping, Pong, RoutedMessage,
-    RoutedMessageBody, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    RoutedMessageBody, RoutedMessageV2, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfoV2,
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
 pub use crate::config::{NetworkConfig, ValidatorConfig, ValidatorEndpoints};
 pub use crate::config_json::Config as ConfigJSON;
-pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo, SimpleEdge};
+pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -114,11 +115,22 @@ impl RawRoutedMessage {
         author: PeerId,
         secret_key: &SecretKey,
         routed_message_ttl: u8,
-    ) -> Box<RoutedMessage> {
+        now: Option<time::Utc>,
+    ) -> Box<RoutedMessageV2> {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { target, author, signature, ttl: routed_message_ttl, body: self.body }.into()
+        RoutedMessageV2 {
+            msg: RoutedMessage {
+                target,
+                author,
+                signature,
+                ttl: routed_message_ttl,
+                body: self.body,
+            },
+            created_at: now,
+        }
+        .into()
     }
 }
 
@@ -128,7 +140,7 @@ impl RawRoutedMessage {
 #[rtype(result = "bool")]
 pub struct RoutedMessageFrom {
     /// Routed messages.
-    pub msg: Box<RoutedMessage>,
+    pub msg: Box<RoutedMessageV2>,
     /// Previous hop in the route. Used for messages that needs routing back.
     pub from: PeerId,
 }

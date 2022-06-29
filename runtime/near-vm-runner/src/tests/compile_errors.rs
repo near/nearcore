@@ -8,13 +8,11 @@ fn test_initializer_wrong_signature_contract() {
         .wat(
             r#"
 (module
-  (type (;0;) (func (param i32)))
-  (func (;0;) (type 0))
+  (func $f (param i32))
   (start 0)
-  (export "hello" (func 0))
+  (func (export "main"))
 )"#,
         )
-        .method("hello")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -26,7 +24,7 @@ fn test_initializer_wrong_signature_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43899213 used gas 43899213
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
@@ -36,12 +34,7 @@ fn test_initializer_wrong_signature_contract() {
 /// StackHeightInstrumentation is weird but it's what we return for now
 fn test_function_not_defined_contract() {
     test_builder()
-        .wat(
-            r#"
-(module
-  (export "hello" (func 0))
-)"#,
-        )
+        .wat(r#"(module (export "hello" (func 0)))"#)
         .method("hello")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -64,10 +57,9 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
     wat::parse_str(&format!(
         r#"
             (module
-              (func (;0;) (type {}))
-              (export "hello" (func 0))
+              (func $main (type {bad_type}))
+              (export "main" (func $main))
             )"#,
-        bad_type
     ))
     .unwrap()
 }
@@ -76,7 +68,6 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
 fn test_function_type_not_defined_contract_1() {
     test_builder()
         .wasm(&function_type_not_defined_contract(1))
-        .method("hello")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -88,7 +79,7 @@ fn test_function_type_not_defined_contract_1() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41731713 used gas 41731713
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
@@ -99,7 +90,6 @@ fn test_function_type_not_defined_contract_1() {
 fn test_function_type_not_defined_contract_2() {
     test_builder()
         .wasm(&function_type_not_defined_contract(0))
-        .method("hello")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
@@ -111,7 +101,7 @@ fn test_function_type_not_defined_contract_2() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41731713 used gas 41731713
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
@@ -141,15 +131,7 @@ fn test_garbage_contract() {
 #[test]
 fn test_evil_function_index() {
     test_builder()
-        .wat(
-            r#"
-          (module
-            (type (;0;) (func))
-            (func (;0;) (type 0)
-              call 4294967295)
-            (export "abort_with_zero" (func 0))
-          )"#,
-        )
+        .wat(r#"(module (func (export "main") call 4294967295))"#)
         .method("abort_with_zero")
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -162,7 +144,7 @@ fn test_evil_function_index() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46500213 used gas 46500213
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
@@ -361,26 +343,50 @@ fn test_limit_locals_global() {
 }
 
 #[test]
+pub fn test_stablized_host_function() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "ripemd160" (func $ripemd160 (param i64 i64 i64)))
+  (func (export "main")
+    (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
+)"#,
+        )
+        .protocol_features(&[ProtocolFeature::MathExtension])
+        .opaque_error()
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54519963 used gas 54519963
+                Err: ...
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+            "#]],
+        ]);
+}
+
+#[test]
 fn test_sandbox_only_function() {
     let tb = test_builder()
         .wat(
             r#"
 (module
-    (import "env" "sandbox_debug_log" (func (;0;) (param i64 i64)))
-    (func $main (export "main")
-        (call 0 (i64.const 0) (i64.const 1)))
+  (import "env" "sandbox_debug_log" (func $sandbox_debug_log (param i64 i64)))
+  (func (export "main")
+    (call $sandbox_debug_log (i64.const 0) (i64.const 1)))
 )"#,
         )
         .opaque_error();
 
     #[cfg(feature = "sandbox")]
     tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 56988231 used gas 56988231
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 59805981 used gas 59805981
     "#]]);
 
     #[cfg(not(feature = "sandbox"))]
     tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54519963 used gas 54519963
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 57337713 used gas 57337713
         Err: ...
     "#]]);
 }
