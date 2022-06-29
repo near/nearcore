@@ -89,19 +89,40 @@ impl RewardCalculator {
         let total_stake: Balance = validator_stake.values().sum();
         for (account_id, stats) in validator_block_chunk_stats {
             // Uptime is an average of block produced / expected and chunk produced / expected.
-            let average_produced_numer = U256::from(
-                stats.block_stats.produced * stats.chunk_stats.expected
-                    + stats.chunk_stats.produced * stats.block_stats.expected,
-            );
-            let average_produced_denom =
-                U256::from(2 * stats.chunk_stats.expected * stats.block_stats.expected);
+            let (average_produced_numer, average_produced_denom) =
+                if stats.block_stats.expected == 0 && stats.chunk_stats.expected == 0 {
+                    (U256::from(0), U256::from(1))
+                } else if stats.block_stats.expected == 0 {
+                    (U256::from(stats.chunk_stats.produced), U256::from(stats.chunk_stats.expected))
+                } else if stats.chunk_stats.expected == 0 {
+                    (U256::from(stats.block_stats.produced), U256::from(stats.block_stats.expected))
+                } else {
+                    (
+                        U256::from(
+                            stats.block_stats.produced * stats.chunk_stats.expected
+                                + stats.chunk_stats.produced * stats.block_stats.expected,
+                        ),
+                        U256::from(2 * stats.chunk_stats.expected * stats.block_stats.expected),
+                    )
+                };
             let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
             let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
+            let chunk_only_producers_enabled = checked_feature!(
+                "protocol_feature_chunk_only_producers",
+                ChunkOnlyProducers,
+                protocol_version
+            );
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
-                || stats.chunk_stats.expected == 0
-                || stats.block_stats.expected == 0
+                || (chunk_only_producers_enabled
+                    && stats.chunk_stats.expected == 0
+                    && stats.block_stats.expected == 0)
+                // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
+                // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's 
+                // possible that some validators have expected blocks or chunks to be zero.
+                || (!chunk_only_producers_enabled
+                    && (stats.chunk_stats.expected == 0 || stats.block_stats.expected == 0))
             {
                 0
             } else {
@@ -266,6 +287,107 @@ mod tests {
             .collect()
         );
         assert_eq!(result.1, 4_999_999u128);
+    }
+
+    /// Test reward calculation for chunk only or block only producers
+    #[test]
+    fn test_reward_chunk_only_producer() {
+        let epoch_length = 1000;
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: Ratio::new(1, 100),
+            num_blocks_per_year: 1000,
+            epoch_length,
+            protocol_reward_rate: Ratio::new(0, 10),
+            protocol_treasury_account: "near".parse().unwrap(),
+            online_min_threshold: Ratio::new(9, 10),
+            online_max_threshold: Ratio::new(99, 100),
+            num_seconds_per_year: 1000,
+        };
+        let validator_block_chunk_stats = HashMap::from([
+            (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
+                },
+            ),
+            // chunk only producer
+            (
+                "test2".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
+                },
+            ),
+            // block only producer (not implemented right now, just for testing)
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 945, expected: 1000 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                },
+            ),
+            // a validator that expected blocks and chunks are both 0 (this could occur with very
+            // small probability for validators with little stakes)
+            (
+                "test4".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+                },
+            ),
+        ]);
+        let validator_stake = vec![
+            ("test1".parse().unwrap(), 500_000),
+            ("test2".parse().unwrap(), 500_000),
+            ("test3".parse().unwrap(), 500_000),
+            ("test4".parse().unwrap(), 500_000),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let total_supply = 1_000_000_000;
+        let result = reward_calculator.calculate_reward(
+            validator_block_chunk_stats,
+            &validator_stake,
+            total_supply,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            epoch_length * NUM_NS_IN_SECOND,
+        );
+        // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
+        // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        {
+            assert_eq!(
+                result.0,
+                vec![
+                    ("near".parse().unwrap(), 0),
+                    ("test1".parse().unwrap(), 1_250_000u128),
+                    ("test2".parse().unwrap(), 2_500_000u128),
+                    ("test3".parse().unwrap(), 1_250_000u128),
+                    ("test4".parse().unwrap(), 0u128)
+                ]
+                .into_iter()
+                .collect()
+            );
+            assert_eq!(result.1, 5_000_000u128);
+        }
+        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+        {
+            assert_eq!(
+                result.0,
+                vec![
+                    ("near".parse().unwrap(), 0),
+                    ("test1".parse().unwrap(), 1_250_000u128),
+                    ("test2".parse().unwrap(), 0u128),
+                    ("test3".parse().unwrap(), 0u128),
+                    ("test4".parse().unwrap(), 0u128)
+                ]
+                .into_iter()
+                .collect()
+            );
+            assert_eq!(result.1, 1_250_000u128);
+        }
     }
 
     /// Test that under an extreme setting (total supply 100b, epoch length half a day),
