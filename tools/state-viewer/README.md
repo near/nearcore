@@ -92,11 +92,13 @@ Flags:
 
 ### `dump_tx`
 
-Saves all transactions of a block to a file.
+Saves all transactions of a range of blocks [start, end] to a file.
 
 Flags:
 
-* `--height` specifies the block by its height.
+* `--start-height` specifies the start block by its height, inclusive.
+
+* `--end-height` specifies the end block by its height, inclusive.
 
 * `--account-ids` specifies the accounts as receivers of the transactions that need to be dumped. By default, all transactions will be dumped if this parameter is not set.
 

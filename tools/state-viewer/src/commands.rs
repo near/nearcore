@@ -1,7 +1,7 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
-use crate::tx_dump::tx_dump;
+use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
@@ -112,7 +112,8 @@ pub(crate) fn dump_state_redis(
 }
 
 pub(crate) fn dump_tx(
-    height: BlockHeight,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -124,9 +125,12 @@ pub(crate) fn dump_tx(
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
-    let hash = chain_store.get_block_hash_by_height(height)?;
-    let block = chain_store.get_block(&hash)?;
-    let txs = tx_dump(&mut chain_store, &block, select_account_ids);
+    let mut txs = vec![];
+    for height in start_height..=end_height {
+        let hash = chain_store.get_block_hash_by_height(height)?;
+        let block = chain_store.get_block(&hash)?;
+        txs.extend(dump_tx_from_block(&mut chain_store, &block, select_account_ids));
+    }
     let json_path = match output_path {
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(&home_dir).join("tx.json"),
