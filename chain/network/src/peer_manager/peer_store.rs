@@ -458,7 +458,7 @@ pub fn iter_peers_from_store<F>(store: near_store::Store, f: F)
 where
     F: Fn((PeerId, KnownPeerState)),
 {
-    for x in store::Store::new(store).list_peer_states().unwrap() {
+    for x in store::Store::from(store).list_peer_states().unwrap() {
         f(x)
     }
 }
