@@ -15,7 +15,7 @@ use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError}
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum TxExecutionError {
-    /// An error happened during Acton execution
+    /// An error happened during Action execution
     ActionError(ActionError),
     /// An error happened during Transaction execution
     InvalidTxError(InvalidTxError),
