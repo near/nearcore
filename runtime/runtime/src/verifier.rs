@@ -445,6 +445,7 @@ fn test_truncate_string() {
         let got = truncate_string(input, limit);
         assert_eq!(got, want)
     }
+    check("", 10, "");
     check("hello", 0, "");
     check("hello", 2, "he");
     check("hello", 4, "hell");

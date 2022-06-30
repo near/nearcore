@@ -2726,7 +2726,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         block_hash: CryptoHash::default(),
     };
 
-    // Run the transaction & collect the logs.
+    // Run the transaction, it should pass as we don't do validation at this protocol version.
     {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
@@ -2756,7 +2756,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         }
     }
 
-    // Re-run the transaction.
+    // Re-run the transaction, now it fails due to invalid account id.
     {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
