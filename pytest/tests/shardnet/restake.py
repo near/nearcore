@@ -11,13 +11,7 @@ import mocknet
 from configured_logger import logger
 
 
-def retry_if_nonzero(result):
-    return result != 0
-
-
-@retry(retry_on_result=retry_if_nonzero,
-       wait_fixed=2000,
-       stop_max_attempt_number=3)
+@retry(retry_on_result=bool, wait_fixed=2000, stop_max_attempt_number=3)
 def create_account(node, near_pk, near_sk):
     node.machine.upload('tests/shardnet/scripts/create_account.sh',
                         '/home/ubuntu',
