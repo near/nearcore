@@ -120,16 +120,18 @@ pub(crate) fn dump_tx(
     select_account_ids: Option<&Vec<AccountId>>,
     output_path: Option<String>,
 ) -> Result<(), Error> {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
     let mut txs = vec![];
     for height in start_height..=end_height {
-        let hash = chain_store.get_block_hash_by_height(height)?;
-        let block = chain_store.get_block(&hash)?;
-        txs.extend(dump_tx_from_block(&mut chain_store, &block, select_account_ids));
+        let hash_result = chain_store.get_block_hash_by_height(height);
+        if let Ok(hash) = hash_result {
+            let block = chain_store.get_block(&hash)?;
+            txs.extend(dump_tx_from_block(&chain_store, &block, select_account_ids));
+        }
     }
     let json_path = match output_path {
         Some(path) => PathBuf::from(path),
