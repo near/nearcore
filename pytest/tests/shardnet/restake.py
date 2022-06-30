@@ -10,11 +10,14 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet
 from configured_logger import logger
 
+
 def retry_if_nonzero(result):
     return result != 0
 
 
-@retry(retry_on_result=retry_if_nonzero, wait_fixed=2000, stop_max_attempt_number=3)
+@retry(retry_on_result=retry_if_nonzero,
+       wait_fixed=2000,
+       stop_max_attempt_number=3)
 def create_account(node, near_pk, near_sk):
     node.machine.upload('tests/shardnet/scripts/create_account.sh',
                         '/home/ubuntu',
@@ -36,7 +39,9 @@ def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk,
         try:
             create_account(node, near_pk, near_sk)
         except RetryError:
-            logger.error(f'Skipping stake step after errors running create_account.sh on {node.instance_name}')
+            logger.error(
+                f'Skipping stake step after errors running create_account.sh on {node.instance_name}'
+            )
             return
 
     node.machine.upload('tests/shardnet/scripts/restaked.sh',
