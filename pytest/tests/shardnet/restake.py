@@ -2,6 +2,7 @@ import argparse
 import shlex
 import random
 import sys
+from retrying import retry, RetryError
 from rc import pmap
 import pathlib
 
@@ -9,7 +10,11 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import mocknet
 from configured_logger import logger
 
+def retry_if_nonzero(result):
+    return result != 0
 
+
+@retry(retry_on_result=retry_if_nonzero, wait_fixed=2000, stop_max_attempt_number=3)
 def create_account(node, near_pk, near_sk):
     node.machine.upload('tests/shardnet/scripts/create_account.sh',
                         '/home/ubuntu',
@@ -18,14 +23,21 @@ def create_account(node, near_pk, near_sk):
         bash /home/ubuntu/create_account.sh {near_pk} {near_sk} 1>/home/ubuntu/create_account.out 2>/home/ubuntu/create_account.err
     '''.format(near_pk=shlex.quote(near_pk), near_sk=shlex.quote(near_sk))
     logger.info(f'Creating an account on {node.instance_name}: {s}')
-    node.machine.run('bash', input=s)
+    result = node.machine.run('bash', input=s)
+    if result.returncode != 0:
+        logger.error(f'error running create_account.sh on {node.instance_name}')
+    return result.returncode
 
 
 def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk,
                      need_create_accounts):
     if need_create_accounts and not node.instance_name.startswith(
             'shardnet-boot'):
-        create_account(node, near_pk, near_sk)
+        try:
+            create_account(node, near_pk, near_sk)
+        except RetryError:
+            logger.error(f'Skipping stake step after errors running create_account.sh on {node.instance_name}')
+            return
 
     node.machine.upload('tests/shardnet/scripts/restaked.sh',
                         '/home/ubuntu',
