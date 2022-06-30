@@ -71,10 +71,14 @@ protocol_feature_chunk_only_producers = [
   "near-client/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
+protocol_feature_account_id_in_function_call_permission = [
+  "near-primitives/protocol_feature_account_id_in_function_call_permission"
+]
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
   "protocol_feature_chunk_only_producers",
+  "protocol_feature_account_id_in_function_call_permission",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [
