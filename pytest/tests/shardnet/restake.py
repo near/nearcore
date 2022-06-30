@@ -21,8 +21,7 @@ def create_account(node, near_pk, near_sk):
     node.machine.run('bash', input=s)
 
 
-def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk,
-                     need_create_accounts):
+def restart_restaked(node, delay_sec, near_pk, near_sk, need_create_accounts):
     if need_create_accounts and not node.instance_name.startswith(
             'shardnet-boot'):
         create_account(node, near_pk, near_sk)
@@ -41,16 +40,13 @@ def restart_restaked(node, restaked_url, delay_sec, near_pk, near_sk,
 if __name__ == '__main__':
     logger.info('Starting restaker.')
     parser = argparse.ArgumentParser(description='Run restaker')
-    parser.add_argument('--restaked-url', required=True)
     parser.add_argument('--delay-sec', type=int, required=True)
     parser.add_argument('--near-pk', required=True)
     parser.add_argument('--near-sk', required=True)
     parser.add_argument('--create-accounts', default=False, action='store_true')
     args = parser.parse_args()
 
-    restaked_url = args.restaked_url
     delay_sec = args.delay_sec
-    assert restaked_url
     assert delay_sec
     near_pk = args.near_pk
     near_sk = args.near_sk
@@ -60,6 +56,5 @@ if __name__ == '__main__':
     random.shuffle(all_machines)
 
     pmap(
-        lambda machine:
-        restart_restaked(machine, restaked_url, delay_sec, near_pk, near_sk,
-                         need_create_accounts), all_machines)
+        lambda machine: restart_restaked(machine, delay_sec, near_pk, near_sk,
+                                         need_create_accounts), all_machines)
