@@ -153,3 +153,5 @@ max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
+stack_limiter_version: 0
+account_id_validity_rules_version: 0
