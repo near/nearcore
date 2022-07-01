@@ -732,7 +732,10 @@ impl ShardsManager {
     }
 
     /// Check whether the node should wait for chunk parts being forwarded to it
-    /// Chunks will be forwarded to validators if feature ForwardChunkParts is enabled
+    /// The node will wait if it's a block producer or a chunk producer that is responsible
+    /// for producing the next chunk in this shard.
+    /// `prev_hash`: previous block hash of the chunk that we are requesting
+    /// `next_chunk_height`: height of the next chunk of the chunk that we are requesting
     fn should_wait_for_chunk_forwarding(
         &self,
         prev_hash: &CryptoHash,

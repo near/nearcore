@@ -68,9 +68,16 @@ struct KVState {
     tx_nonces: HashSet<AccountNonce>,
 }
 
+/// Stores the validator information in an epoch.
+/// Block producers are specified by `block_producers`
+/// Chunk producers have two types, validators who are also block producers and chunk only producers.
+/// Block producers are assigned to shards via another field in `validator_groups` in `KeyValueRuntime`.
+/// Each shard will have `block_producers.len() / validator_groups` of validators who are also block
+/// producers
 struct EpochValidatorSet {
     block_producers: Vec<ValidatorStake>,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    /// index of this list is shard_id
     chunk_only_producers: Vec<Vec<ValidatorStake>>,
 }
 
@@ -79,10 +86,14 @@ pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
     /// A pre determined list of validator sets. We rotate validator set in this list.
+    /// Epoch i uses validators from `validators_by_valset[i % validators_by_valset.len()]`.
     validators_by_valset: Vec<EpochValidatorSet>,
     /// Maps from account id to validator stake for all validators, both block producers and
     /// chunk producers
     validators: HashMap<AccountId, ValidatorStake>,
+    /// This number determines how block producers are assigned to be chunk producers. Each
+    /// shard will have total_block_producers / validator_groups of block producers to produce
+    /// its chunks.
     validator_groups: u64,
     num_shards: NumShards,
     epoch_length: u64,
