@@ -1390,12 +1390,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c97b9233581d84b8e1e689cdd3a47b6f69770084fc246e86a7f78b0d9c1d4a5"
 
 [[package]]
-name = "doc-comment"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
-
-[[package]]
 name = "dtoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5356,11 +5350,12 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.14.3"
-source = "git+https://github.com/near/sysinfo?rev=3cb97ee79a02754407d2f0f63628f247d7c65e7b#3cb97ee79a02754407d2f0f63628f247d7c65e7b"
+version = "0.24.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d80929a3b477bce3a64360ca82bfb361eacce1dcb7b1fb31e8e5e181e37c212"
 dependencies = [
- "cfg-if 0.1.10",
- "doc-comment",
+ "cfg-if 1.0.0",
+ "core-foundation-sys",
  "libc",
  "ntapi",
  "once_cell",
