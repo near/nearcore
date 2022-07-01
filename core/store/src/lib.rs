@@ -76,6 +76,10 @@ impl Store {
         Store { storage }
     }
 
+    pub fn into_inner(self) -> Arc<dyn Database> {
+        self.storage
+    }
+
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let value = self
             .storage

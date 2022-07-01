@@ -4,7 +4,7 @@ version = "0.0.0"
 publish = false
 authors = ["Near Inc <hello@nearprotocol.com>"]
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -17,4 +17,4 @@ rand = { version = "0.8.0", features = ["small_rng"] }
 arbitrary = "1.1.0"
 
 [features]
-nightly = [] 
+nightly = []

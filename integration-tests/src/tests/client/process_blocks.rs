@@ -2478,8 +2478,9 @@ fn test_refund_receipts_processing() {
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    // set gas limit to be small
-    genesis.config.gas_limit = 1_000_000;
+    // Set gas limit to be small enough to produce some delay receipts, but
+    // large enough for transactions to get through.
+    genesis.config.gas_limit = 100_000_000;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
@@ -2639,20 +2640,7 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&tip.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction.
     let logs_at_new_version = {
@@ -2738,23 +2726,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         }
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&tip.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
-        for i in 0..6 {
-            env.produce_block(0, tip.height + i + 2);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction, now it fails due to invalid account id.
     {
@@ -3483,26 +3455,7 @@ fn verify_contract_limits_upgrade(
         env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let mut last_block_hash = tip.last_block_hash;
-        for i in 0..2 * epoch_length {
-            let height = tip.height + i + 1;
-            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&last_block_hash)
-                .unwrap();
-            let block_producer =
-                env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-            last_block_hash = *block.header().hash();
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction & get tx outcome.
     let new_outcome = {
@@ -3633,26 +3586,7 @@ fn test_deploy_cost_increased() {
 
     let old_outcome = deploy_contract(&mut env, 10);
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let mut last_block_hash = tip.last_block_hash;
-        for i in 0..2 * epoch_length {
-            let height = tip.height + i + 1;
-            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&last_block_hash)
-                .unwrap();
-            let block_producer =
-                env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-            last_block_hash = *block.header().hash();
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     let new_outcome = deploy_contract(&mut env, 11);
 
@@ -4989,26 +4923,7 @@ mod lower_storage_key_limit_test {
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
 
-        // Move to the new protocol version.
-        {
-            let tip = env.clients[0].chain.head().unwrap();
-            let mut last_block_hash = tip.last_block_hash;
-            for i in 0..2 * epoch_length {
-                let height = tip.height + i + 1;
-                let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-                let epoch_id = env.clients[0]
-                    .runtime_adapter
-                    .get_epoch_id_from_prev_block(&last_block_hash)
-                    .unwrap();
-                let block_producer =
-                    env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-                set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-                last_block_hash = *block.header().hash();
-                env.process_block(0, block, Provenance::PRODUCED);
-            }
-        }
+        env.upgrade_protocol(new_protocol_version);
 
         // Re-run the transaction, check that execution fails.
         {

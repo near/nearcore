@@ -164,10 +164,8 @@ impl InfoHelper {
             Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
 
         let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
-            let proc = self
-                .sys
-                .get_process(pid)
-                .expect("refresh_process succeeds, this should be not None");
+            let proc =
+                self.sys.process(pid).expect("refresh_process succeeds, this should be not None");
             (proc.cpu_usage(), proc.memory())
         });
         let machine_info_log = proc_info.as_ref().map(|(cpu, mem)| {

@@ -1417,7 +1417,7 @@ impl ChainGenesis {
         ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: 10u64.pow(15),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
