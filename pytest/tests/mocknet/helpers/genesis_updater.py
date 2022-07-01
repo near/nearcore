@@ -16,6 +16,9 @@ import mocknet
 from configured_logger import logger
 
 
+def str_to_bool(arg):
+    return arg.lower() == 'true'
+
 def main(argv):
     logger.info(argv)
     assert len(argv) == 18
@@ -41,7 +44,7 @@ def main(argv):
         node_pks = argv[12].split(',')
     increasing_stakes = float(argv[13])
     num_seats = float(argv[14])
-    sharding = bool(argv[15])
+    single_shard = str_to_bool(argv[15])
     all_node_pks = None
     if argv[16]:
         all_node_pks = argv[16].split(',')
@@ -77,7 +80,7 @@ def main(argv):
                                 node_pks=node_pks,
                                 increasing_stakes=increasing_stakes,
                                 num_seats=num_seats,
-                                sharding=sharding)
+                                single_shard=single_shard)
     mocknet.update_config_file(config_filename_in, config_filename_out,
                                all_node_pks, node_ips)
 
