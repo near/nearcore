@@ -39,7 +39,7 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
@@ -1440,6 +1440,33 @@ impl TestEnv {
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.clients[id].process_tx(tx, false, false)
+    }
+
+    pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
+        assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
+
+        let tip = self.clients[0].chain.head().unwrap();
+        let epoch_id = self.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+
+        let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            block_producer.clone(),
+            KeyType::ED25519,
+            block_producer.as_ref(),
+        ));
+
+        let (_, res) = self.clients[0].process_block(block.into(), Provenance::NONE);
+        assert!(res.is_ok());
+
+        for i in 0..self.clients[0].chain.epoch_length * 2 {
+            self.produce_block(0, tip.height + i + 2);
+        }
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
