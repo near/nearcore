@@ -93,6 +93,8 @@ pub fn setup(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]],
         validator_groups,
         num_shards,
         epoch_length,
@@ -184,6 +186,8 @@ pub fn setup_only_view(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]],
         validator_groups,
         num_shards,
         epoch_length,

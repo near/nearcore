@@ -33,6 +33,13 @@ near-logger-utils = { path = "../../test-utils/logger" }
 assert_matches = "1.5.0"
 
 [features]
+protocol_feature_chunk_only_producers = [
+    "near-primitives/protocol_feature_chunk_only_producers",
+    "near-chain/protocol_feature_chunk_only_producers",
+]
+nightly = [
+    "protocol_feature_chunk_only_producers"
+]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 test_features = []
