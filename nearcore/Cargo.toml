@@ -68,7 +68,7 @@ near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 
 [[bench]]
 name = "store"
