@@ -4785,7 +4785,6 @@ dependencies = [
  "rand_xorshift 0.2.0",
  "rocksdb",
  "serde_json",
- "sha256",
  "tempfile",
  "tracing",
  "tracing-span-tree",
@@ -5125,16 +5124,6 @@ dependencies = [
  "cfg-if 1.0.0",
  "cpufeatures",
  "digest 0.10.3",
-]
-
-[[package]]
-name = "sha256"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e84a7f596c081d359de5e06a83877138bc3c4483591e1af1916e1472e6e146e"
-dependencies = [
- "hex",
- "sha2 0.9.9",
 ]
 
 [[package]]
