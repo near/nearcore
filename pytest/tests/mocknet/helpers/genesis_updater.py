@@ -19,6 +19,7 @@ from configured_logger import logger
 def str_to_bool(arg):
     return arg.lower() == 'true'
 
+
 def main(argv):
     logger.info(argv)
     assert len(argv) == 18

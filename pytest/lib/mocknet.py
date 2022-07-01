@@ -472,8 +472,9 @@ def create_and_upload_genesis(validator_nodes,
                 '/home/ubuntu/.near/records.json', config_filename_in,
                 '/home/ubuntu/.near/config.json', chain_id,
                 validator_node_names, rpc_node_names, done_filename,
-                epoch_length, node_pks, increasing_stakes, num_seats, single_shard,
-                all_node_pks, node_ips), validator_nodes + rpc_nodes)
+                epoch_length, node_pks, increasing_stakes, num_seats,
+                single_shard, all_node_pks, node_ips),
+            validator_nodes + rpc_nodes)
         pmap(lambda node: wait_genesis_updater_done(node, done_filename),
              validator_nodes + rpc_nodes)
 
@@ -853,8 +854,8 @@ def start_genesis_updater(node, script, genesis_filename_in,
                           records_filename_out, config_filename_in,
                           config_filename_out, chain_id, validator_nodes,
                           rpc_nodes, done_filename, epoch_length, node_pks,
-                          increasing_stakes, num_seats, single_shard, all_node_pks,
-                          node_ips):
+                          increasing_stakes, num_seats, single_shard,
+                          all_node_pks, node_ips):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
