@@ -62,6 +62,7 @@ pub(crate) fn dump_state(
     near_config: NearConfig,
     store: Store,
     account_ids: Option<&Vec<AccountId>>,
+    validator_cap: Option<usize>,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -72,6 +73,12 @@ pub(crate) fn dump_state(
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
 
+    if let Some(n) = validator_cap {
+        if n <= 0 {
+            println!("Error in dump_state: validator cap must be at least 1.");
+            std::process::exit(1);
+        }
+    }
     if stream {
         let output_dir = file.unwrap_or(home_dir.join("output"));
         let records_path = output_dir.join("records.json");
@@ -82,12 +89,20 @@ pub(crate) fn dump_state(
             &near_config,
             Some(&records_path),
             account_ids,
+            validator_cap,
         );
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
         new_near_config.save_to_dir(&output_dir);
     } else {
-        let new_near_config =
-            state_dump(runtime, &state_roots, header, &near_config, None, account_ids);
+        let new_near_config = state_dump(
+            runtime,
+            &state_roots,
+            header,
+            &near_config,
+            None,
+            account_ids,
+            validator_cap,
+        );
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);

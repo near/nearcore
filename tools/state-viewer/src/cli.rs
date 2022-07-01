@@ -119,11 +119,17 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
-    /// List of account IDs to dump.
-    /// Note: validators will always be dumped.
+    /// List of only account IDs to dump.
+    /// If set, account IDs not listed will not be dumped.
     /// If not set, all account IDs will be dumped.
+    /// Note: validators aren't subject to this param. They always get dumped unless a restriction
+    /// of validator cap applies.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// Maximum number of validators in the genesis file output.
+    /// If set, only the first X (as set) validators will appear in the final genesis.
+    #[clap(long)]
+    validator_cap: Option<usize>,
 }
 
 impl DumpStateCmd {
@@ -136,6 +142,7 @@ impl DumpStateCmd {
             near_config,
             store,
             self.account_ids.as_ref(),
+            self.validator_cap,
         );
     }
 }

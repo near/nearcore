@@ -29,6 +29,7 @@ pub fn state_dump(
     near_config: &NearConfig,
     records_path: Option<&Path>,
     select_account_ids: Option<&Vec<AccountId>>,
+    validator_cap: Option<usize>,
 ) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -65,6 +66,9 @@ pub fn state_dump(
         })
         .collect();
     genesis_config.validators.sort_by_key(|account_info| account_info.account_id.clone());
+    if let Some(n) = validator_cap {
+        genesis_config.validators.truncate(n);
+    }
     // Record the protocol version of the latest block. Otherwise, the state
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
@@ -374,6 +378,7 @@ mod test {
             &near_config,
             Some(&records_file.path().to_path_buf()),
             None,
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -447,6 +452,7 @@ mod test {
             &near_config,
             None,
             Some(&select_account_ids),
+            None,
         );
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
@@ -503,6 +509,7 @@ mod test {
             &near_config,
             None,
             None,
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -542,6 +549,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
@@ -586,6 +594,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
@@ -669,6 +678,7 @@ mod test {
             &near_config,
             Some(&records_file.path().to_path_buf()),
             None,
+            None,
         );
     }
 
@@ -737,6 +747,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
