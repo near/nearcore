@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
@@ -45,11 +45,13 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_chunk_only_producers = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
+protocol_feature_account_id_in_function_call_permission = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_account_id_in_function_call_permission",
 ]
 nightly_protocol = []
 

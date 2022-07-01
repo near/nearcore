@@ -165,6 +165,9 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
+    /// Charge for contract loading before it happens.
+    #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
+    AccountIdInFunctionCallPermission,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -179,7 +182,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 cfg_if::cfg_if! {
     if #[cfg(feature = "nightly_protocol")] {
         /// Current latest nightly version of the protocol.
-        pub const PROTOCOL_VERSION: ProtocolVersion = 129;
+        pub const PROTOCOL_VERSION: ProtocolVersion = 130;
     } else if #[cfg(feature = "shardnet")] {
         /// Protocol version for shardnet.
         pub const PROTOCOL_VERSION: ProtocolVersion = 100;
@@ -251,6 +254,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
+            #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
+            ProtocolFeature::AccountIdInFunctionCallPermission => 130,
         }
     }
 }

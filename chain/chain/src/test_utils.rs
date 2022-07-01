@@ -1330,7 +1330,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader) {
+    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader).map(Result::unwrap) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()

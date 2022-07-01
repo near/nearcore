@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [dependencies]
@@ -71,10 +71,14 @@ protocol_feature_chunk_only_producers = [
   "near-client/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
+protocol_feature_account_id_in_function_call_permission = [
+  "near-primitives/protocol_feature_account_id_in_function_call_permission"
+]
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
   "protocol_feature_chunk_only_producers",
+  "protocol_feature_account_id_in_function_call_permission",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [

@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [[bin]]
@@ -22,7 +22,6 @@ borsh = "0.9"
 num-rational = "0.3"
 anyhow = "1"
 chrono = "0.4"
-sha256 = "1.0.2"
 bytesize = "1.1"
 tracing = "0.1"
 tracing-span-tree = "0.1"

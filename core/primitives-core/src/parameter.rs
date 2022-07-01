@@ -171,6 +171,7 @@ pub enum Parameter {
     MaxFunctionsNumberPerContract,
     Wasmer2StackLimit,
     MaxLocalsPerContract,
+    AccountIdValidityRulesVersion,
 }
 
 #[derive(
@@ -303,6 +304,7 @@ impl Parameter {
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
+            Parameter::AccountIdValidityRulesVersion,
         ]
         .iter()
     }

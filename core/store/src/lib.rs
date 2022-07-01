@@ -25,8 +25,8 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBOp, DBTransaction, Database, RocksDB, StoreStatistics, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY,
+    refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -76,6 +76,10 @@ impl Store {
         Store { storage }
     }
 
+    pub fn into_inner(self) -> Arc<dyn Database> {
+        self.storage
+    }
+
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let value = self
             .storage
@@ -106,10 +110,7 @@ impl Store {
         StoreUpdate::new(Arc::clone(&self.storage))
     }
 
-    pub fn iter<'a>(
-        &'a self,
-        column: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    pub fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
         self.storage.iter(column)
     }
 
@@ -119,18 +120,11 @@ impl Store {
     /// This method is a deliberate escape hatch, and shouldn't be used outside
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
-    pub fn iter_raw_bytes<'a>(
-        &'a self,
-        column: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    pub fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
         self.storage.iter_raw_bytes(column)
     }
 
-    pub fn iter_prefix<'a>(
-        &'a self,
-        column: DBCol,
-        key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         self.storage.iter_prefix(column, key_prefix)
     }
 
@@ -141,13 +135,14 @@ impl Store {
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
         self.storage
             .iter_prefix(column, key_prefix)
-            .map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
+            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
     pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
         let mut file = BufWriter::new(file);
-        for (key, value) in self.storage.iter_raw_bytes(column) {
+        for item in self.storage.iter_raw_bytes(column) {
+            let (key, value) = item?;
             file.write_u32::<LittleEndian>(key.len() as u32)?;
             file.write_all(&key)?;
             file.write_u32::<LittleEndian>(value.len() as u32)?;
@@ -722,8 +717,8 @@ mod tests {
         }
         update.commit().unwrap();
 
-        fn collect<'a>(iter: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)>) -> Vec<Box<[u8]>> {
-            iter.map(|(key, _)| key).collect()
+        fn collect<'a>(iter: crate::db::DBIterator<'a>) -> Vec<Box<[u8]>> {
+            iter.map(Result::unwrap).map(|(key, _)| key).collect()
         }
 
         // Check that full scan produces keys in proper order.

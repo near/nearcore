@@ -12,20 +12,20 @@ while true; do
   NEAR_ENV=shardnet near --nodeUrl=http://127.0.0.1:3030 proposals | grep ${account_id}
   if [ $? -eq 0 ]; then
     # Already in the proposals.
-    echo 'Found in the proposals'
+    echo "$(date): Found in the proposals"
     skip=1
   fi
   NEAR_ENV=shardnet near --nodeUrl=http://127.0.0.1:3030 validators current | grep ${account_id}
   if [ $? -eq 0 ]; then
     # Is currently a validator.
-    echo 'Currently a validator'
+    echo "$(date): Currently a validator"
     skip=1
   fi
   if [ ${skip} -eq 0 ]; then
     # Not skipping, do the staking.
-    echo 'Doing restaking'
+    echo "$(date): Doing restaking"
     NEAR_ENV=shardnet near --nodeUrl=http://127.0.0.1:3030 stake ${account_id} ${staking_key} ${amount}
   fi
-  echo 'Sleeping'
+  echo "$(date): Sleeping for ${delay_sec} seconds"
   sleep ${delay_sec}
 done

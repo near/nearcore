@@ -161,6 +161,10 @@ impl PeerStore {
             .map_or(false, |known_peer_state| known_peer_state.status.is_banned())
     }
 
+    pub(crate) fn count_banned(&self) -> usize {
+        self.peer_states.values().filter(|st| st.status.is_banned()).count()
+    }
+
     pub(crate) fn peer_connected(
         &mut self,
         clock: &time::Clock,
