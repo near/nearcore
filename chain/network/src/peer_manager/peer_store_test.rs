@@ -237,6 +237,7 @@ fn check_add_peers_overriding() {
 fn check_ignore_blacklisted_peers() {
     let clock = time::FakeClock::default();
 
+    #[track_caller]
     fn assert_peers(peer_store: &PeerStore, expected: &[&PeerId]) {
         let expected: HashSet<&PeerId> = HashSet::from_iter(expected.iter().cloned());
         let got = HashSet::from_iter(peer_store.peer_states.keys());
@@ -327,6 +328,7 @@ fn remove_blacklisted_peers_from_store() {
     assert_peers_in_store(&opener, &peer_ids[0..2]);
 }
 
+#[track_caller]
 fn assert_peers_in_store(opener: &StoreOpener, want: &[PeerId]) {
     let store = store::Store::from(opener.open());
     let got: HashSet<PeerId> = store.list_peer_states().unwrap().into_iter().map(|x| x.0).collect();
@@ -334,6 +336,7 @@ fn assert_peers_in_store(opener: &StoreOpener, want: &[PeerId]) {
     assert_eq!(got, want);
 }
 
+#[track_caller]
 fn assert_peers_in_cache(
     peer_store: &PeerStore,
     expected_peers: &[PeerId],
