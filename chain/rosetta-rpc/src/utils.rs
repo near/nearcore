@@ -72,7 +72,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
+#[derive(Debug, Clone, Eq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
@@ -91,6 +91,15 @@ where
 {
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T> PartialEq for BlobInHexString<T>
+where
+    T: AsRef<[u8]> + From<Vec<u8>>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self == other
     }
 }
 

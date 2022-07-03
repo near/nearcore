@@ -358,6 +358,7 @@ async fn account_balance(
             .await?
             .runtime_config;
 
+    let account_id_for_access_key = account_identifier.address.clone();
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
@@ -383,6 +384,22 @@ async fn account_balance(
     } else {
         account_balances.liquid
     };
+    let public_keys = account_identifier.metadata.unwrap();
+    let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
+        errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
+    })?;
+    let (_block_hash, _block_height, access_key) = crate::utils::query_access_key(
+        near_primitives::types::BlockReference::latest(),
+        account_id_for_access_key.into(),
+        (&signer_public_access_key).try_into().map_err(|err| {
+            errors::ErrorKind::InvalidInput(format!(
+                "public key could not be parsed due to: {:?}",
+                err
+            ))
+        })?,
+        &view_client_addr,
+    )
+    .await?;
 
     Ok(Json(models::AccountBalanceResponse {
         block_identifier: models::BlockIdentifier {
@@ -390,6 +407,7 @@ async fn account_balance(
             index: block_height.try_into().unwrap(),
         },
         balances: vec![models::Amount::from_yoctonear(balance)],
+        metadata: Some(access_key.nonce),
     }))
 }
 
@@ -461,6 +479,7 @@ async fn construction_derive(
         account_identifier: models::AccountIdentifier {
             address: address.parse().unwrap(),
             sub_account: None,
+            metadata: None,
         },
     }))
 }
@@ -487,6 +506,7 @@ async fn construction_preprocess(
         required_public_keys: vec![models::AccountIdentifier {
             address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
+            metadata: None,
         }],
         options: models::ConstructionMetadataOptions {
             signer_account_id: near_actions.sender_account_id.into(),
