@@ -633,7 +633,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
-        self.gas_counter.pay_base(base)?;
+        self.gas_counter.pay_base(new_host_function_cost)?;
         Ok(self.context.block_index)
     }
 

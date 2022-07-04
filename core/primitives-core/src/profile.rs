@@ -326,6 +326,7 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element } => 67,
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => 68,
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element } => 69,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::new_host_function_cost} => 70,
         }
     }
 }

@@ -167,6 +167,8 @@ pub enum Cost {
     /// contract function that does nothing. Divide the difference by the number
     /// of host function calls.
     HostFunctionCall,
+
+    NewHostFunctionCost,
     /// Estimates `wasm_config.regular_op_cost` which is charged for every
     /// executed WASM operation in function calls, as counted dynamically during
     /// execution.

@@ -91,6 +91,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
 
     let res = ExtCostsConfig {
         base: get(Cost::HostFunctionCall)?,
+        new_host_function_cost: get(Cost::NewHostFunctionCost)?,
         contract_loading_base: 0,
         contract_loading_bytes: 0,
         read_memory_base: get(Cost::ReadMemoryBase)?,
