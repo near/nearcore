@@ -157,7 +157,20 @@ impl TrieViewer {
             });
         }
         // TODO(2076): Add proofs for the storage items.
-        Ok(ViewStateResult { values, proof: vec![] })
+        let trie = state_update.trie();
+        let root = state_update.get_root();
+
+        let proof = trie
+            .get_proof(&root, &query)?
+            .unwrap_or_else(|| vec![])
+            .iter()
+            .map(|level| {
+                serde_json::to_string(level).map_err(|e| errors::ViewStateError::InternalError {
+                    error_message: e.to_string(),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(ViewStateResult { values, proof })
     }
 
     pub fn call_function(

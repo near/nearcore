@@ -147,6 +147,19 @@ fn test_view_state() {
         result.values,
         [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: vec![] }]
     );
+    assert_eq!(result.proof, vec![
+        "{\"Leaf\":[[32,50,51],3,\"CCYa6DM7NuL4iPoSM4PvtYMRcHFydKhD5oRSXx3jfxCS\",109]}",
+        "{\"Branch\":[[null,null,null,\"7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM\",null,null,null,null,null,null,null,null,null,null,null,null],null,268,1]}",
+        "{\"Extension\":[[22,82,230,230,86,23,34,199,70,87,55,67],\"EeJvs6otTUKtsbpfcgm59ePFGw7QMB5G37hAVAS6n341\",342]}",
+        "{\"Branch\":[[null,null,null,null,null,null,null,null,null,null,null,null,null,null,\"EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP\",null],null,507,3]}",
+        "{\"Extension\":[[22],\"GqYVVbkA7nvAEuCsvKZdWQ7Ddc5e9bNsfVhTTusWyvup\",559]}",
+        "{\"Branch\":[[null,null,null,null,null,\"GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR\",null,null,null,null,null,null,null,null,null,null],null,724,9]}",
+        "{\"Extension\":[[22,22,198],\"HCEH9UoyeZUv5UDgu9QpFTxWoFGPMrS4VAV2TZHzSLjw\",780]}",
+        "{\"Branch\":[[\"AiXLWveEY8TaGC8tdVgA569sUts5deHAXdSV8GK47ybs\",\"5Qq464J77YikDUSNvqbzcy41Pr3EgcURGQU45aDxRJwJ\",\"CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N\",null,null,null,null,null,null,null,null,null,null,null,null,null],null,97630,9]}",
+        "{\"Extension\":[[16],\"6B2caw6bch1RhnxjSm9pe3YX14TgZ6ieEM9SUxaWfmi5\",97682]}"
+    ]);
+    // TODO: understand why only when prefix is test123 the proof is not empty. Seems like there's an issue on the implementation
+    // of proof retrieval
 }
 
 #[test]

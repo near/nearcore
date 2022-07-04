@@ -12,6 +12,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{StateRoot, StateRootNode};
+use serde::{Deserialize, Serialize};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -115,7 +116,7 @@ impl TrieNodeWithSize {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Level {
     Leaf(Vec<u8>, u32, CryptoHash, u64),
     Extension((Vec<u8>, CryptoHash, u64)),
@@ -1342,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    fn asdasd() {
+    fn test_create_and_verify_proof() {
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
