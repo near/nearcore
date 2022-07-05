@@ -290,6 +290,16 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
 
+    /// Cost of getting sha3 512 base
+    pub sha3512_base: Gas,
+    /// Cost of getting sha3 512 per byte
+    pub sha3512_byte: Gas,
+
+    /// Cost of getting blake2 256 base
+    pub blake2_256_base: Gas,
+    /// Cost of getting blake2 256 per byte
+    pub blake2_256_byte: Gas,
+
     /// Cost of getting sha256 base
     pub keccak256_base: Gas,
     /// Cost of getting sha256 per byte
@@ -453,6 +463,10 @@ impl ExtCostsConfig {
             utf16_decoding_byte: SAFETY_MULTIPLIER * 54525831,
             sha256_base: SAFETY_MULTIPLIER * 1513656750,
             sha256_byte: SAFETY_MULTIPLIER * 8039117,
+            sha3512_base: SAFETY_MULTIPLIER * 1513656750,
+            sha3512_byte: SAFETY_MULTIPLIER * 8039117,
+            blake2_256_base: SAFETY_MULTIPLIER * 1513656750,
+            blake2_256_byte: SAFETY_MULTIPLIER * 8039117,
             keccak256_base: SAFETY_MULTIPLIER * 1959830425,
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
@@ -524,6 +538,10 @@ impl ExtCostsConfig {
             utf16_decoding_byte: 0,
             sha256_base: 0,
             sha256_byte: 0,
+            sha3512_base: 0,
+            sha3512_byte: 0,
+            blake2_256_base: 0,
+            blake2_256_byte: 0,
             keccak256_base: 0,
             keccak256_byte: 0,
             keccak512_base: 0,
@@ -597,6 +615,10 @@ pub enum ExtCosts {
     utf16_decoding_byte,
     sha256_base,
     sha256_byte,
+    sha3512_base,
+    sha3512_byte,
+    blake2_256_base,
+    blake2_256_byte,
     keccak256_base,
     keccak256_byte,
     keccak512_base,
@@ -682,6 +704,10 @@ impl ExtCosts {
             utf16_decoding_byte => config.utf16_decoding_byte,
             sha256_base => config.sha256_base,
             sha256_byte => config.sha256_byte,
+            sha3512_base => config.sha3512_base,
+            sha3512_byte => config.sha3512_byte,
+            blake2_256_base => config.blake2_256_base,
+            blake2_256_byte => config.blake2_256_byte,
             keccak256_base => config.keccak256_base,
             keccak256_byte => config.keccak256_byte,
             keccak512_base => config.keccak512_base,

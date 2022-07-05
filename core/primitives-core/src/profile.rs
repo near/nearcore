@@ -215,10 +215,6 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte },
         Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_byte },
         Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::log_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte },
@@ -256,6 +252,14 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_element },
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_base },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_base },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_base },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_byte },
     ];
 
     pub fn index(self) -> usize {
@@ -334,6 +338,10 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte } => 71,
             Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_base } => 72,
             Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_byte } => 73,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_base } => 74,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_byte } => 75,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_base } => 76,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_byte } => 77,
         }
     }
 }

@@ -1007,19 +1007,20 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
     pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        // TODO: gas
+        self.gas_counter.pay_base(sha3512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         use sha3::Digest;
 
+        self.gas_counter.pay_per(sha3512_byte, value.len() as u64)?;
         let value_hash = sha3::Sha3_512::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     pub fn blake2_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        // TODO: gas
+        self.gas_counter.pay_base(blake2_256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         use blake2::Digest;
-
+        self.gas_counter.pay_per(blake2_256_byte, value.len() as u64)?;
         let value_hash = blake2::Blake2s256::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }

@@ -518,6 +518,19 @@ fn test_sha3_512() {
             126, 161, 14, 21, 118, 180, 231
         ]
     );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len() as _,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::sha3512_base: 1,
+        ExtCosts::sha3512_byte: data.len() as _,
+    });
 }
 
 #[test]
@@ -536,6 +549,19 @@ fn test_blake2_256() {
             128, 158, 77, 83, 102, 154, 217, 73, 171, 215, 178, 27, 176
         ]
     );
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: data.len() as _,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::blake2_256_base: 1,
+        ExtCosts::blake2_256_byte: data.len() as _,
+    });
 }
 
 #[test]
