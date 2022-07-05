@@ -1005,7 +1005,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3512_base + sha3512_byte * num_bytes`
     pub fn sha3_512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(sha3512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1016,6 +1016,16 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// Hashes the given value using sha256 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + blake2_256_base + blake2_256_byte * num_bytes`
     pub fn blake2_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(blake2_256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -2825,6 +2835,10 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Verify an ED25519 signature given a message and a public key.
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + ed25519_verify_base + ed25519_verify_byte * num_bytes`
+
     pub fn ed25519_verify(
         &mut self,
         sig_len: u64,
@@ -2852,6 +2866,9 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Verify an Schnorrkel signature given a message and a public key.
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sr25519_verify_base + sr25519_verify_byte * num_bytes`
     pub fn sr25519_verify(
         &mut self,
         sig_len: u64,
