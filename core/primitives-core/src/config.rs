@@ -344,6 +344,11 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub sha256_byte: Gas,
 
+    /// Cost of getting sha512 base
+    pub sha512_base: Gas,
+    /// Cost of getting sha512 per byte
+    pub sha512_byte: Gas,
+
     /// Cost of getting sha3 512 base
     pub sha3512_base: Gas,
     /// Cost of getting sha3 512 per byte
@@ -517,6 +522,8 @@ impl ExtCostsConfig {
             utf16_decoding_byte: SAFETY_MULTIPLIER * 54525831,
             sha256_base: SAFETY_MULTIPLIER * 1513656750,
             sha256_byte: SAFETY_MULTIPLIER * 8039117,
+            sha512_base: SAFETY_MULTIPLIER * 1513656750,
+            sha512_byte: SAFETY_MULTIPLIER * 8039117,
             sha3512_base: SAFETY_MULTIPLIER * 1513656750,
             sha3512_byte: SAFETY_MULTIPLIER * 8039117,
             blake2_256_base: SAFETY_MULTIPLIER * 1513656750,
@@ -592,6 +599,8 @@ impl ExtCostsConfig {
             utf16_decoding_byte: 0,
             sha256_base: 0,
             sha256_byte: 0,
+            sha512_base: 0,
+            sha512_byte: 0,
             sha3512_base: 0,
             sha3512_byte: 0,
             blake2_256_base: 0,
@@ -671,6 +680,8 @@ pub enum ExtCosts {
     sha256_byte,
     sha3512_base,
     sha3512_byte,
+    sha512_base,
+    sha512_byte,
     blake2_256_base,
     blake2_256_byte,
     keccak256_base,
@@ -760,6 +771,8 @@ impl ExtCosts {
             sha256_byte => config.sha256_byte,
             sha3512_base => config.sha3512_base,
             sha3512_byte => config.sha3512_byte,
+            sha512_base => config.sha512_base,
+            sha512_byte => config.sha512_byte,
             blake2_256_base => config.blake2_256_base,
             blake2_256_byte => config.blake2_256_byte,
             keccak256_base => config.keccak256_base,

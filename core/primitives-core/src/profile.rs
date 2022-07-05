@@ -260,6 +260,8 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_byte },
         Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_byte },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sha512_base },
+        Cost::ExtCost { ext_cost_kind: ExtCosts::sha512_byte },
     ];
 
     pub fn index(self) -> usize {
@@ -342,6 +344,8 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::sha3512_byte } => 75,
             Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_base } => 76,
             Cost::ExtCost { ext_cost_kind: ExtCosts::blake2_256_byte } => 77,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha512_base } => 78,
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha512_byte } => 79,
         }
     }
 }

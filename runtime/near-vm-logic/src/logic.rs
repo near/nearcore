@@ -962,12 +962,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes + sha512_base + sha512_byte * num_bytes`
     pub fn sha512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        // TODO: gas
+        self.gas_counter.pay_base(sha512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         use sha2::Digest;
 
+        self.gas_counter.pay_per(sha512_byte, value.len() as u64)?;
         let value_hash = sha2::Sha512::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
@@ -981,16 +982,17 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + sha256_base + sha256_byte * num_bytes`
+    /// `base + write_register_base + write_register_byte * num_bytes + sha512_base + sha512_byte * num_bytes`
     pub fn sha512_truncated(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<()> {
-        // TODO: gas
+        self.gas_counter.pay_base(sha512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         use sha2::Digest;
+        self.gas_counter.pay_per(sha512_byte, value.len() as u64)?;
 
         let value_hash = sha2::Sha512::digest(&value);
         self.internal_write_register(register_id, value_hash.as_slice()[..32].to_vec())
