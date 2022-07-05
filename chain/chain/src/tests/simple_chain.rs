@@ -8,7 +8,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
-use num_rational::Rational;
+use num_rational::Ratio;
 use std::time::Instant;
 
 #[test]
@@ -39,7 +39,7 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"AzXEGtscMJaA5td3Nxdrmv2eC3SaYD2spydh3WDbRjAh");
+        insta::assert_display_snapshot!(hash, @"FxxmGH4peXwKR5C9YiSKjX7nWVg3zBuvjp9k5bTF1yDs");
     } else {
         insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
     }
@@ -68,7 +68,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"BkaWorGLVNsKyzS1HXXur1sNYDhSCssNvAnbP1TtW2az");
+        insta::assert_display_snapshot!(hash, @"43q5wcc9rdsocY2Htbk7vT88x6zkka5Vr17CQJUTkT9n");
     } else {
         insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
     }
@@ -95,7 +95,7 @@ fn build_chain_with_orhpans() {
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::from_integer(0),
         0,
         100,
         Some(0),

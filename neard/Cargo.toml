@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 default-run = "neard"
 
@@ -74,6 +74,11 @@ shardnet = [
   "near-primitives/shardnet",
   "protocol_feature_chunk_only_producers"
 ]
+
+# Compile with option to emit a detailed trace of IO operations and their
+# results that can be replayed on the estimator. To produce the output, compile
+# with this flag and then enable it at runtime with `--record-io-trace=path` option.
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
 sandbox = ["nearcore/sandbox"]
 

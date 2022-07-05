@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -29,12 +29,13 @@ blake2 = {version = "0.10.4" }
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-vm-errors = { path = "../near-vm-errors" }
 
 bn = { package = "zeropool-bn", version = "0.5.11", features = [] }
-tracing = { version = "0.1.13", optional = true}
+tracing = { version = "0.1.13", optional = true }
 
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }
@@ -45,7 +46,8 @@ default = []
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives/protocol_feature_fix_contract_loading_cost",
 ]
+io_trace = ["tracing"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
-sandbox = ["tracing", "near-primitives/sandbox"]
+sandbox = ["tracing","near-primitives/sandbox"]

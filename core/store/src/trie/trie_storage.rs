@@ -241,8 +241,12 @@ impl TrieStorage for TrieCachingStorage {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
         let val = match guard.get(hash) {
-            Some(val) => val.clone(),
+            Some(val) => {
+                near_o11y::io_trace!(count: "shard_cache_hit");
+                val.clone()
+            }
             None => {
+                near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
                 let val = self
@@ -260,6 +264,8 @@ impl TrieStorage for TrieCachingStorage {
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
+                } else {
+                    near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
                 val

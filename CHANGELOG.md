@@ -4,6 +4,13 @@
 
 ### Protocol Changes
 
+### Non-protocol Changes
+
+
+## 1.28.0 [2022-07-27]
+
+### Protocol Changes
+
 * Stabilized `alt_bn128_g1_multiexp`, `alt_bn128_g1_sum`, `alt_bn128_pairing_check` host functions [#6813](https://github.com/near/nearcore/pull/6813).
 
 ### Non-protocol Changes
@@ -19,7 +26,9 @@
 * Key files can use `private_key` field instead of `secret_key` now;
   this improves interoperability with near cli which uses the former
   name [#7030](https://github.com/near/nearcore/issues/7030)
-* Measure latency of network messages [#7050](https://github.com/near/nearcore/issues/7050)
+* Latency of network messages is now measured
+  [#7050](https://github.com/near/nearcore/issues/7050)
+
 
 ## 1.27.0 [2022-06-22]
 

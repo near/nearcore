@@ -92,6 +92,10 @@ pub struct VMLimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// Whether to enforce account_id well-formedness where it wasn't enforced
+    /// historically.
+    #[serde(default = "AccountIdValidityRulesVersion::v0")]
+    pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
 }
 
 fn wasmer2_stack_limit_default() -> i32 {
@@ -150,6 +154,55 @@ impl<'de> Deserialize<'de> for StackLimiterVersion {
         u32::deserialize(deserializer).and_then(|repr| {
             StackLimiterVersion::from_repr(repr)
                 .ok_or_else(|| serde::de::Error::custom("invalid stack_limiter_version"))
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum AccountIdValidityRulesVersion {
+    /// Skip account ID validation according to legacy rules.
+    V0,
+    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
+    V1,
+}
+
+impl AccountIdValidityRulesVersion {
+    fn v0() -> AccountIdValidityRulesVersion {
+        AccountIdValidityRulesVersion::V0
+    }
+    fn repr(self) -> u32 {
+        match self {
+            AccountIdValidityRulesVersion::V0 => 0,
+            AccountIdValidityRulesVersion::V1 => 1,
+        }
+    }
+    fn from_repr(repr: u32) -> Option<AccountIdValidityRulesVersion> {
+        let res = match repr {
+            0 => AccountIdValidityRulesVersion::V0,
+            1 => AccountIdValidityRulesVersion::V1,
+            _ => return None,
+        };
+        Some(res)
+    }
+}
+
+impl Serialize for AccountIdValidityRulesVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.repr().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AccountIdValidityRulesVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        u32::deserialize(deserializer).and_then(|repr| {
+            AccountIdValidityRulesVersion::from_repr(repr)
+                .ok_or_else(|| serde::de::Error::custom("invalid account_id_validity_rules"))
         })
     }
 }
@@ -234,6 +287,7 @@ impl VMLimitConfig {
             // necessary (they only take constant operands indicating the local to access), which
             // is 4 bytes worth of code for each local.
             max_locals_per_contract: Some(max_contract_size / 4),
+            account_id_validity_rules_version: AccountIdValidityRulesVersion::V1,
         }
     }
 }

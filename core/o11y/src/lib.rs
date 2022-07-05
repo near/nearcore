@@ -6,6 +6,7 @@ use clap::Parser;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use std::borrow::Cow;
+use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -15,6 +16,25 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{EnvFilter, Layer, Registry};
+
+/// Custom tracing subscriber implementation that produces IO traces.
+mod io_tracer;
+
+/// Produce a tracing-event for target "io_tracer" that will be consumed by the
+/// IO-tracer, if the feature has been enabled.
+#[macro_export]
+#[cfg(feature = "io_trace")]
+macro_rules! io_trace {
+    (count: $name:expr) => { tracing::trace!( target: "io_tracer_count", counter = $name) };
+    ($($fields:tt)*) => { tracing::trace!( target: "io_tracer", $($fields)*) };
+}
+
+#[macro_export]
+#[cfg(not(feature = "io_trace"))]
+macro_rules! io_trace {
+    (count: $name:expr) => {};
+    ($($fields:tt)*) => {};
+}
 
 static LOG_LAYER_RELOAD_HANDLE: OnceCell<
     Handle<
@@ -56,6 +76,8 @@ pub struct DefaultSubscriberGuard<S> {
     local_subscriber_guard: Option<tracing::subscriber::DefaultGuard>,
     #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
     writer_guard: tracing_appender::non_blocking::WorkerGuard,
+    #[allow(dead_code)] // This field is never read, but has semantic purpose as a drop guard.
+    io_trace_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
@@ -84,6 +106,10 @@ pub struct Options {
     /// Whether the log needs to be colored.
     #[clap(long, arg_enum, default_value = "auto")]
     color: ColorOutput,
+
+    /// Enable JSON output of IO events, written to a file.
+    #[clap(long)]
+    record_io_trace: Option<PathBuf>,
 }
 
 impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
@@ -191,6 +217,26 @@ fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
     }
 }
 
+/// The constructed layer writes storage and DB events in a custom format to a
+/// specified file.
+///
+/// This layer is useful to collect detailed IO access patterns for block
+/// production. Typically used for debugging IO and to replay on the estimator.
+#[cfg(feature = "io_trace")]
+pub fn make_io_tracing_layer<S>(
+    file: std::fs::File,
+) -> (Filtered<io_tracer::IoTraceLayer, EnvFilter, S>, tracing_appender::non_blocking::WorkerGuard)
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+{
+    use std::io::BufWriter;
+    let (base_io_layer, guard) = io_tracer::IoTraceLayer::new(BufWriter::new(file));
+    let io_layer = base_io_layer.with_filter(tracing_subscriber::filter::EnvFilter::new(
+        "store=trace,vm_logic=trace,host-function=trace,runtime=debug,io_tracer=trace,io_tracer_count=trace",
+    ));
+    (io_layer, guard)
+}
+
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
@@ -229,10 +275,23 @@ pub async fn default_subscriber(
     let subscriber = subscriber.with(log_layer);
     let subscriber = subscriber.with(make_opentelemetry_layer(options).await);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard,
+        io_trace_guard,
     }
 }
 

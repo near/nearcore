@@ -11,7 +11,7 @@ use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_primitives::time::Utc;
-use num_rational::Rational;
+use num_rational::Ratio;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -39,7 +39,7 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
@@ -105,7 +105,7 @@ pub fn setup(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -196,7 +196,7 @@ pub fn setup_only_view(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -974,15 +974,10 @@ pub fn setup_mock_all_validators(
                             };
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::SyncRoutingTable { .. }
-                        | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo { .. }
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
-                        | NetworkRequests::RequestUpdateNonce(_, _)
-                        | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
                     };
                 }
@@ -1447,6 +1442,33 @@ impl TestEnv {
         self.clients[id].process_tx(tx, false, false)
     }
 
+    pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
+        assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
+
+        let tip = self.clients[0].chain.head().unwrap();
+        let epoch_id = self.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+
+        let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            block_producer.clone(),
+            KeyType::ED25519,
+            block_producer.as_ref(),
+        ));
+
+        let (_, res) = self.clients[0].process_block(block.into(), Provenance::NONE);
+        assert!(res.is_ok());
+
+        for i in 0..self.clients[0].chain.epoch_length * 2 {
+            self.produce_block(0, tip.height + i + 2);
+        }
+    }
+
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let head = self.clients[0].chain.head().unwrap();
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -1655,7 +1677,7 @@ pub fn create_chunk(
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::new(0, 1),
         0,
         100,
         None,
@@ -1686,7 +1708,7 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+    while !client.chain.store().iterate_state_sync_infos().unwrap().is_empty() {
         let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
         for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);

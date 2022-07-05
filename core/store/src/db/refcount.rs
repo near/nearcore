@@ -6,61 +6,25 @@
 //! The key is really removed from the database when reference count reaches
 //! zero.
 //!
+//! Note that it is an error to try to store different values under the same
+//! key.  That is, when increasing the reference count of an existing key, the
+//! same value must be inserted.  If different values are inserted it’s not
+//! defined which one will be later read from the database.
+//!
 //! The reference counts are stored together with the values by simply attaching
 //! little-endian encoded 64-bit signed integer at the end of it.  See
-//! [`encode_value_with_rc`] for more details about the encoding.  During
-//! compaction, RocksDB merges the values by adding the reference counts.  When
-//! the reference count reaches zero RocksDB removes the key from the database.
+//! [`add_positive_refcount`] and [`encode_negative_refcount`] functions for
+//! a way to encode reference count.  During compaction, RocksDB merges the
+//! values by adding the reference counts.  When the reference count reaches
+//! zero RocksDB removes the key from the database.
 
 use std::cmp::Ordering;
-use std::io::{Cursor, Write};
+use std::io;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rocksdb::compaction_filter::Decision;
 
 use crate::db::RocksDB;
 use crate::DBCol;
-
-/// Refcounted columns store value with rc.
-///
-/// Write write refcount records, reads merge them.
-/// The merged rc should always be positive, if it's not there is a bug in gc.
-///
-/// Refcount record format:
-/// rc = 0 => empty
-/// rc < 0 => 8 bytes little endian rc
-/// rc > 0 => value followed by 8 bytes little endian rc
-///
-pub(crate) fn merge_refcounted_records(result: &mut Vec<u8>, val: &[u8]) {
-    let (bytes, add_rc) = decode_value_with_rc(val);
-    if add_rc == 0 {
-        return;
-    }
-    let (result_bytes, result_rc) = decode_value_with_rc(result);
-    if result_rc == 0 {
-        result.extend_from_slice(val);
-    } else {
-        let rc = result_rc + add_rc;
-        debug_assert!(result_rc <= 0 || add_rc <= 0 || result_bytes == bytes);
-        match rc.cmp(&0) {
-            Ordering::Less => {
-                result.clear();
-                result.extend_from_slice(&rc.to_le_bytes());
-            }
-            Ordering::Equal => {
-                result.clear();
-            }
-            Ordering::Greater => {
-                if result_rc < 0 {
-                    result.clear();
-                    result.extend_from_slice(val);
-                }
-                let len = result.len();
-                result[len - 8..].copy_from_slice(&rc.to_le_bytes());
-            }
-        }
-    }
-}
 
 /// Extracts reference count from raw value and returns it along with the value.
 ///
@@ -75,31 +39,28 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         debug_assert!(bytes.is_empty());
         return (None, 0);
     }
-    let mut cursor = Cursor::new(&bytes[bytes.len() - 8..]);
-    let rc = cursor.read_i64::<LittleEndian>().unwrap();
-    if rc < 0 {
+    // TODO(mina86): Use rsplit_array_ref once split_array feature is stabilised
+    //    let (head, tail) = bytes.rsplit_array_ref<8>();
+    //    let rc = i64::from_le_bytes(tail);
+    let (head, tail) = bytes.split_at(bytes.len() - 8);
+    let rc = i64::from_le_bytes(tail.try_into().unwrap());
+    if rc <= 0 {
         (None, rc)
     } else {
-        (Some(&bytes[..bytes.len() - 8]), rc)
+        (Some(head), rc)
     }
 }
 
-/// Encodes value with reference count.
+/// Encode a positive reference count into the value.
+pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
+    [data, &i64::from(rc.get()).to_le_bytes()].concat()
+}
+
+/// Returns empty value with encoded negative reference count.
 ///
-/// Returned value depends on the reference count.
-/// - rc = 0 ⇒ an empty vector,
-/// - rc < 0 ⇒ reference count encoded in little endian,
-/// - rc > 0 ⇒ data followed by the reference count encoded in little endian.
-pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
-    if rc == 0 {
-        return vec![];
-    }
-    let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 8));
-    if rc > 0 {
-        cursor.write_all(data).unwrap();
-    }
-    cursor.write_i64::<LittleEndian>(rc).unwrap();
-    cursor.into_inner()
+/// `rc` gives the absolute value of the reference count.
+pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
+    (-i64::from(rc.get())).to_le_bytes().to_vec()
 }
 
 /// Merge reference counted values together.
@@ -113,18 +74,25 @@ pub(crate) fn encode_value_with_rc(data: &[u8], rc: i64) -> Vec<u8> {
 /// Assumes that all provided values with positive reference count have the same
 /// value so that the function is free to pick any of the values.  In build with
 /// debug assertions panics if this is not true.
-fn refcount_merge<'a>(
+pub(crate) fn refcount_merge<'a>(
     existing: Option<&'a [u8]>,
-    operands: impl std::iter::IntoIterator<Item = &'a [u8]>,
-) -> Option<Vec<u8>> {
-    let mut result = vec![];
-    if let Some(val) = existing {
-        merge_refcounted_records(&mut result, val);
+    operands: impl IntoIterator<Item = &'a [u8]>,
+) -> Vec<u8> {
+    let (mut payload, mut rc) = existing.map_or((None, 0), decode_value_with_rc);
+    for (new_payload, delta) in operands.into_iter().map(decode_value_with_rc) {
+        if payload.is_none() {
+            payload = new_payload;
+        } else if new_payload.is_some() {
+            debug_assert_eq!(payload, new_payload);
+        }
+        rc += delta;
     }
-    for val in operands {
-        merge_refcounted_records(&mut result, val);
+
+    match rc.cmp(&0) {
+        Ordering::Less => rc.to_le_bytes().to_vec(),
+        Ordering::Equal => Vec::new(),
+        Ordering::Greater => [payload.unwrap_or(b""), &rc.to_le_bytes()].concat(),
     }
-    Some(result)
 }
 
 /// Returns value with reference count stripped if column is refcounted.
@@ -137,23 +105,29 @@ fn refcount_merge<'a>(
 /// values are treated as values with reference count zero.
 pub(crate) fn get_with_rc_logic(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
     if column.is_rc() {
-        value.and_then(|vec| decode_value_with_rc(&vec).0.map(|v| v.to_vec()))
+        value.and_then(get_payload)
     } else {
         value
     }
 }
 
+fn get_payload(value: Vec<u8>) -> Option<Vec<u8>> {
+    decode_value_with_rc(&value).0.map(|v| v.to_vec())
+}
+
 /// Iterator treats empty value as no value and strips refcount
-pub(crate) fn iter_with_rc_logic<'a, I>(
+pub(crate) fn iter_with_rc_logic<'a>(
     column: DBCol,
-    iterator: I,
-) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
-where
-    I: Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
-{
+    iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
+) -> crate::db::DBIterator<'a> {
     if column.is_rc() {
-        Box::new(iterator.filter_map(|(k, v_rc)| {
-            decode_value_with_rc(&v_rc).0.map(|v| (k, v.to_vec().into_boxed_slice()))
+        Box::new(iterator.filter_map(|item| {
+            let item = if let Ok((key, value)) = item {
+                Ok((key, get_payload(value.into_vec())?.into_boxed_slice()))
+            } else {
+                item
+            };
+            Some(item)
         }))
     } else {
         Box::new(iterator)
@@ -161,7 +135,6 @@ where
 }
 
 impl RocksDB {
-    /// DBCol::State has refcounted values.
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
     pub(crate) fn refcount_merge(
@@ -169,7 +142,7 @@ impl RocksDB {
         existing: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
-        self::refcount_merge(existing, operands)
+        Some(self::refcount_merge(existing, operands))
     }
 
     /// Compaction filter for DBCol::State
@@ -211,7 +184,7 @@ mod test {
     }
 
     #[test]
-    fn test_decode_value_with_rc() {
+    fn decode_value_with_rc() {
         fn test(want_value: Option<&[u8]>, want_rc: i64, bytes: &[u8]) {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
@@ -220,9 +193,8 @@ mod test {
         test(None, -2, MINUS_TWO);
         test(None, -2, b"foobar\xfe\xff\xff\xff\xff\xff\xff\xff");
         test(None, 0, b"");
-        // TODO(mina86): The next two should return None.
-        test(Some(b""), 0, ZERO);
-        test(Some(b"bar"), 0, b"bar\0\0\0\0\0\0\0\0");
+        test(None, 0, ZERO);
+        test(None, 0, b"bar\0\0\0\0\0\0\0\0");
         test(Some(b""), 2, PLUS_TWO);
         test(Some(b"baz"), 2, b"baz\x02\0\0\0\0\0\0\0");
 
@@ -233,27 +205,30 @@ mod test {
     }
 
     #[test]
-    fn test_encode_value_with_rc() {
-        fn test(want: &[u8], data: &[u8], rc: i64) {
-            assert_eq!(want, &super::encode_value_with_rc(data, rc));
+    fn add_encode_refcount() {
+        fn test(want: &[u8], data: &[u8], rc: u32) {
+            let rc = std::num::NonZeroU32::new(rc).unwrap();
+            assert_eq!(want, &super::add_positive_refcount(data, rc));
         }
 
-        test(b"", b"", 0);
-        test(b"", b"foo", 0);
-        test(MINUS_TWO, b"", -2);
-        test(MINUS_TWO, b"foo", -2);
         test(PLUS_TWO, b"", 2);
         test(b"foo\x02\0\0\0\0\0\0\0", b"foo", 2);
+
+        let rc = std::num::NonZeroU32::new(2).unwrap();
+        assert_eq!(MINUS_TWO, &super::encode_negative_refcount(rc));
     }
 
     #[test]
     fn refcount_merge() {
         fn test(want: &[u8], operands: &[&[u8]]) {
             let it = operands.into_iter().copied();
-            assert_eq!(want, super::refcount_merge(None, it).unwrap().as_slice());
+            let got = super::refcount_merge(None, it);
+            assert_eq!(want, got.as_slice());
+
             if !operands.is_empty() {
                 let it = operands[1..].into_iter().copied();
-                assert_eq!(want, &super::refcount_merge(Some(operands[0]), it).unwrap());
+                let got = super::refcount_merge(Some(operands[0]), it);
+                assert_eq!(want, got.as_slice());
             }
         }
 
@@ -322,9 +297,8 @@ mod test {
         test(None, RC_COL, MINUS_ONE);
         test(None, RC_COL, b"foo\xff\xff\xff\xff\xff\xff\xff\xff");
         test(None, RC_COL, b"");
-        // TODO(mina86): The next two should return None.
-        test(Some(b""), RC_COL, ZERO);
-        test(Some(b"foo"), RC_COL, b"foo\x00\0\0\0\0\0\0\0");
+        test(None, RC_COL, ZERO);
+        test(None, RC_COL, b"foo\x00\0\0\0\0\0\0\0");
         test(Some(b""), RC_COL, PLUS_ONE);
         test(Some(b"foo"), RC_COL, b"foo\x01\0\0\0\0\0\0\0");
 
@@ -347,8 +321,9 @@ mod test {
             use std::ops::Deref;
 
             const KEY: &[u8] = b"key";
-            let iter = values.into_iter().map(|value| (into_box(KEY), into_box(value)));
+            let iter = values.into_iter().map(|value| Ok((into_box(KEY), into_box(value))));
             let got = super::iter_with_rc_logic(col, iter)
+                .map(Result::unwrap)
                 .map(|(key, value)| {
                     assert_eq!(KEY, key.deref());
                     value
@@ -371,7 +346,7 @@ mod test {
         assert!(RC_COL.is_rc());
 
         test(
-            &[b"", b"foo", b"", b"foo"],
+            &[b"", b"foo"],
             RC_COL,
             &[
                 MINUS_ONE,
