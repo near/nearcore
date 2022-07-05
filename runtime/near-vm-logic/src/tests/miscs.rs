@@ -990,6 +990,19 @@ fn test_ed25519_verify() {
         .unwrap();
     logic.read_register(0, res.as_ptr() as _).expect("OK");
     assert_eq!(res.as_slice(), &[0]);
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: 32,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::ed25519_verify_base: 1,
+        ExtCosts::ed25519_verify_byte: 32,
+    });
 }
 
 #[test]
