@@ -310,6 +310,11 @@ pub struct ExtCostsConfig {
     /// Cost of getting ed25519 per byte
     pub ed25519_verify_byte: Gas,
 
+    /// Cost of getting sr25519 base
+    pub sr25519_verify_base: Gas,
+    /// Cost of getting sr25519 per byte
+    pub sr25519_verify_byte: Gas,
+
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
 
@@ -455,6 +460,8 @@ impl ExtCostsConfig {
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
             ed25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
             ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
+            sr25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
+            sr25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
             // Cost per byte is 3542227. There are 64 bytes in a block.
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
@@ -525,6 +532,8 @@ impl ExtCostsConfig {
             ripemd160_block: 0,
             ed25519_verify_base: 0,
             ed25519_verify_byte: 0,
+            sr25519_verify_base: 0,
+            sr25519_verify_byte: 0,
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -596,6 +605,8 @@ pub enum ExtCosts {
     ripemd160_block,
     ed25519_verify_base,
     ed25519_verify_byte,
+    sr25519_verify_base,
+    sr25519_verify_byte,
     ecrecover_base,
     log_base,
     log_byte,
@@ -679,6 +690,8 @@ impl ExtCosts {
             ripemd160_block => config.ripemd160_block,
             ed25519_verify_base => config.ed25519_verify_base,
             ed25519_verify_byte => config.ed25519_verify_byte,
+            sr25519_verify_base => config.sr25519_verify_base,
+            sr25519_verify_byte => config.sr25519_verify_byte,
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,

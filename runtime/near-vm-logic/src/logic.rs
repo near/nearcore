@@ -2863,7 +2863,8 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         use schnorrkel::{PublicKey, Signature};
 
-        // TODO: calculate gas costs
+        self.gas_counter.pay_base(sr25519_verify_base)?;
+        self.gas_counter.pay_per(sr25519_verify_byte, msg_len as u64)?;
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
