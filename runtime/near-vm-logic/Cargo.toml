@@ -26,6 +26,10 @@ sha3 = ">=0.8,<=0.10"
 ed25519-dalek = { version = "1" }
 schnorrkel = { version = "0.10.2" }
 blake2 = {version = "0.10.4" }
+sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.22", default-features = false, features = ["std"]}
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.22", default-features = false, features = ["std"]}
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.22", default-features = false, features = ["std"]}
+
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
