@@ -3708,7 +3708,9 @@ dependencies = [
  "bs58",
  "byteorder",
  "ed25519-dalek",
+ "hash-db",
  "hex",
+ "memory-db",
  "near-account-id",
  "near-crypto",
  "near-o11y",
@@ -3725,6 +3727,7 @@ dependencies = [
  "sp-runtime",
  "sp-trie",
  "tracing",
+ "trie-db",
  "zeropool-bn",
 ]
 

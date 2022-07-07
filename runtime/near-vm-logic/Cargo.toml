@@ -44,6 +44,10 @@ tracing = { version = "0.1.13", optional = true }
 [dev-dependencies]
 hex = { version = "0.4", features = ["serde"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+trie-db = { version = "0.23.1", default-features = false }
+memory-db = { version = "0.29.0", default-features = false }
+hash-db = { version = "0.15.2", default-features = false }
+
 
 [features]
 default = []

@@ -1208,7 +1208,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// The proof is a &[Vec<u8>] originally. In order to reconstruct it, each piece of the proof is encoded
     /// using the first 4 byts to express the lenght of it.
-    fn verify_membership_trie_proof(
+    pub fn verify_membership_trie_proof(
         &mut self,
         root_len: u64,
         root_ptr: u64,
@@ -1228,14 +1228,15 @@ impl<'a> VMLogic<'a> {
         let (proof, _) =
             (0..number_proofs_parts).try_fold((vec![], 0), |(mut p, mut idx), _| {
                 // get the proof part length from the first four bytes of the chunk
-                let proof_part_lenght =
+                dbg!(&proof_raw);
+                let proof_part_length =
                     u32::from_be_bytes(proof_raw[idx..idx + 4].try_into().unwrap());
                 let proof_raw_ptr = proofs_ptr + idx as u64 + 4;
 
-                match self.get_vec_from_memory_or_register(proof_raw_ptr, proof_part_lenght as _) {
+                match self.get_vec_from_memory_or_register(proof_raw_ptr, proof_part_length as _) {
                     Ok(current_proof) => {
                         // advance the pointer
-                        idx += proof_part_lenght as usize + 4;
+                        idx += proof_part_length as usize + 4;
 
                         // concatenate the proof part
                         p.push(current_proof);
