@@ -1256,6 +1256,53 @@ impl<'a> VMLogic<'a> {
         .map_err(|e| VMLogicError::ExternalError(AnyError::new(e)))
     }
 
+    /// This function should verify non membership in a trie proof using parity's sp-trie package
+    /// with a BlakeTwo256 Hasher
+    pub fn verify_non_membership_trie_proof(
+        &mut self,
+        root_len: u64,
+        root_ptr: u64,
+        number_proofs_parts: u64,
+        proof_len: u64,
+        proofs_ptr: u64,
+        key_len: u64,
+        key_ptr: u64,
+    ) -> Result<()> {
+        let root = self.get_vec_from_memory_or_register(root_ptr, root_len)?;
+        let key = self.get_vec_from_memory_or_register(key_ptr, key_len)?;
+        let proof_raw = self.get_vec_from_memory_or_register(proofs_ptr, proof_len)?;
+
+        let (proof, _) =
+            (0..number_proofs_parts).try_fold((vec![], 0), |(mut p, mut idx), _| {
+                // get the proof part length from the first four bytes of the chunk
+                dbg!(&proof_raw);
+                let proof_part_length =
+                    u32::from_be_bytes(proof_raw[idx..idx + 4].try_into().unwrap());
+                let proof_raw_ptr = proofs_ptr + idx as u64 + 4;
+
+                match self.get_vec_from_memory_or_register(proof_raw_ptr, proof_part_length as _) {
+                    Ok(current_proof) => {
+                        // advance the pointer
+                        idx += proof_part_length as usize + 4;
+
+                        // concatenate the proof part
+                        p.push(current_proof);
+
+                        Ok((p, idx))
+                    }
+                    Err(err) => return Err(err),
+                }
+            })?;
+        let item: Vec<(&[u8], Option<&[u8]>)> = vec![(&key, None)];
+
+        sp_trie::verify_trie_proof::<sp_trie::LayoutV0<sp_runtime::traits::BlakeTwo256>, _, _, _>(
+            &sp_core::H256::from_slice(&root),
+            &proof,
+            &item,
+        )
+        .map_err(|e| VMLogicError::ExternalError(AnyError::new(e)))
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors

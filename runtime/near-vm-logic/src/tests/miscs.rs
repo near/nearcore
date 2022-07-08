@@ -1175,6 +1175,62 @@ fn test_verify_membership_trie_proof() {
         &mut memdb, &mut root, &pairs,
     );
 
+    let included_key = hex::encode("0102").into_bytes();
+    let proof =
+        generate_trie_proof::<sp_trie::LayoutV1<_>, _, _, _>(&memdb, root, &[included_key.clone()]);
+
+    // Verifying that the K was included into the trie should fail.
+    assert!(sp_trie::verify_trie_proof::<
+        sp_trie::LayoutV1<sp_runtime::traits::BlakeTwo256>,
+        _,
+        _,
+        Vec<u8>,
+    >(&root, &proof, &[(included_key.clone(), Some(hex::encode("01").into_bytes()))],)
+    .is_ok());
+
+    let number_of_proofs = proof.len();
+    let proof_raw: Vec<u8> = proof
+        .into_iter()
+        .flat_map(|p| vec![(p.len() as u32).to_le_bytes().to_vec(), p].concat())
+        .collect::<Vec<_>>();
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    logic
+        .verify_membership_trie_proof(
+            root.as_bytes().len() as _,
+            root.as_bytes().as_ptr() as _,
+            number_of_proofs as _,
+            proof_raw.len() as _,
+            proof_raw.as_ptr() as _,
+            included_key.len() as _,
+            included_key.as_ptr() as _,
+            hex::encode("0102").into_bytes().len() as _,
+            hex::encode("0102").into_bytes().as_ptr() as _,
+        )
+        .unwrap();
+}
+
+#[test]
+fn test_verify_non_membership_trie_proof() {
+    let pairs = vec![
+        (hex::encode("0102").into_bytes(), hex::encode("01").into_bytes()),
+        (hex::encode("0203").into_bytes(), hex::encode("0405").into_bytes()),
+    ];
+
+    let mut memdb = memory_db::MemoryDB::<
+        sp_runtime::traits::BlakeTwo256,
+        memory_db::HashKey<_>,
+        Vec<u8>,
+    >::default();
+
+    let mut root =
+        trie_db::TrieHash::<sp_trie::LayoutV1<sp_runtime::traits::BlakeTwo256>>::default();
+    populate_trie::<sp_trie::LayoutV1<sp_runtime::traits::BlakeTwo256>>(
+        &mut memdb, &mut root, &pairs,
+    );
+
     let non_included_key = hex::encode("0909").into_bytes();
     let proof = generate_trie_proof::<sp_trie::LayoutV1<_>, _, _, _>(
         &memdb,
@@ -1212,7 +1268,7 @@ fn test_verify_membership_trie_proof() {
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     logic
-        .verify_membership_trie_proof(
+        .verify_non_membership_trie_proof(
             root.as_bytes().len() as _,
             root.as_bytes().as_ptr() as _,
             number_of_proofs as _,
@@ -1220,17 +1276,6 @@ fn test_verify_membership_trie_proof() {
             proof_raw.as_ptr() as _,
             non_included_key.len() as _,
             non_included_key.as_ptr() as _,
-            hex::encode("1010").into_bytes().len() as _,
-            hex::encode("1010").into_bytes().as_ptr() as _,
         )
         .unwrap();
-    // let res = &vec![0u8; 32];
-    // logic.read_register(0, res.as_ptr() as _).expect("OK");
-    // assert_eq!(
-    //     res.as_slice(),
-    //     &[
-    //         104, 110, 58, 122, 230, 181, 215, 145, 231, 229, 49, 162, 123, 167, 177, 58, 26, 142,
-    //         129, 173, 7, 37, 9, 26, 233, 115, 64, 102, 61, 85, 10, 159
-    //     ]
-    // );
 }
