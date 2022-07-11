@@ -1497,8 +1497,9 @@ impl TestEnv {
             block_producer.as_ref(),
         ));
 
-        let (_, res) = self.clients[0].process_block(block.into(), Provenance::NONE);
-        assert!(res.is_ok());
+        let _ = self.clients[0]
+            .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
+            .unwrap();
 
         for i in 0..self.clients[0].chain.epoch_length * 2 {
             self.produce_block(0, tip.height + i + 2);
