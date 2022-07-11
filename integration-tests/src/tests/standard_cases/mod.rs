@@ -851,6 +851,7 @@ pub fn test_delete_key_last(node: impl Node) {
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_err());
 }
 
+#[track_caller]
 fn assert_access_key(
     access_key: &AccessKey,
     access_key_view: AccessKeyView,

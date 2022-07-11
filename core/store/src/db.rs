@@ -34,7 +34,8 @@ pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 /// archival node.  The default value (if missing) is false.
 pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
-pub(crate) struct DBTransaction {
+#[derive(Default)]
+pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
@@ -54,31 +55,31 @@ pub(crate) enum DBOp {
 }
 
 impl DBTransaction {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { ops: Vec::new() }
     }
 
-    pub(crate) fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Set { col, key, value });
     }
 
-    pub(crate) fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
-    pub(crate) fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
-    pub(crate) fn delete(&mut self, col: DBCol, key: Vec<u8>) {
+    pub fn delete(&mut self, col: DBCol, key: Vec<u8>) {
         self.ops.push(DBOp::Delete { col, key });
     }
 
-    pub(crate) fn delete_all(&mut self, col: DBCol) {
+    pub fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
     }
 
-    pub(crate) fn merge(&mut self, other: DBTransaction) {
+    pub fn merge(&mut self, other: DBTransaction) {
         self.ops.extend(other.ops)
     }
 }
@@ -246,9 +247,9 @@ pub struct TestDB {
     db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
-pub(crate) type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a>;
+pub type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a>;
 
-pub(crate) trait Database: Sync + Send {
+pub trait Database: Sync + Send {
     /// Returns raw bytes for given `key` ignoring any reference count decoding
     /// if any.
     ///
