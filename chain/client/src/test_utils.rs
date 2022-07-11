@@ -89,13 +89,12 @@ pub fn setup(
     ctx: &Context<ClientActor>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
-    let num_valset = validators.len();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        vec![vec![vec![]; num_shards as usize]; num_valset],
+        vec![vec![vec![]; num_shards as usize]; validators.len()],
         validator_groups,
         num_shards,
         epoch_length,

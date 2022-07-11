@@ -761,7 +761,7 @@ impl ShardsManager {
         }
         let chunk_producer =
             self.runtime_adapter.get_chunk_producer(&epoch_id, next_chunk_height, shard_id)?;
-        if &chunk_producer == me {
+        if &chunk_producer == self.me.as_ref().unwrap() {
             return Ok(true);
         }
         Ok(false)
