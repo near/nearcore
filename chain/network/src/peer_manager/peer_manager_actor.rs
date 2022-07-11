@@ -53,7 +53,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// How often to request peers from active peers.
@@ -475,7 +475,7 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         interval: time::Duration,
     ) {
-        let span =
+        let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
         let start = self.clock.now();
         let mut new_edges = Vec::new();
@@ -519,11 +519,11 @@ impl PeerManagerActor {
 
             self.routing_table_addr
                 .send(routing::actor::Message::AddVerifiedEdges { edges: new_edges })
+                .in_current_span()
                 .into_actor(self)
                 .map(move |response, act, _ctx| {
                     let _span = tracing::trace_span!(
                         target: "network",
-                        parent: &span,
                         "broadcast_validated_edges_trigger_response")
                     .entered();
 
@@ -572,7 +572,7 @@ impl PeerManagerActor {
         throttle_controller: ThrottleController,
         ctx: &mut Context<Self>,
     ) {
-        let span = tracing::trace_span!(target: "network", "register_peer").entered();
+        let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?full_peer_info, "Consolidated connection");
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
@@ -612,13 +612,12 @@ impl PeerManagerActor {
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
 
         let network_metrics = self.network_metrics.clone();
+        let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, ctx| {
-                let _span =
-                        tracing::trace_span!(target: "network", parent: &span, "RequestRoutingTableResponse")
-                            .entered();
+                let _guard = run_later_span.enter();
                 let known_edges = act.network_graph.read().edges().values().cloned().collect();
                 act.send_sync(
                     network_metrics,
@@ -643,14 +642,12 @@ impl PeerManagerActor {
         new_edge: Edge,
         known_edges: Vec<Edge>,
     ) {
-        let span = tracing::trace_span!(target: "network", "send_sync").entered();
+        let run_later_span = tracing::trace_span!(target: "network", "send_sync_attempt");
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, _ctx| {
-                let _span =
-                    tracing::trace_span!(target: "network", parent: &span, "send_sync_attempt")
-                        .entered();
+                let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
                 let known_accounts = act.routing_table_view.get_announce_accounts();
