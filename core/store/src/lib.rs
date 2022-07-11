@@ -683,6 +683,7 @@ mod tests {
     }
 
     /// Asserts that elements in the vector are sorted.
+    #[track_caller]
     fn assert_sorted(want_count: usize, keys: Vec<Box<[u8]>>) {
         assert_eq!(want_count, keys.len());
         for (pos, pair) in keys.windows(2).enumerate() {
