@@ -146,11 +146,13 @@ impl KeyValueRuntime {
         num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        let valset_num = block_producers.len();
         Self::new_with_validators_and_no_gc(
             store,
             block_producers,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            vec![vec![vec![]; num_shards as usize]; block_producers.len()],
+            vec![vec![vec![]; num_shards as usize]; valset_num],
             validator_groups,
             num_shards,
             epoch_length,
