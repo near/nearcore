@@ -181,7 +181,7 @@ if __name__ == '__main__':
             node_pks=node_pks,
             increasing_stakes=args.increasing_stakes,
             num_seats=args.num_seats,
-            sharding=not args.no_sharding,
+            single_shard=args.no_sharding,
             all_node_pks=all_node_pks,
             node_ips=node_ips)
         mocknet.start_nodes(all_nodes, upgrade_schedule)

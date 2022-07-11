@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,4 +15,3 @@ serde_json = "1"
 near-account-id = { path = "../../core/account-id" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-primitives = { path = "../../core/primitives" }
-
