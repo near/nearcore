@@ -35,7 +35,14 @@ pub(crate) struct AccountBalanceResponse {
      * /// identifier or global across the account address.
      */
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Nonce>,
+    pub metadata: Option<PublicKeyNonce>,
+}
+
+// Account-based blockchains that utilize a nonce or sequence number should
+// include that number in the metadata.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct PublicKeyNonce {
+    pub nonce: Nonce,
 }
 
 /// The account_identifier uniquely identifies an account within a network. All

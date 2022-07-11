@@ -400,14 +400,14 @@ async fn account_balance(
         &view_client_addr,
     )
     .await?;
-
+    let nonce = access_key.nonce;
     Ok(Json(models::AccountBalanceResponse {
         block_identifier: models::BlockIdentifier {
             hash: block_hash.to_base(),
             index: block_height.try_into().unwrap(),
         },
         balances: vec![models::Amount::from_yoctonear(balance)],
-        metadata: Some(access_key.nonce),
+        metadata: Some(models::PublicKeyNonce { nonce }),
     }))
 }
 
