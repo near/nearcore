@@ -1,7 +1,7 @@
 # python tests for smart contract deployment and invocation
 pytest contracts/deploy_call_smart_contract.py
-pytest contracts/deploy_call_smart_contract.py --features nightly_protocol,nightly_protocol_features
+pytest contracts/deploy_call_smart_contract.py --features nightly
 pytest --timeout=10m contracts/gibberish.py
-pytest --timeout=10m contracts/gibberish.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=10m contracts/gibberish.py --features nightly
 pytest --timeout=400 contracts/infinite_loops.py
-pytest --timeout=400 contracts/infinite_loops.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=400 contracts/infinite_loops.py --features nightly

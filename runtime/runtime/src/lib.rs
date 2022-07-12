@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
-#[cfg(feature = "sandbox")]
 use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 pub use near_primitives::runtime::apply_state::ApplyState;
@@ -47,7 +47,6 @@ use near_store::{
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
-#[cfg(feature = "sandbox")]
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -222,8 +221,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span =
-            tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -331,9 +329,9 @@ impl Runtime {
             result.result = Err(e);
             return Ok(result);
         }
+        metrics::ACTION_CALLED_COUNT.with_label_values(&[action.as_ref()]).inc();
         match action {
             Action::CreateAccount(_) => {
-                metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc();
                 action_create_account(
                     &apply_state.config.transaction_costs,
                     &apply_state.config.account_creation_config,
@@ -345,7 +343,6 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
-                metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -356,7 +353,6 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                metrics::ACTION_FUNCTION_CALL_TOTAL.inc();
                 action_function_call(
                     state_update,
                     apply_state,
@@ -374,7 +370,6 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(transfer) => {
-                metrics::ACTION_TRANSFER_TOTAL.inc();
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
@@ -405,7 +400,6 @@ impl Runtime {
                 }
             }
             Action::Stake(stake) => {
-                metrics::ACTION_STAKE_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -413,12 +407,9 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
-                metrics::ACTION_ADD_KEY_TOTAL.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -429,7 +420,6 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
-                metrics::ACTION_DELETE_KEY_TOTAL.inc();
                 action_delete_key(
                     &apply_state.config.transaction_costs,
                     state_update,
@@ -441,7 +431,6 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
-                metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -451,19 +440,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                )?;
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(stake) => {
-                metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL.inc();
-                action_stake(
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    stake,
-                    &apply_state.prev_block_hash,
-                    epoch_info_provider,
-                    true,
                 )?;
             }
         };
@@ -1175,11 +1151,15 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "Runtime::apply").entered();
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply",
+            num_transactions = transactions.len())
+        .entered();
 
-        if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
+        if state_patch.is_some() && !cfg!(feature = "sandbox") {
             panic!("Can only patch state in sandbox mode");
         }
 
@@ -1268,7 +1248,16 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = ?state_update.trie.get_trie_nodes_count()).entered();
+            let _span = tracing::debug_span!(
+                target: "runtime",
+                "process_receipt",
+                receipt_id = %receipt.receipt_id,
+                node_counter = ?state_update.trie.get_trie_nodes_count(),
+                predecessor = %receipt.predecessor_id,
+                receiver = %receipt.receiver_id,
+                id = %receipt.receipt_id,
+            )
+            .entered();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1364,9 +1353,8 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
-        #[cfg(feature = "sandbox")]
-        if let Some(patch) = states_to_patch {
-            self.apply_state_patches(&mut state_update, patch);
+        if let Some(patch) = state_patch {
+            self.apply_state_patch(&mut state_update, patch);
         }
 
         let (trie_changes, state_changes) = state_update.finalize()?;
@@ -1419,13 +1407,8 @@ impl Runtime {
         Ok(())
     }
 
-    #[cfg(feature = "sandbox")]
-    fn apply_state_patches(
-        &self,
-        state_update: &mut TrieUpdate,
-        states_to_patch: Vec<StateRecord>,
-    ) {
-        for record in states_to_patch {
+    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
+        for record in state_patch.into_records() {
             match record {
                 StateRecord::Account { account_id, account } => {
                     set_account(state_update, account_id, &account);

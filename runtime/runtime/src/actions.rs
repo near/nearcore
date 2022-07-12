@@ -57,10 +57,10 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return VMResult::NotRun(VMError::FunctionCallError(error));
+            return VMResult::nop_outcome(VMError::FunctionCallError(error));
         }
         Err(e) => {
-            return VMResult::NotRun(VMError::ExternalError(AnyError::new(
+            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
                 ExternalError::StorageError(e),
             )));
         }
@@ -230,46 +230,44 @@ pub(crate) fn action_function_call(
         }
         None => true,
     };
-    if let Some(outcome) = outcome {
-        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
-        result.gas_burnt_for_function_call =
-            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
-        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
-        // `FunctionCall`s error.
-        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-        result.logs.extend(outcome.logs.into_iter());
-        result.profile.merge(&outcome.profile);
-        if execution_succeeded {
-            let new_receipts: Vec<_> = outcome
-                .action_receipts
-                .into_iter()
-                .map(|(receiver_id, receipt)| Receipt {
-                    predecessor_id: account_id.clone(),
-                    receiver_id,
-                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                    // "Generating receipt IDs" section
-                    receipt_id: CryptoHash::default(),
-                    receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: action_receipt.signer_id.clone(),
-                        signer_public_key: action_receipt.signer_public_key.clone(),
-                        gas_price: action_receipt.gas_price,
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    }),
-                })
-                .collect();
 
-            account.set_amount(outcome.balance);
-            account.set_storage_usage(outcome.storage_usage);
-            result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(new_receipts);
-        }
-    } else {
-        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
+    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt_for_function_call =
+        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+    // `FunctionCall`s error.
+    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.logs.extend(outcome.logs);
+    result.profile.merge(&outcome.profile);
+    if execution_succeeded {
+        let new_receipts: Vec<_> = outcome
+            .action_receipts
+            .into_iter()
+            .map(|(receiver_id, receipt)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                }),
+            })
+            .collect();
+
+        account.set_amount(outcome.balance);
+        account.set_storage_usage(outcome.storage_usage);
+        result.result = Ok(outcome.return_data);
+        result.new_receipts.extend(new_receipts);
     }
+
     Ok(())
 }
 
@@ -280,7 +278,6 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
@@ -309,8 +306,6 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            is_chunk_only,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
@@ -634,16 +629,6 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(_) => {
-            if actor_id != account_id {
-                return Err(ActionErrorKind::ActorNoPermission {
-                    account_id: account_id.clone(),
-                    actor_id: actor_id.clone(),
-                }
-                .into());
-            }
-        }
         Action::DeleteAccount(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
@@ -728,15 +713,6 @@ pub(crate) fn check_account_existence(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_) => {
-            if account.is_none() {
-                return Err(ActionErrorKind::AccountDoesNotExist {
-                    account_id: account_id.clone(),
-                }
-                .into());
-            }
-        }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

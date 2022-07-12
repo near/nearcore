@@ -34,6 +34,12 @@ use std::sync::Arc;
 )]
 pub struct ChunkHash(pub CryptoHash);
 
+impl ChunkHash {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+}
+
 impl AsRef<[u8]> for ChunkHash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -295,18 +301,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn prev_block_hash(&self) -> CryptoHash {
-        match self {
-            Self::V1(header) => header.inner.prev_block_hash,
-            Self::V2(header) => header.inner.prev_block_hash,
-            Self::V3(header) => *header.inner.prev_block_hash(),
-        }
-    }
-
-    // TODO(mina86): Change return type of prev_block_hash to &CryptoHash and
-    // then this method can be deleted.
-    #[inline]
-    pub fn prev_block_hash_ref(&self) -> &CryptoHash {
+    pub fn prev_block_hash(&self) -> &CryptoHash {
         match self {
             Self::V1(header) => &header.inner.prev_block_hash,
             Self::V2(header) => &header.inner.prev_block_hash,
@@ -538,7 +533,7 @@ impl PartialEncodedChunk {
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             PartialEncodedChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-            PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
+            PartialEncodedChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -711,7 +706,7 @@ impl ShardChunk {
     pub fn prev_block(&self) -> &CryptoHash {
         match &self {
             ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-            ShardChunk::V2(chunk) => chunk.header.prev_block_hash_ref(),
+            ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -815,7 +810,9 @@ impl EncodedShardChunkBody {
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
-        merklize(&self.parts.iter().map(|x| x.as_ref().unwrap().clone()).collect::<Vec<_>>())
+        let parts: Vec<&[u8]> =
+            self.parts.iter().map(|x| x.as_deref().unwrap()).collect::<Vec<_>>();
+        merklize(&parts)
     }
 }
 

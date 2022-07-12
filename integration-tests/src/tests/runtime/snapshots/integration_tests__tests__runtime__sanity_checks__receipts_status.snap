@@ -1,0 +1,40 @@
+---
+source: integration-tests/src/tests/runtime/sanity_checks.rs
+expression: receipts_status
+
+---
+- SuccessReceiptId: "11111111111111111111111111111111"
+- Failure:
+    ActionError:
+      index: 0
+      kind:
+        FunctionCallError:
+          ExecutionError: "Smart contract panicked: explicit guest panic"
+- SuccessValue: ""
+- Failure:
+    ActionError:
+      index: 0
+      kind:
+        FunctionCallError:
+          ExecutionError: "Smart contract panicked: xyz"
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""
+- SuccessValue: ""

@@ -22,8 +22,8 @@ two stages:
    At this stage, the test verifies that Barney synchronises correctly and that
    Fred serves all requests from storage (since it's in-memory cache has been
    cleared).  This is again done through Prometheus metrics and in addition the
-   test verifies that data from ColChunks and ColPartialChunks was used.  This
-   also implies that Fred correctly performed ColPartialChunks garbage
+   test verifies that data from DBCol::Chunks and DBCol::PartialChunks was used.  This
+   also implies that Fred correctly performed DBCol::PartialChunks garbage
    collection.
 """
 
@@ -192,8 +192,8 @@ def run_test(cluster: Cluster) -> None:
         assert False
 
     # Since Fred’s in-memory cache is clear, all Barney’s requests are served
-    # from storage.  Since ColPartialChunks is garbage collected, some of the
-    # requests are served from ColChunks.
+    # from storage.  Since DBCol::PartialChunks is garbage collected, some of the
+    # requests are served from DBCol::Chunks.
     assert_metrics(get_metrics('fred', fred), (
         'chunk/ok',
         'partial/ok',

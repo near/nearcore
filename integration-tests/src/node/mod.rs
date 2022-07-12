@@ -9,7 +9,7 @@ use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::contract::ContractCode;
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
@@ -141,16 +141,16 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, validator_signers, network_signers, genesis) =
-        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true, false);
+    let (configs, validator_signers, network_signers, genesis, _) =
+        create_testnet_configs(1, num_nodes as NumSeats, 0, prefix, true, false, false);
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
-        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
-    genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
+        create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false, None);
+    genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
         let mut is_account_record_found = false;
         for record in genesis.records.as_mut() {

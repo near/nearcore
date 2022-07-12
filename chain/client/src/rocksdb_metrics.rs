@@ -1,4 +1,5 @@
-use near_metrics::{try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec};
+use prometheus::{GaugeVec, IntGauge, IntGaugeVec};
+use near_metrics::{try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge};
 use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
 use prometheus::{GaugeVec, IntGauge, IntGaugeVec};
@@ -144,11 +145,11 @@ fn get_prometheus_metric_name(stat_name: &str) -> String {
 }
 
 fn get_metric_name_summary_count_gauge(stat_name: &str) -> String {
-    format!("near_{}_count", stat_name.replace(".", "_"))
+    format!("near_{}_count", stat_name.replace('.', "_"))
 }
 
 fn get_metric_name_summary_sum_gauge(stat_name: &str) -> String {
-    format!("near_{}_sum", stat_name.replace(".", "_"))
+    format!("near_{}_sum", stat_name.replace('.', "_"))
 }
 
 fn get_stats_summary_count_key(stat_name: &str) -> String {

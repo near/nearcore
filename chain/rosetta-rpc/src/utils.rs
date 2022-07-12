@@ -5,6 +5,8 @@ use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::{errors, models};
+
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
 
@@ -457,4 +459,66 @@ where
     pub fn into_inner(self) -> Option<T> {
         self.known_value
     }
+}
+
+/// Get a block with `block_id`.
+/// Returns `Ok(Some(_))` if the block exists and is final.
+/// Returns `Ok(None)` if the block does not exist or is not final.
+pub(crate) async fn get_block_if_final(
+    block_id: &near_primitives::types::BlockReference,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
+    let final_block = get_final_block(view_client_addr).await?;
+    let is_query_by_height = match block_id {
+        near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        ) => return Ok(Some(final_block)),
+        near_primitives::types::BlockReference::BlockId(
+            near_primitives::types::BlockId::Height(height),
+        ) => {
+            if height > &final_block.header.height {
+                return Ok(None);
+            }
+            if height == &final_block.header.height {
+                return Ok(Some(final_block));
+            }
+            true
+        }
+        _ => false,
+    };
+    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+        Ok(block) => block,
+        Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
+        Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
+    };
+    // if block height is larger than the last final block height, then the block is not final
+    if block.header.height > final_block.header.height {
+        return Ok(None);
+    }
+    // check that this block is on the canonical chain
+    if is_query_by_height {
+        return Ok(Some(block));
+    }
+    let block_on_canonical_chain = view_client_addr
+        .send(near_client::GetBlock(
+            near_primitives::types::BlockId::Height(block.header.height).into(),
+        ))
+        .await?
+        .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))?;
+    if block.header.hash == block_on_canonical_chain.header.hash {
+        Ok(Some(block))
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) async fn get_final_block(
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
+    view_client_addr
+        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        )))
+        .await?
+        .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))
 }

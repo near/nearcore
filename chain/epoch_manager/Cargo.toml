@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 
@@ -16,7 +16,7 @@ borsh = "0.9"
 rand = "0.7"
 serde_json = "1"
 smart-default = "0.6"
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 num-rational = "0.3"
 chrono = { version = "0.4.4", optional = true}
 
@@ -35,12 +35,12 @@ protocol_feature_chunk_only_producers = [
   "near-chain/protocol_feature_chunk_only_producers",
 ]
 protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
-nightly_protocol_features = [
+nightly = [
   "nightly_protocol",
-  "near-primitives/nightly_protocol_features",
+  "near-primitives/nightly",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
 ]
-mock_network = []
+mock_node = []
 nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cache = []

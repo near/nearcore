@@ -24,6 +24,10 @@ impl CryptoHash {
         BorshSerialize::serialize(value, &mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl Default for CryptoHash {
@@ -74,7 +78,7 @@ impl<'de> Deserialize<'de> for CryptoHash {
 }
 
 impl std::str::FromStr for CryptoHash {
-    type Err = Box<dyn std::error::Error>;
+    type Err = Box<dyn std::error::Error + Send + Sync>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let bytes = from_base(s).map_err::<Self::Err, _>(|e| e.to_string().into())?;
@@ -83,7 +87,7 @@ impl std::str::FromStr for CryptoHash {
 }
 
 impl TryFrom<&[u8]> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(CryptoHash(bytes.try_into()?))

@@ -14,18 +14,15 @@ use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
 use near_chain_configs::Genesis;
-use near_network::routing::start_routing_table_actor;
 use near_network::test_utils::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use nearcore::config;
 use nearcore::config::NearConfig;
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     config.network_config.verify().context("start_with_config")?;
-    let node_id = PeerId::new(config.network_config.public_key.clone());
     let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -35,14 +32,12 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         move |_| FakeClientActor::new(network)
     });
 
-    let routing_table_addr = start_routing_table_actor(node_id, store.clone());
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
             store,
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),
-            routing_table_addr,
         )
         .unwrap()
     })
@@ -102,7 +97,7 @@ impl Cmd {
         // To avoid that, we create a runtime within the synchronous code and pass just an Arc
         // inside of it.
         let rt_ = Arc::new(tokio::runtime::Runtime::new()?);
-        let rt = rt_.clone();
+        let rt = rt_;
         return actix::System::new().block_on(async move {
             let network =
                 start_with_config(near_config, cmd.qps_limit).context("start_with_config")?;
@@ -132,8 +127,12 @@ impl Cmd {
 fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env()
         .finish()
+        .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let _subscriber = near_o11y::default_subscriber(env_filter).global();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _subscriber = runtime.block_on(async {
+        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
+    });
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

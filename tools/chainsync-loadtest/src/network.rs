@@ -11,7 +11,7 @@ use actix::{Actor, Context, Handler};
 use log::info;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest, WrappedInstant,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -182,7 +182,7 @@ impl Network {
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockHeadersRequest {
                         hashes: vec![hash.clone()],
-                        peer_id: peer.peer_info.id.clone(),
+                        peer_id: peer.peer_info.id,
                     })
                 });
                 let res = ctx.wrap(recv.wait()).await;
@@ -208,7 +208,7 @@ impl Network {
                 s.spawn_weak(|ctx| {
                     self_.keep_sending(&ctx, move |peer| NetworkRequests::BlockRequest {
                         hash: hash.clone(),
-                        peer_id: peer.peer_info.id.clone(),
+                        peer_id: peer.peer_info.id,
                     })
                 });
                 let res = ctx.wrap(recv.wait()).await;
@@ -248,7 +248,7 @@ impl Network {
                                 part_ords: (0..ppc).collect(),
                                 tracking_shards: Default::default(),
                             },
-                            create_time: WrappedInstant(Clock::instant()),
+                            create_time: Clock::instant().into(),
                         }
                     })
                 });

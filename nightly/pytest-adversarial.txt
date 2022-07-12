@@ -1,22 +1,22 @@
 pytest --timeout=600 adversarial/fork_sync.py
-pytest --timeout=600 adversarial/fork_sync.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=600 adversarial/fork_sync.py --features nightly
 pytest adversarial/wrong_sync_info.py
-pytest adversarial/wrong_sync_info.py --features nightly_protocol,nightly_protocol_features
+pytest adversarial/wrong_sync_info.py --features nightly
 pytest adversarial/malicious_chain.py
-pytest adversarial/malicious_chain.py --features nightly_protocol,nightly_protocol_features
+pytest adversarial/malicious_chain.py --features nightly
 pytest adversarial/malicious_chain.py valid_blocks_only
-pytest adversarial/malicious_chain.py valid_blocks_only --features nightly_protocol,nightly_protocol_features
+pytest adversarial/malicious_chain.py valid_blocks_only --features nightly
 pytest adversarial/start_from_genesis.py
-pytest adversarial/start_from_genesis.py --features nightly_protocol,nightly_protocol_features
+pytest adversarial/start_from_genesis.py --features nightly
 pytest adversarial/start_from_genesis.py overtake
-pytest adversarial/start_from_genesis.py overtake --features nightly_protocol,nightly_protocol_features
+pytest adversarial/start_from_genesis.py overtake --features nightly
 pytest adversarial/start_from_genesis.py doomslug_off
-pytest adversarial/start_from_genesis.py doomslug_off --features nightly_protocol,nightly_protocol_features
+pytest adversarial/start_from_genesis.py doomslug_off --features nightly
 # TODO(#6421): Currently broken.
 #pytest adversarial/start_from_genesis.py overtake doomslug_off
-#pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly_protocol,nightly_protocol_features
+#pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly
 
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix.
 #pytest adversarial/gc_rollback.py
-#pytest adversarial/gc_rollback.py --features nightly_protocol,nightly_protocol_features
+#pytest adversarial/gc_rollback.py --features nightly

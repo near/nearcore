@@ -2,7 +2,7 @@
 //! These parameters have been estimated manually and are now hard-coded for a more deterministic estimation of runtime parameters.
 //! This module contains the hard-coded constants as well as the code to manually re-estimate them.
 
-use near_primitives::types::Gas;
+use near_primitives::{hash::CryptoHash, types::Gas};
 use num_rational::Ratio;
 
 use crate::{config::GasMetric, gas_cost::GasCost};
@@ -31,13 +31,12 @@ pub(crate) fn sha256_cost(metric: GasMetric, repeats: u64) -> GasCost {
 }
 
 fn exec_sha256(repeats: u64) -> i64 {
-    use sha256::digest;
     let mut result = 0;
     for index in 0..repeats {
         let input = "what should I do but tend upon the hours, and times of your desire";
-        let val = digest(input);
-        assert_eq!(val, "9b4d38fd42c985baec11564a84366de0cbd26d3425ec4ce1266e26b7b951ac08");
-        result += val.as_bytes()[(index % 64) as usize] as i64;
+        let val = CryptoHash::hash_bytes(input.as_bytes());
+        assert_eq!(val.to_string(), "BTEVNkcDtaui6SJC19Efnrf7A3dCKT9v8y24NiC3S7RR");
+        result += val.as_bytes()[(index % 32) as usize] as i64;
     }
     result
 }

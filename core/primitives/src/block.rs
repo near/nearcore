@@ -1,11 +1,11 @@
 use std::cmp::max;
+use std::sync::Arc;
 
 use crate::time::{Clock, Utc};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use chrono::DateTime;
 use near_crypto::Signature;
-use num_rational::Rational;
 use primitive_types::U256;
 
 use crate::block::BlockValidityError::{
@@ -16,6 +16,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::num_rational::Rational32;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
@@ -75,8 +76,8 @@ pub struct BlockV2 {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
-    BlockV1(Box<BlockV1>),
-    BlockV2(Box<BlockV2>),
+    BlockV1(Arc<BlockV1>),
+    BlockV2(Arc<BlockV2>),
 }
 
 pub fn genesis_chunks(
@@ -140,7 +141,7 @@ impl Block {
                 })
                 .collect();
 
-            Block::BlockV1(Box::new(BlockV1 {
+            Block::BlockV1(Arc::new(BlockV1 {
                 header,
                 chunks: legacy_chunks,
                 challenges,
@@ -148,7 +149,7 @@ impl Block {
                 vrf_proof,
             }))
         } else {
-            Block::BlockV2(Box::new(BlockV2 { header, chunks, challenges, vrf_value, vrf_proof }))
+            Block::BlockV2(Arc::new(BlockV2 { header, chunks, challenges, vrf_value, vrf_proof }))
         }
     }
 
@@ -205,7 +206,7 @@ impl Block {
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Signature>>,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
@@ -314,7 +315,7 @@ impl Block {
         prev_gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
         let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
@@ -333,7 +334,7 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
@@ -583,7 +584,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
+    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),

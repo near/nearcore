@@ -7,15 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
-use hyper::body::HttpBody;
-use indicatif::{ProgressBar, ProgressStyle};
 use near_primitives::time::Clock;
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
-use tokio::io::AsyncWriteExt;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -25,7 +22,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
+use near_network_primitives::types::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -42,6 +39,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
+
+use crate::download_file::{run_download_file, FileDownloadError};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -102,10 +101,6 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
-/// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
-/// Maximum amount of routes to store for each account id.
-pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
@@ -127,9 +122,6 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
-
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
@@ -147,139 +139,16 @@ pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes"
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
 /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-pub const GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new_raw(1, 100);
+pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
 
 /// Protocol treasury reward
-pub const PROTOCOL_REWARD_RATE: Rational = Rational::new_raw(1, 10);
+pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
+pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
-pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
-
-/// Maximum number of active peers. Hard limit.
-fn default_max_num_peers() -> u32 {
-    40
-}
-/// Minimum outbound connections a peer should have to avoid eclipse attacks.
-fn default_minimum_outbound_connections() -> u32 {
-    5
-}
-/// Lower bound of the ideal number of connections.
-fn default_ideal_connections_lo() -> u32 {
-    30
-}
-/// Upper bound of the ideal number of connections.
-fn default_ideal_connections_hi() -> u32 {
-    35
-}
-/// Peers which last message is was within this period of time are considered active recent peers.
-fn default_peer_recent_time_window() -> Duration {
-    Duration::from_secs(600)
-}
-/// Number of peers to keep while removing a connection.
-/// Used to avoid disconnecting from peers we have been connected since long time.
-fn default_safe_set_size() -> u32 {
-    20
-}
-/// Lower bound of the number of connections to archival peers to keep
-/// if we are an archival node.
-fn default_archival_peer_connections_lower_bound() -> u32 {
-    10
-}
-/// Time to persist Accounts Id in the router without removing them in seconds.
-fn default_ttl_account_id_router() -> Duration {
-    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
-}
-/// Period to check on peer status
-fn default_peer_stats_period() -> Duration {
-    Duration::from_secs(5)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Network {
-    /// Address to listen for incoming connections.
-    pub addr: String,
-    /// Address to advertise to peers for them to connect.
-    /// If empty, will use the same port as the addr, and will introspect on the listener.
-    pub external_address: String,
-    /// Comma separated list of nodes to connect to.
-    pub boot_nodes: String,
-    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
-    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
-    /// For each whitelisted node specifying both PeerId and IP:port is required:
-    /// Example:
-    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
-    #[serde(default)]
-    pub whitelist_nodes: String,
-    /// Maximum number of active peers. Hard limit.
-    #[serde(default = "default_max_num_peers")]
-    pub max_num_peers: u32,
-    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-    #[serde(default = "default_minimum_outbound_connections")]
-    pub minimum_outbound_peers: u32,
-    /// Lower bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_lo")]
-    pub ideal_connections_lo: u32,
-    /// Upper bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_hi")]
-    pub ideal_connections_hi: u32,
-    /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
-    #[serde(default = "default_peer_recent_time_window")]
-    pub peer_recent_time_window: Duration,
-    /// Number of peers to keep while removing a connection.
-    /// Used to avoid disconnecting from peers we have been connected since long time.
-    #[serde(default = "default_safe_set_size")]
-    pub safe_set_size: u32,
-    /// Lower bound of the number of connections to archival peers to keep
-    /// if we are an archival node.
-    #[serde(default = "default_archival_peer_connections_lower_bound")]
-    pub archival_peer_connections_lower_bound: u32,
-    /// Handshake timeout.
-    pub handshake_timeout: Duration,
-    /// Duration before trying to reconnect to a peer.
-    pub reconnect_delay: Duration,
-    /// Skip waiting for peers before starting node.
-    pub skip_sync_wait: bool,
-    /// Ban window for peers who misbehave.
-    pub ban_window: Duration,
-    /// List of addresses that will not be accepted as valid neighbors.
-    /// It can be IP:Port or IP (to blacklist all connections coming from this address).
-    #[serde(default)]
-    pub blacklist: Vec<String>,
-    /// Time to persist Accounts Id in the router without removing them in seconds.
-    #[serde(default = "default_ttl_account_id_router")]
-    pub ttl_account_id_router: Duration,
-    /// Period to check on peer status
-    #[serde(default = "default_peer_stats_period")]
-    pub peer_stats_period: Duration,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network {
-            addr: "0.0.0.0:24567".to_string(),
-            external_address: "".to_string(),
-            boot_nodes: "".to_string(),
-            whitelist_nodes: "".to_string(),
-            max_num_peers: default_max_num_peers(),
-            minimum_outbound_peers: default_minimum_outbound_connections(),
-            ideal_connections_lo: default_ideal_connections_lo(),
-            ideal_connections_hi: default_ideal_connections_hi(),
-            peer_recent_time_window: default_peer_recent_time_window(),
-            safe_set_size: default_safe_set_size(),
-            archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
-            handshake_timeout: Duration::from_secs(20),
-            reconnect_delay: Duration::from_secs(60),
-            skip_sync_wait: false,
-            ban_window: Duration::from_secs(3 * 60 * 60),
-            blacklist: vec![],
-            ttl_account_id_router: default_ttl_account_id_router(),
-            peer_stats_period: default_peer_stats_period(),
-        }
-    }
-}
+pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Serde default only supports functions without parameters.
 fn default_reduce_wait_for_missing_block() -> Duration {
@@ -429,7 +298,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: Network,
+    pub network: near_network_primitives::types::ConfigJSON,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
@@ -473,7 +342,7 @@ impl Default for Config {
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
-            network: Network::default(),
+            network: Default::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -487,7 +356,7 @@ impl Default for Config {
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: true,
-            store: near_store::StoreConfig::read_write(),
+            store: near_store::StoreConfig::default(),
         }
     }
 }
@@ -535,6 +404,8 @@ impl Config {
 
 #[easy_ext::ext(GenesisExt)]
 impl Genesis {
+    // Creates new genesis with a given set of accounts and shard layout.
+    // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
@@ -699,68 +570,14 @@ impl NearConfig {
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
+                enable_statistics_export: config.store.enable_statistics_export,
             },
-            network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
-                account_id: validator_signer.as_ref().map(|vs| vs.validator_id().clone()),
-                addr: if config.network.addr.is_empty() {
-                    None
-                } else {
-                    Some(config.network.addr.parse().unwrap())
-                },
-                boot_nodes: if config.network.boot_nodes.is_empty() {
-                    vec![]
-                } else {
-                    config
-                        .network
-                        .boot_nodes
-                        .split(',')
-                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
-                        .collect()
-                },
-                whitelist_nodes: (|| -> Vec<_> {
-                    let w = &config.network.whitelist_nodes;
-                    if w.is_empty() {
-                        return vec![];
-                    }
-                    let mut peers = vec![];
-                    for peer in w.split(',') {
-                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
-                        if peer.addr.is_none() {
-                            panic!(
-                                "whitelist_nodes are required to specify both PeerId and IP:port"
-                            )
-                        }
-                        peers.push(peer);
-                    }
-                    peers
-                }()),
-                handshake_timeout: config.network.handshake_timeout,
-                reconnect_delay: config.network.reconnect_delay,
-                bootstrap_peers_period: Duration::from_secs(60),
-                max_num_peers: config.network.max_num_peers,
-                minimum_outbound_peers: config.network.minimum_outbound_peers,
-                ideal_connections_lo: config.network.ideal_connections_lo,
-                ideal_connections_hi: config.network.ideal_connections_hi,
-                peer_recent_time_window: config.network.peer_recent_time_window,
-                safe_set_size: config.network.safe_set_size,
-                archival_peer_connections_lower_bound: config
-                    .network
-                    .archival_peer_connections_lower_bound,
-                ban_window: config.network.ban_window,
-                max_send_peers: 512,
-                peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
-                peer_stats_period: Duration::from_secs(5),
-                ttl_account_id_router: config.network.ttl_account_id_router,
-                routed_message_ttl: ROUTED_MESSAGE_TTL,
-                max_routes_to_store: MAX_ROUTES_TO_STORE,
-                highest_peer_horizon: HIGHEST_PEER_HORIZON,
-                push_info_period: Duration::from_millis(100),
-                blacklist: config.network.blacklist,
-                outbound_disabled: false,
-                archive: config.archive,
-            },
+            network_config: NetworkConfig::new(
+                config.network,
+                network_key_pair.secret_key,
+                validator_signer.clone(),
+                config.archive,
+            ),
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -796,7 +613,7 @@ impl NearConfig {
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
-            self.network_config.secret_key.clone(),
+            self.network_config.node_key.clone(),
         );
         network_signer
             .write_to_file(&dir.join(&self.config.node_key_file))
@@ -950,13 +767,6 @@ fn test_generate_or_load_key() {
     test_err("bad_key", "fred", "");
 }
 
-pub fn mainnet_genesis() -> Genesis {
-    lazy_static_include::lazy_static_include_bytes! {
-        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
-}
-
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -1024,7 +834,7 @@ pub fn init_configs(
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let genesis = mainnet_genesis();
+            let genesis = near_mainnet_res::mainnet_genesis();
 
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
@@ -1032,7 +842,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for official testnet");
             }
@@ -1138,8 +948,8 @@ pub fn init_configs(
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-                online_max_threshold: Rational::new(99, 100),
-                online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
+                online_max_threshold: Rational32::new(99, 100),
+                online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
@@ -1150,7 +960,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: signer.account_id.clone(),
+                protocol_treasury_account: signer.account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
@@ -1170,6 +980,7 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validator_seats: NumSeats,
     local_ports: bool,
     archive: bool,
+    fixed_shards: Option<Vec<String>>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
@@ -1182,15 +993,39 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let genesis = Genesis::test_sharded(
-        seeds.iter().map(|s| s.parse().unwrap()).collect(),
+
+    let shard_layout = if let Some(ref fixed_shards) = fixed_shards {
+        // If fixed shards are set, we expect that they take over all the shards (except for one that would host all the other accounts).
+        assert!(fixed_shards.len() == num_shards as usize - 1);
+        ShardLayout::v1(
+            fixed_shards.iter().map(|it| it.parse().unwrap()).collect(),
+            vec![],
+            None,
+            0,
+        )
+    } else {
+        ShardLayout::v0(num_shards, 0)
+    };
+    let mut accounts_to_add_to_genesis: Vec<AccountId> =
+        seeds.iter().map(|s| s.parse().unwrap()).collect();
+
+    // If we have fixed shards - let's also add those accounts to genesis.
+    if let Some(ref fixed_shards_accounts) = fixed_shards {
+        accounts_to_add_to_genesis.extend(
+            fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
+        );
+    };
+    let genesis = Genesis::test_with_seeds(
+        accounts_to_add_to_genesis,
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
+        shard_layout,
     );
     let mut configs = vec![];
     let first_node_port = open_port();
     for i in 0..seeds.len() {
         let mut config = Config::default();
+        config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
@@ -1221,8 +1056,24 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
-    create_testnet_configs_from_seeds(
+    fixed_shards: bool,
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
+{
+    let fixed_shards = if fixed_shards {
+        Some((0..(num_shards - 1)).map(|i| format!("shard{}", i)).collect::<Vec<_>>())
+    } else {
+        None
+    };
+    let shard_keys = if let Some(ref fixed_shards) = fixed_shards {
+        fixed_shards
+            .iter()
+            .map(|seed| InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed))
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
@@ -1230,7 +1081,10 @@ pub fn create_testnet_configs(
         num_non_validator_seats,
         local_ports,
         archive,
-    )
+        fixed_shards,
+    );
+
+    (configs, validator_signers, network_signers, genesis, shard_keys)
 }
 
 pub fn init_testnet_configs(
@@ -1240,14 +1094,16 @@ pub fn init_testnet_configs(
     num_non_validator_seats: NumSeats,
     prefix: &str,
     archive: bool,
+    fixed_shards: bool,
 ) {
-    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs(
+    let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
         prefix,
         false,
         archive,
+        fixed_shards,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
@@ -1259,6 +1115,10 @@ pub fn init_testnet_configs(
         network_signers[i]
             .write_to_file(&node_dir.join(&configs[i].node_key_file))
             .expect("Error writing key file");
+        for key in &shard_keys {
+            key.write_to_file(&node_dir.join(format!("{}_key.json", key.account_id)))
+                .expect("Error writing shard file");
+        }
 
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
@@ -1278,324 +1138,6 @@ pub fn get_config_url(chain_id: &str) -> String {
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
         chain_id,
     )
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum FileDownloadError {
-    #[error("{0}")]
-    HttpError(hyper::Error),
-    #[error("Failed to open temporary file")]
-    OpenError(#[source] std::io::Error),
-    #[error("Failed to write to temporary file at {0:?}")]
-    WriteError(PathBuf, #[source] std::io::Error),
-    #[error("Failed to decompress XZ stream: {0}")]
-    XzDecodeError(#[from] xz2::stream::Error),
-    #[error("Failed to decompress XZ stream: internal error: unexpected status {0:?}")]
-    XzStatusError(String),
-    #[error("Failed to rename temporary file {0:?} to {1:?}")]
-    RenameError(PathBuf, PathBuf, #[source] std::io::Error),
-    #[error("Invalid URI")]
-    UriError(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to remove temporary file: {0}. Download previously failed")]
-    RemoveTemporaryFileError(std::io::Error, #[source] Box<FileDownloadError>),
-}
-
-/// Object which allows transparent XZ decoding when saving data to a file.
-/// It automatically detects whether the data being read is compressed by
-/// looking at the magic at the beginning of the file.
-struct AutoXzDecoder<'a> {
-    path: &'a std::path::Path,
-    file: tokio::fs::File,
-    state: AutoXzState,
-}
-
-/// State in which of the AutoXzDecoder
-enum AutoXzState {
-    /// Given number of bytes have been read so far and all of them match bytes
-    /// in [`XZ_HEADER_MAGIC`].  The object starts in `Probing(0)` state and the
-    /// number never reaches the length of the [`XZ_HEADER_MAGIC`] buffer.
-    Probing(usize),
-
-    /// The header did not match XZ stream header and thus the data is passed
-    /// through.
-    PlainText,
-
-    /// The header did match XZ stream header and thus the data is being
-    /// decompressed.
-    Compressed(xz2::stream::Stream, Box<[u8]>),
-}
-
-/// Header that every XZ streams starts with.  See
-/// <https://tukaani.org/xz/xz-file-format-1.0.4.txt> § 2.1.1.1.
-static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
-
-impl<'a> AutoXzDecoder<'a> {
-    fn new(path: &'a std::path::Path, file: tokio::fs::File) -> Self {
-        Self { path, file: file, state: AutoXzState::Probing(0) }
-    }
-
-    /// Writes data from the chunk to the output file automatically
-    /// decompressing it if the stream is XZ-compressed.  Note that once all the
-    /// data has been written [`finish`] function must be called to flush
-    /// internal buffers.
-    async fn write_all(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
-        if let Some(len) = self.probe(chunk) {
-            if len != 0 {
-                self.write_all_impl(&XZ_HEADER_MAGIC[..len]).await?;
-            }
-            self.write_all_impl(&chunk).await?;
-        }
-        Ok(())
-    }
-
-    /// Flushes all internal buffers and closes the output file.
-    async fn finish(mut self) -> Result<(), FileDownloadError> {
-        match self.state {
-            AutoXzState::Probing(pos) => self.write_all_raw(&XZ_HEADER_MAGIC[..pos]).await?,
-            AutoXzState::PlainText => (),
-            AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
-                Self::decompress(self.path, &mut self.file, stream, buffer, b"").await?
-            }
-        }
-        self.file
-            .flush()
-            .await
-            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
-    }
-
-    /// If object is still in `Probing` state, read more data from the input to
-    /// determine whether it’s XZ stream or not.  Updates `state` accordingly.
-    /// If probing succeeded, returns number of bytes from XZ header magic that
-    /// need to be processed before `chunk` is processed.  If the entire data
-    /// from `chunk` has been processed and it should be discarded by the
-    /// caller, returns `None`.
-    fn probe(&mut self, chunk: &[u8]) -> Option<usize> {
-        if chunk.is_empty() {
-            None
-        } else if let AutoXzState::Probing(pos) = self.state {
-            let len = std::cmp::min(XZ_HEADER_MAGIC.len() - pos, chunk.len());
-            if XZ_HEADER_MAGIC[pos..(pos + len)] != chunk[..len] {
-                self.state = AutoXzState::PlainText;
-                Some(pos)
-            } else if pos + len == XZ_HEADER_MAGIC.len() {
-                let stream = xz2::stream::Stream::new_stream_decoder(u64::max_value(), 0).unwrap();
-                // TODO(mina86): Once ‘new_uninit’ feature gets stabilised
-                // replaced buffer initialisation by:
-                //     let buffer = Box::new_uninit_slice(64 << 10);
-                //     let buffer = unsafe { buffer.assume_init() };
-                let buffer = vec![0u8; 64 << 10].into_boxed_slice();
-                self.state = AutoXzState::Compressed(stream, buffer);
-                Some(pos)
-            } else {
-                self.state = AutoXzState::Probing(pos + len);
-                None
-            }
-        } else {
-            Some(0)
-        }
-    }
-
-    /// Writes data to the output file.  Panics if the object is still in
-    /// probing stage.
-    async fn write_all_impl(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
-        match self.state {
-            AutoXzState::Probing(_) => unreachable!(),
-            AutoXzState::PlainText => self.write_all_raw(chunk).await,
-            AutoXzState::Compressed(ref mut stream, ref mut buffer) => {
-                Self::decompress(self.path, &mut self.file, stream, buffer, chunk).await
-            }
-        }
-    }
-
-    /// Writes data to output file directly.
-    async fn write_all_raw(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
-        self.file
-            .write_all(chunk)
-            .await
-            .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
-    }
-
-    /// Internal implementation for [`write_all`] and [`finish`] methods used
-    /// when performing decompression.  Calling it with an empty `chunk`
-    /// indicates the end of the compressed data.
-    async fn decompress(
-        path: &std::path::Path,
-        file: &mut tokio::fs::File,
-        stream: &mut xz2::stream::Stream,
-        buffer: &mut [u8],
-        mut chunk: &[u8],
-    ) -> Result<(), FileDownloadError> {
-        let action =
-            if chunk.is_empty() { xz2::stream::Action::Finish } else { xz2::stream::Action::Run };
-        loop {
-            let total_in = stream.total_in();
-            let total_out = stream.total_out();
-            let status = stream.process(chunk, buffer, action)?;
-            match status {
-                xz2::stream::Status::Ok => (),
-                xz2::stream::Status::StreamEnd => (),
-                status => {
-                    let status = format!("{:?}", status);
-                    error!(target: "near", "Got unexpected status ‘{}’ when decompressing downloaded file.", status);
-                    return Err(FileDownloadError::XzStatusError(status));
-                }
-            };
-            let read = (stream.total_in() - total_in).try_into().unwrap();
-            chunk = &chunk[read..];
-            let out = (stream.total_out() - total_out).try_into().unwrap();
-            file.write_all(&buffer[..out])
-                .await
-                .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
-            if chunk.is_empty() {
-                break Ok(());
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-fn auto_xz_test_write_file(buffer: &[u8], chunk_size: usize) -> Result<Vec<u8>, FileDownloadError> {
-    let (file, path) = tempfile::NamedTempFile::new().unwrap().into_parts();
-    let mut out = AutoXzDecoder::new(&path, tokio::fs::File::from_std(file));
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
-        async move {
-            for chunk in buffer.chunks(chunk_size) {
-                out.write_all(chunk).await?;
-            }
-            out.finish().await
-        },
-    )?;
-    Ok(std::fs::read(path).unwrap())
-}
-
-/// Tests writing plain text of varying lengths through [`AutoXzDecoder`].
-/// Includes test cases where prefix of a XZ header is present at the beginning
-/// of the stream being written.  That tests the object not being fooled by
-/// partial prefix.
-#[test]
-fn test_auto_xz_decode_plain() {
-    let mut data: [u8; 38] = *b"A quick brow fox jumps over a lazy dog";
-    // On first iteration we’re testing just a plain text data.  On subsequent
-    // iterations, we’re testing uncompressed data whose first few bytes match
-    // the XZ header.
-    for (pos, &ch) in XZ_HEADER_MAGIC.iter().enumerate() {
-        for len in [0, 1, 2, 3, 4, 5, 6, 10, 20, data.len()] {
-            let buffer = &data[0..len];
-            for chunk_size in 1..11 {
-                let got = auto_xz_test_write_file(&buffer, chunk_size).unwrap();
-                assert_eq!(got, buffer, "pos={}, len={}, chunk_size={}", pos, len, chunk_size);
-            }
-        }
-        data[pos] = ch;
-    }
-}
-
-/// Tests writing XZ stream through [`AutoXzDecoder`].  The stream should be
-/// properly decompressed.
-#[test]
-fn test_auto_xz_decode_compressed() {
-    let buffer = b"\xfd\x37\x7a\x58\x5a\x00\x00\x04\xe6\xd6\xb4\x46\
-                   \x02\x00\x21\x01\x1c\x00\x00\x00\x10\xcf\x58\xcc\
-                   \x01\x00\x19\x5a\x61\xc5\xbc\xc3\xb3\xc5\x82\xc4\
-                   \x87\x20\x67\xc4\x99\xc5\x9b\x6c\xc4\x85\x20\x6a\
-                   \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
-                   \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
-                   \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
-    for chunk_size in 1..11 {
-        let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
-        assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
-    }
-}
-
-/// Tests [`AutoXzDecoder`]’s handling of corrupt XZ streams.  The data being
-/// processed starts with a proper XZ header but what follows is an invalid XZ
-/// data.  This should result in [`FileDownloadError::XzDecodeError`].
-#[test]
-fn test_auto_xz_decode_corrupted() {
-    let buffer = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
-    for chunk_size in 1..11 {
-        let got = auto_xz_test_write_file(buffer, chunk_size);
-        assert!(
-            matches!(got, Err(FileDownloadError::XzDecodeError(xz2::stream::Error::Data))),
-            "got {:?}",
-            got
-        );
-    }
-}
-
-/// Downloads resource at given `uri` and saves it to `file`.  On failure,
-/// `file` may be left in inconsistent state (i.e. may contain partial data).
-///
-/// If the downloaded file is an XZ stream (i.e. starts with the XZ 6-byte magic
-/// number), transparently decompresses the file as it’s being downloaded.
-async fn download_file_impl(
-    uri: hyper::Uri,
-    path: &std::path::Path,
-    file: tokio::fs::File,
-) -> anyhow::Result<(), FileDownloadError> {
-    let mut out = AutoXzDecoder::new(path, file);
-    let https_connector = hyper_tls::HttpsConnector::new();
-    let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
-    let mut resp = client.get(uri).await.map_err(FileDownloadError::HttpError)?;
-    let bar = if let Some(file_size) = resp.size_hint().upper() {
-        let bar = ProgressBar::new(file_size);
-        bar.set_style(
-            ProgressStyle::default_bar().template(
-                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
-            ).progress_chars("#>-")
-        );
-        bar
-    } else {
-        let bar = ProgressBar::new_spinner();
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
-        );
-        bar
-    };
-    while let Some(next_chunk_result) = resp.data().await {
-        let next_chunk = next_chunk_result.map_err(FileDownloadError::HttpError)?;
-        out.write_all(next_chunk.as_ref()).await?;
-        bar.inc(next_chunk.len() as u64);
-    }
-    out.finish().await?;
-    bar.finish();
-    Ok(())
-}
-
-/// Downloads a resource at given `url` and saves it to `path`.  On success, if
-/// file at `path` exists it will be overwritten.  On failure, file at `path` is
-/// left unchanged (if it exists).
-pub async fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    let uri = url.parse()?;
-
-    let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(Path::new("."));
-        tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
-    };
-
-    let result = match download_file_impl(uri, &tmp_path, tokio::fs::File::from_std(tmp_file)).await
-    {
-        Err(err) => Err((tmp_path, err)),
-        Ok(()) => tmp_path.persist(path).map_err(|e| {
-            let from = e.path.to_path_buf();
-            let to = path.to_path_buf();
-            (e.path, FileDownloadError::RenameError(from, to, e.error))
-        }),
-    };
-
-    result.map_err(|(tmp_path, err)| match tmp_path.close() {
-        Ok(()) => err,
-        Err(close_err) => FileDownloadError::RemoveTemporaryFileError(close_err, Box::new(err)),
-    })
-}
-
-fn run_download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async { download_file(url, path).await })
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
@@ -1760,12 +1302,15 @@ fn test_init_config_localnet() {
 /// correctly parsed and defaults being applied correctly applied.
 #[test]
 fn test_config_from_file() {
-    for (has_gc, data) in [
-        (true, include_bytes!("../../testdata/example-config-gc.json").as_slice()),
-        (false, include_bytes!("../../testdata/example-config-no-gc.json").as_slice()),
-    ] {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    for (has_gc, path) in
+        [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
+    {
+        let path = base.join(path);
+        let data = std::fs::read(path).unwrap();
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        tmp.as_file().write_all(data).unwrap();
+        tmp.as_file().write_all(&data).unwrap();
 
         let config = Config::from_file(&tmp.into_temp_path()).unwrap();
 
@@ -1773,9 +1318,9 @@ fn test_config_from_file() {
         // values is probably not worth it but there may be some other defaults
         // we want to ensure that they happen.
         let want_gc = if has_gc {
-            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420 }
+            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
         } else {
-            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 1000 }
+            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
         };
         assert_eq!(want_gc, config.gc);
 

@@ -22,11 +22,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
 
-fn timestamp() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-}
-
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
@@ -35,6 +30,7 @@ pub const TGAS: u64 = 1024 * 1024 * 1024 * 1024;
 
 struct ProgressReporter {
     cnt: AtomicU64,
+    // Timestamp to make relative measurements of block processing speed (in ms)
     ts: AtomicU64,
     all: u64,
     skipped: AtomicU64,
@@ -96,7 +92,7 @@ fn old_outcomes(
         .map(|outcome| {
             store
                 .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
-                    DBCol::ColTransactionResult,
+                    DBCol::TransactionResult,
                     outcome.id.as_ref(),
                 )
                 .unwrap()
@@ -137,7 +133,7 @@ fn apply_block_from_range(
             return;
         }
     };
-    let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let block = chain_store.get_block(&block_hash).unwrap();
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
@@ -164,12 +160,17 @@ fn apply_block_from_range(
             "Can't get existing chunk extra for block #{}",
             height
         );
-        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
-        let chunk =
-            chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
+        existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
+        let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+        let chunk = chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
+            panic!(
+                "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
+                height, chunk_hash, error
+            );
+        });
 
         let prev_block = match chain_store.get_block(block.header().prev_hash()) {
-            Ok(prev_block) => prev_block.clone(),
+            Ok(prev_block) => prev_block,
             Err(_) => {
                 if verbose_output {
                     println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
@@ -190,7 +191,7 @@ fn apply_block_from_range(
             }
         };
 
-        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 shard_id,
@@ -250,7 +251,7 @@ fn apply_block_from_range(
     } else {
         chunk_present = false;
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
 
         runtime_adapter
@@ -310,7 +311,7 @@ fn apply_block_from_range(
     maybe_add_to_csv(
         csv_file_mutex,
         &format!(
-            "{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{}",
             height,
             block_hash,
             block_author,
@@ -320,7 +321,8 @@ fn apply_block_from_range(
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
-            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index)
+            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index),
+            apply_result.trie_changes.state_changes().len(),
         ),
     );
     progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
@@ -338,6 +340,15 @@ pub fn apply_chain_range(
     only_contracts: bool,
     sequential: bool,
 ) {
+    let parent_span = tracing::debug_span!(
+        target: "state_viewer",
+        "apply_chain_range",
+        ?start_height,
+        ?end_height,
+        %shard_id,
+        only_contracts,
+        sequential)
+    .entered();
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -350,12 +361,12 @@ pub fn apply_chain_range(
 
     println!("Printing results including outcomes of applying receipts");
     let csv_file_mutex = Arc::new(Mutex::new(csv_file));
-    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts");
+    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
 
     let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
-        ts: AtomicU64::new(timestamp()),
+        ts: AtomicU64::new(timestamp_ms()),
         all: end_height - start_height,
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
@@ -377,9 +388,25 @@ pub fn apply_chain_range(
     };
 
     if sequential {
-        range.into_iter().for_each(process_height);
+        range.into_iter().for_each(|height| {
+            let _span = tracing::debug_span!(
+                target: "state_viewer",
+                parent: &parent_span,
+                "process_block_in_order",
+                height)
+            .entered();
+            process_height(height)
+        });
     } else {
-        range.into_par_iter().for_each(process_height);
+        range.into_par_iter().for_each(|height| {
+            let _span = tracing::debug_span!(
+                target: "mock_node",
+                parent: &parent_span,
+                "process_block_in_parallel",
+                height)
+            .entered();
+            process_height(height)
+        });
     }
 
     println!(

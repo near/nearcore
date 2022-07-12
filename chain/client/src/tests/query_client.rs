@@ -1,5 +1,6 @@
 use actix::System;
 use futures::{future, FutureExt};
+use near_primitives::merkle::PartialMerkleTree;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -9,7 +10,7 @@ use crate::{
     TxStatus,
 };
 use near_actix_test_utils::run_actix;
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -28,7 +29,7 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
-use num_rational::Rational;
+use num_rational::Ratio;
 
 /// Query account from view client
 #[test]
@@ -66,7 +67,8 @@ fn query_status_not_crash() {
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
-            let (block, mut block_merkle_tree) = res.unwrap().unwrap();
+            let (block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             let header: BlockHeader = block.header.clone().into();
             block_merkle_tree.insert(*header.hash());
             let mut next_block = Block::produce(
@@ -80,7 +82,7 @@ fn query_status_not_crash() {
                 EpochId(block.header.hash),
                 None,
                 vec![],
-                Rational::from_integer(0),
+                Ratio::from_integer(0),
                 0,
                 100,
                 None,
@@ -252,7 +254,7 @@ fn test_garbage_collection() {
     run_actix(async {
         let block_prod_time = 100;
         let epoch_length = 5;
-        let target_height = epoch_length * (NUM_EPOCHS_TO_KEEP_STORE_DATA + 1);
+        let target_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1);
         let network_mock: Arc<
             RwLock<
                 Box<

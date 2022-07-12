@@ -27,7 +27,7 @@ impl PartialEdgeInfo {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge(pub Arc<EdgeInner>);
 
@@ -41,6 +41,11 @@ impl Edge {
         signature1: Signature,
     ) -> Self {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
+    }
+
+    pub fn with_removal_info(mut self, ri: Option<(bool, Signature)>) -> Edge {
+        Arc::make_mut(&mut self.0).removal_info = ri;
+        self
     }
 
     pub fn key(&self) -> &(PeerId, PeerId) {
@@ -124,9 +129,6 @@ impl Edge {
         } else {
             nonce + 1
         }
-    }
-    pub fn to_simple_edge(&self) -> SimpleEdge {
-        SimpleEdge::new(self.key().0.clone(), self.key().1.clone(), self.nonce())
     }
 
     /// Create the remove edge change from an added edge change.
@@ -223,7 +225,7 @@ impl Edge {
 /// We need to keep explicitly `Removed` edges, in order to be able to proof, that given `Edge`
 /// isn't `Active` anymore. In case, someone delivers a proof that the edge existed.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeInner {
     /// Each edge consists of unordered pair of public keys of both peers.
@@ -273,38 +275,6 @@ impl EdgeInner {
 
     fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
-    }
-}
-
-/// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
-pub struct SimpleEdge {
-    key: (PeerId, PeerId),
-    nonce: u64,
-}
-
-impl SimpleEdge {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
-        let (peer0, peer1) = Edge::make_key(peer0, peer1);
-        SimpleEdge { key: (peer0, peer1), nonce }
-    }
-
-    pub fn key(&self) -> &(PeerId, PeerId) {
-        &self.key
-    }
-
-    pub fn nonce(&self) -> u64 {
-        self.nonce
-    }
-
-    pub fn edge_state(&self) -> EdgeState {
-        if self.nonce % 2 == 1 {
-            EdgeState::Active
-        } else {
-            EdgeState::Removed
-        }
     }
 }
 

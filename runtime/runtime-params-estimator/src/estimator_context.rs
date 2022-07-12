@@ -1,12 +1,14 @@
+use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
+use near_store::{TrieCache, TrieCachingStorage};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::get_account_id;
+use genesis_populate::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -24,7 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) deploy_contract_base: Option<GasCost>,
     pub(crate) noop_function_call_cost: Option<GasCost>,
     pub(crate) storage_read_base: Option<GasCost>,
-    pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
+    pub(crate) contract_loading_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
@@ -45,7 +47,9 @@ impl<'c> EstimatorContext<'c> {
             config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
-                (0..self.config.active_accounts).map(get_account_id).collect(),
+                (0..self.config.active_accounts)
+                    .map(|index| get_account_id(index as u64))
+                    .collect(),
             ),
         }
     }
@@ -104,6 +108,24 @@ impl<'c> Testbed<'c> {
         }
 
         res
+    }
+
+    pub(crate) fn process_block<'a>(
+        &'a mut self,
+        block: Vec<SignedTransaction>,
+        block_latency: usize,
+    ) {
+        let allow_failures = false;
+        self.inner.process_block(&block, allow_failures);
+        let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
+        assert_eq!(block_latency, extra_blocks);
+    }
+
+    pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
+        let store = self.inner.store();
+        let caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        caching_storage
     }
 
     fn clear_caches(&mut self) {

@@ -3,11 +3,10 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{ReceiptMetadata, VMConfig, VMOutcome};
+use near_vm_logic::{ReceiptMetadata, VMConfig};
 use std::mem::size_of;
 
 use crate::tests::{
@@ -18,30 +17,23 @@ use crate::vm_kind::VMKind;
 use crate::VMResult;
 
 fn test_contract() -> ContractCode {
-    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
+    let code = near_test_contracts::rs_contract();
     ContractCode::new(code.to_vec(), None)
 }
 
+#[track_caller]
 fn assert_run_result(result: VMResult, expected_value: u64) {
     if let Some(_) = result.error() {
         panic!("Failed execution");
     }
 
-    if let Some(VMOutcome { return_data, .. }) = result.outcome() {
-        if let ReturnData::Value(value) = return_data {
-            let mut arr = [0u8; size_of::<u64>()];
-            arr.copy_from_slice(&value);
-            let res = u64::from_le_bytes(arr);
-            assert_eq!(res, expected_value);
-        } else {
-            panic!("Value was not returned");
-        }
+    if let ReturnData::Value(value) = &result.outcome().return_data {
+        let mut arr = [0u8; size_of::<u64>()];
+        arr.copy_from_slice(&value);
+        let res = u64::from_le_bytes(arr);
+        assert_eq!(res, expected_value);
     } else {
-        panic!("Failed execution");
+        panic!("Value was not returned");
     }
 }
 
@@ -81,47 +73,6 @@ pub fn test_read_write() {
             None,
         );
         assert_run_result(result, 20);
-    });
-}
-
-#[test]
-pub fn test_stablized_host_function() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
-        let mut fake_external = MockedExternal::new();
-
-        let context = create_context(vec![]);
-        let config = VMConfig::test();
-        let fees = RuntimeFeesConfig::test();
-
-        let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context.clone(),
-            &fees,
-            &promise_results,
-            LATEST_PROTOCOL_VERSION,
-            None,
-        );
-        assert_eq!(result.error(), None);
-
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            ProtocolFeature::MathExtension.protocol_version() - 1,
-            None,
-        );
-        match result.error() {
-            Some(&VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
-            _ => panic!("should return a link error due to missing import"),
-        }
     });
 }
 
@@ -172,22 +123,16 @@ fn run_test_ext(
         .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
         .outcome_error();
 
-    if let Some(outcome) = &outcome {
-        assert_eq!(outcome.profile.action_gas(), 0);
-    }
+    assert_eq!(outcome.profile.action_gas(), 0);
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
     }
 
-    if let Some(VMOutcome { return_data, .. }) = outcome {
-        if let ReturnData::Value(value) = return_data {
-            assert_eq!(&value, &expected);
-        } else {
-            panic!("Value was not returned");
-        }
+    if let ReturnData::Value(value) = outcome.return_data {
+        assert_eq!(&value, &expected);
     } else {
-        panic!("Failed execution");
+        panic!("Value was not returned");
     }
 }
 
@@ -324,7 +269,6 @@ fn attach_unspent_gas_but_burn_all_gas() {
             )
             .outcome_error();
 
-        let outcome = outcome.unwrap();
         let err = err.unwrap();
         assert!(matches!(
             err,
@@ -368,7 +312,6 @@ fn attach_unspent_gas_but_use_all_gas() {
             )
             .outcome_error();
 
-        let outcome = outcome.unwrap();
         let err = err.unwrap();
         assert!(matches!(
             err,

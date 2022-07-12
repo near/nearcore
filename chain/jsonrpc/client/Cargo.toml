@@ -4,12 +4,12 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [dependencies]
-awc = "3.0.0-beta.5"
-actix-http = "=3.0.0-beta.6"
+awc = "3.0.0"
+actix-http = "3.0.4"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

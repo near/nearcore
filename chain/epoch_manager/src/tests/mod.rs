@@ -18,7 +18,7 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use num_rational::Rational;
+use num_rational::Ratio;
 
 impl EpochManager {
     /// Returns number of produced and expected blocks by given validator.
@@ -544,7 +544,7 @@ fn test_double_sign_slashing1() {
     // Epoch 3 -> defined by proposals/slashes in h[1].
     record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
     let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
     assert_eq!(
         epoch_info
             .validators_iter()
@@ -659,13 +659,13 @@ fn test_validator_reward_one_validator() {
     let epoch_length = 2;
     let total_supply = validators.iter().map(|(_, stake)| stake).sum();
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -757,13 +757,13 @@ fn test_validator_reward_weight_by_stake() {
     let epoch_length = 2;
     let total_supply = (stake_amount1 + stake_amount2) * validators.len() as u128;
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 50,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 50,
     };
     let mut epoch_manager = setup_epoch_manager(
@@ -863,13 +863,13 @@ fn test_reward_multiple_shards() {
     let epoch_length = 10;
     let total_supply = stake_amount * validators.len() as u128;
     let reward_calculator = RewardCalculator {
-        max_inflation_rate: Rational::new(5, 100),
+        max_inflation_rate: Ratio::new(5, 100),
         num_blocks_per_year: 1_000_000,
         epoch_length,
-        protocol_reward_rate: Rational::new(1, 10),
+        protocol_reward_rate: Ratio::new(1, 10),
         protocol_treasury_account: "near".parse().unwrap(),
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
@@ -1207,7 +1207,7 @@ fn test_epoch_info_aggregator() {
     record_block_with_final_block_hash(&mut em, h[1], h[3], h[0], 3, vec![]);
     assert_eq!(h[0], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[3]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
 
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..4, &[1, 3], &mut tracker);
@@ -1255,7 +1255,7 @@ fn test_epoch_info_aggregator_data_loss() {
     record_block(&mut em, h[3], h[5], 5, vec![stake("test1".parse().unwrap(), stake_amount - 1)]);
     assert_eq!(h[3], em.epoch_info_aggregator.last_block_hash);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..6, &[1, 3, 5], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
@@ -1305,7 +1305,7 @@ fn test_epoch_info_aggregator_reorg_past_final_block() {
     record_block_with_final_block_hash(&mut em, h[3], h[4], h[3], 4, vec![]);
     record_block_with_final_block_hash(&mut em, h[2], h[5], h[1], 5, vec![]);
     let epoch_id = em.get_epoch_id(&h[5]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 1..6, &[1, 2, 5], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[5]).unwrap();
@@ -1347,7 +1347,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
     // reorg
     record_block(&mut em, h[4], h[7], 7, vec![]);
     let epoch_id = em.get_epoch_id(&h[7]).unwrap();
-    let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let mut tracker = HashMap::new();
     update_tracker(&epoch_info, 5..8, &[7], &mut tracker);
     let aggregator = em.get_epoch_info_aggregator_upto_last(&h[7]).unwrap();
@@ -1752,8 +1752,8 @@ fn test_epoch_height_increase() {
     record_block(&mut epoch_manager, h[0], h[2], 2, vec![stake("test1".parse().unwrap(), 223)]);
     record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
 
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_ne!(epoch_info2.epoch_height(), epoch_info3.epoch_height());
 }
 
@@ -1787,10 +1787,10 @@ fn test_unstake_slash() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Unstaked)
@@ -1837,10 +1837,10 @@ fn test_no_unstake_slash() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Slashed)
@@ -1888,11 +1888,11 @@ fn test_slash_non_validator() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
 
-    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone(); // Unstaked
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone(); // -
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone(); // Slashed
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone(); // Slashed
-    let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone(); // Ok
+    let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap(); // Unstaked
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(); // -
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap(); // Slashed
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap(); // Slashed
+    let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap(); // Ok
     assert_eq!(
         epoch_info1.validator_kickout().get("test1"),
         Some(&ValidatorKickoutReason::Unstaked)
@@ -1945,9 +1945,9 @@ fn test_slash_restake() {
         4,
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     assert!(epoch_info2.stake_change().get("test1").is_none());
-    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
+    let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert!(epoch_info4.stake_change().get("test1").is_some());
 }
 
@@ -2060,7 +2060,7 @@ fn test_fisherman_kickout() {
     // - Finalize epoch T+1 => T+3 kicks test1 as fisherman without a record in stake_change
     record_block(&mut epoch_manager, h[1], h[3], 3, vec![]);
 
-    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap().clone();
+    let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap();
     check_validators(&epoch_info2, &[("test2", stake_amount), ("test3", stake_amount)]);
     check_fishermen(&epoch_info2, &[("test1", 148)]);
     check_stake_change(
@@ -2073,7 +2073,7 @@ fn test_fisherman_kickout() {
     );
     check_kickout(&epoch_info2, &[]);
 
-    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
+    let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
     check_validators(&epoch_info3, &[("test2", stake_amount), ("test3", stake_amount)]);
     check_fishermen(&epoch_info3, &[]);
     check_stake_change(
@@ -2217,9 +2217,9 @@ fn test_protocol_version_switch_with_many_seats() {
         block_producer_kickout_threshold: 90,
         chunk_producer_kickout_threshold: 60,
         fishermen_threshold: 0,
-        online_min_threshold: Rational::new(90, 100),
-        online_max_threshold: Rational::new(99, 100),
-        protocol_upgrade_stake_threshold: Rational::new(80, 100),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),
@@ -2381,14 +2381,65 @@ fn test_epoch_validators_cache() {
     let epoch_validators =
         epoch_manager.get_all_block_producers_settlement(&epoch_id, &h[3]).unwrap().to_vec();
     assert_eq!(epoch_manager.epoch_validators_ordered.len(), 1);
-    let epoch_validators_in_cache =
-        epoch_manager.epoch_validators_ordered.get(&epoch_id).unwrap().clone();
+    let epoch_validators_in_cache = epoch_manager.epoch_validators_ordered.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators, *epoch_validators_in_cache);
 
     assert_eq!(epoch_manager.epoch_validators_ordered_unique.len(), 0);
     let epoch_validators_unique =
         epoch_manager.get_all_block_producers_ordered(&epoch_id, &h[3]).unwrap().to_vec();
     let epoch_validators_unique_in_cache =
-        epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap().clone();
+        epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators_unique, *epoch_validators_unique_in_cache);
+}
+
+#[test]
+fn test_chunk_producers() {
+    let amount_staked = 1_000_000;
+    // Make sure that last validator has at least 160/1'000'000  / num_shards of stake.
+    // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
+    let validators = vec![
+        ("test1".parse().unwrap(), amount_staked),
+        ("test2".parse().unwrap(), amount_staked),
+        ("chunk_only".parse().unwrap(), 200),
+        ("not_enough_producer".parse().unwrap(), 100),
+    ];
+
+    // There are 2 shards, and 2 block producers seats.
+    // So test1 and test2 should become block producers, and chunk_only should become chunk only producer.
+    let mut epoch_manager = setup_default_epoch_manager(validators, 2, 2, 2, 0, 90, 60);
+    let h = hash_range(10);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..=4 {
+        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    let epoch_id = EpochId(h[2]);
+
+    let block_producers = epoch_manager
+        .get_all_block_producers_settlement(&epoch_id, &h[4])
+        .unwrap()
+        .iter()
+        .map(|(stake, _)| stake.account_id().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(vec!(String::from("test1"), String::from("test2")), block_producers);
+
+    let mut chunk_producers = epoch_manager
+        .get_all_chunk_producers(&epoch_id)
+        .unwrap()
+        .to_vec()
+        .iter()
+        .map(|stake| stake.account_id().to_string())
+        .collect::<Vec<_>>();
+    chunk_producers.sort();
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    {
+        assert_eq!(
+            vec!(String::from("chunk_only"), String::from("test1"), String::from("test2")),
+            chunk_producers
+        );
+        println!("! Testing feature");
+    }
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+    assert_eq!(vec!(String::from("test1"), String::from("test2")), chunk_producers);
 }

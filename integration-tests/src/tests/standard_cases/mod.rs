@@ -816,16 +816,42 @@ pub fn test_delete_key_last(node: impl Node) {
     let root = node_user.get_state_root();
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
-    let transaction_result =
-        node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
-    assert_eq!(transaction_result.receipts_outcome.len(), 1);
+    let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
+
+    match transaction_result {
+        Ok(transaction_result) => {
+            assert_eq!(
+                transaction_result.status,
+                FinalExecutionStatus::SuccessValue(String::new())
+            );
+            assert_eq!(transaction_result.receipts_outcome.len(), 1);
+        }
+        Err(err) => {
+            // TODO(#6724): This is a wrong error, the transaction actually
+            // succeeds. We get an error here when we retry the tx and the second
+            // time around it fails. Normally, retries are handled by nonces, but we
+            // forget the nonce when we delete a key!
+            assert_eq!(
+                err,
+                ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: account_id.clone(),
+                            public_key: node.signer().public_key(),
+                        },
+                    )
+                ))
+            )
+        }
+    }
+
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_err());
 }
 
+#[track_caller]
 fn assert_access_key(
     access_key: &AccessKey,
     access_key_view: AccessKeyView,
@@ -1325,7 +1351,7 @@ pub fn test_smart_contract_free(node: impl Node) {
     assert_ne!(root, new_root);
 }
 
-/// Get number of charged trie node accesses from the execution metadata.  
+/// Get number of charged trie node accesses from the execution metadata.
 fn get_trie_nodes_count(
     metadata: &ExecutionMetadataView,
     runtime_config: &RuntimeConfig,
@@ -1349,7 +1375,7 @@ fn get_trie_nodes_count(
 
 /// Checks correctness of touching trie node cost for writing value into contract storage.
 /// First call should touch 2 nodes (Extension and Branch), because before it contract storage is empty.
-/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.  
+/// The second call should touch 4 nodes, because the first call adds Leaf and Value nodes to trie.
 pub fn test_contract_write_key_value_cost(node: impl Node) {
     let node_user = node.user();
     let results: Vec<_> = vec![
@@ -1508,7 +1534,7 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
 /// We have checked manually that if chunk cache mode is not disabled, then the following scenario happens:
 /// - 1st receipt enables chunk cache mode but doesn't disable it
 /// - 2nd receipt triggers insertion of `Value 2` into the chunk cache
-/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.  
+/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.
 pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),

@@ -3,8 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::DBCol::ColBlockMerkleTree;
-use near_store::{create_store, DBCol, Store};
+use near_store::{DBCol, Store};
 use std::time::{Duration, Instant};
 
 /// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then
@@ -17,7 +16,10 @@ fn benchmark_write_then_read_successful(
     max_value_size: usize,
     col: DBCol,
 ) {
-    let store = create_store_in_random_folder();
+    let tmp_dir = tempfile::tempdir().unwrap();
+    // Use default StoreConfig rather than Store::test_opener so we’re using the
+    // same configuration as in production.
+    let store = Store::opener(tmp_dir.path(), &Default::default()).open();
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 
@@ -34,13 +36,6 @@ fn benchmark_write_then_read_successful(
             keys.len()
         );
     });
-}
-
-/// Create `Store` in a random folder.
-fn create_store_in_random_folder() -> Store {
-    let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-    let store = create_store(tmp_dir.path());
-    store
 }
 
 /// Generate `count` keys of `key_size` length.
@@ -89,8 +84,8 @@ fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCo
 fn benchmark_write_then_read_successful_10m(bench: &mut Bencher) {
     // By adding logs, I've seen a lot of write to keys with size 40, an values with sizes
     // between 10 .. 333.
-    // NOTE: ColBlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
-    benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, ColBlockMerkleTree);
+    // NOTE: DBCol::BlockMerkleTree was chosen to be a column, where `.is_rc() == false`.
+    benchmark_write_then_read_successful(bench, 10_000_000, 40, 333, DBCol::BlockMerkleTree);
 }
 
 benchmark_group!(benches, benchmark_write_then_read_successful_10m);

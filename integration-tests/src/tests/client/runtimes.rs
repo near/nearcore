@@ -1,10 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
-
+use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::test_utils::ChunkTestFixture;
@@ -23,6 +20,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -93,7 +93,7 @@ fn test_cap_max_gas_price() {
     genesis.config.max_gas_price = 1_000_000;
     genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
     genesis.config.epoch_length = epoch_length;
-    let chain_genesis = ChainGenesis::from(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
@@ -103,7 +103,7 @@ fn test_cap_max_gas_price() {
         env.process_block(0, block, Provenance::PRODUCED);
     }
 
-    let last_block = env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
+    let last_block = env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap();
     let protocol_version = env.clients[0]
         .runtime_adapter
         .get_epoch_protocol_version(last_block.header().epoch_id())
@@ -156,7 +156,7 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
         client.chain.mut_store(),
         &mut client.rs,
     );
-    assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
+    assert_matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock));
 
     // Client::process_partial_encoded_chunk should not return an error
     // if the chunk is based on a missing block.
@@ -170,8 +170,8 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
     // a missing block.
     let result = client.process_partial_encoded_chunk_forward(mock_forward);
-    assert!(matches!(
+    assert_matches!(
         result,
         Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-    ));
+    );
 }

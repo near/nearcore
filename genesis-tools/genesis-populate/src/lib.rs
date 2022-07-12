@@ -2,13 +2,8 @@
 
 pub mod state_dump;
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use indicatif::{ProgressBar, ProgressStyle};
-
 use crate::state_dump::StateDump;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -21,13 +16,18 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
-};
-use nearcore::{get_store_path, NightshadeRuntime, TrackedConfig};
+use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use nearcore::{NearConfig, NightshadeRuntime};
+use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-fn get_account_id(account_index: u64) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
+pub fn get_account_id(account_index: u64) -> AccountId {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    account_index.hash(&mut hasher);
+    let hash = hasher.finish();
+    AccountId::try_from(format!("{hash}_near_{account_index}_{account_index}")).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -53,23 +53,13 @@ pub struct GenesisBuilder {
 }
 
 impl GenesisBuilder {
-    pub fn from_config_and_store(home_dir: &Path, genesis: Arc<Genesis>, store: Store) -> Self {
+    pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-        let runtime = NightshadeRuntime::new(
-            tmpdir.path(),
-            store.clone(),
-            &genesis,
-            // Since we are not using runtime as an actor
-            // there is no reason to track accounts or shards.
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &config);
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            genesis,
+            genesis: Arc::new(config.genesis),
             store,
             runtime,
             unflushed_records: Default::default(),
@@ -80,11 +70,6 @@ impl GenesisBuilder {
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
         }
-    }
-
-    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, genesis, store)
     }
 
     pub fn print_progress(mut self) -> Self {

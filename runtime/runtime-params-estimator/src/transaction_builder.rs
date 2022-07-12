@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -7,7 +8,6 @@ use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
-use crate::utils::get_account_id;
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]
 pub(crate) struct TransactionBuilder {
@@ -61,15 +61,15 @@ impl TransactionBuilder {
     pub(crate) fn account_insert_key(
         &mut self,
         account: AccountId,
-        key: &str,
-        value: &str,
+        key: &[u8],
+        value: &[u8],
     ) -> SignedTransaction {
         let arg = (key.len() as u64)
             .to_le_bytes()
             .into_iter()
-            .chain(key.bytes())
+            .chain(key.iter().cloned())
             .chain((value.len() as u64).to_le_bytes().into_iter())
-            .chain(value.bytes())
+            .chain(value.iter().cloned())
             .collect();
 
         self.transaction_from_function_call(account, "account_storage_insert_key", arg)
@@ -87,7 +87,7 @@ impl TransactionBuilder {
         rand::thread_rng()
     }
 
-    pub(crate) fn account(&mut self, account_index: usize) -> AccountId {
+    pub(crate) fn account(&mut self, account_index: u64) -> AccountId {
         get_account_id(account_index)
     }
     pub(crate) fn random_account(&mut self) -> AccountId {
@@ -111,6 +111,11 @@ impl TransactionBuilder {
             }
         }
     }
+
+    pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
+        (0..len).map(|_| self.rng().gen()).collect()
+    }
+
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
         let nonce = self.nonces.entry(account_id.clone()).or_default();
         *nonce += 1;

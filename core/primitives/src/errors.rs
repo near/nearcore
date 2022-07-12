@@ -15,7 +15,7 @@ use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError}
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum TxExecutionError {
-    /// An error happened during Acton execution
+    /// An error happened during Action execution
     ActionError(ActionError),
     /// An error happened during Transaction execution
     InvalidTxError(InvalidTxError),
@@ -189,7 +189,7 @@ pub enum ActionsValidationError {
     /// Integer overflow during a compute.
     IntegerOverflow,
     /// Invalid account ID.
-    InvalidAccountId { account_id: AccountId },
+    InvalidAccountId { account_id: String },
     /// The size of the contract code exceeded the limit in a DeployContract action.
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The length of the method name exceeded the limit in a Function Call action.

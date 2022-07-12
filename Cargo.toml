@@ -1,79 +1,86 @@
 [workspace]
 members = [
-    "core/chain-configs",
-    "core/crypto",
-    "core/account-id",
-    "core/account-id/fuzz",
-    "core/primitives",
-    "core/primitives-core",
-    "core/store",
-    "core/metrics",
-    "core/o11y",
-    "runtime/near-vm-logic",
-    "runtime/near-vm-runner",
-    "runtime/near-vm-runner/fuzz",
-    "runtime/near-vm-runner-standalone",
-    "runtime/runtime",
-    "runtime/runtime-params-estimator",
-    "runtime/runtime-params-estimator/estimator-warehouse",
     "chain/chain",
     "chain/chunks",
-    "chain/epoch_manager",
-    "chain/pool",
     "chain/client",
     "chain/client-primitives",
-    "chain/network",
+    "chain/epoch_manager",
     "chain/indexer",
     "chain/indexer-primitives",
     "chain/jsonrpc",
-    "chain/jsonrpc/fuzz",
-    "chain/jsonrpc/client",
-    "chain/jsonrpc/jsonrpc-tests",
-    "chain/jsonrpc-primitives",
     "chain/jsonrpc-adversarial-primitives",
+    "chain/jsonrpc-primitives",
+    "chain/jsonrpc/client",
+    "chain/jsonrpc/fuzz",
+    "chain/jsonrpc/jsonrpc-tests",
+    "chain/network",
+    "chain/pool",
     "chain/rosetta-rpc",
+    "chain/telemetry",
+    "core/account-id",
+    "core/account-id/fuzz",
+    "core/chain-configs",
+    "core/crypto",
+    "core/metrics",
+    "core/o11y",
+    "core/primitives",
+    "core/primitives-core",
+    "core/store",
+    "genesis-tools/genesis-csv-to-json",
+    "genesis-tools/genesis-populate",
+    "genesis-tools/keypair-generator",
+    "integration-tests",
+    "nearcore",
+    "neard",
+    "runtime/near-vm-logic",
+    "runtime/near-vm-runner",
+    "runtime/near-vm-runner/fuzz",
+    "runtime/runtime",
+    "runtime/runtime-params-estimator",
+    "runtime/runtime-params-estimator/estimator-warehouse",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
-    "neard",
-    "nearcore",
-    "genesis-tools/genesis-csv-to-json",
-    "genesis-tools/genesis-populate",
-    "genesis-tools/keypair-generator",
+    "tools/chainsync-loadtest",
     "tools/delay_detector",
     "tools/indexer/example",
+    "tools/mock_node",
     "tools/restaked",
-    "tools/restored-receipts-verifier",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
-    "tools/chainsync-loadtest",
-    "integration-tests",
-    "utils/near-rate-limiter",
+    "utils/mainnet-res",
     "utils/near-cache",
+    "utils/near-rate-limiter",
 ]
 
 [workspace.metadata.workspaces]
-version = "0.12.0"
+version = "0.14.0"
 exclude = [ "neard" ]
 
 [patch.crates-io]
 
+# Note that "bench" profile inherits from "release" profile and
+# "test" profile inherits from "dev" profile.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#test
+
 [profile.release]
 overflow-checks = true
+panic = 'abort'
 
-[profile.bench]
-overflow-checks = true
+[profile.dev]
+panic = 'abort'
 
+# Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]
-opt-level = 3 # BLS library is too slow to use in debug
-
+opt-level = 3
 [profile.dev.package.rand]
-opt-level = 3 # BLS library is too slow to use in debug
-
+opt-level = 3
 [profile.dev.package.bs58]
-opt-level = 3 # bs58 library is too slow to use in debug
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3

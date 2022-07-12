@@ -25,57 +25,24 @@ use near_primitives::views::{
     StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
+use serde::Serialize;
 
 /// Combines errors coming from chain, tx pool and block producer.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Chain(near_chain_primitives::Error),
-    Chunk(near_chunks_primitives::Error),
+    #[error("Chain: {0}")]
+    Chain(#[from] near_chain_primitives::Error),
+    #[error("Chunk: {0}")]
+    Chunk(#[from] near_chunks_primitives::Error),
+    #[error("Block Producer: {0}")]
     BlockProducer(String),
+    #[error("Chunk Producer: {0}")]
     ChunkProducer(String),
+    #[error("Other: {0}")]
     Other(String),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Chain(err) => write!(f, "Chain: {}", err),
-            Error::Chunk(err) => write!(f, "Chunk: {}", err),
-            Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
-            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
-            Error::Other(err) => write!(f, "Other: {}", err),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<near_chain_primitives::Error> for Error {
-    fn from(e: near_chain_primitives::Error) -> Self {
-        Error::Chain(e)
-    }
-}
-
-impl From<near_chain_primitives::ErrorKind> for Error {
-    fn from(e: near_chain_primitives::ErrorKind) -> Self {
-        let error: near_chain_primitives::Error = e.into();
-        Error::Chain(error)
-    }
-}
-
-impl From<near_chunks_primitives::Error> for Error {
-    fn from(err: near_chunks_primitives::Error) -> Self {
-        Error::Chunk(err)
-    }
-}
-
-impl From<String> for Error {
-    fn from(e: String) -> Self {
-        Error::Other(e)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
@@ -101,7 +68,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -113,14 +80,14 @@ pub enum ShardSyncStatus {
     StateSyncDone,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsStaticStr)]
+#[derive(Clone, Debug, strum::AsRefStr, Serialize)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -131,19 +98,23 @@ pub enum SyncStatus {
     // Bowen: why do we use epoch ordinal instead of epoch id?
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
-    HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
     /// State sync, with different states of state sync for different shards.
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
-    BodySync { current_height: BlockHeight, highest_height: BlockHeight },
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
 impl SyncStatus {
     /// Get a string representation of the status variant
-    pub fn as_variant_name(&self) -> &'static str {
-        strum::AsStaticRef::as_static(self)
+    pub fn as_variant_name(&self) -> &str {
+        self.as_ref()
     }
 
     /// True if currently engaged in syncing the chain.
@@ -160,10 +131,18 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
             SyncStatus::StateSync(_, _) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+        }
+    }
+
+    pub fn start_height(&self) -> Option<BlockHeight> {
+        match self {
+            SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
+            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            _ => None,
         }
     }
 }
@@ -189,11 +168,11 @@ pub enum GetBlockError {
 
 impl From<near_chain_primitives::Error> for GetBlockError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(error_message) => {
-                Self::IOError { error_message }
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
             }
-            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -228,7 +207,7 @@ impl GetBlockWithMerkleTree {
 }
 
 impl Message for GetBlockWithMerkleTree {
-    type Result = Result<(BlockView, PartialMerkleTree), GetBlockError>;
+    type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
@@ -262,17 +241,17 @@ pub enum GetChunkError {
 
 impl From<near_chain_primitives::Error> for GetChunkError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(error_message) => {
-                Self::IOError { error_message }
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
             }
-            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
-            near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
+            near_chain_primitives::Error::InvalidShardId(shard_id) => {
                 Self::InvalidShardId { shard_id }
             }
-            near_chain_primitives::ErrorKind::ChunkMissing(chunk_hash) => {
+            near_chain_primitives::Error::ChunkMissing(chunk_hash) => {
                 Self::UnknownChunk { chunk_hash }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -389,13 +368,15 @@ pub enum StatusError {
 
 impl From<near_chain_primitives::error::Error> for StatusError {
     fn from(error: near_chain_primitives::error::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message)
-            | near_chain_primitives::error::ErrorKind::IOErr(error_message)
-            | near_chain_primitives::error::ErrorKind::ValidatorError(error_message) => {
+        match error {
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
+            }
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message)
+            | near_chain_primitives::error::Error::ValidatorError(error_message) => {
                 Self::InternalError { error_message }
             }
-            near_chain_primitives::error::ErrorKind::EpochOutOfBounds(epoch_id) => {
+            near_chain_primitives::error::Error::EpochOutOfBounds(epoch_id) => {
                 Self::EpochOutOfBounds { epoch_id }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -429,14 +410,14 @@ pub enum GetNextLightClientBlockError {
 
 impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError {
     fn from(error: near_chain_primitives::error::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message) => {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
-            near_chain_primitives::error::ErrorKind::IOErr(error_message) => {
-                Self::InternalError { error_message }
+            near_chain_primitives::error::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
             }
-            near_chain_primitives::error::ErrorKind::EpochOutOfBounds(epoch_id) => {
+            near_chain_primitives::error::Error::EpochOutOfBounds(epoch_id) => {
                 Self::EpochOutOfBounds { epoch_id }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -445,7 +426,7 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
 }
 
 impl Message for GetNextLightClientBlock {
-    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
+    type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 }
 
 pub struct GetNetworkInfo {}
@@ -478,11 +459,11 @@ pub enum GetGasPriceError {
 
 impl From<near_chain_primitives::Error> for GetGasPriceError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(error_message) => {
-                Self::InternalError { error_message }
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
             }
-            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -563,10 +544,10 @@ pub enum GetValidatorInfoError {
 
 impl From<near_chain_primitives::Error> for GetValidatorInfoError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::DBNotFoundErr(_)
-            | near_chain_primitives::ErrorKind::EpochOutOfBounds(_) => Self::UnknownEpoch,
-            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+        match error {
+            near_chain_primitives::Error::DBNotFoundErr(_)
+            | near_chain_primitives::Error::EpochOutOfBounds(_) => Self::UnknownEpoch,
+            near_chain_primitives::Error::IOErr(s) => Self::IOError(s.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
     }
@@ -603,11 +584,11 @@ pub enum GetStateChangesError {
 
 impl From<near_chain_primitives::Error> for GetStateChangesError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(error_message) => {
-                Self::IOError { error_message }
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::IOError { error_message: error.to_string() }
             }
-            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -689,11 +670,11 @@ impl From<TxStatusError> for GetExecutionOutcomeError {
 
 impl From<near_chain_primitives::error::Error> for GetExecutionOutcomeError {
     fn from(error: near_chain_primitives::error::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(error_message) => {
-                Self::InternalError { error_message }
+        match error {
+            near_chain_primitives::Error::IOErr(error) => {
+                Self::InternalError { error_message: error.to_string() }
             }
-            near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
+            near_chain_primitives::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
             _ => Self::Unreachable { error_message: error.to_string() },
@@ -744,11 +725,11 @@ pub enum GetBlockProofError {
 
 impl From<near_chain_primitives::error::Error> for GetBlockProofError {
     fn from(error: near_chain_primitives::error::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::error::ErrorKind::DBNotFoundErr(error_message) => {
+        match error {
+            near_chain_primitives::error::Error::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
-            near_chain_primitives::error::ErrorKind::Other(error_message) => {
+            near_chain_primitives::error::Error::Other(error_message) => {
                 Self::InternalError { error_message }
             }
             err => Self::Unreachable { error_message: err.to_string() },
@@ -780,8 +761,8 @@ pub enum GetReceiptError {
 
 impl From<near_chain_primitives::Error> for GetReceiptError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
     }
@@ -813,10 +794,32 @@ pub enum GetProtocolConfigError {
 
 impl From<near_chain_primitives::Error> for GetProtocolConfigError {
     fn from(error: near_chain_primitives::Error) -> Self {
-        match error.kind() {
-            near_chain_primitives::ErrorKind::IOErr(s) => Self::IOError(s),
-            near_chain_primitives::ErrorKind::DBNotFoundErr(s) => Self::UnknownBlock(s),
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            near_chain_primitives::Error::DBNotFoundErr(s) => Self::UnknownBlock(s),
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum SandboxMessage {
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
+    SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
+    SandboxNoResponse,
+}
+#[cfg(feature = "sandbox")]
+impl Message for SandboxMessage {
+    type Result = SandboxResponse;
 }

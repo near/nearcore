@@ -9,8 +9,7 @@ use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
-use near_store::create_store;
-use nearcore::{get_default_home, get_store_path, load_config, TrackedConfig};
+use nearcore::{get_default_home, load_config};
 
 fn main() {
     init_integration_logger();
@@ -31,17 +30,10 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = create_store(&get_store_path(home_dir));
+    let store = near_store::Store::opener(home_dir, &near_config.config.store).open();
 
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
-        home_dir,
-        store.clone(),
-        &near_config.genesis,
-        TrackedConfig::from_config(&near_config.client_config),
-        None,
-        None,
-        None,
-    ));
+    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+        Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),

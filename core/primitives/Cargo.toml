@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
@@ -15,6 +15,7 @@ This crate provides the base set of primitives used by other nearcore crates
 [dependencies]
 byteorder = "1.3"
 bytesize = "1.1"
+cfg-if = "1.0.0"
 chrono = { version = "0.4.4", features = ["serde"] }
 deepsize = { version = "0.2.0", features = ["chrono"], optional=true }
 derive_more = "0.99.3"
@@ -22,12 +23,14 @@ easy-ext = "0.2"
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 once_cell = "1.5.2"
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 rand = "0.7"
 reed-solomon-erasure = "4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 smart-default = "0.6"
+strum = "0.24"
+thiserror = "1.0.30"
 
 borsh = { version = "0.9", features = ["rc"] }
 
@@ -37,24 +40,25 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
+sandbox = []
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-protocol_feature_alt_bn128 = [
-  "near-primitives-core/protocol_feature_alt_bn128",
-  "near-vm-errors/protocol_feature_alt_bn128",
-]
 protocol_feature_chunk_only_producers = []
-protocol_feature_routing_exchange_algorithm = ["near-primitives-core/protocol_feature_routing_exchange_algorithm"]
-protocol_feature_access_key_nonce_for_implicit_accounts = []
 protocol_feature_fix_staking_threshold = []
-nightly_protocol_features = [
+protocol_feature_fix_contract_loading_cost = []
+protocol_feature_account_id_in_function_call_permission = []
+nightly = [
   "nightly_protocol",
-  "protocol_feature_alt_bn128",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
-  "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_account_id_in_function_call_permission",
 ]
 nightly_protocol = []
+
+
+# Shardnet is the experimental network that we deploy for chunk-only producer testing.
+shardnet = ["protocol_feature_chunk_only_producers"]
+
 deepsize_feature = [
   "deepsize",
   "near-vm-errors/deepsize_feature",
@@ -63,7 +67,9 @@ deepsize_feature = [
 ]
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 bencher = "0.1.5"
+insta = "1.14.0"
 
 [[bench]]
 name = "serialization"

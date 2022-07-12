@@ -1,7 +1,10 @@
-use crate::types::Balance;
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -140,26 +143,31 @@ pub enum ProtocolFeature {
     /// Increase cost per deployed code byte to cover for the compilation steps
     /// that a deployment triggers. Only affects the action execution cost.
     IncreaseDeploymentCost,
+    FunctionCallWeight,
     /// This feature enforces a global limit on the function local declarations in a WebAssembly
     /// contract. See <...> for more information.
     LimitContractLocals,
-
-    // nightly features
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once per chunk at the first access time.
+    ChunkNodesCache,
+    /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
+    LowerStorageKeyLimit,
+    // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
+
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    RoutingExchangeAlgorithm,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    FunctionCallWeight,
-    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
-    /// only once per chunk at the first access time.
-    ChunkNodesCache,
+    /// Charge for contract loading before it happens.
+    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+    FixContractLoadingCost,
+    /// Charge for contract loading before it happens.
+    #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
+    AccountIdInFunctionCallPermission,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -169,24 +177,30 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 53;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
-/// Version used by this binary.
-#[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-/// Current latest nightly version of the protocol.
-#[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 128;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "nightly_protocol")] {
+        /// Current latest nightly version of the protocol.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 130;
+    } else if #[cfg(feature = "shardnet")] {
+        /// Protocol version for shardnet.
+        pub const PROTOCOL_VERSION: ProtocolVersion = 100;
+    } else {
+        pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
+    }
+}
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
-    HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
-> = Lazy::new(|| {
-    let mut schedule = HashMap::new();
-    schedule.insert(52, None);
-    schedule
-});
+const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>> =
+    Lazy::new(|| {
+        let mut schedule = HashMap::new();
+        // Update to latest protocol version on release.
+        schedule
+            .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+        schedule
+    });
 
 /// Gives new clients an option to upgrade without announcing that they support the new version.
 /// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
@@ -194,7 +208,7 @@ pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> Pro
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        &*PROTOCOL_UPGRADE_SCHEDULE,
+        &PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 
@@ -228,18 +242,20 @@ impl ProtocolFeature {
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
             ProtocolFeature::IncreaseDeploymentCost
             | ProtocolFeature::FunctionCallWeight
-            | ProtocolFeature::LimitContractLocals => 53,
-            ProtocolFeature::ChunkNodesCache => 53,
+            | ProtocolFeature::LimitContractLocals
+            | ProtocolFeature::ChunkNodesCache
+            | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::AltBn128 => 55,
 
-            // Nightly features
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            ProtocolFeature::AltBn128 => 105,
+            // Nightly & shardnet features
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 124,
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            ProtocolFeature::ChunkOnlyProducers => 100,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
+            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            ProtocolFeature::FixContractLoadingCost => 129,
+            #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
+            ProtocolFeature::AccountIdInFunctionCallPermission => 130,
         }
     }
 }
