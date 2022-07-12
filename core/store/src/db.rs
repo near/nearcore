@@ -748,14 +748,12 @@ impl RocksDB {
     }
 
     fn get_cf_statistics(&self) -> Option<StoreStatistics> {
-        use strum::IntoEnumIterator;
-
         let mut result = vec![];
         for stat_name in CF_STAT_NAMES {
             let mut values = vec![];
             for col in DBCol::iter() {
                 let size =
-                    self.db.property_int_value_cf(unsafe { &*self.cfs[col as usize] }, stat_name);
+                    self.db.property_int_value_cf(self.cf_handle(col), stat_name);
                 if let Ok(Some(value)) = size {
                     values.push(StatsValue::ColumnValue(col_name(col), value as i64));
                 }

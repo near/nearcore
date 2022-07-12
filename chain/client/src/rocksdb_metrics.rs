@@ -1,8 +1,6 @@
-use prometheus::{GaugeVec, IntGauge, IntGaugeVec};
-use near_metrics::{try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge};
+use near_metrics::{try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge, IntGaugeVec};
 use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
-use prometheus::{GaugeVec, IntGauge, IntGaugeVec};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Mutex;
