@@ -1,3 +1,4 @@
+use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
 use lru::LruCache;
@@ -13,8 +14,6 @@ use tracing::warn;
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 
-type RoutingTable = Arc<HashMap<PeerId, Vec<PeerId>>>;
-
 pub(crate) struct RoutingTableView {
     my_peer_id: PeerId,
     /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
@@ -22,23 +21,24 @@ pub(crate) struct RoutingTableView {
 
     /// Maps an account_id to a peer owning it.
     account_peers: LruCache<AccountId, AnnounceAccount>,
-    /// Maps a peer_id to a set of connected peers that on the shortest path to peer_id.
-    routing_table: RoutingTable,
+    /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
+    /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
+    /// this will be the set of first nodes on all such paths.
+    next_hops: Arc<routing::NextHopTable>,
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
     store: store::Store,
 
     /// Counter of number of calls to find_route_by_peer_id.
-    find_route_calls: usize,
+    find_route_calls: u64,
     /// Last time the given peer was selected by find_route_by_peer_id.
-    last_routed: LruCache<PeerId, usize>,
+    last_routed: LruCache<PeerId, u64>,
 }
 
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
-    Disconnected,
-    PeerNotFound,
+    PeerUnreachable,
     AccountNotFound,
     RouteBackNotFound,
 }
@@ -48,7 +48,7 @@ impl RoutingTableView {
         Self {
             my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            routing_table: Default::default(),
+            next_hops: Default::default(),
             local_edges_info: Default::default(),
             route_back: RouteBackCache::default(),
             store,
@@ -64,24 +64,27 @@ impl RoutingTableView {
     }
 
     /// Select a connected peer on some shortest path to `peer_id`.
+    /// If there are several such peers, pick the least recently used one.
     fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        let peers = self.routing_table.get(peer_id).ok_or(FindRouteError::PeerNotFound)?;
-        // Strategy similar to Round Robin: select a viable peer which was least recently used.
+        let peers = self.next_hops.get(peer_id).ok_or(FindRouteError::PeerUnreachable)?;
         let next_hop = peers
             .iter()
-            .min_by_key(|p| self.last_routed.get(p.clone()).cloned().unwrap_or(0))
-            .ok_or(FindRouteError::Disconnected)?;
+            .min_by_key(|p| self.last_routed.get(*p).copied().unwrap_or(0))
+            .ok_or(FindRouteError::PeerUnreachable)?;
         self.last_routed.put(next_hop.clone(), self.find_route_calls);
         self.find_route_calls += 1;
         Ok(next_hop.clone())
     }
 
-    pub(crate) fn set_routing_table(&mut self, routing_table: RoutingTable) {
-        self.routing_table = routing_table;
+    pub(crate) fn set_next_hops(&mut self, routing_table: Arc<routing::NextHopTable>) {
+        self.next_hops = routing_table;
     }
 
-    pub(crate) fn routing_table_len(&self) -> usize {
-        self.routing_table.len()
+    pub(crate) fn reachable_peers(&self) -> usize {
+        // There is an implicit assumption here that all next_hops entries are non-empty.
+        // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
+        // and add appropriate constructors, which would filter out empty entries.
+        self.next_hops.len()
     }
 
     pub(crate) fn find_route(
@@ -98,7 +101,7 @@ impl RoutingTableView {
     }
 
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
-        self.routing_table.get(peer_id)
+        self.next_hops.get(peer_id)
     }
 
     /// Find peer that owns this AccountId.
@@ -155,7 +158,7 @@ impl RoutingTableView {
                 (announce_account.account_id.clone(), announce_account.peer_id.clone())
             })
             .collect();
-        RoutingTableInfo { account_peers, routing_table: self.routing_table.clone() }
+        RoutingTableInfo { account_peers, next_hops: self.next_hops.clone() }
     }
 
     /// Public interface for `account_peers`.
@@ -210,5 +213,5 @@ impl RoutingTableView {
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
-    pub routing_table: Arc<HashMap<PeerId, Vec<PeerId>>>,
+    pub next_hops: Arc<routing::NextHopTable>,
 }

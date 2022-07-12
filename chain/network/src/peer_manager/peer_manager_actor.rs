@@ -200,7 +200,7 @@ pub struct PeerManagerActor {
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
-    RoutingTableUpdate(Arc<routing::RoutingTable>),
+    RoutingTableUpdate(Arc<routing::NextHopTable>),
     Ping(Ping),
     Pong(Pong),
 }
@@ -353,17 +353,17 @@ impl PeerManagerActor {
             .map(|response, act, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
                     local_edges_to_remove,
-                    routing_table,
+                    next_hops,
                     peers_to_ban,
                 }) => {
                     for peer_id in &local_edges_to_remove {
                         act.routing_table_view.remove_local_edge(peer_id);
                     }
-                    act.routing_table_view.set_routing_table(routing_table.clone());
+                    act.routing_table_view.set_next_hops(next_hops.clone());
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
-                    act.event_sink.push(Event::RoutingTableUpdate(routing_table));
+                    act.event_sink.push(Event::RoutingTableUpdate(next_hops));
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
@@ -1336,7 +1336,7 @@ impl PeerManagerActor {
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.msg.target,
                       reason = ?find_route_error,
-                      known_peers = ?self.routing_table_view.routing_table_len(),
+                      known_peers = ?self.routing_table_view.reachable_peers(),
                       msg = ?msg.msg.body,
                     "Drop signed message"
                 );
