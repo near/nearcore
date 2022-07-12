@@ -55,9 +55,5 @@ fn create_context(input: Vec<u8>) -> VMContext {
 /// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
 /// have to be updated if they change in the future.
 fn prepaid_loading_gas(bytes: usize) -> u64 {
-    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
-        35_445_963 + bytes as u64 * 21_6750
-    } else {
-        0
-    }
+    35_445_963 + bytes as u64 * 21_6750
 }
