@@ -15,6 +15,7 @@ use std::fmt;
     enum_map::Enum,
     strum::EnumIter,
     strum::IntoStaticStr,
+    strum::AsRefStr,
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
