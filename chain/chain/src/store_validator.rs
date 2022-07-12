@@ -146,7 +146,8 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for (key, value) in self.store.clone().iter_raw_bytes(col) {
+        for item in self.store.clone().iter_raw_bytes(col) {
+            let (key, value) = item?;
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {

@@ -5,7 +5,7 @@ use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 
 /// Returns a list of transactions found in the block.
-pub fn tx_dump(
+pub fn dump_tx_from_block(
     chain_store: &ChainStore,
     block: &Block,
     select_account_ids: Option<&Vec<AccountId>>,

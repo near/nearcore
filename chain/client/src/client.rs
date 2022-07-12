@@ -1770,7 +1770,7 @@ impl Client {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 

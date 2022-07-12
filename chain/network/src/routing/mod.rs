@@ -6,7 +6,7 @@ pub mod actor;
 mod graph;
 mod graph_with_cache;
 pub(crate) use actor::Actor;
-pub(crate) use graph_with_cache::RoutingTable;
+pub(crate) use graph_with_cache::NextHopTable;
 // for benchmark only
 pub use graph::Graph;
 pub use graph_with_cache::GraphWithCache;
