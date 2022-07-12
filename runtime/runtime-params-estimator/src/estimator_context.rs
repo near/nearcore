@@ -81,8 +81,9 @@ impl<'c> Testbed<'c> {
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
         block_latency: usize,
-        allow_failures: bool,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
+        let allow_failures = false;
+
         let mut res = Vec::with_capacity(blocks.len());
 
         for block in blocks {
@@ -127,7 +128,7 @@ impl<'c> Testbed<'c> {
         caching_storage
     }
 
-    fn clear_caches(&mut self) {
+    pub(crate) fn clear_caches(&mut self) {
         // Flush out writes hanging in memtable
         self.inner.flush_db_write_buffer();
 

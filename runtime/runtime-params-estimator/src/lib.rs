@@ -266,7 +266,7 @@ fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     let block_size = 100;
     // Sender != Receiver means this will be executed over two blocks.
     let block_latency = 1;
-    let cost = transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false).0;
+    let cost = transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0;
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
     cost
@@ -283,10 +283,7 @@ fn action_sir_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let total_cost = transaction_cost(ctx, &mut make_transaction);
-
-    let block_overhead_cost = apply_block_cost(ctx);
-    let cost = total_cost.saturating_sub(&block_overhead_cost, &NonNegativeTolerance::PER_MILLE);
+    let cost = transaction_cost(ctx, &mut make_transaction);
 
     ctx.cached.action_sir_receipt_creation = Some(cost.clone());
     cost
@@ -303,7 +300,7 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         let block_size = 100;
         // Transferring from one account to another may touch two shards, thus executes over two blocks.
         let block_latency = 1;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false).0
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -327,7 +324,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
         let block_size = 100;
         // Creating a new account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
         let block_latency = 1;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false).0
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -348,7 +345,7 @@ fn action_delete_account(ctx: &mut EstimatorContext) -> GasCost {
         let block_size = 100;
         // Deleting an account is initiated by an account that potentially is on a different shard. Thus, it executes over two blocks.
         let block_latency = 1;
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false).0
+        transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -592,7 +589,7 @@ fn deploy_contract_cost(
     };
     // Use a small block size since deployments are gas heavy.
     let block_size = 5;
-    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 0, false);
+    let (total_cost, _ext) = transaction_cost_ext(ctx, block_size, &mut make_transaction, 0);
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
@@ -665,18 +662,11 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 /// Measure the cost of executing the method with empty name, which aborts even
 /// before loading the executable. Then subtract receipt creation cost.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
-    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-        let sender = tb.random_unused_account();
-        // Call empty method.
-        tb.transaction_from_function_call(sender, "", Vec::new())
-    };
-    let block_size = 10;
-    // Failure is expected since calling the empty method is not valid.
-    let allow_failures = true;
-    let (total_cost, _ext_costs) =
-        transaction_cost_ext(ctx, block_size, &mut make_transaction, 0, allow_failures);
+    let block_size = 100;
     let base_cost = action_sir_receipt_creation(ctx);
-
+    let code = generate_data_only_contract(0, &VMConfig::test());
+    let total_cost = fn_cost_in_contract(ctx, "main", &code, block_size);
+    println!("{total_cost:?} - {base_cost:?}");
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -706,7 +696,7 @@ fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usiz
     };
     let block_size = 5;
     let block_latency = 0;
-    transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency, false).0
+    transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency).0
 }
 
 fn contract_loading_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -1120,7 +1110,7 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
     let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
     let blocks = vec![vec![]; n_blocks];
 
-    let measurements = testbed.measure_blocks(blocks, 0, false);
+    let measurements = testbed.measure_blocks(blocks, 0);
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
     let (gas_cost, _ext_costs) =

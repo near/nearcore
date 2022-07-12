@@ -45,7 +45,7 @@ pub(crate) fn write_node(
             .map(|value| vec![tb.account_insert_key(signer.clone(), key.as_bytes(), *value)])
             .take(measured_iters + warmup_iters),
     );
-    let results = &testbed.measure_blocks(blocks, block_latency, false)[1..];
+    let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
         testbed.config,
@@ -100,7 +100,7 @@ pub(crate) fn read_node_from_db(
         iter::repeat_with(|| vec![tb.account_has_key(signer.clone(), &key)])
             .take(measured_iters + warmup_iters),
     );
-    let results = &testbed.measure_blocks(blocks, block_latency, false)[1..];
+    let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
         testbed.config,
