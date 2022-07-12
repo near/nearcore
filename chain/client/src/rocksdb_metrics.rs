@@ -1,6 +1,6 @@
 use near_metrics::{
-    try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec,
-    GaugeVec, IntGauge, IntGaugeVec,
+    try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
+    IntGaugeVec,
 };
 use near_store::db::{col_verbose_name, StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;

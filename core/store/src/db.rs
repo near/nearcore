@@ -959,7 +959,11 @@ mod tests {
         let statistics = "rocksdb.cold.file.read.count COUNT : 999\n\
          rocksdb.db.get.micros P50 : 9.171086 P95 : 222.678751 P99 : 549.611652 P100 : 45816.000000 COUNT : 917578 SUM : 38313754";
         let mut result = StoreStatistics { data: vec![] };
-        assert_eq!(parse_statistics(statistics, &mut result), Ok(()));
+        {
+            let parse_result = parse_statistics(statistics, &mut result);
+            assert!(parse_result.is_ok());
+            assert_eq!(parse_result.unwrap(), ());
+        }
         assert_eq!(
             result,
             StoreStatistics {
