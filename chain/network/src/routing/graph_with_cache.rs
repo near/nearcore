@@ -9,7 +9,7 @@ use tracing::trace;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
-pub type RoutingTable = HashMap<PeerId, Vec<PeerId>>;
+pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 
 pub struct GraphWithCache {
     /// Current view of the network represented by an undirected graph.
@@ -21,7 +21,7 @@ pub struct GraphWithCache {
     edges: HashMap<EdgeKey, Edge>,
     /// Peers of this node, which are on any shortest path to the given node.
     /// Derived from graph.
-    cached_routing_table: Mutex<Option<Arc<RoutingTable>>>,
+    cached_next_hops: Mutex<Option<Arc<NextHopTable>>>,
 }
 
 impl GraphWithCache {
@@ -29,7 +29,7 @@ impl GraphWithCache {
         Self {
             graph: routing::Graph::new(my_peer_id),
             edges: Default::default(),
-            cached_routing_table: Default::default(),
+            cached_next_hops: Default::default(),
         }
     }
 
@@ -62,7 +62,7 @@ impl GraphWithCache {
         }
         self.edges.insert(key.clone(), edge);
         // Invalidate cache.
-        *self.cached_routing_table.lock() = None;
+        *self.cached_next_hops.lock() = None;
         true
     }
 
@@ -75,23 +75,22 @@ impl GraphWithCache {
     pub fn remove_edge(&mut self, key: &EdgeKey) {
         if self.edges.remove(key).is_some() {
             self.graph.remove_edge(&key.0, &key.1);
-            *self.cached_routing_table.lock() = None;
+            *self.cached_next_hops.lock() = None;
         }
     }
 
-    /// Computes the routing table, based on the graph. O(|Graph|).
-    pub fn routing_table(&self) -> Arc<RoutingTable> {
-        if let Some(rt) = self.cached_routing_table.lock().clone() {
+    /// Computes the next hops table, based on the graph. O(|Graph|).
+    pub fn next_hops(&self) -> Arc<NextHopTable> {
+        if let Some(rt) = self.cached_next_hops.lock().clone() {
             return rt;
         }
         let _d = delay_detector::DelayDetector::new(|| "routing table update".into());
-        let _routing_table_recalculation =
-            metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+        let _next_hops_recalculation = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
         trace!(target: "network", "Update routing table.");
         let rt = Arc::new(self.graph.calculate_distance());
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(rt.len() as i64);
-        *self.cached_routing_table.lock() = Some(rt.clone());
+        *self.cached_next_hops.lock() = Some(rt.clone());
         rt
     }
 

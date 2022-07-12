@@ -8,7 +8,7 @@ use near_vm_logic::ExtCosts;
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::get_account_id;
+use genesis_populate::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -47,7 +47,9 @@ impl<'c> EstimatorContext<'c> {
             config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
-                (0..self.config.active_accounts).map(get_account_id).collect(),
+                (0..self.config.active_accounts)
+                    .map(|index| get_account_id(index as u64))
+                    .collect(),
             ),
         }
     }

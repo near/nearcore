@@ -2478,8 +2478,9 @@ fn test_refund_receipts_processing() {
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    // set gas limit to be small
-    genesis.config.gas_limit = 1_000_000;
+    // Set gas limit to be small enough to produce some delay receipts, but
+    // large enough for transactions to get through.
+    genesis.config.gas_limit = 100_000_000;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
@@ -2639,20 +2640,7 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&tip.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction.
     let logs_at_new_version = {
@@ -2738,23 +2726,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         }
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&tip.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-        let mut block = env.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-        let (_, res) = env.clients[0].process_block(block.clone().into(), Provenance::NONE);
-        assert!(res.is_ok());
-        for i in 0..6 {
-            env.produce_block(0, tip.height + i + 2);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction, now it fails due to invalid account id.
     {
@@ -3483,26 +3455,7 @@ fn verify_contract_limits_upgrade(
         env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     };
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let mut last_block_hash = tip.last_block_hash;
-        for i in 0..2 * epoch_length {
-            let height = tip.height + i + 1;
-            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&last_block_hash)
-                .unwrap();
-            let block_producer =
-                env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-            last_block_hash = *block.header().hash();
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     // Re-run the transaction & get tx outcome.
     let new_outcome = {
@@ -3633,26 +3586,7 @@ fn test_deploy_cost_increased() {
 
     let old_outcome = deploy_contract(&mut env, 10);
 
-    // Move to the new protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let mut last_block_hash = tip.last_block_hash;
-        for i in 0..2 * epoch_length {
-            let height = tip.height + i + 1;
-            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-            let epoch_id = env.clients[0]
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&last_block_hash)
-                .unwrap();
-            let block_producer =
-                env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-            set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-            last_block_hash = *block.header().hash();
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-    }
+    env.upgrade_protocol(new_protocol_version);
 
     let new_outcome = deploy_contract(&mut env, 11);
 
@@ -4989,26 +4923,7 @@ mod lower_storage_key_limit_test {
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
 
-        // Move to the new protocol version.
-        {
-            let tip = env.clients[0].chain.head().unwrap();
-            let mut last_block_hash = tip.last_block_hash;
-            for i in 0..2 * epoch_length {
-                let height = tip.height + i + 1;
-                let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-
-                let epoch_id = env.clients[0]
-                    .runtime_adapter
-                    .get_epoch_id_from_prev_block(&last_block_hash)
-                    .unwrap();
-                let block_producer =
-                    env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
-                set_block_protocol_version(&mut block, block_producer, new_protocol_version);
-
-                last_block_hash = *block.header().hash();
-                env.process_block(0, block, Provenance::PRODUCED);
-            }
-        }
+        env.upgrade_protocol(new_protocol_version);
 
         // Re-run the transaction, check that execution fails.
         {
@@ -5062,5 +4977,140 @@ mod lower_storage_key_limit_test {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
+    }
+}
+
+#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+mod new_contract_loading_cost {
+    use super::*;
+    use near_primitives::views::FinalExecutionOutcomeView;
+
+    /// Check that normal execution has the same gas cost after FixContractLoadingCost.
+    #[test]
+    fn unchanged_gas_cost() {
+        let new_protocol_version =
+            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
+        let old_protocol_version = new_protocol_version - 1;
+
+        let contract_size = 4096;
+        let contract = near_test_contracts::sized_contract(contract_size);
+
+        let epoch_length: BlockHeight = 5;
+
+        let account: AccountId = "test0".parse().unwrap();
+        let mut env =
+            test_env_with_contract(epoch_length, old_protocol_version, account.clone(), contract);
+
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+
+        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
+        assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
+
+        env.upgrade_protocol(new_protocol_version);
+
+        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
+        assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
+
+        assert_eq!(old_gas, new_gas);
+    }
+
+    /// Check that execution that fails during contract preparation has the updated gas cost after the update.
+    #[test]
+    fn preparation_error_gas_cost() {
+        let new_protocol_version =
+            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
+        let old_protocol_version = new_protocol_version - 1;
+
+        let bad_contract = b"not-a-contract".to_vec();
+        let contract_size = bad_contract.len();
+
+        let epoch_length: BlockHeight = 5;
+
+        let account: AccountId = "test0".parse().unwrap();
+        let mut env = test_env_with_contract(
+            epoch_length,
+            old_protocol_version,
+            account.clone(),
+            bad_contract,
+        );
+
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+
+        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
+        assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
+
+        env.upgrade_protocol(new_protocol_version);
+
+        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
+        assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
+
+        // Gas cost should be different because the upgrade pre-charges loading costs.
+        assert_ne!(old_gas, new_gas);
+        // Runtime parameter values for version of the protocol upgrade
+        let loading_base = 35_445_963;
+        let loading_byte = 216_750;
+        let loading_cost = loading_base + contract_size as u64 * loading_byte;
+        assert_eq!(old_gas + loading_cost, new_gas);
+    }
+
+    /// Create a `TestEnv` with a contract deployed for an account.
+    fn test_env_with_contract(
+        epoch_length: u64,
+        protocol_version: u32,
+        account: AccountId,
+        contract: Vec<u8>,
+    ) -> TestEnv {
+        let mut genesis = Genesis::test(vec![account], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+        deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            &contract,
+            epoch_length.clone(),
+            1,
+        );
+        env
+    }
+
+    /// Execute a function call transaction that calls main on the `TestEnv`.
+    fn call_main(
+        env: &mut TestEnv,
+        signer: &InMemorySigner,
+        epoch_length: u64,
+    ) -> FinalExecutionOutcomeView {
+        let tx = Transaction {
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
+            public_key: signer.public_key(),
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas: 3 * 10u64.pow(14),
+                deposit: 0,
+            })],
+
+            nonce: 0,
+            block_hash: CryptoHash::default(),
+        };
+
+        let tip = env.clients[0].chain.head().unwrap();
+        let signed_tx =
+            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
+                .sign(signer);
+        let tx_hash = signed_tx.get_hash().clone();
+        env.clients[0].process_tx(signed_tx, false, false);
+        for i in 0..epoch_length {
+            let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+        }
+        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 }

@@ -23,7 +23,7 @@ easy-ext = "0.2"
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 once_cell = "1.5.2"
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 rand = "0.7"
 reed-solomon-erasure = "4"
 serde = { version = "1", features = ["derive", "rc"] }

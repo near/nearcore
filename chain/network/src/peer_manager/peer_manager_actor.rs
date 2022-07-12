@@ -53,7 +53,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// How often to request peers from active peers.
@@ -200,7 +200,7 @@ pub struct PeerManagerActor {
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
-    RoutingTableUpdate(Arc<routing::RoutingTable>),
+    RoutingTableUpdate(Arc<routing::NextHopTable>),
     Ping(Ping),
     Pong(Pong),
 }
@@ -301,7 +301,7 @@ impl PeerManagerActor {
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
         let routing_table_addr =
             routing::Actor::new(clock.clone(), store.clone(), network_graph.clone()).start();
-        let routing_table_view = RoutingTableView::new(store);
+        let routing_table_view = RoutingTableView::new(store, my_peer_id.clone());
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
 
@@ -353,15 +353,17 @@ impl PeerManagerActor {
             .map(|response, act, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
                     local_edges_to_remove,
-                    routing_table,
+                    next_hops,
                     peers_to_ban,
                 }) => {
-                    act.routing_table_view.remove_local_edges(local_edges_to_remove.iter());
-                    act.routing_table_view.peer_forwarding = routing_table.clone();
+                    for peer_id in &local_edges_to_remove {
+                        act.routing_table_view.remove_local_edge(peer_id);
+                    }
+                    act.routing_table_view.set_next_hops(next_hops.clone());
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
-                    act.event_sink.push(Event::RoutingTableUpdate(routing_table));
+                    act.event_sink.push(Event::RoutingTableUpdate(next_hops));
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
@@ -372,24 +374,11 @@ impl PeerManagerActor {
         if edges.is_empty() {
             return;
         }
-        Self::add_local_edges(&mut self.routing_table_view, &edges, &self.my_peer_id);
 
-        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
-    }
-
-    fn add_local_edges(
-        routing_table_view: &mut RoutingTableView,
-        edges: &Vec<Edge>,
-        my_peer_id: &PeerId,
-    ) {
-        for edge in edges.iter() {
-            if let Some(other_peer) = edge.other(my_peer_id) {
-                if !routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
-                    continue;
-                }
-                routing_table_view.local_edges_info.insert(other_peer.clone(), edge.clone());
-            }
+        for edge in &edges {
+            self.routing_table_view.add_local_edge(edge.clone());
         }
+        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 
     fn broadcast_accounts(&mut self, mut accounts: Vec<AnnounceAccount>) {
@@ -475,7 +464,7 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         interval: time::Duration,
     ) {
-        let span =
+        let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
         let start = self.clock.now();
         let mut new_edges = Vec::new();
@@ -510,20 +499,18 @@ impl PeerManagerActor {
                         // from routing table
                         Self::wait_peer_or_remove(ctx, edge.clone(), self.network_metrics.clone());
                     }
-                    self.routing_table_view
-                        .local_edges_info
-                        .insert(other_peer.clone(), edge.clone());
+                    self.routing_table_view.add_local_edge(edge.clone());
                 }
             }
             let network_metrics = self.network_metrics.clone();
 
             self.routing_table_addr
                 .send(routing::actor::Message::AddVerifiedEdges { edges: new_edges })
+                .in_current_span()
                 .into_actor(self)
                 .map(move |response, act, _ctx| {
                     let _span = tracing::trace_span!(
                         target: "network",
-                        parent: &span,
                         "broadcast_validated_edges_trigger_response")
                     .entered();
 
@@ -572,7 +559,7 @@ impl PeerManagerActor {
         throttle_controller: ThrottleController,
         ctx: &mut Context<Self>,
     ) {
-        let span = tracing::trace_span!(target: "network", "register_peer").entered();
+        let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?full_peer_info, "Consolidated connection");
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
@@ -612,13 +599,12 @@ impl PeerManagerActor {
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
 
         let network_metrics = self.network_metrics.clone();
+        let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, ctx| {
-                let _span =
-                        tracing::trace_span!(target: "network", parent: &span, "RequestRoutingTableResponse")
-                            .entered();
+                let _guard = run_later_span.enter();
                 let known_edges = act.network_graph.read().edges().values().cloned().collect();
                 act.send_sync(
                     network_metrics,
@@ -643,14 +629,12 @@ impl PeerManagerActor {
         new_edge: Edge,
         known_edges: Vec<Edge>,
     ) {
-        let span = tracing::trace_span!(target: "network", "send_sync").entered();
+        let run_later_span = tracing::trace_span!(target: "network", "send_sync_attempt");
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, _ctx| {
-                let _span =
-                    tracing::trace_span!(target: "network", parent: &span, "send_sync_attempt")
-                        .entered();
+                let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
                 let known_accounts = act.routing_table_view.get_announce_accounts();
@@ -1352,7 +1336,7 @@ impl PeerManagerActor {
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.msg.target,
                       reason = ?find_route_error,
-                      known_peers = ?self.routing_table_view.peer_forwarding.len(),
+                      known_peers = ?self.routing_table_view.reachable_peers(),
                       msg = ?msg.msg.body,
                     "Drop signed message"
                 );

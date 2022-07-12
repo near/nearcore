@@ -21,6 +21,7 @@ fn test_contract() -> ContractCode {
     ContractCode::new(code.to_vec(), None)
 }
 
+#[track_caller]
 fn assert_run_result(result: VMResult, expected_value: u64) {
     if let Some(_) = result.error() {
         panic!("Failed execution");

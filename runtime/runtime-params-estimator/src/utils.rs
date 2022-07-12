@@ -7,7 +7,6 @@ use crate::transaction_builder::TransactionBuilder;
 use std::collections::HashMap;
 
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::types::AccountId;
 use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -282,11 +281,7 @@ pub(crate) fn aggregate_per_block_measurements(
         gas_cost.set_uncertain("HIGH-VARIANCE");
     }
     if let Some(overhead) = overhead {
-        // The assumption is that the overhead in the measurement due to applying blocks
-        // is negligible (<1%) and can therefore be ignored. This code is here to verify .
-        if overhead / block_size as u64 * 100 >= gas_cost {
-            gas_cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
-        }
+        gas_cost = gas_cost.saturating_sub(&overhead, &NonNegativeTolerance::PER_MILLE);
     }
     (gas_cost, total_ext_costs)
 }
@@ -334,11 +329,6 @@ pub(crate) fn percentiles(
         .into_iter()
         .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
         .map(move |idx| costs[idx].clone())
-}
-
-/// Get account id from its index.
-pub(crate) fn get_account_id(account_index: usize) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 /// Produce a valid function name with `len` letters
