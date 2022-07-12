@@ -196,6 +196,46 @@ external crates. The surprise factor for derivations sharing a name with the sta
 library traits (`Display`) is reduced and it also acts as natural mechanism to tell apart names
 prone to collision (`Serialize`), all without needing to look up the list of imports.
 
+### Visibility
+
+"Minimize visibility" is a standard best practice, but rust has some extra
+specifics. In Rust, there are two granularities for visibility: visibility of
+items within a single crate, and visibility of items across the crates.
+Cross-crate APIs often form important architectural boundaries affecting the
+whole application, while what happens inside a crate concerns only the crate
+itself.
+
+The difference between `pub` and `pub(crate)` is big, while the difference
+between `pub(crate)` and private is relatively small. Be mindful when exposing
+APIs across crates with `pub`. Similarly, be mindful when introducing new
+cross-crate dependencies by editing `Cargo.toml`.
+
+Use `pub` only for items reachable outside of the crate, don't rely on effective
+visibility:
+
+```rust
+// GOOD
+pub(crate) struct Person {
+    pub(crate) first_name: String,
+}
+
+pub(crate) mod auth {
+    pub(crate) check_password(password: &str) -> Result<(), ()>
+}
+
+// BAD
+pub(crate) struct Person {
+    pub first_name: String,
+}
+
+pub(crate) mod auth {
+    pub check_password(password: &str) -> Result<(), ()>
+}
+```
+
+**Rationale:** it's useful to tell at a glance that `pub` items form crate's
+public API without checking all the ancestor modules.
+
 ## Documentation
 
 When writing documentation in `.md` files, wrap lines at approximately 80
