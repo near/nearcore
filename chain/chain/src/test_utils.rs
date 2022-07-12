@@ -3,8 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
-use itertools::zip;
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
@@ -245,7 +243,7 @@ impl KeyValueRuntime {
             store,
             tries,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            validators_by_valset: zip(block_producers, chunk_only_producers)
+            validators_by_valset: std::iter::zip(block_producers, chunk_only_producers)
                 .into_iter()
                 .map(|(block_producers, chunk_only_producers)| EpochValidatorSet {
                     block_producers,
