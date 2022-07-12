@@ -1,4 +1,3 @@
-use crate::accounts_data;
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
@@ -243,6 +242,7 @@ impl PeerHandle {
                         accounts_data: Arc::new(accounts_data::Cache::new()),
                         connected_peers: Default::default(),
                         chain_info: Default::default(),
+                        100., // accounts_data_broadcast_max_qps
                     }),
                     send.sink().compose(Event::Peer),
                 )

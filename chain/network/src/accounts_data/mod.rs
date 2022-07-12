@@ -165,7 +165,10 @@ impl Cache {
     /// Returns the verified new data and an optional error.
     /// Note that even if error has been returned the partially validated output is returned
     /// anyway.
-    fn verify(&self, data: Vec<SignedAccountData>) -> (Vec<SignedAccountData>, Option<Error>) {
+    fn verify(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
@@ -216,8 +219,8 @@ impl Cache {
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
         self: Arc<Self>,
-        data: Vec<SignedAccountData>,
-    ) -> (Vec<SignedAccountData>, Option<Error>) {
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let this = self.clone();
         // Execute verification on the rayon threadpool.
         let (data, err) = rayon_spawn(move || this.verify(data)).await;
@@ -228,7 +231,7 @@ impl Cache {
     }
 
     /// Copies and returns all the AccountData in the cache.
-    pub fn dump(&self) -> Vec<SignedAccountData> {
+    pub fn dump(&self) -> Vec<Arc<SignedAccountData>> {
         self.inner.read().data.values().cloned().collect()
     }
 }

@@ -1,4 +1,6 @@
 use crate::accounts_data;
+use crate::concurrency::demux;
+use crate::network_protocol::{Encoding, SignedAccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
@@ -50,6 +52,7 @@ use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -110,6 +113,46 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 // network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
+impl ConnectedPeer {
+    pub fn send_accounts_data(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> impl std::future::Future<Output = ()> {
+        let addr = self.addr.clone();
+        self.send_accounts_data_demux.call(
+            data,
+            |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                let res = ds.iter().map(|_| ()).collect();
+                let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                for d in ds.into_iter().flatten() {
+                    match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                        Entry::Occupied(mut x) => {
+                            if x.get().timestamp < d.timestamp {
+                                x.insert(d);
+                            }
+                        }
+                        Entry::Vacant(x) => {
+                            x.insert(d);
+                        }
+                    }
+                }
+                addr.send(SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }),
+                    context: Span::current().context(),
+                })
+                .await
+                .expect("Failed sending incremental SyncAccountsData");
+                res
+            },
+        )
+    }
+}
+>>>>>>> 773678c3e (Implemented demultiplexing for rate limiting broadcasts.)
+
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -137,6 +180,7 @@ pub(crate) struct NetworkState {
     pub config: Arc<NetworkConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
+    pub send_accounts_data_rl: demux::RateLimit,
     /// Address of the client actor.
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
@@ -151,6 +195,25 @@ pub(crate) struct NetworkState {
 }
 
 impl NetworkState {
+    pub fn new(
+        config: Arc<NetworkConfig>,
+        genesis_id: GenesisId,
+        client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
+        send_accounts_data_max_qps: f64,
+    ) -> Self {
+        Self {
+            config,
+            genesis_id,
+            client_addr,
+            view_client_addr,
+            network_metrics: Default::default(),
+            connected_peers: RwLock::new(HashMap::default()),
+            accounts_data: Arc::new(accounts_data::Cache::new()),
+            send_accounts_data_rl: demux::RateLimit { qps: send_accounts_data_max_qps, burst: 1 },
+        }
+    }
+
     /// Broadcast message to all active peers.
     pub fn broadcast_message(self: &Self, msg: SendMessage) -> impl Future<Output = ()> {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.message.msg_variant()]).inc();
@@ -367,8 +430,8 @@ impl PeerManagerActor {
             }
             v
         };
-
         let config = Arc::new(config);
+        let max_qps = config.accounts_data_broadcast_max_qps;
         Ok(Self {
             clock,
             my_peer_id,
@@ -394,6 +457,7 @@ impl PeerManagerActor {
                 chain_info: RwLock::new(ChainInfo::default()),
                 connected_peers: ConnectedPeers::default(),
                 accounts_data: Arc::new(accounts_data::Cache::new()),
+                max_qps,
             }),
         })
     }
@@ -646,8 +710,8 @@ impl PeerManagerActor {
             peer_type,
             throttle_controller: throttle_controller.clone(),
             encoding: None,
+            send_accounts_data_demux: demux::Demux::new(self.state.send_accounts_data_rl),
         });
-
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
 
         let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");

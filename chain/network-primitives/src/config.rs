@@ -101,6 +101,8 @@ pub struct NetworkConfig {
     pub outbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
+    /// Maximal QPS at which SyncAccountsData can be broadcasted.
+    pub accounts_data_broadcast_max_qps: f64,
 }
 
 impl NetworkConfig {
@@ -178,6 +180,7 @@ impl NetworkConfig {
                 .collect(),
             outbound_disabled: false,
             archive,
+            accounts_data_broadcast_max_qps: 0.1,
         }
     }
 
@@ -226,6 +229,7 @@ impl NetworkConfig {
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
+            accounts_data_broadcast_max_qps: 100.,
         }
     }
 
@@ -262,6 +266,9 @@ impl NetworkConfig {
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
             );
+        }
+        if self.accounts_data_broadcast_max_qps <= 0. {
+            anyhow::bail!("accounts_data_broadcast_max_qps has to be >0");
         }
         Ok(())
     }

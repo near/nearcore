@@ -29,6 +29,7 @@ pub(crate) struct ConnectedPeer {
     pub throttle_controller: ThrottleController,
     /// Encoding used for communication.
     pub encoding: Option<Encoding>,
+    send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
 #[derive(Default)]

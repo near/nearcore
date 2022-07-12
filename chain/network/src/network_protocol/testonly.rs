@@ -391,7 +391,7 @@ pub fn make_account_data(
     }
 }
 
-pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
+pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> Arc<SignedAccountData> {
     let signer = make_validator_signer(rng);
     let epoch_id = make_epoch_id(rng);
     make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())

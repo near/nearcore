@@ -28,7 +28,7 @@ struct Signer {
 }
 
 impl Signer {
-    fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> SignedAccountData {
+    fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> Arc<SignedAccountData> {
         data::make_account_data(
             rng,
             timestamp,
@@ -148,6 +148,7 @@ async fn data_too_large() {
     let mut a2_too_large = signers[2].make_account_data(rng, now);
     *a2_too_large.payload_mut() =
         (0..crate::network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES + 1).map(|_| 17).collect();
+    let a2_too_large = Arc::new(a2_too_large);
 
     // too large payload => DataTooLarge
     let res = cache

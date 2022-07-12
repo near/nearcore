@@ -45,7 +45,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, trace, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -1020,18 +1020,16 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     // Broadcast any new data we have found, even in presence of an error.
                     // This will prevent a malicious peer from forcing us to re-verify valid
                     // datasets. See accounts_data::Cache documentation for details.
-                    // TODO(gprusak): this should be rate limited - diffs should be aggregated,
-                    // unless there was no recent broadcast of this type.
                     if new_data.len() > 0 {
-                        pms.broadcast_message(SendMessage {
-                            message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                                incremental: true,
-                                requesting_full_sync: false,
-                                accounts_data: new_data,
-                            }),
-                            context: Span::current().context(),
-                        })
-                        .await;
+                        let handles: Vec<_> = pms
+                            .connected_peers
+                            .read()
+                            .values()
+                            .map(|p| tokio::spawn(p.send_accounts_data(new_data.clone())))
+                            .collect();
+                        for h in handles {
+                            h.await.unwrap();
+                        }
                     }
                     err.map(|err| match err {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,
