@@ -209,7 +209,7 @@ The difference between `pub` (making items visible to other crates) and `pub(cra
 between `pub(crate)` and private is relatively small. Be mindful when exposing
 APIs across crates with `pub`.
 
-Use `pub` only for items reachable outside of the crate, don't rely on effective
+Use `pub` only for items that must be reachable from outside of the crate, don't rely on effective
 visibility:
 
 ```rust
