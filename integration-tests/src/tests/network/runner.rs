@@ -169,7 +169,7 @@ async fn check_routing_table(
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };
-    if expected_routing_tables(&rt.peer_forwarding, &want_rt) {
+    if expected_routing_tables(&rt.next_hops, &want_rt) {
         return Ok(ControlFlow::Break(()));
     }
     Ok(ControlFlow::Continue(()))
@@ -717,7 +717,7 @@ async fn check_direct_connection_inner(
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };
-    let routes = if let Some(routes) = rt.peer_forwarding.get(&target_peer_id) {
+    let routes = if let Some(routes) = rt.next_hops.get(&target_peer_id) {
         routes
     } else {
         debug!(target: "network", ?target_peer_id, node_id, target_id,

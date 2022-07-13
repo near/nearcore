@@ -19,11 +19,15 @@ use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCa
 use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-fn get_account_id(account_index: u64) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
+pub fn get_account_id(account_index: u64) -> AccountId {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    account_index.hash(&mut hasher);
+    let hash = hasher.finish();
+    AccountId::try_from(format!("{hash}_near_{account_index}_{account_index}")).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
