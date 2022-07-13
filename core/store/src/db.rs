@@ -961,7 +961,6 @@ mod tests {
         let mut result = StoreStatistics { data: vec![] };
         {
             let parse_result = parse_statistics(statistics, &mut result);
-            assert!(parse_result.is_ok());
             assert_eq!(parse_result.unwrap(), ());
         }
         assert_eq!(
