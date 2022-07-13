@@ -91,7 +91,7 @@ impl RocksDBMetrics {
                     }
                     StatsValue::ColumnValue(col, value) => {
                         let key = &stat_name;
-                        let label = col_verbose_name(&col);
+                        let label = col_verbose_name(col);
 
                         let gauge = match self.int_vec_gauges.entry(key.to_string()) {
                             Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(

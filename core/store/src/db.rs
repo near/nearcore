@@ -121,9 +121,9 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
-pub fn col_verbose_name<'a>(col: &'a DBCol) -> &'a str {
-    let name = col.as_ref();
-    name.strip_prefix("Col").or_else(|| name.strip_prefix("_Col")).unwrap_or(name)
+pub fn col_verbose_name(col: DBCol) -> &'static str {
+    let name: &str = col.into();
+    name.strip_prefix("_").unwrap_or(name)
 }
 
 /// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
