@@ -439,11 +439,8 @@ impl Database for RocksDB {
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
-            match parse_statistics(&stats_str, &mut result) {
-                Ok(_) => {}
-                Err(err) => {
-                    warn!(target: "store", "Failed to parse store statistics: {:?}", err);
-                }
+            if let Err(err) = parse_statistics(&stats_str, &mut result) {
+                warn!(target: "store", "Failed to parse store statistics: {:?}", err);
             }
         }
         self.get_cf_statistics(&mut result);
