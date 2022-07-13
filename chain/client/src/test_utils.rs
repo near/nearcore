@@ -90,9 +90,13 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    let valset_num = validators.len();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]; valset_num],
         validator_groups,
         num_shards,
         epoch_length,
@@ -184,6 +188,8 @@ pub fn setup_only_view(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]],
         validator_groups,
         num_shards,
         epoch_length,
