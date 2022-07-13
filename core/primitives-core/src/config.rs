@@ -109,7 +109,17 @@ fn wasmer2_stack_limit_default() -> i32 {
 /// `0` or `1`. We could have used a `bool` instead, but there's a chance that
 /// our current impl isn't perfect either and would need further tweaks in the
 /// future.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum StackLimiterVersion {
     /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
@@ -121,44 +131,19 @@ impl StackLimiterVersion {
     fn v0() -> StackLimiterVersion {
         StackLimiterVersion::V0
     }
-    fn repr(self) -> u32 {
-        match self {
-            StackLimiterVersion::V0 => 0,
-            StackLimiterVersion::V1 => 1,
-        }
-    }
-    fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
-        let res = match repr {
-            0 => StackLimiterVersion::V0,
-            1 => StackLimiterVersion::V1,
-            _ => return None,
-        };
-        Some(res)
-    }
 }
 
-impl Serialize for StackLimiterVersion {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.repr().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for StackLimiterVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        u32::deserialize(deserializer).and_then(|repr| {
-            StackLimiterVersion::from_repr(repr)
-                .ok_or_else(|| serde::de::Error::custom("invalid stack_limiter_version"))
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum AccountIdValidityRulesVersion {
     /// Skip account ID validation according to legacy rules.
     V0,
@@ -169,41 +154,6 @@ pub enum AccountIdValidityRulesVersion {
 impl AccountIdValidityRulesVersion {
     fn v0() -> AccountIdValidityRulesVersion {
         AccountIdValidityRulesVersion::V0
-    }
-    fn repr(self) -> u32 {
-        match self {
-            AccountIdValidityRulesVersion::V0 => 0,
-            AccountIdValidityRulesVersion::V1 => 1,
-        }
-    }
-    fn from_repr(repr: u32) -> Option<AccountIdValidityRulesVersion> {
-        let res = match repr {
-            0 => AccountIdValidityRulesVersion::V0,
-            1 => AccountIdValidityRulesVersion::V1,
-            _ => return None,
-        };
-        Some(res)
-    }
-}
-
-impl Serialize for AccountIdValidityRulesVersion {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.repr().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for AccountIdValidityRulesVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        u32::deserialize(deserializer).and_then(|repr| {
-            AccountIdValidityRulesVersion::from_repr(repr)
-                .ok_or_else(|| serde::de::Error::custom("invalid account_id_validity_rules"))
-        })
     }
 }
 

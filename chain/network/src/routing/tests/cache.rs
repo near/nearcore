@@ -13,7 +13,7 @@ fn announcement_same_epoch() {
     let peer_id1 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let mut routing_table = RoutingTableView::new(store);
+    let mut routing_table = RoutingTableView::new(store, random_peer_id());
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -49,7 +49,7 @@ fn dont_load_on_build() {
     let epoch_id0 = random_epoch_id();
     let epoch_id1 = random_epoch_id();
 
-    let mut routing_table = RoutingTableView::new(store.clone());
+    let mut routing_table = RoutingTableView::new(store.clone(), random_peer_id());
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -72,7 +72,7 @@ fn dont_load_on_build() {
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
 
-    let routing_table1 = RoutingTableView::new(store);
+    let routing_table1 = RoutingTableView::new(store, random_peer_id());
     assert_eq!(routing_table1.get_announce_accounts().count(), 0);
 }
 
@@ -83,8 +83,8 @@ fn load_from_disk() {
     let peer_id0 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let mut routing_table = RoutingTableView::new(store.clone());
-    let mut routing_table1 = RoutingTableView::new(store);
+    let mut routing_table = RoutingTableView::new(store.clone(), random_peer_id());
+    let mut routing_table1 = RoutingTableView::new(store, random_peer_id());
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
