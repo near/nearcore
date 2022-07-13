@@ -476,6 +476,11 @@ impl ChainAccess for Chain {
     }
 }
 
+impl Drop for Chain {
+    fn drop(&mut self) {
+        let _ = self.blocks_in_processing.wait_for_all_blocks();
+    }
+}
 impl Chain {
     pub fn new_for_view_client(
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -1973,12 +1978,9 @@ impl Chain {
         rayon::spawn(move || {
             // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
-            if let Err(err) = sc.send((block_hash.clone(), res)) {
-                // If we encounter error here, that means the receiver is deallocated and the client
-                // thread is already shut down. This could happen when we shut down the client actor
-                // thread before shutting the rayon pool, which happens in a lot of tests.
-                error!(target:"chain", "error sending message to client {:?}", err);
-            }
+            // If we encounter error here, that means the receiver is deallocated and the client
+            // thread is already shut down. The node is already crashed, so we can unwrap here
+            sc.send((block_hash.clone(), res)).unwrap();
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
                 error!(target:"chain", "apply chunks are called twice for block {:?}", block_hash);
