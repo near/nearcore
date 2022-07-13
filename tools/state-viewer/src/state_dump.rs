@@ -252,8 +252,9 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
+    use near_client::test_utils::{run_catchup, TestEnv};
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
+    use near_logger_utils::init_test_logger;
     use near_primitives::account::id::AccountId;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
@@ -568,6 +569,7 @@ mod test {
         );
         for i in 1..=2 * epoch_length + 1 {
             env.produce_block(0, i);
+            run_catchup(&mut env.clients[0], &vec![]).unwrap();
         }
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(
