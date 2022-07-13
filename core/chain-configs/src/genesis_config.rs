@@ -418,7 +418,7 @@ impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ m
     }
 }
 
-fn stream_records_from_file(
+pub fn stream_records_from_file(
     reader: impl Read,
     mut callback: impl FnMut(StateRecord),
 ) -> serde_json::Result<()> {

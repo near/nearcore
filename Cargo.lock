@@ -1337,6 +1337,7 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -1968,6 +1969,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hkdf"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791a029f6b9fc27657f6f188ec6e5e43f6911f6f878e0dc5501396e09809d437"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.3",
+]
+
+[[package]]
 name = "http"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2527,6 +2546,45 @@ dependencies = [
  "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys",
+]
+
+[[package]]
+name = "mirror"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "bs58",
+ "clap 3.1.18",
+ "ed25519-dalek",
+ "hkdf",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-indexer-primitives",
+ "near-metrics",
+ "near-network",
+ "near-network-primitives",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "openssl-probe",
+ "parity-secp256k1",
+ "rand_core 0.5.1",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "sha2 0.10.2",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -46,6 +46,7 @@ members = [
     "tools/chainsync-loadtest",
     "tools/delay_detector",
     "tools/indexer/example",
+    "tools/mirror",
     "tools/mock_node",
     "tools/restaked",
     "tools/rpctypegen/core",
