@@ -384,7 +384,19 @@ async fn account_balance(
     } else {
         account_balances.liquid
     };
-    let public_keys = account_identifier.metadata.unwrap();
+    let public_keys = match account_identifier.metadata {
+        None => {
+            return Ok(Json(models::AccountBalanceResponse {
+                block_identifier: models::BlockIdentifier {
+                    hash: block_hash.to_base(),
+                    index: block_height.try_into().unwrap(),
+                },
+                balances: vec![models::Amount::from_yoctonear(balance)],
+                metadata: None,
+            }))
+        }
+        Some(metadata) => metadata,
+    };
     let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
         errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
     })?;
