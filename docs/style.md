@@ -205,7 +205,7 @@ Cross-crate APIs often form important architectural boundaries affecting the
 whole application, while what happens inside a crate concerns only the crate
 itself.
 
-The difference between `pub` and `pub(crate)` is big, while the difference
+The difference between `pub` (making items visible to other crates) and `pub(crate)` (making items visible within the crate) is big, while the difference
 between `pub(crate)` and private is relatively small. Be mindful when exposing
 APIs across crates with `pub`. Similarly, be mindful when introducing new
 cross-crate dependencies by editing `Cargo.toml`.
