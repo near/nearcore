@@ -1,5 +1,6 @@
 mod cache;
 mod compile_errors;
+mod fuzzers;
 mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;

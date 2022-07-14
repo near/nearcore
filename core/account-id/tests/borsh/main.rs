@@ -1,5 +1,5 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use bolero::check;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
 
 fn main() {

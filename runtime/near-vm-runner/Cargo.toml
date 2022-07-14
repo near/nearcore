@@ -109,11 +109,3 @@ io_trace = ["near-vm-logic/io_trace"]
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-[[test]]
-name = "current_vm_does_not_crash"
-harness = false
-
-[[test]]
-name = "wasmer2_and_wasmtime_agree"
-harness = false
