@@ -70,16 +70,15 @@ def init_shardnet_dir(neard, home, ordinal, validator_account=None):
     else:
         # this key and the suffix -load-test.near are hardcoded in create_genesis_file()
         with open(home / 'validator_key.json', 'w') as f:
-            f.write('{\n')
-            f.write(
-                f'"account_id": "{validator_account + "-load-test.near"}",\n')
-            f.write(
-                '"public_key": "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN",\n'
-            )
-            f.write(
-                '"secret_key": "ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2"\n'
-            )
-            f.write('}\n')
+            json.dump(
+                {
+                    'account_id':
+                        f'{validator_account + "-load-test.near"}',
+                    'public_key':
+                        'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN',
+                    'secret_key':
+                        'ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2'
+                }, f)
 
 
 def init_shardnet_dirs(neard):
