@@ -41,6 +41,10 @@ def dot_near():
     return pathlib.Path.home() / '.near'
 
 
+def ordinal_to_port(port, ordinal):
+    return f'0.0.0.0:{port + 10 + ordinal}'
+
+
 def init_shardnet_dir(neard, home, ordinal, validator_account=None):
     mkdir_clean(home)
 
@@ -59,8 +63,8 @@ def init_shardnet_dir(neard, home, ordinal, validator_account=None):
     with open(home / 'config.json', 'r') as f:
         config = json.load(f)
         config['genesis_records_file'] = 'records.json'
-        config['network']['addr'] = f'0.0.0.0:{24567 + 10 + ordinal}'
-        config['rpc']['addr'] = f'0.0.0.0:{3030 + 10 + ordinal}'
+        config['network']['addr'] = ordinal_to_port(24567, ordinal)
+        config['rpc']['addr'] = ordinal_to_port(3030, ordinal)
     with open(home / 'config.json', 'w') as f:
         json.dump(config, f)
 
@@ -157,8 +161,8 @@ def init_mirror_dir(home, source_boot_node):
     with open(dot_near() / 'mirror/source/config.json', 'r') as f:
         config = json.load(f)
         config['network']['boot_nodes'] = source_boot_node.addr_with_pk()
-        config['network']['addr'] = f'0.0.0.0:{24567 + 10 + ordinal}'
-        config['rpc']['addr'] = f'0.0.0.0:{3030 + 10 + ordinal}'
+        config['network']['addr'] = ordinal_to_port(24567, ordinal)
+        config['rpc']['addr'] = ordinal_to_port(3030, ordinal)
     with open(dot_near() / 'mirror/source/config.json', 'w') as f:
         json.dump(config, f)
 
