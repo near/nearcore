@@ -257,8 +257,10 @@ impl TxMirror {
                 };
                 match &res {
                     NetworkClientResponses::RequestRouted => {
-                        tracing::debug!(target: "mirror", "sent source #{} shard {} tx {}",
-                        block.source_height, chunk.shard_id, tx.get_hash());
+                        tracing::debug!(
+                            target: "mirror", "sent source #{} shard {} tx {}",
+                            block.source_height, chunk.shard_id, tx.get_hash()
+                        );
                         crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
                         sent.push(tx.clone());
                     }
@@ -266,13 +268,17 @@ impl TxMirror {
                         // TODO: here if we're getting an error because the tx was already included, it is possible
                         // that some other instance of this code ran and made progress already. For now we can assume
                         // only once instance of this code will run, but this is the place to detect if that's not the case.
-                        tracing::error!(target: "mirror", "Tried to send an invalid tx from source #{} shard {}: {:?}",
-                        block.source_height, chunk.shard_id, e);
+                        tracing::error!(
+                            target: "mirror", "Tried to send an invalid tx from source #{} shard {}: {:?}",
+                            block.source_height, chunk.shard_id, e
+                        );
                         crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
                     }
                     r => {
-                        tracing::error!(target: "mirror", "Unexpected response sending tx from source #{} shard {}: {:?}. The transaction was not sent",
-                        block.source_height, chunk.shard_id, r);
+                        tracing::error!(
+                            target: "mirror", "Unexpected response sending tx from source #{} shard {}: {:?}. The transaction was not sent",
+                            block.source_height, chunk.shard_id, r
+                        );
                         crate::metrics::TRANSACTIONS_SENT
                             .with_label_values(&["internal_error"])
                             .inc();
@@ -411,8 +417,10 @@ impl TxMirror {
                     Err(e) => match &e {
                         GetChunkError::UnknownBlock { .. } => return Ok(None),
                         GetChunkError::UnknownChunk { .. } => {
-                            tracing::error!("Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
-                            shard_id, source_height);
+                            tracing::error!(
+                                "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
+                                shard_id, source_height
+                            );
                             continue;
                         }
                         _ => return Err(e.into()),
@@ -491,12 +499,16 @@ impl TxMirror {
                 };
             }
             if txs_awaiting_nonce.is_empty() {
-                tracing::debug!(target: "mirror", "prepared {} transacations for source chain #{} shard {}",
-                txs.len(), source_height, shard_id);
+                tracing::debug!(
+                    target: "mirror", "prepared {} transacations for source chain #{} shard {}",
+                    txs.len(), source_height, shard_id
+                );
             } else {
-                tracing::debug!(target: "mirror", "prepared {} transacations for source chain #{} shard {} and still waiting \
-                for the corresponding access keys to make it on chain to prepare {} more transactions",
-                txs.len(), source_height, shard_id, txs_awaiting_nonce.len());
+                tracing::debug!(
+                    target: "mirror", "prepared {} transacations for source chain #{} shard {} and still waiting \
+                    for the corresponding access keys to make it on chain to prepare {} more transactions",
+                    txs.len(), source_height, shard_id, txs_awaiting_nonce.len()
+                );
             }
             chunks.push(MappedChunk { txs, txs_awaiting_nonce, shard_id: *shard_id });
         }
@@ -592,7 +604,10 @@ impl TxMirror {
                             MapNonceError::AddOverflow(..)
                             | MapNonceError::SubOverflow(..)
                             | MapNonceError::SourceKeyNotOnChain => {
-                                tracing::error!(target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}", &tx.tx.signer_id, &tx.tx.public_key, e);
+                                tracing::error!(
+                                    target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}",
+                                    &tx.tx.signer_id, &tx.tx.public_key, e
+                                );
                             }
                             // still not ready
                             MapNonceError::TargetKeyNotOnChain => {}

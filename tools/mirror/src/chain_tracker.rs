@@ -111,8 +111,10 @@ impl TxTracker {
             t.target_private.sign(&t.tx.get_hash_and_size().0.as_ref()),
             t.tx,
         );
-        tracing::debug!(target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
-        &tx.transaction.signer_id, &tx.transaction.public_key);
+        tracing::debug!(
+            target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
+            &tx.transaction.signer_id, &tx.transaction.public_key
+        );
         chunk.txs.push(tx);
     }
 
@@ -159,8 +161,10 @@ impl TxTracker {
                     nonce: tx.transaction.nonce + 1,
                 });
                 if !txs.is_empty() {
-                    tracing::warn!(target: "mirror", "{} Transactions for {:?} skipped by inclusion of tx with nonce {}: {:?}. These will never make it on chain.",
-                    txs.len(), &k, tx.transaction.nonce, &txs);
+                    tracing::warn!(
+                        target: "mirror", "{} Transactions for {:?} skipped by inclusion of tx with nonce {}: {:?}. These will never make it on chain.",
+                        txs.len(), &k, tx.transaction.nonce, &txs
+                    );
                 }
                 *txs = txs_left;
                 if txs.is_empty() {
@@ -168,8 +172,10 @@ impl TxTracker {
                 }
             }
             Entry::Vacant(_) => {
-                tracing::warn!(target: "mirror", "recently removed tx {}, but ({:?}, {:?}) not in txs_by_signer",
-                tx.transaction.hash, tx.transaction.signer_id, tx.transaction.public_key);
+                tracing::warn!(
+                    target: "mirror", "recently removed tx {}, but ({:?}, {:?}) not in txs_by_signer",
+                    tx.transaction.hash, tx.transaction.signer_id, tx.transaction.public_key
+                );
                 return;
             }
         };
@@ -181,8 +187,10 @@ impl TxTracker {
                 for tx in c.transactions.iter() {
                     if let Some(send_info) = self.sent_txs.remove(&tx.transaction.hash) {
                         let latency = Instant::now() - send_info.sent_at;
-                        tracing::debug!(target: "mirror", "found my tx {} from source #{} in target #{} {:?} after sending @ target #{}",
-                        tx.transaction.hash, send_info.source_height, msg.block.header.height, latency, send_info.target_height);
+                        tracing::debug!(
+                            target: "mirror", "found my tx {} from source #{} in target #{} {:?} after sending @ target #{}",
+                            tx.transaction.hash, send_info.source_height, msg.block.header.height, latency, send_info.target_height
+                        );
                         crate::metrics::TRANSACTIONS_INCLUDED.inc();
 
                         self.remove_tx(tx);
@@ -215,8 +223,10 @@ impl TxTracker {
 
         if let Some(highest_nonce) = txs.iter().next_back() {
             if highest_nonce.nonce > tx.transaction.nonce {
-                tracing::warn!(target: "mirror", "transaction sent with out of order nonce: {}: {}. Sent so far: {:?}",
-                &hash, tx.transaction.nonce, txs);
+                tracing::warn!(
+                    target: "mirror", "transaction sent with out of order nonce: {}: {}. Sent so far: {:?}",
+                    &hash, tx.transaction.nonce, txs
+                );
             }
         }
         if !txs.insert(TxId { hash, nonce: tx.transaction.nonce }) {
@@ -231,7 +241,10 @@ impl TxTracker {
         source_height: BlockHeight,
         target_height: BlockHeight,
     ) {
-        tracing::info!(target: "mirror", "Sent {} transactions from source #{} with target HEAD @ #{}", txs.len(), source_height, target_height);
+        tracing::info!(
+            target: "mirror", "Sent {} transactions from source #{} with target HEAD @ #{}",
+            txs.len(), source_height, target_height
+        );
         for tx in txs.iter() {
             self.on_tx_sent(tx, source_height, target_height);
         }
