@@ -14,7 +14,9 @@ use near_primitives::time::Utc;
 use num_rational::Ratio;
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{
+    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -49,7 +51,6 @@ use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
-use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
@@ -70,6 +71,66 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 
 const TEST_SEED: RngSeed = [3; 32];
+
+impl Client {
+    /// Unlike Client::start_process_block, which returns before the block finishes processing
+    /// This function waits until the block is processed.
+    /// `should_produce_chunk`: Normally, if a block is accepted, client will try to produce
+    ///                         chunks for the next block if it is the chunk producer.
+    ///                         If `should_produce_chunk` is set to false, client will skip the
+    ///                         chunk production. This is useful in tests that need to tweak
+    ///                         the produced chunk content.
+    fn process_block_sync_with_produce_chunk_options(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        should_produce_chunk: bool,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        wait_for_all_blocks_in_processing(&mut self.chain);
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
+    pub fn process_block_test(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+    }
+
+    pub fn process_block_test_no_produce_chunk(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+    }
+
+    /// This function finishes processing all blocks that started being processed.
+    pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
+        let mut accepted_blocks = vec![];
+        while wait_for_all_blocks_in_processing(&mut self.chain) {
+            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+        }
+        accepted_blocks
+    }
+
+    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// has started.
+    pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
+        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+            let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            assert!(errors.is_empty());
+            return accepted_blocks;
+        }
+        vec![]
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<AccountId>>,
@@ -150,6 +211,7 @@ pub fn setup(
     );
 
     let client = ClientActor::new(
+        ctx.address(),
         config,
         chain_genesis,
         runtime,
@@ -1313,35 +1375,10 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    pub fn process_block_with_options(
-        &mut self,
-        id: usize,
-        block: Block,
-        provenance: Provenance,
-        should_run_catchup: bool,
-        should_produce_chunk: bool,
-    ) {
-        let (mut accepted_blocks, result) =
-            self.clients[id].process_block(MaybeValidated::from(block), provenance);
-        assert!(result.is_ok(), "{:?}", result);
-        if should_run_catchup {
-            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-            accepted_blocks.extend(more_accepted_blocks);
-        }
-        for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted_with_optional_chunk_produce(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                !should_produce_chunk,
-            );
-        }
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        self.process_block_with_options(id, block, provenance, true, true);
+        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1368,9 +1405,10 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(MaybeValidated::from(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ))
+                        .process_partial_encoded_chunk(
+                            MaybeValidated::from(PartialEncodedChunk::from(partial_encoded_chunk)),
+                            Arc::new(|_| {}),
+                        )
                         .unwrap();
                 }
             }
@@ -1397,11 +1435,9 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            let accepted_blocks =
-                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
-            for block in accepted_blocks {
-                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
-            }
+            self.clients[id]
+                .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
+                .unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1467,8 +1503,9 @@ impl TestEnv {
             block_producer.as_ref(),
         ));
 
-        let (_, res) = self.clients[0].process_block(block.into(), Provenance::NONE);
-        assert!(res.is_ok());
+        let _ = self.clients[0]
+            .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
+            .unwrap();
 
         for i in 0..self.clients[0].chain.epoch_length * 2 {
             self.produce_block(0, tip.height + i + 2);
@@ -1697,11 +1734,14 @@ pub fn create_chunk(
     (chunk, merkle_paths, receipts, block)
 }
 
+/// Keep running catchup until there is no more catchup work that can be done
+/// Note that this function does not necessarily mean that all blocks are caught up.
+/// It's possible that some blocks that need to be caught up are still being processed
+/// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<AcceptedBlock>, Error> {
-    let mut result = vec![];
+) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1714,10 +1754,17 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().unwrap().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+    loop {
+        client.run_catchup(
+            highest_height_peers,
+            &f,
+            &block_catch_up,
+            &state_split,
+            Arc::new(|_| {}),
+        )?;
+        let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.work);
+            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
@@ -1726,6 +1773,7 @@ pub fn run_catchup(
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }
+            catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
             let results = rt.build_state_for_split_shards(
@@ -1739,8 +1787,11 @@ pub fn run_catchup(
             } else {
                 client.state_sync.set_split_result(msg.shard_id, results);
             }
+            catchup_done = false;
         }
-        result.extend(call);
+        if catchup_done {
+            break;
+        }
     }
-    Ok(result)
+    Ok(())
 }
