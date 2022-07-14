@@ -31,7 +31,12 @@ mod secret;
 #[derive(strum::EnumIter)]
 enum DBCol {
     Misc,
-    // This tracks nonces for Access Keys added by transactions rather (not present in the genesis state)
+    // This tracks nonces for Access Keys added by AddKey transactions
+    // (not present in the genesis state).  For a given key, if
+    // there's no entry in the DB, then either the key was present in
+    // the genesis state or it was added by an AddKey transaction and
+    // then removed by a DeleteKey transaction. Otherwise, we map tx
+    // nonces according to the values in this column.
     Nonces,
 }
 
@@ -44,10 +49,12 @@ impl DBCol {
     }
 }
 
-// For a given AddKey Action, records the starting nonces of the resulting Access Keys.
-// We need this because when an AddKey receipt is processed, the nonce field of the AddKey action
-// is actually ignored, and it's set to block_height*1000000, so to generate transactions with valid
-// nonces, we need to map valid source chain nonces to valid target chain nonces.
+// For a given AddKey Action, records the starting nonces of the
+// resulting Access Keys.  We need this because when an AddKey receipt
+// is processed, the nonce field of the AddKey action is actually
+// ignored, and it's set to block_height*1000000, so to generate
+// transactions with valid nonces, we need to map valid source chain
+// nonces to valid target chain nonces.
 #[derive(BorshDeserialize, BorshSerialize, Debug, Default)]
 struct NonceDiff {
     source_start: Option<Nonce>,
@@ -119,9 +126,10 @@ fn open_db<P: AsRef<Path>>(home: &P, config: &NearConfig) -> anyhow::Result<DB> 
     Ok(DB::open_cf_descriptors(&options, db_path, cf_descriptors)?)
 }
 
-// a transaction that's almost prepared, except that we don't yet know what nonce to use because
-// the public key was added in an AddKey action that we haven't seen on chain yet. The tx field
-// is complete except for the nonce field.
+// a transaction that's almost prepared, except that we don't yet know
+// what nonce to use because the public key was added in an AddKey
+// action that we haven't seen on chain yet. The tx field is complete
+// except for the nonce field.
 #[derive(Debug)]
 struct TxAwaitingNonce {
     source_public: PublicKey,
@@ -289,9 +297,10 @@ impl TxMirror {
         Ok(sent)
     }
 
-    // If the access key was present in the genesis records, just return the same nonce. Otherwise, we
-    // need to change the nonce. So check if we already know what the difference is nonces is, and if not,
-    // try to fetch that info and store it.
+    // If the access key was present in the genesis records, just
+    // return the same nonce. Otherwise, we need to change the
+    // nonce. So check if we already know what the difference is
+    // nonces is, and if not, try to fetch that info and store it.
     async fn map_nonce(
         &self,
         signer_id: &AccountId,
@@ -384,8 +393,9 @@ impl TxMirror {
         }
     }
 
-    // fetch the source chain block at `source_height`, and prepare a set of transactions that should be valid
-    // in the target chain from it.
+    // fetch the source chain block at `source_height`, and prepare a
+    // set of transactions that should be valid in the target chain
+    // from it.
     async fn fetch_txs(
         &self,
         source_height: BlockHeight,
@@ -515,7 +525,8 @@ impl TxMirror {
         Ok(Some(MappedBlock { source_height, source_block_hash, chunks }))
     }
 
-    // Up to a certain capacity, prepare and queue up batches of transactions that we want to send to the target chain.
+    // Up to a certain capacity, prepare and queue up batches of
+    // transactions that we want to send to the target chain.
     async fn queue_txs(
         &mut self,
         tracker: &mut crate::chain_tracker::TxTracker,
@@ -571,8 +582,9 @@ impl TxMirror {
         Ok(())
     }
 
-    // Go through any upcoming batches of transactions that we haven't been able to set a
-    // valid nonce for yet, and see if we can now do that.
+    // Go through any upcoming batches of transactions that we haven't
+    // been able to set a valid nonce for yet, and see if we can now
+    // do that.
     async fn set_nonces(
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,

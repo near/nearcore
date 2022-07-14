@@ -67,6 +67,10 @@ fn map_secp256k1(
     secp256k1_from_slice(&mut buf, public)
 }
 
+// This maps the public key to a secret key so that we can sign
+// transactions on the target chain.  If secret is None, then we just
+// use the bytes of the public key directly, otherwise we feed the
+// public key to a key derivation function.
 pub(crate) fn map_key(
     key: &PublicKey,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
