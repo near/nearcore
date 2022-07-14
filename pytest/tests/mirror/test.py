@@ -48,14 +48,11 @@ def ordinal_to_port(port, ordinal):
 def init_shardnet_dir(neard, home, ordinal, validator_account=None):
     mkdir_clean(home)
 
-    process = subprocess.Popen([neard, '--home', home, 'init'],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    (_, err) = process.communicate()
-    if process.returncode != 0:
-        sys.exit(
-            f'"neard init" command returned {process.returncode}: stderr: {err}'
-        )
+    try:
+        subprocess.check_output([neard, '--home', home, 'init'],
+                                stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f'"neard init" command failed: output: {e.stdout}')
     shutil.copy(dot_near() / 'test0/config.json', home / 'config.json')
     shutil.copy(dot_near() / 'test0/forked/genesis.json', home / 'genesis.json')
     shutil.copy(dot_near() / 'test0/forked/records.json', home / 'records.json')
@@ -105,34 +102,28 @@ def init_shardnet_dirs(neard):
 def create_shardnet(config, near_root):
     binary_name = config.get('binary_name', 'neard')
     neard = os.path.join(near_root, binary_name)
-    process = subprocess.Popen([
-        neard, "--home",
-        dot_near() / 'test0', "view-state", "dump-state", "--stream"
-    ],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    (_, err) = process.communicate()
-    if process.returncode != 0:
-        sys.exit(
-            f'"dump-state" command returned {process.returncode}: stderr: {err}'
-        )
-    process = subprocess.Popen([
-        os.path.join(near_root, 'mirror'),
-        'prepare',
-        '--records-file-in',
-        dot_near() / 'test0/output/records.json',
-        '--records-file-out',
-        dot_near() / 'test0/output/mirror-records.json',
-        '--secret-file-out',
-        dot_near() / 'test0/output/mirror-secret.json',
-    ],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    (_, err) = process.communicate()
-    if process.returncode != 0:
-        sys.exit(
-            f'"mirror prepare" command returned {process.returncode}: stderr: {err}'
-        )
+    try:
+        subprocess.check_output([
+            neard, "--home",
+            dot_near() / 'test0', "view-state", "dump-state", "--stream"
+        ],
+                                stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f'"dump-state" command failed: output: {e.stdout}')
+    try:
+        subprocess.check_output([
+            os.path.join(near_root, 'mirror'),
+            'prepare',
+            '--records-file-in',
+            dot_near() / 'test0/output/records.json',
+            '--records-file-out',
+            dot_near() / 'test0/output/mirror-records.json',
+            '--secret-file-out',
+            dot_near() / 'test0/output/mirror-secret.json',
+        ],
+                                stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f'"mirror prepare" command failed: output: {e.stdout}')
 
     os.mkdir(dot_near() / 'test0/forked')
     genesis_filename_in = dot_near() / 'test0/output/genesis.json'
