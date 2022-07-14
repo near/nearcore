@@ -1579,7 +1579,8 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
-        let span = tracing::trace_span!(target: "network", "handle_msg_network_requests").entered();
+        let _span =
+            tracing::trace_span!(target: "network", "handle_msg_network_requests").entered();
         let _d = delay_detector::DelayDetector::new(|| {
             format!("network request {}", msg.as_ref()).into()
         });
@@ -1845,9 +1846,10 @@ impl PeerManagerActor {
                 let peer_id_clone = peer_id.clone();
                 self.view_client_addr
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
+                    .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {
-                        let _span = tracing::trace_span!(target: "network", parent: &span, "announce_account").entered();
+                        let _span = tracing::trace_span!(target: "network",  "announce_account").entered();
                         match response {
                             Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
                                 act.try_ban_peer(&peer_id_clone, ban_reason);
