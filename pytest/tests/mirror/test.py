@@ -265,8 +265,7 @@ def main():
         ctx.send_moar_txs(block_hash, 10, use_routing=False)
         code = p.poll()
         if code is not None:
-            if code != 0:
-                logger.error('mirror process exited with an error!')
+            assert code == 0
             break
 
         if new_key is not None:
