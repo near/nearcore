@@ -99,7 +99,7 @@ where
     T: AsRef<[u8]> + From<Vec<u8>>,
 {
     fn eq(&self, other: &Self) -> bool {
-        self == other
+        self.0.as_ref() == other.0.as_ref()
     }
 }
 
