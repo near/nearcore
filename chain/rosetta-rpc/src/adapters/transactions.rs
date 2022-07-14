@@ -263,6 +263,7 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
                 type_: crate::models::OperationType::Transfer,
@@ -275,6 +276,7 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
@@ -294,6 +296,7 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
@@ -315,6 +318,7 @@ fn convert_account_update_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -335,6 +339,7 @@ fn convert_account_update_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::Locked.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -369,6 +374,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: None,
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -389,6 +395,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -409,6 +416,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::Locked.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
