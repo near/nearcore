@@ -33,18 +33,18 @@ pub(crate) struct AccountBalanceResponse {
     /// include that number in the metadata. This number could be unique to the
     /// identifier or global across the account address.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<PublicKeyNonce>,
+    pub metadata: Option<AccountBalanceResponseMetadata>,
 }
 // Account-based blockchains that utilize a nonce or sequence number should
 // include that number in the metadata.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub(crate) struct PublicKeyNonce {
-    pub nonce: Nonce,
+pub(crate) struct AccountBalanceResponseMetadata {
+    pub nonces: Vec<Nonce>,
 }
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
 /// (including the metadata field, if populated).
-#[derive(Debug, Clone, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
@@ -57,13 +57,7 @@ pub(crate) struct AccountIdentifier {
     /// derivative of a cryptographic public key) should specify the public
     /// key(s) owned by the address in metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Vec<PublicKey>>,
-}
-
-impl PartialEq for AccountIdentifier {
-    fn eq(&self, other: &Self) -> bool {
-        self.address == other.address
-    }
+    pub metadata: Option<AccountIdentifierMetadata>,
 }
 
 impl From<near_primitives::types::AccountId> for AccountIdentifier {
@@ -78,6 +72,13 @@ impl std::str::FromStr for AccountIdentifier {
     fn from_str(account_id: &str) -> Result<Self, Self::Err> {
         Ok(Self::from(account_id.parse::<near_primitives::types::AccountId>()?))
     }
+}
+
+#[derive(
+    Debug, Clone, Eq, PartialEq, Default, serde::Serialize, serde::Deserialize, Apiv2Schema,
+)]
+pub(crate) struct AccountIdentifierMetadata {
+    pub public_keys: Vec<PublicKey>,
 }
 
 /// Allow specifies supported Operation status, Operation types, and all
@@ -1092,17 +1093,11 @@ pub(crate) struct Version {
 /// PublicKey contains a public key byte array for a particular CurveType
 /// encoded in hex. Note that there is no PrivateKey struct as this is NEVER the
 /// concern of an implementation.
-#[derive(Debug, Clone, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct PublicKey {
     /// Hex-encoded public key bytes in the format specified by the CurveType.
     pub hex_bytes: BlobInHexString<Vec<u8>>,
     pub curve_type: CurveType,
-}
-
-impl PartialEq for PublicKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.hex_bytes == other.hex_bytes && self.curve_type == self.curve_type
-    }
 }
 
 impl From<&near_crypto::PublicKey> for PublicKey {
@@ -1128,23 +1123,13 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
 }
 
 /// CurveType is the type of cryptographic curve associated with a PublicKey.
-#[derive(Debug, Clone, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum CurveType {
     /// `y (255-bits) || x-sign-bit (1-bit)` - `32 bytes` (https://ed25519.cr.yp.to/ed25519-20110926.pdf)
     Edwards25519,
     /// SEC compressed - `33 bytes` (https://secg.org/sec1-v2.pdf#subsubsection.2.3.3)
     Secp256k1,
-}
-
-impl PartialEq for CurveType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (CurveType::Edwards25519, CurveType::Edwards25519) => true,
-            (CurveType::Secp256k1, CurveType::Secp256k1) => true,
-            _ => false,
-        }
-    }
 }
 
 impl From<near_crypto::KeyType> for CurveType {

@@ -5,7 +5,11 @@ use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{errors, models};
+use crate::{
+    errors,
+    models::{self, AccountBalanceResponseMetadata},
+    types::AccountId,
+};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -530,4 +534,29 @@ pub(crate) async fn get_final_block(
         )))
         .await?
         .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))
+}
+
+pub(crate) async fn get_nonces(
+    view_client_addr: &Addr<ViewClientActor>,
+    account_id: AccountId,
+    public_keys: Vec<models::PublicKey>,
+) -> Result<Option<AccountBalanceResponseMetadata>, models::Error> {
+    let mut nonces = Vec::with_capacity(public_keys.len());
+    for public_key in public_keys {
+        let account_id_for_public_key = account_id.clone();
+        let (_block_hash, _block_height, access_key) = crate::utils::query_access_key(
+            near_primitives::types::BlockReference::latest(),
+            account_id_for_public_key.into(),
+            (&public_key).try_into().map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "public key could not be parsed due to: {:?}",
+                    err
+                ))
+            })?,
+            &view_client_addr,
+        )
+        .await?;
+        nonces.push(access_key.nonce);
+    }
+    Ok(Some(models::AccountBalanceResponseMetadata { nonces }))
 }

@@ -384,42 +384,19 @@ async fn account_balance(
     } else {
         account_balances.liquid
     };
-    let public_keys = match account_identifier.metadata {
-        None => {
-            return Ok(Json(models::AccountBalanceResponse {
-                block_identifier: models::BlockIdentifier {
-                    hash: block_hash.to_base(),
-                    index: block_height.try_into().unwrap(),
-                },
-                balances: vec![models::Amount::from_yoctonear(balance)],
-                metadata: None,
-            }))
-        }
-        Some(metadata) => metadata,
+    let nonces = if let Some(metadata) = account_identifier.metadata {
+        crate::utils::get_nonces(&view_client_addr, account_id_for_access_key, metadata.public_keys)
+            .await?
+    } else {
+        None
     };
-    let signer_public_access_key = public_keys.into_iter().next().ok_or_else(|| {
-        errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
-    })?;
-    let (_block_hash, _block_height, access_key) = crate::utils::query_access_key(
-        near_primitives::types::BlockReference::latest(),
-        account_id_for_access_key.into(),
-        (&signer_public_access_key).try_into().map_err(|err| {
-            errors::ErrorKind::InvalidInput(format!(
-                "public key could not be parsed due to: {:?}",
-                err
-            ))
-        })?,
-        &view_client_addr,
-    )
-    .await?;
-    let nonce = access_key.nonce;
     Ok(Json(models::AccountBalanceResponse {
         block_identifier: models::BlockIdentifier {
             hash: block_hash.to_base(),
             index: block_height.try_into().unwrap(),
         },
         balances: vec![models::Amount::from_yoctonear(balance)],
-        metadata: Some(models::PublicKeyNonce { nonce }),
+        metadata: nonces,
     }))
 }
 
