@@ -76,7 +76,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Eq, derive_more::AsRef, derive_more::From)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
@@ -95,15 +95,6 @@ where
 {
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T> PartialEq for BlobInHexString<T>
-where
-    T: AsRef<[u8]> + From<Vec<u8>>,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_ref() == other.0.as_ref()
     }
 }
 
@@ -540,7 +531,7 @@ pub(crate) async fn get_nonces(
     view_client_addr: &Addr<ViewClientActor>,
     account_id: AccountId,
     public_keys: Vec<models::PublicKey>,
-) -> Result<Option<AccountBalanceResponseMetadata>, models::Error> {
+) -> Result<AccountBalanceResponseMetadata, models::Error> {
     let mut nonces = Vec::with_capacity(public_keys.len());
     for public_key in public_keys {
         let account_id_for_public_key = account_id.clone();
@@ -558,5 +549,5 @@ pub(crate) async fn get_nonces(
         .await?;
         nonces.push(access_key.nonce);
     }
-    Ok(Some(models::AccountBalanceResponseMetadata { nonces }))
+    Ok(models::AccountBalanceResponseMetadata { nonces })
 }

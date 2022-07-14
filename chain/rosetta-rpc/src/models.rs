@@ -44,7 +44,7 @@ pub(crate) struct AccountBalanceResponseMetadata {
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
 /// (including the metadata field, if populated).
-#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
@@ -75,7 +75,7 @@ impl std::str::FromStr for AccountIdentifier {
 }
 
 #[derive(
-    Debug, Clone, Eq, PartialEq, Default, serde::Serialize, serde::Deserialize, Apiv2Schema,
+    Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, Apiv2Schema,
 )]
 pub(crate) struct AccountIdentifierMetadata {
     pub public_keys: Vec<PublicKey>,
@@ -1093,7 +1093,7 @@ pub(crate) struct Version {
 /// PublicKey contains a public key byte array for a particular CurveType
 /// encoded in hex. Note that there is no PrivateKey struct as this is NEVER the
 /// concern of an implementation.
-#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct PublicKey {
     /// Hex-encoded public key bytes in the format specified by the CurveType.
     pub hex_bytes: BlobInHexString<Vec<u8>>,

@@ -385,8 +385,14 @@ async fn account_balance(
         account_balances.liquid
     };
     let nonces = if let Some(metadata) = account_identifier.metadata {
-        crate::utils::get_nonces(&view_client_addr, account_id_for_access_key, metadata.public_keys)
-            .await?
+        Some(
+            crate::utils::get_nonces(
+                &view_client_addr,
+                account_id_for_access_key,
+                metadata.public_keys,
+            )
+            .await?,
+        )
     } else {
         None
     };
