@@ -28,23 +28,19 @@ pub(crate) struct AccountBalanceResponse {
 
     /// A single account may have a balance in multiple currencies.
     pub balances: Vec<Amount>,
-    /* Rosetta Spec also optionally provides:
-     *
-     * /// Account-based blockchains that utilize a nonce or sequence number should
-     * /// include that number in the metadata. This number could be unique to the
-     * /// identifier or global across the account address.
-     */
+    /// Rosetta Spec also optionally provides:
+    /// Account-based blockchains that utilize a nonce or sequence number should
+    /// include that number in the metadata. This number could be unique to the
+    /// identifier or global across the account address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<PublicKeyNonce>,
 }
-
 // Account-based blockchains that utilize a nonce or sequence number should
 // include that number in the metadata.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct PublicKeyNonce {
     pub nonce: Nonce,
 }
-
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
 /// (including the metadata field, if populated).
@@ -56,12 +52,10 @@ pub(crate) struct AccountIdentifier {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_account: Option<SubAccountIdentifier>,
-    /* Rosetta Spec also optionally provides:
-     *
-     * /// Blockchains that utilize a username model (where the address is not a
-     * /// derivative of a cryptographic public key) should specify the public
-     * /// key(s) owned by the address in metadata.
-     */
+    /// Rosetta Spec also optionally provides:
+    /// Blockchains that utilize a username model (where the address is not a
+    /// derivative of a cryptographic public key) should specify the public
+    /// key(s) owned by the address in metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Vec<PublicKey>>,
 }
