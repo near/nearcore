@@ -39,8 +39,8 @@ impl<'de> serde::Deserialize<'de> for KeyMapSecret {
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum ParseSecretError {
     #[error("Base58 decode failure: `{1}`")]
-    BS58(bs58::decode::Error, String),
-    #[error("invaled decoded length (expected: 64, got: {0}: input: `{1}`)")]
+    BS58(#[source] bs58::decode::Error, String),
+    #[error("invalid decoded length (expected: 64, got: {0}: input: `{1}`)")]
     BadLength(usize, String),
 }
 
