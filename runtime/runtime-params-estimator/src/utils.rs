@@ -3,14 +3,15 @@ use crate::config::Config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
-
-use std::collections::HashMap;
-
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
+use std::collections::HashMap;
+use std::iter;
 
 pub fn read_resource(path: &str) -> Vec<u8> {
     let dir = env!("CARGO_MANIFEST_DIR");
@@ -225,7 +226,7 @@ pub(crate) fn fn_cost_in_contract(
 
     let mut chosen_accounts = {
         let tb = testbed.transaction_builder();
-        std::iter::repeat_with(|| tb.random_unused_account()).take(n_blocks + 1).collect::<Vec<_>>()
+        iter::repeat_with(|| tb.random_unused_account()).take(n_blocks + 1).collect::<Vec<_>>()
     };
     testbed.clear_caches();
 
@@ -240,7 +241,7 @@ pub(crate) fn fn_cost_in_contract(
     let mut blocks = Vec::with_capacity(n_blocks);
     // Measurement blocks with single tx with many actions.
     for account in chosen_accounts.drain(..n_blocks) {
-        let actions = std::iter::repeat_with(|| function_call_action(method.to_string()))
+        let actions = iter::repeat_with(|| function_call_action(method.to_string()))
             .take(n_actions)
             .collect();
         let tx = testbed.transaction_builder().transaction_from_actions(
@@ -272,7 +273,7 @@ pub(crate) fn fn_cost_in_contract(
 }
 
 fn function_call_action(method_name: String) -> Action {
-    Action::FunctionCall(near_primitives::transaction::FunctionCallAction {
+    Action::FunctionCall(FunctionCallAction {
         method_name,
         args: Vec::new(),
         gas: 10u64.pow(15),

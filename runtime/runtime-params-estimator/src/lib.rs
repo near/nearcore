@@ -659,10 +659,10 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
-    let inner_iterations = 100;
+    let n_actions = 100;
     let code = generate_data_only_contract(0, &VMConfig::test());
     // This returns a cost without block/transaction/receipt overhead.
-    let base_cost = fn_cost_in_contract(ctx, "main", &code, inner_iterations);
+    let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
     // Executable loading is a separately charged step, so it must be subtracted on the action cost.
     let executable_loading_cost = contract_loading_base(ctx);
     base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
@@ -716,13 +716,13 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let vm_config = VMConfig::test();
-    let inner_iterations = 5;
+    let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
-    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, inner_iterations);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, n_actions);
 
     let large_code = generate_data_only_contract(4_000_000, &vm_config);
-    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, inner_iterations);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, n_actions);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
         / (large_code.len() - small_code.len()) as u64
