@@ -179,17 +179,17 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// the corresponding version
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly_protocol")] {
-        /// Current latest nightly version of the protocol.
-        pub const PROTOCOL_VERSION: ProtocolVersion = 130;
-    } else if #[cfg(feature = "shardnet")] {
-        /// Protocol version for shardnet.
-        pub const PROTOCOL_VERSION: ProtocolVersion = 100;
-    } else {
-        pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-    }
-}
+/// Largest protocol version supported by the current binary.
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+    // On nightly, pick big enough version to support all features.
+    130
+} else if cfg!(feature = "shardnet") {
+    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
+    100
+} else {
+    // Enable all stable features.
+    STABLE_PROTOCOL_VERSION
+};
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
