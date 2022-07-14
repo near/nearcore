@@ -31,10 +31,10 @@ SHARDNET_VALIDATORS = ['foo0', 'foo1', 'foo2']
 
 def mkdir_clean(dirname):
     try:
-        os.mkdir(dirname)
+        dirname.mkdir()
     except FileExistsError:
         shutil.rmtree(dirname)
-        os.mkdir(dirname)
+        dirname.mkdir()
 
 
 def dot_near():
