@@ -21,6 +21,9 @@
   name [#7030](https://github.com/near/nearcore/issues/7030)
 * Latency of network messages is new measured
   [#7050](https://github.com/near/nearcore/issues/7050)
+* Rosetta RPC account balance request now accepts public keys in
+  metadata and returns corresponding nonces
+  [#7186](https://github.com/near/nearcore/issues/7186)
 
 ## 1.27.0 [2022-06-22]
 
