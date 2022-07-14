@@ -162,6 +162,7 @@ def mirror_cleanup(process):
     try:
         process.wait(5)
     except:
+        process.kill()
         logger.error('can\'t kill mirror process')
 
 
