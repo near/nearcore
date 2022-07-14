@@ -3,14 +3,15 @@ use crate::config::Config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
-
-use std::collections::HashMap;
-
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
+use std::collections::HashMap;
+use std::iter;
 
 pub fn read_resource(path: &str) -> Vec<u8> {
     let dir = env!("CARGO_MANIFEST_DIR");
@@ -208,22 +209,26 @@ pub(crate) fn fn_cost_with_setup(
 /// this causes the contract to be deployed once in every iteration. Therefore,
 /// whenever possible, prefer to add a method to the generic test contract.
 ///
-/// The no-op function call cost is NOT subtracted.
+/// The measured cost is the pure cost of executing a function call action. The
+/// overhead of block, transaction, and receipt processing is already subtracted
+/// in the returned result. It does so by executing the method n+1 times in a
+/// single transaction, and subtract the cost of a transaction that calls the
+/// method once, before dividing by n.
 pub(crate) fn fn_cost_in_contract(
     ctx: &mut EstimatorContext,
     method: &str,
     code: &[u8],
-    block_size: usize,
+    n_actions: usize,
 ) -> GasCost {
-    let block_latency = 0;
-    let overhead = overhead_per_measured_block(ctx, block_latency);
-    let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+    let n_warmup_blocks = ctx.config.warmup_iters_per_block;
+    let n_blocks = n_warmup_blocks + ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
 
-    let chosen_accounts = {
+    let mut chosen_accounts = {
         let tb = testbed.transaction_builder();
-        std::iter::repeat_with(|| tb.random_unused_account()).take(n_blocks).collect::<Vec<_>>()
+        iter::repeat_with(|| tb.random_unused_account()).take(n_blocks + 1).collect::<Vec<_>>()
     };
+    testbed.clear_caches();
 
     for account in &chosen_accounts {
         let tb = testbed.transaction_builder();
@@ -233,26 +238,47 @@ pub(crate) fn fn_cost_in_contract(
         testbed.process_block(vec![setup_tx], 0);
     }
 
-    let blocks = {
-        let mut blocks = Vec::with_capacity(n_blocks);
-        for account in chosen_accounts {
-            let tb = testbed.transaction_builder();
-            let mut block = Vec::new();
-            for _ in 0..block_size {
-                let tx = tb.transaction_from_function_call(account.clone(), method, Vec::new());
-                block.push(tx);
-            }
-            blocks.push(block);
-        }
-        blocks
-    };
+    let mut blocks = Vec::with_capacity(n_blocks);
+    // Measurement blocks with single tx with many actions.
+    for account in chosen_accounts.drain(..n_blocks) {
+        let actions = iter::repeat_with(|| function_call_action(method.to_string()))
+            .take(n_actions)
+            .collect();
+        let tx = testbed.transaction_builder().transaction_from_actions(
+            account.clone(),
+            account,
+            actions,
+        );
+        blocks.push(vec![tx]);
+    }
+    // Base with single tx with single action. Insert it after warm-up blocks.
+    let final_account = chosen_accounts.pop().unwrap();
+    let base_tx = testbed.transaction_builder().transaction_from_actions(
+        final_account.clone(),
+        final_account,
+        vec![function_call_action(method.to_string())],
+    );
+    blocks.insert(n_warmup_blocks, vec![base_tx]);
 
     let mut measurements = testbed.measure_blocks(blocks, 0);
-    measurements.drain(0..ctx.config.warmup_iters_per_block);
+    measurements.drain(0..n_warmup_blocks);
 
+    let (base_gas_cost, _base_ext_costs) = measurements.remove(0);
+    // Do not subtract block overhead because we already subtract the base.
+    let overhead = None;
+    let block_size = 1;
     let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(ctx.config, block_size, measurements, Some(overhead));
-    gas_cost
+        aggregate_per_block_measurements(ctx.config, block_size, measurements, overhead);
+    gas_cost.saturating_sub(&base_gas_cost, &NonNegativeTolerance::Strict) / (n_actions - 1) as u64
+}
+
+fn function_call_action(method_name: String) -> Action {
+    Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args: Vec::new(),
+        gas: 10u64.pow(15),
+        deposit: 0,
+    })
 }
 
 pub(crate) fn aggregate_per_block_measurements(
