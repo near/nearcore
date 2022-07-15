@@ -154,6 +154,8 @@ pub enum ProtocolFeature {
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
+    /// Charge for contract loading before it happens.
+    FixContractLoadingCost,
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
@@ -162,10 +164,7 @@ pub enum ProtocolFeature {
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    /// Charge for contract loading before it happens.
-    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
-    FixContractLoadingCost,
-    /// Charge for contract loading before it happens.
+    /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
 }
@@ -177,7 +176,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 56;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -246,14 +245,13 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
+            ProtocolFeature::FixContractLoadingCost => 56,
 
             // Nightly & shardnet features
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 100,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
-            ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
         }
