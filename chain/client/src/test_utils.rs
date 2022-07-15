@@ -612,19 +612,9 @@ pub fn setup_mock_all_validators(
                 drop(guard);
 
                 if perform_default {
-                    let mut my_key_pair = None;
-                    let mut my_address = None;
-                    let mut my_ord = None;
-                    for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                        if name == &account_id {
-                            my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i]);
-                            my_ord = Some(i);
-                        }
-                    }
-                    let my_key_pair = my_key_pair.unwrap();
-                    let my_address = my_address.unwrap();
-                    let my_ord = my_ord.unwrap();
+                    let my_ord = validators_clone2.iter().flatten().position(|it| it == &account_id).unwrap();
+                    let my_key_pair = key_pairs[my_ord].clone();
+                    let my_address = addresses[my_ord];
 
                     {
                         let last_height2 = last_height2.read().unwrap();
