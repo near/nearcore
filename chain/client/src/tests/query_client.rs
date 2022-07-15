@@ -269,7 +269,7 @@ fn test_garbage_collection() {
             (NetworkResponses::NoResponse.into(), true)
         })));
 
-        let (_, conns, _) = setup_mock_all_validators(
+        setup_mock_all_validators(
             vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]],
             vec![PeerInfo::random(), PeerInfo::random()],
             1,
@@ -286,7 +286,10 @@ fn test_garbage_collection() {
         );
 
         *network_mock.write().unwrap() = Box::new(
-            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |conns,
+                  _,
+                  msg: &PeerManagerMessageRequest|
+                  -> (PeerManagerMessageResponse, bool) {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     if block.header().height() > target_height {
                         let view_client_non_archival = &conns[0].1;

@@ -519,7 +519,7 @@ fn produce_block_with_approvals_arrived_early() {
         > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
-        let (_, conns, _) = setup_mock_all_validators(
+        setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -535,12 +535,15 @@ fn produce_block_with_approvals_arrived_early() {
             network_mock.clone(),
         );
         *network_mock.write().unwrap() = Box::new(
-            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |conns,
+                  _,
+                  msg: &PeerManagerMessageRequest|
+                  -> (PeerManagerMessageResponse, bool) {
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
                         if block.header().height() == 3 {
-                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                            for (i, (client, _)) in conns.iter().enumerate() {
                                 if i > 0 {
                                     client.do_send(NetworkClientMessages::Block(
                                         block.clone(),
@@ -754,7 +757,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
 
-        let (_, conns, _) = setup_mock_all_validators(
+        setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -771,7 +774,10 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         );
         let mut sent_bad_blocks = false;
         *peer_manager_mock.write().unwrap() = Box::new(
-            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |conns,
+                  _,
+                  msg: &PeerManagerMessageRequest|
+                  -> (PeerManagerMessageResponse, bool) {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {
