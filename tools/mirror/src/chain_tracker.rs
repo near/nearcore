@@ -19,19 +19,11 @@ struct TxSendInfo {
     target_height: BlockHeight,
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug)]
 struct TxId {
     hash: CryptoHash,
     nonce: Nonce,
 }
-
-impl PartialEq for TxId {
-    fn eq(&self, other: &Self) -> bool {
-        (&self.hash, self.nonce) == (&other.hash, other.nonce)
-    }
-}
-
-impl Eq for TxId {}
 
 impl PartialOrd for TxId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -41,18 +33,13 @@ impl PartialOrd for TxId {
 
 impl Ord for TxId {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.nonce < other.nonce {
-            Ordering::Less
-        } else if self.nonce > other.nonce {
-            Ordering::Greater
-        } else {
-            self.hash.cmp(&other.hash)
-        }
+        self.nonce.cmp(&other.nonce).then_with(|| self.hash.cmp(&other.hash))
     }
 }
 
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
 // Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
+#[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
@@ -64,14 +51,7 @@ pub(crate) struct TxTracker {
 
 impl TxTracker {
     pub(crate) fn new() -> Self {
-        Self {
-            sent_txs: HashMap::new(),
-            txs_by_signer: HashMap::new(),
-            queued_blocks: VecDeque::new(),
-            num_txs_awaiting_nonce: 0,
-            height_queued: None,
-            send_time: None,
-        }
+        Self::default()
     }
 
     pub(crate) fn height_queued(&self) -> Option<BlockHeight> {

@@ -59,7 +59,7 @@ impl FromStr for KeyMapSecret {
     }
 }
 
-pub(crate) fn generate<P: AsRef<Path>>(secret_file_out: &P) -> anyhow::Result<[u8; SECRET_LEN]> {
+pub(crate) fn generate<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<[u8; SECRET_LEN]> {
     let mut secret = [0; SECRET_LEN];
     let mut out = File::create(secret_file_out)?;
 
@@ -70,7 +70,7 @@ pub(crate) fn generate<P: AsRef<Path>>(secret_file_out: &P) -> anyhow::Result<[u
     Ok(secret)
 }
 
-pub(crate) fn write_empty<P: AsRef<Path>>(secret_file_out: &P) -> anyhow::Result<()> {
+pub(crate) fn write_empty<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<()> {
     let mut out = File::create(secret_file_out)?;
     let config = MirrorSecretConfig { key_map_secret: None };
     let str = serde_json::to_string_pretty(&config)?;
@@ -78,7 +78,7 @@ pub(crate) fn write_empty<P: AsRef<Path>>(secret_file_out: &P) -> anyhow::Result
     Ok(())
 }
 
-pub(crate) fn load<P: AsRef<Path>>(secret_file: &P) -> anyhow::Result<Option<[u8; SECRET_LEN]>> {
+pub(crate) fn load<P: AsRef<Path>>(secret_file: P) -> anyhow::Result<Option<[u8; SECRET_LEN]>> {
     let s = std::fs::read_to_string(secret_file)?;
     let config: MirrorSecretConfig = serde_json::from_str(&s)?;
     Ok(config.key_map_secret.map(|s| s.0))

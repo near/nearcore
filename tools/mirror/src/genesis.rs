@@ -5,10 +5,10 @@ use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
 pub fn map_records<P: AsRef<Path>>(
-    records_file_in: &P,
-    records_file_out: &P,
+    records_file_in: P,
+    records_file_out: P,
     no_secret: bool,
-    secret_file_out: &P,
+    secret_file_out: P,
 ) -> anyhow::Result<()> {
     let secret = if !no_secret {
         Some(crate::secret::generate(secret_file_out)?)

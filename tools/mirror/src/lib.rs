@@ -75,24 +75,14 @@ pub(crate) enum MapNonceError {
 
 impl NonceDiff {
     fn map(&self, nonce: Nonce) -> Result<Nonce, MapNonceError> {
-        match self.source_start {
-            Some(source_start) => match self.target_start {
-                Some(target_start) => {
-                    if target_start > source_start {
-                        let diff = target_start - source_start;
-                        nonce
-                            .checked_add(diff)
-                            .ok_or_else(|| MapNonceError::AddOverflow(nonce, diff))
-                    } else {
-                        let diff = source_start - target_start;
-                        nonce
-                            .checked_sub(diff)
-                            .ok_or_else(|| MapNonceError::SubOverflow(nonce, diff))
-                    }
-                }
-                None => Err(MapNonceError::TargetKeyNotOnChain),
-            },
-            None => Err(MapNonceError::SourceKeyNotOnChain),
+        let source_start = self.source_start.ok_or(MapNonceError::SourceKeyNotOnChain)?;
+        let target_start = self.target_start.ok_or(MapNonceError::TargetKeyNotOnChain)?;
+        if target_start > source_start {
+            let diff = target_start - source_start;
+            nonce.checked_add(diff).ok_or_else(|| MapNonceError::AddOverflow(nonce, diff))
+        } else {
+            let diff = source_start - target_start;
+            nonce.checked_sub(diff).ok_or_else(|| MapNonceError::SubOverflow(nonce, diff))
         }
     }
 
@@ -251,19 +241,15 @@ impl TxMirror {
         let mut sent = vec![];
         for chunk in block.chunks.iter() {
             for tx in chunk.txs.iter() {
-                let res = match self
+                match self
                     .target_client
                     .send(NetworkClientMessages::Transaction {
                         transaction: tx.clone(),
                         is_forwarded: false,
                         check_only: false,
                     })
-                    .await
+                    .await?
                 {
-                    Ok(r) => r,
-                    Err(e) => return Err(e.into()),
-                };
-                match &res {
                     NetworkClientResponses::RequestRouted => {
                         tracing::debug!(
                             target: "mirror", "sent source #{} shard {} tx {}",
@@ -420,23 +406,20 @@ impl TxMirror {
             let chunk = match self
                 .source_view_client
                 .send(GetChunk::Height(source_height, *shard_id))
-                .await
+                .await?
             {
-                Ok(c) => match c {
-                    Ok(c) => c,
-                    Err(e) => match &e {
-                        GetChunkError::UnknownBlock { .. } => return Ok(None),
-                        GetChunkError::UnknownChunk { .. } => {
-                            tracing::error!(
-                                "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
-                                shard_id, source_height
-                            );
-                            continue;
-                        }
-                        _ => return Err(e.into()),
-                    },
+                Ok(c) => c,
+                Err(e) => match e {
+                    GetChunkError::UnknownBlock { .. } => return Ok(None),
+                    GetChunkError::UnknownChunk { .. } => {
+                        tracing::error!(
+                            "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?",
+                            shard_id, source_height
+                        );
+                        continue;
+                    }
+                    _ => return Err(e.into()),
                 },
-                Err(e) => return Err(e.into()),
             };
             if chunk.header.height_included != source_height {
                 continue;
@@ -480,7 +463,7 @@ impl TxMirror {
                         );
                         txs.push(tx);
                     }
-                    Err(e) => match &e {
+                    Err(e) => match e {
                         MapNonceError::AddOverflow(..)
                         | MapNonceError::SubOverflow(..)
                         | MapNonceError::SourceKeyNotOnChain => {
@@ -546,22 +529,17 @@ impl TxMirror {
         };
 
         for height in start_height..=source_head {
-            match self
+            if let Some(b) = self
                 .fetch_txs(height, ref_hash)
                 .await
-                .with_context(|| format!("Can't fetch source #{} transactions", height))
+                .with_context(|| format!("Can't fetch source #{} transactions", height))?
             {
-                Ok(Some(b)) => {
-                    tracker.queue_block(b);
-                    if tracker.num_blocks_queued() > 100 {
-                        return Ok(());
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(e);
+                tracker.queue_block(b);
+                if tracker.num_blocks_queued() > 100 {
+                    return Ok(());
                 }
             };
+
             if check_send_time
                 && tracker.num_blocks_queued() > 0
                 && Instant::now() > next_batch_time - Duration::from_millis(20)
