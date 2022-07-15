@@ -156,13 +156,13 @@ pub fn state_dump_redis(
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_ref().as_bytes();
                     redis_connection.zadd(
-                        [b"account:", redis_key].concat(),
+                        [b"h:a:", redis_key].concat(),
                         block_hash.as_ref(),
                         block_height,
                     )?;
                     let value = account.try_to_vec().unwrap();
                     redis_connection.set(
-                        [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
+                        [b"d:a:", redis_key, b":", block_hash.as_ref()].concat(),
                         value,
                     )?;
                     println!("Account written: {}", account_id);
@@ -173,13 +173,13 @@ pub fn state_dump_redis(
                     let redis_key =
                         [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(
-                        [b"data:", redis_key.as_slice()].concat(),
+                        [b"h:d:", redis_key.as_slice()].concat(),
                         block_hash.as_ref(),
                         block_height,
                     )?;
                     let value_vec: &[u8] = value.as_ref();
                     redis_connection.set(
-                        [b"data-value:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+                        [b"d:d:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
                         value_vec,
                     )?;
                     println!("Data written: {}", account_id);
@@ -187,11 +187,15 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
-                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
-                    redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
+                    let redis_key = account_id.as_ref().as_bytes();
+                    redis_connection.zadd(
+                        [b"h:c:", redis_key.clone()].concat(),
+                        block_hash.as_ref(),
+                        block_height
+                    )?;
                     let value_vec: &[u8] = code.as_ref();
                     redis_connection.set(
-                        [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
+                       [b"d:c:", redis_key.clone(), b":", block_hash.as_ref()].concat(),
                         value_vec,
                     )?;
                     println!("Contract written: {}", account_id);
