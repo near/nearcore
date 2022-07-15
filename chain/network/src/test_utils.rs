@@ -219,23 +219,6 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-/// `GetBroadcastMessageCount` gets `NetworkMetrics` from `PeerManager`.
-#[cfg(feature = "test_features")]
-#[derive(Message)]
-#[rtype(result = "u64")]
-pub struct GetBroadcastMessageCount {
-    pub msg_type: &'static str,
-}
-
-#[cfg(feature = "test_features")]
-impl Handler<GetBroadcastMessageCount> for PeerManagerActor {
-    type Result = u64;
-
-    fn handle(&mut self, msg: GetBroadcastMessageCount, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network_metrics.get_broadcast_count(msg.msg_type)
-    }
-}
-
 // `StopSignal is used to stop PeerManagerActor for unit tests
 #[derive(Message, Default)]
 #[rtype(result = "()")]

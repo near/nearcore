@@ -188,7 +188,8 @@ expression: store.get_config(*version)
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
-      "wasmer2_stack_limit": 102400
+      "wasmer2_stack_limit": 102400,
+      "account_id_validity_rules_version": 0
     }
   },
   "account_creation_config": {

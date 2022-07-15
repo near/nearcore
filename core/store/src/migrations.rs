@@ -69,7 +69,7 @@ where
     U: BorshSerialize,
     F: Fn(T) -> U,
 {
-    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    let keys: Vec<_> = store.iter(col).map(Result::unwrap).map(|(key, _)| key).collect();
     let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
 
     for key in keys {
@@ -92,7 +92,7 @@ where
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;
     let mut batch_size = 0;
-    for (key, _) in store.iter(col) {
+    for (key, _) in store.iter(col).map(Result::unwrap) {
         let new_value = f(&key);
         let new_bytes = new_value.try_to_vec()?;
         batch_size += key.as_ref().len() + new_bytes.len() + 8;
@@ -181,7 +181,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
     // the AGGREGATOR_KEY differently from all others.
     let col = DBCol::EpochInfo;
-    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    let keys: Vec<_> = store.iter(col).map(Result::unwrap).map(|(key, _)| key).collect();
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for key in keys {
         if key.as_ref() == AGGREGATOR_KEY {

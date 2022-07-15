@@ -114,6 +114,7 @@ pub fn reset_costs_counter() {
     with_ext_cost_counter(|cc| cc.clear())
 }
 
+#[track_caller]
 pub fn assert_costs(expected: HashMap<ExtCosts, u64>) {
     with_ext_cost_counter(|cc| assert_eq!(*cc, expected));
     reset_costs_counter();

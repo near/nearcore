@@ -23,6 +23,7 @@ Transaction {
                     "nfvalidator1.near",
                 ),
                 sub_account: None,
+                metadata: None,
             },
             amount: Some(
                 Amount {

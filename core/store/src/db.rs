@@ -34,7 +34,8 @@ pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 /// archival node.  The default value (if missing) is false.
 pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
-pub(crate) struct DBTransaction {
+#[derive(Default)]
+pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
@@ -54,31 +55,31 @@ pub(crate) enum DBOp {
 }
 
 impl DBTransaction {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self { ops: Vec::new() }
     }
 
-    pub(crate) fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Set { col, key, value });
     }
 
-    pub(crate) fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
-    pub(crate) fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
-    pub(crate) fn delete(&mut self, col: DBCol, key: Vec<u8>) {
+    pub fn delete(&mut self, col: DBCol, key: Vec<u8>) {
         self.ops.push(DBOp::Delete { col, key });
     }
 
-    pub(crate) fn delete_all(&mut self, col: DBCol) {
+    pub fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
     }
 
-    pub(crate) fn merge(&mut self, other: DBTransaction) {
+    pub fn merge(&mut self, other: DBTransaction) {
         self.ops.extend(other.ops)
     }
 }
@@ -246,7 +247,9 @@ pub struct TestDB {
     db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
-pub(crate) trait Database: Sync + Send {
+pub type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a>;
+
+pub trait Database: Sync + Send {
     /// Returns raw bytes for given `key` ignoring any reference count decoding
     /// if any.
     ///
@@ -266,18 +269,14 @@ pub(crate) trait Database: Sync + Send {
     /// count will be treated as non-existing (i.e. they’re going to be
     /// skipped).  For all other columns, the value is returned directly from
     /// the database.
-    fn iter<'a>(&'a self, column: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
 
     /// Iterate over items in given column whose keys start with given prefix.
     ///
     /// This is morally equivalent to [`Self::iter`] with a filter discarding
     /// keys which do not start with given `key_prefix` (but faster).  The items
     /// are returned in lexicographical order sorted by the key.
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a>;
 
     /// Iterate over items in given column bypassing reference count decoding if
     /// any.
@@ -290,10 +289,7 @@ pub(crate) trait Database: Sync + Send {
     /// If in doubt, use [`Self::iter`] instead.  Unless you’re doing something
     /// low-level with the database (e.g. doing a migration), you probably don’t
     /// want this method.
-    fn iter_raw_bytes<'a>(
-        &'a self,
-        column: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
 
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
@@ -307,6 +303,60 @@ pub(crate) trait Database: Sync + Send {
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
+impl RocksDB {
+    fn iter_raw_bytes_impl<'a>(
+        &'a self,
+        col: DBCol,
+        prefix: Option<&'a [u8]>,
+    ) -> RocksDBIterator<'a> {
+        let cf_handle = self.cf_handle(col);
+        let mut read_options = rocksdb_read_options();
+        let mode = if let Some(prefix) = prefix {
+            // prefix_same_as_start doesn’t do anything for us.  It takes effect
+            // only if prefix extractor is configured for the column family
+            // which is something we’re not doing.  Setting this option is
+            // therefore pointless.
+            //     read_options.set_prefix_same_as_start(true);
+
+            // We’re running the iterator in From mode so there’s no need to set
+            // the lower bound.
+            //    read_options.set_iterate_lower_bound(key_prefix);
+
+            // Upper bound is exclusive so if we set it to the next prefix
+            // iterator will stop once keys no longer start with our desired
+            // prefix.
+            if let Some(upper) = next_prefix(prefix) {
+                read_options.set_iterate_upper_bound(upper);
+            }
+
+            IteratorMode::From(prefix, Direction::Forward)
+        } else {
+            IteratorMode::Start
+        };
+        let iter = self.db.iterator_cf_opt(cf_handle, read_options, mode);
+        RocksDBIterator(Some(iter))
+    }
+}
+
+struct RocksDBIterator<'a>(Option<rocksdb::DBIteratorWithThreadMode<'a, DB>>);
+
+impl<'a> Iterator for RocksDBIterator<'a> {
+    type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let iter = self.0.as_mut()?;
+        if let Some(item) = iter.next() {
+            Some(Ok(item))
+        } else {
+            let status = iter.status();
+            self.0 = None;
+            status.err().map(into_other).map(Result::Err)
+        }
+    }
+}
+
+impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
+
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         let timer =
@@ -318,51 +368,17 @@ impl Database for RocksDB {
         Ok(result)
     }
 
-    fn iter_raw_bytes<'a>(
-        &'a self,
-        col: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let read_options = rocksdb_read_options();
-        let cf_handle = self.cf_handle(col);
-        let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        Box::new(iterator)
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        Box::new(self.iter_raw_bytes_impl(col, None))
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let read_options = rocksdb_read_options();
-        let cf_handle = self.cf_handle(col);
-        let iterator = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
-        refcount::iter_with_rc_logic(col, iterator)
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_impl(col, None))
     }
 
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
-        let mut read_options = rocksdb_read_options();
-
-        // prefix_same_as_start doesn’t do anything for us.  It takes effect
-        // only if prefix extractor is configured for the column family which is
-        // something we’re not doing.  Setting this option is thus pointless.
-        //     read_options.set_prefix_same_as_start(true);
-
-        // We’re running the iterator in From mode so there’s no need to set the
-        // lower bound.
-        //    read_options.set_iterate_lower_bound(key_prefix);
-
-        // Upper bound is exclusive so if we set it to the next prefix iterator
-        // will stop once keys no longer start with our desired prefix.
-        if let Some(upper) = next_prefix(key_prefix) {
-            read_options.set_iterate_upper_bound(upper);
-        }
-
-        let iterator = self.db.iterator_cf_opt(
-            self.cf_handle(col),
-            read_options,
-            IteratorMode::From(key_prefix, Direction::Forward),
-        );
-        refcount::iter_with_rc_logic(col, iterator)
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        let iter = self.iter_raw_bytes_impl(col, Some(key_prefix));
+        refcount::iter_with_rc_logic(col, iter)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
@@ -460,32 +476,25 @@ impl Database for TestDB {
         Ok(self.db.read().unwrap()[col].get(key).cloned())
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         let iterator = self.iter_raw_bytes(col);
         refcount::iter_with_rc_logic(col, iterator)
     }
 
-    fn iter_raw_bytes<'a>(
-        &'a self,
-        col: DBCol,
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         let iterator = self.db.read().unwrap()[col]
             .clone()
             .into_iter()
-            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
+            .map(|(k, v)| Ok((k.into_boxed_slice(), v.into_boxed_slice())));
         Box::new(iterator)
     }
 
-    fn iter_prefix<'a>(
-        &'a self,
-        col: DBCol,
-        key_prefix: &'a [u8],
-    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         let iterator = self.db.read().unwrap()[col]
             .range(key_prefix.to_vec()..)
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
-            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
-            .collect::<Vec<_>>();
+            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
+            .collect::<Vec<io::Result<_>>>();
         refcount::iter_with_rc_logic(col, iterator.into_iter())
     }
 

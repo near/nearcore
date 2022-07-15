@@ -75,11 +75,12 @@ panic = 'abort'
 [profile.dev]
 panic = 'abort'
 
+# Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]
-opt-level = 3 # BLS library is too slow to use in debug
-
+opt-level = 3
 [profile.dev.package.rand]
-opt-level = 3 # BLS library is too slow to use in debug
-
+opt-level = 3
 [profile.dev.package.bs58]
-opt-level = 3 # bs58 library is too slow to use in debug
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3

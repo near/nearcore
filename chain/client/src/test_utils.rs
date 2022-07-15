@@ -14,7 +14,9 @@ use near_primitives::time::Utc;
 use num_rational::Ratio;
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{
+    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -39,7 +41,7 @@ use near_primitives::types::{
     ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
@@ -49,7 +51,6 @@ use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
-use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
@@ -70,6 +71,66 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 
 const TEST_SEED: RngSeed = [3; 32];
+
+impl Client {
+    /// Unlike Client::start_process_block, which returns before the block finishes processing
+    /// This function waits until the block is processed.
+    /// `should_produce_chunk`: Normally, if a block is accepted, client will try to produce
+    ///                         chunks for the next block if it is the chunk producer.
+    ///                         If `should_produce_chunk` is set to false, client will skip the
+    ///                         chunk production. This is useful in tests that need to tweak
+    ///                         the produced chunk content.
+    fn process_block_sync_with_produce_chunk_options(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        should_produce_chunk: bool,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        wait_for_all_blocks_in_processing(&mut self.chain);
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        assert!(errors.is_empty());
+        Ok(accepted_blocks)
+    }
+
+    pub fn process_block_test(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+    }
+
+    pub fn process_block_test_no_produce_chunk(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+    }
+
+    /// This function finishes processing all blocks that started being processed.
+    pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
+        let mut accepted_blocks = vec![];
+        while wait_for_all_blocks_in_processing(&mut self.chain) {
+            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+        }
+        accepted_blocks
+    }
+
+    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// has started.
+    pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
+        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+            let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            assert!(errors.is_empty());
+            return accepted_blocks;
+        }
+        vec![]
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<AccountId>>,
@@ -90,9 +151,13 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    let valset_num = validators.len();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]; valset_num],
         validator_groups,
         num_shards,
         epoch_length,
@@ -146,6 +211,7 @@ pub fn setup(
     );
 
     let client = ClientActor::new(
+        ctx.address(),
         config,
         chain_genesis,
         runtime,
@@ -184,6 +250,8 @@ pub fn setup_only_view(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        vec![vec![vec![]; num_shards as usize]],
         validator_groups,
         num_shards,
         epoch_length,
@@ -516,9 +584,7 @@ pub fn setup_mock_all_validators(
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let block_stats1 = block_stats.clone();
-        let view_client_addr = Arc::new(RwLock::new(None));
-        let view_client_addr1 = view_client_addr.clone();
-        let validators_clone1 = validators_clone.clone();
+        let mut view_client_addr_slot = None;
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
@@ -535,7 +601,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
-        let client_addr = ClientActor::create(move |ctx| {
+        let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
@@ -546,19 +612,9 @@ pub fn setup_mock_all_validators(
                 drop(guard);
 
                 if perform_default {
-                    let mut my_key_pair = None;
-                    let mut my_address = None;
-                    let mut my_ord = None;
-                    for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                        if name == &account_id {
-                            my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i]);
-                            my_ord = Some(i);
-                        }
-                    }
-                    let my_key_pair = my_key_pair.unwrap();
-                    let my_address = my_address.unwrap();
-                    let my_ord = my_ord.unwrap();
+                    let my_ord = validators_clone2.iter().flatten().position(|it| it == &account_id).unwrap();
+                    let my_key_pair = key_pairs[my_ord].clone();
+                    let my_address = addresses[my_ord];
 
                     {
                         let last_height2 = last_height2.read().unwrap();
@@ -987,7 +1043,7 @@ pub fn setup_mock_all_validators(
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
-                validators_clone1.clone(),
+                validators_clone.clone(),
                 validator_groups,
                 num_shards,
                 epoch_length,
@@ -1003,12 +1059,11 @@ pub fn setup_mock_all_validators(
                 genesis_time,
                 ctx,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client_addr);
+            view_client_addr_slot = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
-
-        ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
+        ret.push((client_addr, view_client_addr_slot.unwrap()));
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
     hash_to_height
@@ -1307,35 +1362,10 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    pub fn process_block_with_options(
-        &mut self,
-        id: usize,
-        block: Block,
-        provenance: Provenance,
-        should_run_catchup: bool,
-        should_produce_chunk: bool,
-    ) {
-        let (mut accepted_blocks, result) =
-            self.clients[id].process_block(MaybeValidated::from(block), provenance);
-        assert!(result.is_ok(), "{:?}", result);
-        if should_run_catchup {
-            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-            accepted_blocks.extend(more_accepted_blocks);
-        }
-        for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted_with_optional_chunk_produce(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                !should_produce_chunk,
-            );
-        }
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        self.process_block_with_options(id, block, provenance, true, true);
+        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1362,9 +1392,10 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(MaybeValidated::from(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ))
+                        .process_partial_encoded_chunk(
+                            MaybeValidated::from(PartialEncodedChunk::from(partial_encoded_chunk)),
+                            Arc::new(|_| {}),
+                        )
                         .unwrap();
                 }
             }
@@ -1391,11 +1422,9 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            let accepted_blocks =
-                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
-            for block in accepted_blocks {
-                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
-            }
+            self.clients[id]
+                .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
+                .unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1440,6 +1469,34 @@ impl TestEnv {
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.clients[id].process_tx(tx, false, false)
+    }
+
+    pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
+        assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
+
+        let tip = self.clients[0].chain.head().unwrap();
+        let epoch_id = self.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+
+        let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            block_producer.clone(),
+            KeyType::ED25519,
+            block_producer.as_ref(),
+        ));
+
+        let _ = self.clients[0]
+            .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
+            .unwrap();
+
+        for i in 0..self.clients[0].chain.epoch_length * 2 {
+            self.produce_block(0, tip.height + i + 2);
+        }
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
@@ -1664,11 +1721,14 @@ pub fn create_chunk(
     (chunk, merkle_paths, receipts, block)
 }
 
+/// Keep running catchup until there is no more catchup work that can be done
+/// Note that this function does not necessarily mean that all blocks are caught up.
+/// It's possible that some blocks that need to be caught up are still being processed
+/// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<AcceptedBlock>, Error> {
-    let mut result = vec![];
+) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1681,10 +1741,17 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+    loop {
+        client.run_catchup(
+            highest_height_peers,
+            &f,
+            &block_catch_up,
+            &state_split,
+            Arc::new(|_| {}),
+        )?;
+        let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.work);
+            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
@@ -1693,6 +1760,7 @@ pub fn run_catchup(
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }
+            catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
             let results = rt.build_state_for_split_shards(
@@ -1706,8 +1774,11 @@ pub fn run_catchup(
             } else {
                 client.state_sync.set_split_result(msg.shard_id, results);
             }
+            catchup_done = false;
         }
-        result.extend(call);
+        if catchup_done {
+            break;
+        }
     }
-    Ok(result)
+    Ok(())
 }

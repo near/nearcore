@@ -25,13 +25,8 @@ pub(crate) struct Error(schema::Error);
 /// Store allows for performing synchronous atomic operations on the DB.
 /// In particular it doesn't implement Clone and requires &mut self for
 /// methods writing to the DB.
+#[derive(Clone)]
 pub(crate) struct Store(schema::Store);
-
-impl Store {
-    pub fn new(s: near_store::Store) -> Self {
-        Self(schema::Store::new(s))
-    }
-}
 
 /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
 /// them in components. We remove all of those edges from memory, and save them to database,
@@ -53,7 +48,7 @@ impl Store {
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();
         update.set::<schema::AccountAnnouncements>(account_id, aa);
-        update.commit().map_err(Error)
+        self.0.commit(update).map_err(Error)
     }
 
     /// Fetches row with key account_id from the AccountAnnouncements column.
@@ -84,7 +79,7 @@ impl Store {
         for peer_id in peers {
             update.set::<schema::PeerComponent>(peer_id, &component);
         }
-        update.commit().map_err(Error)
+        self.0.commit(update).map_err(Error)
     }
 
     /// Reads and deletes from DB the component that <peer_id> is a member of.
@@ -116,7 +111,7 @@ impl Store {
                 }
             }
         }
-        update.commit().map_err(Error)?;
+        self.0.commit(update).map_err(Error)?;
         Ok(edges)
     }
 }
@@ -131,18 +126,30 @@ impl Store {
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();
         update.set::<schema::Peers>(peer_id, peer_state);
-        update.commit().map_err(Error)
+        self.0.commit(update).map_err(Error)
     }
 
     /// Deletes rows with keys in <peers> from Peers column.
     pub fn delete_peer_states(&mut self, peers: &[PeerId]) -> Result<(), Error> {
         let mut update = self.0.new_update();
         peers.iter().for_each(|p| update.delete::<schema::Peers>(p));
-        update.commit().map_err(Error)
+        self.0.commit(update).map_err(Error)
     }
 
     /// Reads the whole Peers column.
     pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
         self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
+    }
+}
+
+impl From<near_store::Store> for Store {
+    fn from(store: near_store::Store) -> Self {
+        Self(schema::Store::new(store.into_inner()))
+    }
+}
+
+impl From<&near_store::Store> for Store {
+    fn from(store: &near_store::Store) -> Self {
+        Self::from(store.clone())
     }
 }

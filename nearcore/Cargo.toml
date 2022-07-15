@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [dependencies]
@@ -68,7 +68,7 @@ near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 
 [[bench]]
 name = "store"
@@ -117,9 +117,6 @@ protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
 ]
-protocol_feature_fix_contract_loading_cost = [
-  "near-vm-runner/protocol_feature_fix_contract_loading_cost",
-]
 nightly = [
   "nightly_protocol",
   "near-primitives/nightly",
@@ -128,7 +125,6 @@ nightly = [
   "near-store/nightly",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_fix_contract_loading_cost",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",
@@ -146,3 +142,5 @@ sandbox = [
   "near-jsonrpc/sandbox",
 ]
 io_trace = ["near-vm-runner/io_trace"]
+
+shardnet = ["protocol_feature_chunk_only_producers"]
