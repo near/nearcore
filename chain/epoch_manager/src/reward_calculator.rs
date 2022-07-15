@@ -119,7 +119,7 @@ impl RewardCalculator {
                     && stats.chunk_stats.expected == 0
                     && stats.block_stats.expected == 0)
                 // This is for backwards compatibility. In 2021 December, after we changed to 4 shards,
-                // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's 
+                // mainnet was ran without SynchronizeBlockChunkProduction for some time and it's
                 // possible that some validators have expected blocks or chunks to be zero.
                 || (!chunk_only_producers_enabled
                     && (stats.chunk_stats.expected == 0 || stats.block_stats.expected == 0))
@@ -155,8 +155,7 @@ impl RewardCalculator {
 
 #[cfg(test)]
 mod tests {
-    use crate::reward_calculator::NUM_NS_IN_SECOND;
-    use crate::RewardCalculator;
+    use super::*;
     use near_primitives::types::{BlockChunkValidatorStats, ValidatorStats};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -175,7 +174,7 @@ mod tests {
             online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 1000000,
         };
-        let validator_block_chunk_stats = vec![
+        let validator_block_chunk_stats = HashMap::from([
             (
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
@@ -190,13 +189,9 @@ mod tests {
                     chunk_stats: ValidatorStats { produced: 0, expected: 1 },
                 },
             ),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
+        ]);
         let validator_stake =
-            vec![("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]
-                .into_iter()
-                .collect::<HashMap<_, _>>();
+            HashMap::from([("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]);
         let total_supply = 1_000_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -208,13 +203,11 @@ mod tests {
         );
         assert_eq!(
             result.0,
-            vec![
+            HashMap::from([
                 ("near".parse().unwrap(), 0u128),
                 ("test1".parse().unwrap(), 0u128),
                 ("test2".parse().unwrap(), 0u128)
-            ]
-            .into_iter()
-            .collect::<HashMap<_, _>>()
+            ])
         );
     }
 
@@ -232,7 +225,7 @@ mod tests {
             online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
-        let validator_block_chunk_stats = vec![
+        let validator_block_chunk_stats = HashMap::from([
             (
                 "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
@@ -254,16 +247,12 @@ mod tests {
                     chunk_stats: ValidatorStats { produced: 850, expected: 1000 },
                 },
             ),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
-        let validator_stake = vec![
+        ]);
+        let validator_stake = HashMap::from([
             ("test1".parse().unwrap(), 500_000),
             ("test2".parse().unwrap(), 500_000),
             ("test3".parse().unwrap(), 500_000),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
+        ]);
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -277,14 +266,12 @@ mod tests {
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
         assert_eq!(
             result.0,
-            vec![
+            HashMap::from([
                 ("near".parse().unwrap(), 0),
                 ("test1".parse().unwrap(), 1_666_666u128),
                 ("test2".parse().unwrap(), 3_333_333u128),
                 ("test3".parse().unwrap(), 0u128)
-            ]
-            .into_iter()
-            .collect()
+            ])
         );
         assert_eq!(result.1, 4_999_999u128);
     }
@@ -337,14 +324,12 @@ mod tests {
                 },
             ),
         ]);
-        let validator_stake = vec![
+        let validator_stake = HashMap::from([
             ("test1".parse().unwrap(), 500_000),
             ("test2".parse().unwrap(), 500_000),
             ("test3".parse().unwrap(), 500_000),
             ("test4".parse().unwrap(), 500_000),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
+        ]);
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -360,15 +345,13 @@ mod tests {
         {
             assert_eq!(
                 result.0,
-                vec![
+                HashMap::from([
                     ("near".parse().unwrap(), 0),
                     ("test1".parse().unwrap(), 1_250_000u128),
                     ("test2".parse().unwrap(), 2_500_000u128),
                     ("test3".parse().unwrap(), 1_250_000u128),
                     ("test4".parse().unwrap(), 0u128)
-                ]
-                .into_iter()
-                .collect()
+                ])
             );
             assert_eq!(result.1, 5_000_000u128);
         }
@@ -376,15 +359,13 @@ mod tests {
         {
             assert_eq!(
                 result.0,
-                vec![
+                HashMap::from([
                     ("near".parse().unwrap(), 0),
                     ("test1".parse().unwrap(), 1_250_000u128),
                     ("test2".parse().unwrap(), 0u128),
                     ("test3".parse().unwrap(), 0u128),
                     ("test4".parse().unwrap(), 0u128)
-                ]
-                .into_iter()
-                .collect()
+                ])
             );
             assert_eq!(result.1, 1_250_000u128);
         }
@@ -406,18 +387,14 @@ mod tests {
             online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
-        let validator_block_chunk_stats = vec![(
+        let validator_block_chunk_stats = HashMap::from([(
             "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
                 chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
             },
-        )]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
-        let validator_stake = vec![("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
+        )]);
+        let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
         // some hypothetical large total supply (100b)
         let total_supply = 100_000_000_000 * 10_u128.pow(24);
         reward_calculator.calculate_reward(
