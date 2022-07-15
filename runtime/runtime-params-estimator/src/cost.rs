@@ -84,9 +84,11 @@ pub enum Cost {
     /// for all costs of calling a function that are already known on the caller
     /// side.
     ///
-    /// Estimation: Measure the cost to execute a transaction with an empty
-    /// function with no arguments. Subtract the receipt creating cost from
-    /// that, as that is already charged separately.
+    /// Estimation: Measure the cost to execute a NOP function on a tiny
+    /// contract. To filter out block and general receipt processing overhead,
+    /// the difference between calling it N +1 times and calling it once in a
+    /// transaction is divided by N. Executable loading cost is also subtracted
+    /// from the final result because this is charged separately.
     ActionFunctionCallBase,
     /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
     /// the incremental cost for each byte of the method name and method

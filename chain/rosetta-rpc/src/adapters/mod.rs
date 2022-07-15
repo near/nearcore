@@ -56,6 +56,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
@@ -71,6 +72,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(
                     account_balances.liquid_for_storage,
@@ -88,6 +90,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::Locked.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,

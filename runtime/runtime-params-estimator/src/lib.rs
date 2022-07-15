@@ -283,10 +283,7 @@ fn action_sir_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let total_cost = transaction_cost(ctx, &mut make_transaction);
-
-    let block_overhead_cost = apply_block_cost(ctx);
-    let cost = total_cost.saturating_sub(&block_overhead_cost, &NonNegativeTolerance::PER_MILLE);
+    let cost = transaction_cost(ctx, &mut make_transaction);
 
     ctx.cached.action_sir_receipt_creation = Some(cost.clone());
     cost
@@ -660,11 +657,15 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
 }
 
+/// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = noop_function_call_cost(ctx);
-    let base_cost = action_sir_receipt_creation(ctx);
-
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+    let n_actions = 100;
+    let code = generate_data_only_contract(0, &VMConfig::test());
+    // This returns a cost without block/transaction/receipt overhead.
+    let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
+    // Executable loading is a separately charged step, so it must be subtracted on the action cost.
+    let executable_loading_cost = contract_loading_base(ctx);
+    base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // X values below 1M have a rather high variance. Therefore, use one small X
@@ -715,13 +716,13 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let vm_config = VMConfig::test();
-    let block_size = 5;
+    let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
-    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, block_size);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, n_actions);
 
     let large_code = generate_data_only_contract(4_000_000, &vm_config);
-    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, block_size);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, n_actions);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
         / (large_code.len() - small_code.len()) as u64
