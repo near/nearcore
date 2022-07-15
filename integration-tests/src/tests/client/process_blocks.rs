@@ -2534,7 +2534,6 @@ fn test_refund_receipts_processing() {
 }
 
 #[test]
-#[ignore]
 fn test_wasmer2_upgrade() {
     let mut capture = near_logger_utils::TracingCapture::enable();
 

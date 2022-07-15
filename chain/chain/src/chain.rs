@@ -6,6 +6,7 @@ use std::time::{Duration as TimeDuration, Instant};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
+use near_o11y::log_assert;
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
@@ -1975,7 +1976,7 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let sc = self.apply_chunks_sender.clone();
-        rayon::spawn(move || {
+        spawn(move || {
             // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
@@ -1983,11 +1984,17 @@ impl Chain {
             sc.send((block_hash.clone(), res)).unwrap();
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
-                error!(target:"chain", "apply chunks are called twice for block {:?}", block_hash);
-                debug_assert!(false);
+                log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
             apply_chunks_done_callback(block_hash);
         });
+
+        /// `rayon::spawn` decorated to propagate `tracing` context across
+        /// threads.
+        fn spawn(f: impl FnOnce() + Send + 'static) {
+            let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
+            rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
+        }
     }
 
     /// Run postprocessing on this block, which stores the block on chain.
