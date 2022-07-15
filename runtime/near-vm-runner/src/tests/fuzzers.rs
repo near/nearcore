@@ -8,8 +8,8 @@ use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
 
-use crate::internal::VMKind;
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use crate::internal::VMKind;
 use crate::VMResult;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
