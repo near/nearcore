@@ -159,7 +159,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             vec![false; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let account_from = "test3.3".parse().unwrap();
                     let account_to = "test1.1".parse().unwrap();
@@ -460,7 +460,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
@@ -657,7 +657,7 @@ fn test_catchup_sanity_blocks_produced() {
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let propagate = if let NetworkRequests::Block { block } = msg {
                         check_height(*block.hash(), block.header().height());
@@ -728,7 +728,7 @@ fn test_chunk_grieving() {
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
+                move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
                     let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
@@ -895,7 +895,7 @@ fn test_all_chunks_accepted_common(
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
+                move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                     let msg = msg.as_network_requests_ref();
                     let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
                     let mut requested = requested.write().unwrap();

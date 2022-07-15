@@ -552,6 +552,7 @@ pub fn setup_mock_all_validators(
         RwLock<
             Box<
                 dyn FnMut(
+                    &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                     AccountId,
                     &PeerManagerMessageRequest,
                 ) -> (PeerManagerMessageResponse, bool),
@@ -606,7 +607,7 @@ pub fn setup_mock_all_validators(
                 let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
+                let (resp, perform_default) = guard.deref_mut()(connectors1.as_slice(), account_id.clone(), msg);
                 drop(guard);
 
                 if perform_default {

@@ -83,7 +83,7 @@ fn chunks_produced_and_distributed_common(
         vec![true; validators.iter().map(|x| x.len()).sum()],
         false,
         Arc::new(RwLock::new(Box::new(
-            move |from_whom: AccountId, msg: &PeerManagerMessageRequest| {
+            move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {

@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use actix::System;
+use actix::{Addr, System};
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::config::VMConfig;
@@ -23,7 +23,7 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
 };
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
+use near_client::{Client, ClientActor, GetBlock, GetBlockWithMerkleTree, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -510,12 +510,13 @@ fn produce_block_with_approvals_arrived_early() {
             RwLock<
                 Box<
                     dyn FnMut(
+                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                         AccountId,
                         &PeerManagerMessageRequest,
                     ) -> (PeerManagerMessageResponse, bool),
                 >,
             >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -534,7 +535,7 @@ fn produce_block_with_approvals_arrived_early() {
             network_mock.clone(),
         );
         *network_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -743,12 +744,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             RwLock<
                 Box<
                     dyn FnMut(
+                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                         AccountId,
                         &PeerManagerMessageRequest,
                     ) -> (PeerManagerMessageResponse, bool),
                 >,
             >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
 
@@ -769,7 +771,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         );
         let mut sent_bad_blocks = false;
         *peer_manager_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {

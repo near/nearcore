@@ -1,4 +1,4 @@
-use actix::System;
+use actix::{Addr, System};
 use futures::{future, FutureExt};
 use near_primitives::merkle::PartialMerkleTree;
 use std::sync::{Arc, RwLock};
@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
-    TxStatus,
+    ClientActor, GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError,
+    Status, TxStatus, ViewClientActor,
 };
 use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
@@ -259,12 +259,13 @@ fn test_garbage_collection() {
             RwLock<
                 Box<
                     dyn FnMut(
+                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                         AccountId,
                         &PeerManagerMessageRequest,
                     ) -> (PeerManagerMessageResponse, bool),
                 >,
             >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (NetworkResponses::NoResponse.into(), true)
         })));
 
@@ -285,7 +286,7 @@ fn test_garbage_collection() {
         );
 
         *network_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     if block.header().height() > target_height {
                         let view_client_non_archival = &conns[0].1;

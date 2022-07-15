@@ -64,7 +64,7 @@ fn repro_1183() {
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                     if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                         let mut last_block = last_block.write().unwrap();
                         let mut delayed_one_parts = delayed_one_parts.write().unwrap();
@@ -178,12 +178,13 @@ fn test_sync_from_achival_node() {
             RwLock<
                 Box<
                     dyn FnMut(
+                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                         AccountId,
                         &PeerManagerMessageRequest,
                     ) -> (PeerManagerMessageResponse, bool),
                 >,
             >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -203,7 +204,7 @@ fn test_sync_from_achival_node() {
         );
         let mut block_counter = 0;
         *network_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 let msg = msg.as_network_requests_ref();
                 if let NetworkRequests::Block { block } = msg {
                     let mut largest_height = largest_height.write().unwrap();
@@ -283,12 +284,13 @@ fn test_long_gap_between_blocks() {
             RwLock<
                 Box<
                     dyn FnMut(
+                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
                         AccountId,
                         &PeerManagerMessageRequest,
                     ) -> (PeerManagerMessageResponse, bool),
                 >,
             >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
             (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -307,7 +309,7 @@ fn test_long_gap_between_blocks() {
             network_mock.clone(),
         );
         *network_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
+            move |_, _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Approval { approval_message } => {
                         actix::spawn(conns[1].1.send(GetBlock::latest()).then(move |res| {

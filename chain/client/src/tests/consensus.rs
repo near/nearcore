@@ -78,7 +78,7 @@ fn test_consensus_with_epoch_switches() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |from_whom: AccountId, msg: &PeerManagerMessageRequest| {
+                move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                     let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                         all_blocks.write().unwrap();
                     let mut final_block_heights = final_block_heights.write().unwrap();

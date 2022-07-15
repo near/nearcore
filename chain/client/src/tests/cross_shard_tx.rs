@@ -58,7 +58,7 @@ fn test_keyvalue_runtime_balances() {
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                     (NetworkResponses::NoResponse.into(), true)
                 },
             ))),
@@ -437,7 +437,7 @@ fn test_cross_shard_tx_common(
             vec![false; validators.iter().map(|x| x.len()).sum()],
             true,
             Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                     (
                         PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
                         true,
