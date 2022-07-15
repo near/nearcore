@@ -584,9 +584,7 @@ pub fn setup_mock_all_validators(
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let block_stats1 = block_stats.clone();
-        let view_client_addr = Arc::new(RwLock::new(None));
-        let view_client_addr1 = view_client_addr.clone();
-        let validators_clone1 = validators_clone.clone();
+        let mut view_client_addr_slot = None;
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
@@ -603,7 +601,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
-        let client_addr = ClientActor::create(move |ctx| {
+        let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
@@ -1055,7 +1053,7 @@ pub fn setup_mock_all_validators(
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
-                validators_clone1.clone(),
+                validators_clone.clone(),
                 validator_groups,
                 num_shards,
                 epoch_length,
@@ -1071,12 +1069,11 @@ pub fn setup_mock_all_validators(
                 genesis_time,
                 ctx,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client_addr);
+            view_client_addr_slot = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
-
-        ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
+        ret.push((client_addr, view_client_addr_slot.unwrap()));
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
     hash_to_height
