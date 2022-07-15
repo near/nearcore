@@ -128,7 +128,7 @@ impl<'c> Testbed<'c> {
         caching_storage
     }
 
-    fn clear_caches(&mut self) {
+    pub(crate) fn clear_caches(&mut self) {
         // Flush out writes hanging in memtable
         self.inner.flush_db_write_buffer();
 

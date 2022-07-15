@@ -235,7 +235,7 @@ def main():
         cids = tuple(filter(None, (node._container_id for node in nodes)))
         if cids:
             logger.info('Stopping containers')
-            run(('docker', 'stop') + cids)
+            run(('docker', 'rm', '-f') + cids)
         for node in nodes:
             node._container_id = None
 
