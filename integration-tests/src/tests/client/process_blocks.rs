@@ -5004,7 +5004,6 @@ mod lower_storage_key_limit_test {
     }
 }
 
-#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod new_contract_loading_cost {
     use super::*;
     use near_primitives::views::FinalExecutionOutcomeView;
