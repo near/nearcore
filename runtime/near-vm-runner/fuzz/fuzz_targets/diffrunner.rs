@@ -21,7 +21,8 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
-    let config = VMConfig::test();
+    let mut config = VMConfig::test();
+    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
