@@ -82,21 +82,20 @@ fn chunks_produced_and_distributed_common(
         vec![false; validators.iter().map(|x| x.len()).sum()],
         vec![true; validators.iter().map(|x| x.len()).sum()],
         false,
-        Arc::new(RwLock::new(Box::new(
-            move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
-                let msg = msg.as_network_requests_ref();
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        let h = block.header().height();
-                        check_heights(block.header().prev_hash(), block.hash(), h);
+        Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
+            let msg = msg.as_network_requests_ref();
+            match msg {
+                NetworkRequests::Block { block } => {
+                    let h = block.header().height();
+                    check_heights(block.header().prev_hash(), block.hash(), h);
 
-                        let mut height_to_hash = height_to_hash.write().unwrap();
-                        height_to_hash.insert(h, *block.hash());
+                    let mut height_to_hash = height_to_hash.write().unwrap();
+                    height_to_hash.insert(h, *block.hash());
 
-                        let mut height_to_epoch = height_to_epoch.write().unwrap();
-                        height_to_epoch.insert(h, block.header().epoch_id().clone());
+                    let mut height_to_epoch = height_to_epoch.write().unwrap();
+                    height_to_epoch.insert(h, block.header().epoch_id().clone());
 
-                        println!(
+                    println!(
                             "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
@@ -108,108 +107,104 @@ fn chunks_produced_and_distributed_common(
                             block.header().approvals(),
                         );
 
-                        if h > 1 {
-                            // Make sure doomslug finality is computed correctly.
-                            assert_eq!(
-                                block.header().last_ds_final_block(),
-                                height_to_hash.get(&(h - 1)).unwrap()
-                            );
+                    if h > 1 {
+                        // Make sure doomslug finality is computed correctly.
+                        assert_eq!(
+                            block.header().last_ds_final_block(),
+                            height_to_hash.get(&(h - 1)).unwrap()
+                        );
 
-                            // Make sure epoch length actually corresponds to the desired epoch length
-                            // The switches are expected at 0->1, 5->6 and 10->11
-                            let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
-                            assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
+                        // Make sure epoch length actually corresponds to the desired epoch length
+                        // The switches are expected at 0->1, 5->6 and 10->11
+                        let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
+                        assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
 
-                            // Make sure that the blocks leading to the epoch switch have twice as
-                            // many approval slots
-                            assert_eq!(
-                                block.header().approvals().len() == 8,
-                                h % 5 == 0 || h % 5 == 4
-                            );
-                        }
-                        if h > 2 {
-                            // Make sure BFT finality is computed correctly
-                            assert_eq!(
-                                block.header().last_final_block(),
-                                height_to_hash.get(&(h - 2)).unwrap()
-                            );
-                        }
+                        // Make sure that the blocks leading to the epoch switch have twice as
+                        // many approval slots
+                        assert_eq!(block.header().approvals().len() == 8, h % 5 == 0 || h % 5 == 4);
+                    }
+                    if h > 2 {
+                        // Make sure BFT finality is computed correctly
+                        assert_eq!(
+                            block.header().last_final_block(),
+                            height_to_hash.get(&(h - 2)).unwrap()
+                        );
+                    }
 
-                        if block.header().height() > 1 {
-                            for shard_id in 0..4 {
-                                // If messages from 1 to 4 are dropped, 4 at their heights will
-                                //    receive the block significantly later than the chunks, and
-                                //    thus would discard the chunks
-                                if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
-                                    assert_eq!(
-                                        block.header().height(),
-                                        block.chunks()[shard_id].height_created()
-                                    );
-                                }
+                    if block.header().height() > 1 {
+                        for shard_id in 0..4 {
+                            // If messages from 1 to 4 are dropped, 4 at their heights will
+                            //    receive the block significantly later than the chunks, and
+                            //    thus would discard the chunks
+                            if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
+                                assert_eq!(
+                                    block.header().height(),
+                                    block.chunks()[shard_id].height_created()
+                                );
                             }
                         }
-
-                        if block.header().height() >= 12 {
-                            println!("PREV BLOCK HASH: {}", block.header().prev_hash());
-                            println!(
-                                "STATS: responses: {} requests: {}",
-                                partial_chunk_msgs, partial_chunk_request_msgs
-                            );
-
-                            System::current().stop();
-                        }
                     }
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: to_whom,
-                        partial_encoded_chunk: _,
-                    } => {
-                        partial_chunk_msgs += 1;
-                        if drop_from_1_to_4
-                            && from_whom.as_ref() == "test1"
-                            && to_whom.as_ref() == "test4"
-                        {
-                            println!("Dropping Partial Encoded Chunk Message from test1 to test4");
-                            return (NetworkResponses::NoResponse.into(), false);
-                        }
+
+                    if block.header().height() >= 12 {
+                        println!("PREV BLOCK HASH: {}", block.header().prev_hash());
+                        println!(
+                            "STATS: responses: {} requests: {}",
+                            partial_chunk_msgs, partial_chunk_request_msgs
+                        );
+
+                        System::current().stop();
                     }
-                    NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
-                        if drop_from_1_to_4
-                            && from_whom.as_ref() == "test1"
-                            && to_whom.as_ref() == "test4"
-                        {
-                            println!(
+                }
+                NetworkRequests::PartialEncodedChunkMessage {
+                    account_id: to_whom,
+                    partial_encoded_chunk: _,
+                } => {
+                    partial_chunk_msgs += 1;
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test1"
+                        && to_whom.as_ref() == "test4"
+                    {
+                        println!("Dropping Partial Encoded Chunk Message from test1 to test4");
+                        return (NetworkResponses::NoResponse.into(), false);
+                    }
+                }
+                NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test1"
+                        && to_whom.as_ref() == "test4"
+                    {
+                        println!(
                             "Dropping Partial Encoded Chunk Forward Message from test1 to test4"
                         );
-                            return (NetworkResponses::NoResponse.into(), false);
-                        }
+                        return (NetworkResponses::NoResponse.into(), false);
                     }
-                    NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
-                        partial_chunk_msgs += 1;
+                }
+                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
+                    partial_chunk_msgs += 1;
+                }
+                NetworkRequests::PartialEncodedChunkRequest {
+                    target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
+                    ..
+                } => {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test4"
+                        && to_whom.as_ref() == "test1"
+                    {
+                        info!("Dropping Partial Encoded Chunk Request from test4 to test1");
+                        return (NetworkResponses::NoResponse.into(), false);
                     }
-                    NetworkRequests::PartialEncodedChunkRequest {
-                        target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
-                        ..
-                    } => {
-                        if drop_from_1_to_4
-                            && from_whom.as_ref() == "test4"
-                            && to_whom.as_ref() == "test1"
-                        {
-                            info!("Dropping Partial Encoded Chunk Request from test4 to test1");
-                            return (NetworkResponses::NoResponse.into(), false);
-                        }
-                        if drop_from_1_to_4
-                            && from_whom.as_ref() == "test4"
-                            && to_whom.as_ref() == "test2"
-                        {
-                            info!("Observed Partial Encoded Chunk Request from test4 to test2");
-                        }
-                        partial_chunk_request_msgs += 1;
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test4"
+                        && to_whom.as_ref() == "test2"
+                    {
+                        info!("Observed Partial Encoded Chunk Request from test4 to test2");
                     }
-                    _ => {}
-                };
-                (NetworkResponses::NoResponse.into(), true)
-            },
-        ))),
+                    partial_chunk_request_msgs += 1;
+                }
+                _ => {}
+            };
+            (NetworkResponses::NoResponse.into(), true)
+        }),
     );
     *connectors.write().unwrap() = conn;
 

@@ -548,18 +548,15 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    peer_manager_mock: Arc<
-        RwLock<
-            Box<
-                dyn FnMut(
-                    &[(Addr<ClientActor>, Addr<ViewClientActor>)],
-                    AccountId,
-                    &PeerManagerMessageRequest,
-                ) -> (PeerManagerMessageResponse, bool),
-            >,
-        >,
+    peer_manager_mock: Box<
+        dyn FnMut(
+            &[(Addr<ClientActor>, Addr<ViewClientActor>)],
+            AccountId,
+            &PeerManagerMessageRequest,
+        ) -> (PeerManagerMessageResponse, bool),
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
+    let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 

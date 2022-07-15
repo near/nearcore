@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use actix::{Addr, System};
+use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_primitives::config::VMConfig;
@@ -23,7 +23,7 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
 };
-use near_client::{Client, ClientActor, GetBlock, GetBlockWithMerkleTree, ViewClientActor};
+use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -506,19 +506,6 @@ fn produce_block_with_approvals_arrived_early() {
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
-        let network_mock: Arc<
-            RwLock<
-                Box<
-                    dyn FnMut(
-                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
-                        AccountId,
-                        &PeerManagerMessageRequest,
-                    ) -> (PeerManagerMessageResponse, bool),
-                >,
-            >,
-        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
-            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
-        })));
         setup_mock_all_validators(
             validators.clone(),
             key_pairs,
@@ -532,52 +519,51 @@ fn produce_block_with_approvals_arrived_early() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            network_mock.clone(),
-        );
-        *network_mock.write().unwrap() = Box::new(
-            move |conns,
-                  _,
-                  msg: &PeerManagerMessageRequest|
-                  -> (PeerManagerMessageResponse, bool) {
-                let msg = msg.as_network_requests_ref();
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        if block.header().height() == 3 {
-                            for (i, (client, _)) in conns.iter().enumerate() {
-                                if i > 0 {
-                                    client.do_send(NetworkClientMessages::Block(
-                                        block.clone(),
-                                        PeerInfo::random().id,
-                                        false,
-                                    ))
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    let msg = msg.as_network_requests_ref();
+                    match msg {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() == 3 {
+                                for (i, (client, _)) in conns.iter().enumerate() {
+                                    if i > 0 {
+                                        client.do_send(NetworkClientMessages::Block(
+                                            block.clone(),
+                                            PeerInfo::random().id,
+                                            false,
+                                        ))
+                                    }
                                 }
+                                *block_holder.write().unwrap() = Some(block.clone());
+                                return (NetworkResponses::NoResponse.into(), false);
+                            } else if block.header().height() == 4 {
+                                System::current().stop();
                             }
-                            *block_holder.write().unwrap() = Some(block.clone());
-                            return (NetworkResponses::NoResponse.into(), false);
-                        } else if block.header().height() == 4 {
-                            System::current().stop();
+                            (NetworkResponses::NoResponse.into(), true)
                         }
-                        (NetworkResponses::NoResponse.into(), true)
+                        NetworkRequests::Approval { approval_message } => {
+                            if approval_message.target.as_ref() == "test1"
+                                && approval_message.approval.target_height == 4
+                            {
+                                approval_counter += 1;
+                            }
+                            if approval_counter == 3 {
+                                let block = block_holder.read().unwrap().clone().unwrap();
+                                conns[0].0.do_send(NetworkClientMessages::Block(
+                                    block,
+                                    PeerInfo::random().id,
+                                    false,
+                                ));
+                            }
+                            (NetworkResponses::NoResponse.into(), true)
+                        }
+                        _ => (NetworkResponses::NoResponse.into(), true),
                     }
-                    NetworkRequests::Approval { approval_message } => {
-                        if approval_message.target.as_ref() == "test1"
-                            && approval_message.approval.target_height == 4
-                        {
-                            approval_counter += 1;
-                        }
-                        if approval_counter == 3 {
-                            let block = block_holder.read().unwrap().clone().unwrap();
-                            conns[0].0.do_send(NetworkClientMessages::Block(
-                                block,
-                                PeerInfo::random().id,
-                                false,
-                            ));
-                        }
-                        (NetworkResponses::NoResponse.into(), true)
-                    }
-                    _ => (NetworkResponses::NoResponse.into(), true),
-                }
-            },
+                },
+            ),
         );
 
         near_network::test_utils::wait_or_panic(10000);
@@ -743,20 +729,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
-        let peer_manager_mock: Arc<
-            RwLock<
-                Box<
-                    dyn FnMut(
-                        &[(Addr<ClientActor>, Addr<ViewClientActor>)],
-                        AccountId,
-                        &PeerManagerMessageRequest,
-                    ) -> (PeerManagerMessageResponse, bool),
-                >,
-            >,
-        > = Arc::new(RwLock::new(Box::new(|_, _, _: &PeerManagerMessageRequest| {
-            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
-        })));
-
+        let mut sent_bad_blocks = false;
         setup_mock_all_validators(
             validators.clone(),
             key_pairs,
@@ -770,99 +743,84 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            peer_manager_mock.clone(),
-        );
-        let mut sent_bad_blocks = false;
-        *peer_manager_mock.write().unwrap() = Box::new(
-            move |conns,
-                  _,
-                  msg: &PeerManagerMessageRequest|
-                  -> (PeerManagerMessageResponse, bool) {
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::Block { block } => {
-                        if block.header().height() >= 4 && !sent_bad_blocks {
-                            let block_producer_idx =
-                                block.header().height() as usize % validators[0].len();
-                            let block_producer = &validators[0][block_producer_idx];
-                            let validator_signer1 = InMemoryValidatorSigner::from_seed(
-                                block_producer.clone(),
-                                KeyType::ED25519,
-                                block_producer.as_ref(),
-                            );
-                            sent_bad_blocks = true;
-                            let mut block_mut = block.clone();
-                            match mode {
-                                InvalidBlockMode::InvalidHeader => {
-                                    // produce an invalid block with invalid header.
-                                    block_mut.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-                                    block_mut.mut_header().resign(&validator_signer1);
-                                }
-                                InvalidBlockMode::IllFormed => {
-                                    // produce an ill-formed block
-                                    block_mut
-                                        .mut_header()
-                                        .get_mut()
-                                        .inner_rest
-                                        .chunk_headers_root = hash(&[1]);
-                                    block_mut.mut_header().resign(&validator_signer1);
-                                }
-                                InvalidBlockMode::InvalidBlock => {
-                                    // produce an invalid block whose invalidity cannot be verified by just
-                                    // having its header.
-                                    let proposals = vec![ValidatorStake::new(
-                                        "test1".parse().unwrap(),
-                                        PublicKey::empty(KeyType::ED25519),
-                                        0,
-                                    )];
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    match msg.as_network_requests_ref() {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() >= 4 && !sent_bad_blocks {
+                                let block_producer_idx =
+                                    block.header().height() as usize % validators[0].len();
+                                let block_producer = &validators[0][block_producer_idx];
+                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
+                                    block_producer.clone(),
+                                    KeyType::ED25519,
+                                    block_producer.as_ref(),
+                                );
+                                sent_bad_blocks = true;
+                                let mut block_mut = block.clone();
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader => {
+                                        // produce an invalid block with invalid header.
+                                        block_mut.mut_header().get_mut().inner_rest.chunk_mask =
+                                            vec![];
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::IllFormed => {
+                                        // produce an ill-formed block
+                                        block_mut
+                                            .mut_header()
+                                            .get_mut()
+                                            .inner_rest
+                                            .chunk_headers_root = hash(&[1]);
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::InvalidBlock => {
+                                        // produce an invalid block whose invalidity cannot be verified by just
+                                        // having its header.
+                                        let proposals = vec![ValidatorStake::new(
+                                            "test1".parse().unwrap(),
+                                            PublicKey::empty(KeyType::ED25519),
+                                            0,
+                                        )];
 
-                                    block_mut
-                                        .mut_header()
-                                        .get_mut()
-                                        .inner_rest
-                                        .validator_proposals = proposals;
-                                    block_mut.mut_header().resign(&validator_signer1);
+                                        block_mut
+                                            .mut_header()
+                                            .get_mut()
+                                            .inner_rest
+                                            .validator_proposals = proposals;
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
                                 }
-                            }
 
-                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                if i != block_producer_idx {
-                                    client.do_send(NetworkClientMessages::Block(
-                                        block_mut.clone(),
-                                        PeerInfo::random().id,
-                                        false,
-                                    ))
+                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                    if i != block_producer_idx {
+                                        client.do_send(NetworkClientMessages::Block(
+                                            block_mut.clone(),
+                                            PeerInfo::random().id,
+                                            false,
+                                        ))
+                                    }
                                 }
-                            }
 
-                            return (
-                                PeerManagerMessageResponse::NetworkResponses(
-                                    NetworkResponses::NoResponse,
-                                ),
-                                false,
-                            );
-                        }
-                        if block.header().height() > 20 {
-                            match mode {
-                                InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                                    assert_eq!(ban_counter, 3);
-                                }
-                                _ => {}
+                                return (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    false,
+                                );
                             }
-                            System::current().stop();
-                        }
-                        (
-                            PeerManagerMessageResponse::NetworkResponses(
-                                NetworkResponses::NoResponse,
-                            ),
-                            true,
-                        )
-                    }
-                    NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
-                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                            ban_counter += 1;
-                            if ban_counter > 3 {
-                                panic!("more bans than expected");
+                            if block.header().height() > 20 {
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader
+                                    | InvalidBlockMode::IllFormed => {
+                                        assert_eq!(ban_counter, 3);
+                                    }
+                                    _ => {}
+                                }
+                                System::current().stop();
                             }
                             (
                                 PeerManagerMessageResponse::NetworkResponses(
@@ -871,18 +829,37 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 true,
                             )
                         }
-                        InvalidBlockMode::InvalidBlock => {
-                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
-                        }
-                    },
-                    _ => (
-                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
-                        true,
-                    ),
-                }
-            },
+                        NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                            InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                                ban_counter += 1;
+                                if ban_counter > 3 {
+                                    panic!("more bans than expected");
+                                }
+                                (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    true,
+                                )
+                            }
+                            InvalidBlockMode::InvalidBlock => {
+                                panic!(
+                                    "banning peer {:?} unexpectedly for {:?}",
+                                    peer_id, ban_reason
+                                );
+                            }
+                        },
+                        _ => (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        ),
+                    }
+                },
+            ),
         );
-
         near_network::test_utils::wait_or_panic(20000);
     });
 }
