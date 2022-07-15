@@ -56,14 +56,16 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
 
 
 [dev-dependencies]
+arbitrary = "1"
+assert_matches = "1.3"
+base64 = "0.13"
+bolero = "0.6.2"
+expect-test = "1.3.0"
 near-test-contracts = { path = "../near-test-contracts" }
 rand = "0.8"
-arbitrary = "1"
+wasmprinter = "0.2"
 wasm-smith = "0.10"
-assert_matches = "1.3"
 wat = "1.0.40"
-base64 = "0.13"
-expect-test = "1.3.0"
 
 [features]
 # all vms enabled for now
