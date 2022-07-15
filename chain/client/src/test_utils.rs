@@ -12,6 +12,7 @@ use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_primitives::time::Utc;
 use num_rational::Ratio;
+use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::{
@@ -483,7 +484,7 @@ impl BlockStats {
 }
 
 fn send_chunks<T, I, F>(
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: &[(Addr<ClientActor>, Addr<ViewClientActor>)],
     recipients: I,
     target: T,
     drop_chunks: bool,
@@ -496,7 +497,7 @@ fn send_chunks<T, I, F>(
     for (i, name) in recipients {
         if name == target {
             if !drop_chunks || !sample_binary(1, 10) {
-                connectors.read().unwrap()[i].0.do_send(create_msg());
+                connectors[i].0.do_send(create_msg());
             }
         }
     }
@@ -565,12 +566,8 @@ pub fn setup_mock_all_validators(
     let genesis_time = Clock::utc();
     let mut ret = vec![];
 
-    let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-        Arc::new(RwLock::new(vec![]));
-
-    // Lock the connectors so that none of the threads spawned below access them until we overwrite
-    //    them at the end of this function
-    let mut locked_connectors = connectors.write().unwrap();
+    let connectors: Arc<OnceCell<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        Default::default();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
@@ -591,7 +588,6 @@ pub fn setup_mock_all_validators(
         let key_pairs1 = key_pairs.clone();
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
-        let connectors2 = connectors.clone();
         let network_mock1 = peer_manager_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
@@ -605,6 +601,8 @@ pub fn setup_mock_all_validators(
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+                // Note: this `.wait` will block until all `ClientActors` are created.
+                let connectors1 = connectors1.wait();
                 let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
@@ -620,7 +618,7 @@ pub fn setup_mock_all_validators(
                         let last_height2 = last_height2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
-                            .take(connectors2.read().unwrap().len())
+                            .take(connectors1.len())
                             .enumerate()
                             .map(|(i, peer_info)| FullPeerInfo {
                                 peer_info: peer_info.clone(),
@@ -658,7 +656,7 @@ pub fn setup_mock_all_validators(
                                 block_stats2.check_stats(false);
                             }
 
-                            for (client, _) in connectors1.read().unwrap().iter() {
+                            for (client, _) in connectors1 {
                                 client.do_send(NetworkClientMessages::Block(
                                     block.clone(),
                                     PeerInfo::random().id,
@@ -685,7 +683,7 @@ pub fn setup_mock_all_validators(
                                 )
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
@@ -697,7 +695,7 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 addresses.iter().enumerate(),
                                 route_back,
                                 drop_chunks,
@@ -714,7 +712,7 @@ pub fn setup_mock_all_validators(
                                 )
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
@@ -726,7 +724,7 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
@@ -737,20 +735,16 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::BlockRequest(*hash))
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::Block(
-                                                                *block, peer_id, true,
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::Block(*block, peer_id, true));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -765,9 +759,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncRequest{
                                                 epoch_id: epoch_id.clone(),
@@ -776,11 +770,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::EpochSyncResponse(
-                                                                peer_id, response
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -795,9 +785,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
                                                 epoch_id: epoch_id.clone(),
@@ -806,11 +796,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::EpochSyncFinalizationResponse(
-                                                                peer_id, response
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -825,9 +811,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::BlockHeadersRequest(
                                                 hashes.clone(),
@@ -838,13 +824,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::BlockHeaders(
                                                         headers,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                                NetworkClientMessages::BlockHeaders(
-                                                                    headers, peer_id,
-                                                                ),
-                                                            );
+                                                        me.do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -866,9 +846,9 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
@@ -880,13 +860,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                            NetworkClientMessages::StateResponse(
-                                                                *response,
-                                                            ),
-                                                        );
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -909,9 +883,9 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestPart {
                                                 shard_id: *shard_id,
@@ -924,13 +898,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                            NetworkClientMessages::StateResponse(
-                                                                *response,
-                                                            ),
-                                                        );
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -944,7 +912,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1.read().unwrap()[i].0.do_send(
+                                    connectors1[i].0.do_send(
                                         NetworkClientMessages::StateResponse(response.clone()),
                                     );
                                 }
@@ -958,7 +926,7 @@ pub fn setup_mock_all_validators(
                             );
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
-                                for (_, view_client) in connectors1.read().unwrap().iter() {
+                                for (_, view_client) in connectors1 {
                                     view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
                                         vec![(announce_account.clone(), None)],
                                     ))
@@ -986,7 +954,7 @@ pub fn setup_mock_all_validators(
                             if do_propagate {
                                 for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                     if name == &approval_message.target {
-                                        connectors1.read().unwrap()[i].0.do_send(
+                                        connectors1[i].0.do_send(
                                             NetworkClientMessages::BlockApproval(
                                                 approval.clone(),
                                                 my_key_pair.id.clone(),
@@ -1070,7 +1038,7 @@ pub fn setup_mock_all_validators(
         .write()
         .unwrap()
         .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
-    *locked_connectors = ret.clone();
+    connectors.set(ret.clone()).unwrap();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret, block_stats)
 }
