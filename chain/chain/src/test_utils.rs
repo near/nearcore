@@ -216,26 +216,21 @@ impl KeyValueRuntime {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
 
-        let mut map_with_default_hash1 = HashMap::new();
-        map_with_default_hash1.insert(CryptoHash::default(), EpochId::default());
-        let mut map_with_default_hash2 = HashMap::new();
-        map_with_default_hash2.insert(CryptoHash::default(), 0);
-        let mut map_with_default_hash3 = HashMap::new();
-        map_with_default_hash3.insert(EpochId::default(), 0);
+        let map_with_default_hash1 = HashMap::from([(CryptoHash::default(), EpochId::default())]);
+        let map_with_default_hash2 = HashMap::from([(CryptoHash::default(), 0)]);
+        let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
-        let mut state = HashMap::new();
         let kv_state = KVState {
             amounts: initial_amounts,
             receipt_nonces: HashSet::default(),
             tx_nonces: HashSet::default(),
         };
-        let mut state_size = HashMap::new();
         let data = kv_state.try_to_vec().unwrap();
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
-        state.insert(StateRoot::default(), kv_state);
-        state_size.insert(StateRoot::default(), data_len);
+        let state = HashMap::from([(StateRoot::default(), kv_state)]);
+        let state_size = HashMap::from([(StateRoot::default(), data_len)]);
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
         assert_eq!(block_producers.len(), chunk_only_producers.len());
         let mut validators = HashMap::new();
