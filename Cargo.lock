@@ -2650,6 +2650,7 @@ dependencies = [
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
+ "near-o11y",
  "near-pool",
  "near-primitives",
  "near-store",
