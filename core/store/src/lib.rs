@@ -334,11 +334,11 @@ impl StoreUpdate {
     /// Set shard_tries to given object.
     ///
     /// Panics if shard_tries are already set to a different object.
-    fn set_shard_tries(&mut self, tries: ShardTries) {
+    fn set_shard_tries(&mut self, tries: &ShardTries) {
         if let Some(our) = &self.shard_tries {
             assert!(tries.is_same(our));
         } else {
-            self.shard_tries = Some(tries);
+            self.shard_tries = Some(tries.clone());
         }
     }
 
@@ -347,8 +347,10 @@ impl StoreUpdate {
     /// Panics if `self` and `other` both have shard_tries set to different
     /// objects.
     pub fn merge(&mut self, other: StoreUpdate) {
-        if let Some(tries) = other.shard_tries {
-            self.set_shard_tries(tries);
+        match (&self.shard_tries, other.shard_tries) {
+            (Some(our), Some(other)) => assert!(our.is_same(&other)),
+            (None, other) => self.shard_tries = other,
+            _ => (),
         }
         self.transaction.merge(other.transaction)
     }
@@ -681,6 +683,7 @@ mod tests {
     }
 
     /// Asserts that elements in the vector are sorted.
+    #[track_caller]
     fn assert_sorted(want_count: usize, keys: Vec<Box<[u8]>>) {
         assert_eq!(want_count, keys.len());
         for (pos, pair) in keys.windows(2).enumerate() {

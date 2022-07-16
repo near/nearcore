@@ -23,11 +23,10 @@ use nearcore::config::GenesisExt;
 /// In ths benchmark, we construct a large with a bunch of deploy_code txes
 #[test]
 fn benchmark_large_chunk_production_time() {
-    let n_txes = 30;
-    let tx_size = 1024;
+    let mb = 1024usize.pow(2);
 
-    // Uncomment for max-sized benchmark.
-    // let tx_size = 3 * 1024 * 1024;
+    let n_txes = 20;
+    let tx_size = 3 * mb;
 
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -54,8 +53,12 @@ fn benchmark_large_chunk_production_time() {
     let t = std::time::Instant::now();
     let (chunk, _, _) = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
-    let size = chunk.try_to_vec().unwrap();
 
-    eprintln!("chunk size: {}kb", size.len() / 1024);
+    let size = chunk.try_to_vec().unwrap().len();
+    eprintln!("chunk size: {}kb", size / 1024);
     eprintln!("time to produce: {:0.2?}", time);
+
+    // Check that we limit the size of the chunk and not include all `n_txes`
+    // transactions in the chunk.
+    assert!(30 * mb < size && size < 40 * mb, "{size}");
 }
