@@ -189,6 +189,28 @@ pub fn state_dump_redis(
                     println!("Data written: {}", account_id);
                 }
 
+                if let StateRecord::AccessKey { account_id, public_key, access_key } = &sr {
+                    println!("Data: {}", account_id);
+                    let data_key = public_key.try_to_vec().unwrap();
+                    let redis_key =
+                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    redis_connection.zadd(
+                        [b"h:k:", redis_key.as_slice()].concat(),
+                        block_hash.as_ref(),
+                        block_height,
+                    )?;
+                    let value_vec = access_key.try_to_vec().unwrap();
+                    redis_connection.set(
+                        [b"d:k:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+                        value_vec,
+                    )?;
+                    redis_connection.hset(
+                        [b"k:k:", account_id.as_ref().as_bytes()].concat(),
+                        data_key.as_ref() as &[u8],
+                        block_hash.as_ref() as &[u8])?;
+                    println!("Access key written: {}", account_id);
+                }
+
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
                     let redis_key = account_id.as_ref().as_bytes();
