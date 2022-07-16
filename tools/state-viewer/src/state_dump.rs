@@ -182,6 +182,10 @@ pub fn state_dump_redis(
                         [b"d:d:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
                         value_vec,
                     )?;
+                    redis_connection.hset(
+                        [b"k:d:", account_id.as_ref().as_bytes()].concat(),
+                        data_key.as_ref() as &[u8],
+                        block_hash.as_ref() as &[u8])?;
                     println!("Data written: {}", account_id);
                 }
 
