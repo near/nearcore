@@ -14,6 +14,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Block;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -45,16 +46,56 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
+use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
     ValidatorInfoIdentifier,
 };
-use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
+use near_primitives::utils::MaybeValidated;
+
+/// Wait for all blocks that started processing to be ready for postprocessing
+/// Returns true if there are new blocks that are ready
+pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+    chain.blocks_in_processing.wait_for_all_blocks()
+}
+
+pub fn wait_for_block_in_processing(
+    chain: &mut Chain,
+    hash: &CryptoHash,
+) -> Result<(), BlockNotInPoolError> {
+    chain.blocks_in_processing.wait_for_block(hash)
+}
+
+/// Unlike Chain::start_process_block_async, this function blocks until the processing of this block
+/// finishes
+pub fn process_block_sync(
+    chain: &mut Chain,
+    me: &Option<AccountId>,
+    block: MaybeValidated<Block>,
+    provenance: Provenance,
+    block_processing_artifacts: &mut BlockProcessingArtifact,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let block_hash = block.hash().clone();
+    chain.start_process_block_async(
+        me,
+        block,
+        provenance,
+        block_processing_artifacts,
+        Arc::new(|_| {}),
+    )?;
+    wait_for_block_in_processing(chain, &block_hash).unwrap();
+    let (accepted_blocks, errors) =
+        chain.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {}));
+    // This is in test, we should never get errors when postprocessing blocks
+    debug_assert!(errors.is_empty());
+    Ok(accepted_blocks)
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -175,26 +216,21 @@ impl KeyValueRuntime {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
 
-        let mut map_with_default_hash1 = HashMap::new();
-        map_with_default_hash1.insert(CryptoHash::default(), EpochId::default());
-        let mut map_with_default_hash2 = HashMap::new();
-        map_with_default_hash2.insert(CryptoHash::default(), 0);
-        let mut map_with_default_hash3 = HashMap::new();
-        map_with_default_hash3.insert(EpochId::default(), 0);
+        let map_with_default_hash1 = HashMap::from([(CryptoHash::default(), EpochId::default())]);
+        let map_with_default_hash2 = HashMap::from([(CryptoHash::default(), 0)]);
+        let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
-        let mut state = HashMap::new();
         let kv_state = KVState {
             amounts: initial_amounts,
             receipt_nonces: HashSet::default(),
             tx_nonces: HashSet::default(),
         };
-        let mut state_size = HashMap::new();
         let data = kv_state.try_to_vec().unwrap();
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
-        state.insert(StateRoot::default(), kv_state);
-        state_size.insert(StateRoot::default(), data_len);
+        let state = HashMap::from([(StateRoot::default(), kv_state)]);
+        let state_size = HashMap::from([(StateRoot::default(), data_len)]);
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
         assert_eq!(block_producers.len(), chunk_only_producers.len());
         let mut validators = HashMap::new();

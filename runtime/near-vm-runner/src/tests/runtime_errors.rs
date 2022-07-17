@@ -27,14 +27,12 @@ fn test_infinite_initializer_export_not_found() {
         .wat(INFINITE_INITIALIZER_CONTRACT)
         .method("no-such-method")
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ]).expects(&[
             expect![[r#"
                 VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
                 Err: MethodNotFound
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213
                 Err: MethodNotFound
@@ -61,7 +59,6 @@ fn test_multiple_memories() {
         // Wasmtime classifies this error as link error at the moment.
         .opaque_error()
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
@@ -69,7 +66,6 @@ fn test_multiple_memories() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: ...
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
                 Err: ...
@@ -82,14 +78,12 @@ fn test_export_not_found() {
     test_builder().wat(SIMPLE_CONTRACT)
         .method("no-such-method")
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ]).expects(&[
             expect![[r#"
                 VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
                 Err: MethodNotFound
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
                 Err: MethodNotFound
@@ -230,7 +224,6 @@ fn test_wrong_signature_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (param i32)))"#)
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
@@ -238,7 +231,6 @@ fn test_wrong_signature_contract() {
                 VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
                 Err: MethodInvalidSignature
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
                 Err: MethodInvalidSignature
@@ -251,7 +243,6 @@ fn test_export_wrong_type() {
     test_builder()
         .wat(r#"(module (global (export "main") i32 (i32.const 123)))"#)
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
@@ -259,7 +250,6 @@ fn test_export_wrong_type() {
                 VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
                 Err: MethodNotFound
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213
                 Err: MethodNotFound
@@ -418,7 +408,6 @@ fn test_bad_import_1() {
     test_builder()
         .wasm(&bad_import_global("no-such-module"))
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
@@ -426,7 +415,6 @@ fn test_bad_import_1() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Error happened during instantiation.
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463
                 Err: PrepareError: Error happened during instantiation.
@@ -439,7 +427,6 @@ fn test_bad_import_2() {
     test_builder()
         .wasm(&bad_import_func("no-such-module"))
         .protocol_features(&[
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
@@ -447,7 +434,6 @@ fn test_bad_import_2() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Error happened during instantiation.
             "#]],
-            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963
                 Err: PrepareError: Error happened during instantiation.
@@ -669,7 +655,6 @@ fn gas_overflow_indirect_call() {
         "#]]);
 }
 
-#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost_protocol_upgrade {
     use super::*;
     use crate::tests::prepaid_loading_gas;

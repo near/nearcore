@@ -1,6 +1,6 @@
 use crate::near_chain_primitives::error::BlockKnownError;
-use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, Error};
+use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
+use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
@@ -9,6 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[test]
@@ -17,11 +18,12 @@ fn build_chain() {
     let mock_clock_guard = MockClockGuard::default();
 
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, signer) = setup();
 
     assert_eq!(mock_clock_guard.utc_call_count(), 1);
-    assert_eq!(mock_clock_guard.instant_call_count(), 0);
+    assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
     // The hashes here will have to be modified after changes to the protocol.
@@ -41,7 +43,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"FxxmGH4peXwKR5C9YiSKjX7nWVg3zBuvjp9k5bTF1yDs");
     } else {
-        insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
+        insta::assert_display_snapshot!(hash, @"H9xDK5MNxmDuS9P5i8P2ZLCLbdJRXpsXhUzwe6BeD75J");
     }
 
     for i in 1..5 {
@@ -54,23 +56,24 @@ fn build_chain() {
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
-        let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i as u64);
+        chain.process_block_test(&None, block).unwrap();
+        assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
     assert_eq!(mock_clock_guard.utc_call_count(), 9);
-    assert_eq!(mock_clock_guard.instant_call_count(), 12);
+    assert_eq!(mock_clock_guard.instant_call_count(), 17);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"43q5wcc9rdsocY2Htbk7vT88x6zkka5Vr17CQJUTkT9n");
     } else {
-        insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
+        insta::assert_display_snapshot!(hash, @"DisE1kbb7RTcJVgjoNYQCuM9TYus6fEG8AJY3cL9LmDz");
     }
 }
 
@@ -115,8 +118,15 @@ fn build_chain_with_orhpans() {
         chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
         Error::Orphan
     );
-    let res = chain.process_block_test(&None, blocks.pop().unwrap());
-    assert_eq!(res.unwrap().unwrap().height, 10);
+    chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(
+            &None,
+            &mut BlockProcessingArtifact::default(),
+            Arc::new(|_| {}),
+        );
+    }
+    assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
         Error::BlockKnown(BlockKnownError::KnownInStore)
