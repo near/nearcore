@@ -92,6 +92,7 @@ pub fn state_dump(
                 state_roots,
                 last_block_header,
                 &validators,
+                &genesis_config.protocol_treasury_account,
                 &mut |sr| seq.serialize_element(&sr).unwrap(),
                 select_account_ids,
             );
@@ -111,6 +112,7 @@ pub fn state_dump(
                 state_roots,
                 last_block_header,
                 &validators,
+                &genesis_config.protocol_treasury_account,
                 &mut |sr| records.push(sr),
                 select_account_ids,
             );
@@ -196,6 +198,7 @@ pub fn state_dump_redis(
 fn should_include_record(
     record: &StateRecord,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
+    protocol_treasury_account: &AccountId,
     select_account_ids: Option<&Vec<AccountId>>,
 ) -> bool {
     match select_account_ids {
@@ -204,6 +207,7 @@ fn should_include_record(
             let current_account_id = state_record_to_account_id(record);
             specified_ids.contains(current_account_id)
                 || validators.contains_key(current_account_id)
+                || protocol_treasury_account == current_account_id
         }
     }
 }
@@ -214,6 +218,7 @@ fn iterate_over_records(
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
+    protocol_treasury_account: &AccountId,
     mut callback: impl FnMut(StateRecord),
     select_account_ids: Option<&Vec<AccountId>>,
 ) -> Balance {
@@ -225,7 +230,12 @@ fn iterate_over_records(
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
-                if !should_include_record(&sr, validators, select_account_ids) {
+                if !should_include_record(
+                    &sr,
+                    validators,
+                    protocol_treasury_account,
+                    select_account_ids,
+                ) {
                     continue;
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
