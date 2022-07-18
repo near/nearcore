@@ -30,7 +30,7 @@ pub const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
-pub const CF_STAT_NAMES: [&'static str; 1] = ["rocksdb.live-sst-files-size"];
+pub const CF_STAT_NAMES: [&'static str; 1] = [rocksdb::properties::LIVE_SST_FILES_SIZE];
 /// Boolean stored in DBCol::BlockMisc indicating whether the database is for an
 /// archival node.  The default value (if missing) is false.
 pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
