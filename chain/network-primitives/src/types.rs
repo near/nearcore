@@ -11,6 +11,7 @@ use crate::time;
 /// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::PublicKey;
 use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
@@ -20,6 +21,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
@@ -317,6 +319,18 @@ pub enum NetworkViewClientMessages {
     /// They are paired with last epoch id known to this announcement, in order to accept only
     /// newer announcements.
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
+}
+
+// Network-relevant data about the epoch.
+#[derive(Debug, Clone)]
+pub struct NetworkEpochInfo {
+    pub id: EpochId,
+    // Public keys of accounts participating in the BFT consensus.
+    // It currently includes "block producers", "chunk producers" and "approvers".
+    // They are collectively known as "validators".
+    // Peers acting on behalf of these accounts have a higher
+    // priority on the NEAR network than other peers.
+    pub priority_accounts: HashMap<AccountId, PublicKey>,
 }
 
 #[derive(Debug, actix::MessageResponse)]

@@ -57,6 +57,7 @@ near-logger-utils = { path = "../../test-utils/logger" }
 [dev-dependencies]
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 tempfile = "3"
+pretty_assertions = "1.2"
 
 [features]
 deepsize_feature = [

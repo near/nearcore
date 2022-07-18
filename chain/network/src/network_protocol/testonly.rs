@@ -226,6 +226,7 @@ impl ChunkSet {
 pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
     EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
 }
+
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
@@ -342,4 +343,14 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_signer(rng);
     make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
+}
+
+// Accessors for creating malformed SignedAccountData
+impl SignedAccountData {
+    pub(crate) fn payload_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.payload.payload
+    }
+    pub(crate) fn signature_mut(&mut self) -> &mut near_crypto::Signature {
+        &mut self.payload.signature
+    }
 }
