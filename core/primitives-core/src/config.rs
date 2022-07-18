@@ -92,6 +92,10 @@ pub struct VMLimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// Whether to enforce account_id well-formedness where it wasn't enforced
+    /// historically.
+    #[serde(default = "AccountIdValidityRulesVersion::v0")]
+    pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
 }
 
 fn wasmer2_stack_limit_default() -> i32 {
@@ -105,7 +109,17 @@ fn wasmer2_stack_limit_default() -> i32 {
 /// `0` or `1`. We could have used a `bool` instead, but there's a chance that
 /// our current impl isn't perfect either and would need further tweaks in the
 /// future.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum StackLimiterVersion {
     /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
@@ -117,40 +131,29 @@ impl StackLimiterVersion {
     fn v0() -> StackLimiterVersion {
         StackLimiterVersion::V0
     }
-    fn repr(self) -> u32 {
-        match self {
-            StackLimiterVersion::V0 => 0,
-            StackLimiterVersion::V1 => 1,
-        }
-    }
-    fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
-        let res = match repr {
-            0 => StackLimiterVersion::V0,
-            1 => StackLimiterVersion::V1,
-            _ => return None,
-        };
-        Some(res)
-    }
 }
 
-impl Serialize for StackLimiterVersion {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.repr().serialize(serializer)
-    }
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum AccountIdValidityRulesVersion {
+    /// Skip account ID validation according to legacy rules.
+    V0,
+    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
+    V1,
 }
 
-impl<'de> Deserialize<'de> for StackLimiterVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        u32::deserialize(deserializer).and_then(|repr| {
-            StackLimiterVersion::from_repr(repr)
-                .ok_or_else(|| serde::de::Error::custom("invalid stack_limiter_version"))
-        })
+impl AccountIdValidityRulesVersion {
+    fn v0() -> AccountIdValidityRulesVersion {
+        AccountIdValidityRulesVersion::V0
     }
 }
 
@@ -234,6 +237,7 @@ impl VMLimitConfig {
             // necessary (they only take constant operands indicating the local to access), which
             // is 4 bytes worth of code for each local.
             max_locals_per_contract: Some(max_contract_size / 4),
+            account_id_validity_rules_version: AccountIdValidityRulesVersion::V1,
         }
     }
 }

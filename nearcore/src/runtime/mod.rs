@@ -823,6 +823,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
+        let mut total_size = 0u64;
         // TODO: Update gas limit for transactions
         let transactions_gas_limit = gas_limit / 2;
         let mut transactions = vec![];
@@ -830,7 +831,18 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        while total_gas_burnt < transactions_gas_limit {
+        // In general, we limit the number of transactions via send_fees.
+        // However, as a second line of defense, we want to limit the byte size
+        // of transaction as well. Rather than introducing a separate config for
+        // the limit, we compute it heuristically from the gas limit and the
+        // cost of roundtripping a byte of data through disk. For today's value
+        // of parameters, this corresponds to about 13megs worth of
+        // transactions.
+        let size_limit = transactions_gas_limit
+            / (runtime_config.wasm_config.ext_costs.storage_write_value_byte
+                + runtime_config.wasm_config.ext_costs.storage_read_value_byte);
+
+        while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
@@ -848,8 +860,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                         ) {
                             Ok(verification_result) => {
                                 state_update.commit(StateChangeCause::NotWritableToDisk);
-                                transactions.push(tx);
                                 total_gas_burnt += verification_result.gas_burnt;
+                                total_size += tx.get_size();
+                                transactions.push(tx);
                                 break;
                             }
                             Err(RuntimeError::InvalidTxError(_err)) => {
@@ -1994,7 +2007,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
-    use num_rational::Rational;
+    use num_rational::Ratio;
 
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -2152,7 +2165,7 @@ mod test {
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = Rational::from_integer(0);
+                genesis.config.max_inflation_rate = Ratio::from_integer(0);
             }
             if let Some(minimum_stake_divisor) = minimum_stake_divisor {
                 genesis.config.minimum_stake_divisor = minimum_stake_divisor;

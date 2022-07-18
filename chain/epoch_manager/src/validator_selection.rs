@@ -378,7 +378,7 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Rational;
+    use num_rational::Ratio;
 
     #[test]
     fn test_validator_assignment_all_block_producers() {
@@ -435,7 +435,7 @@ mod tests {
             ValidatorSelectionConfig {
                 num_chunk_only_producer_seats: num_cp_seats,
                 minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Rational::new(160, 1_000_000),
+                minimum_stake_ratio: Ratio::new(160, 1_000_000),
             },
         );
         let prev_epoch_height = 3;
@@ -530,7 +530,7 @@ mod tests {
                 num_chunk_only_producer_seats: 0,
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Rational::new(160, 1_000_000),
+                minimum_stake_ratio: Ratio::new(160, 1_000_000),
             },
         );
         let prev_epoch_height = 7;
@@ -582,7 +582,7 @@ mod tests {
             ValidatorSelectionConfig {
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Rational::new(160, 1_000_000),
+                minimum_stake_ratio: Ratio::new(160, 1_000_000),
             },
         );
         let prev_epoch_height = 7;
@@ -662,7 +662,7 @@ mod tests {
                 #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
-                minimum_stake_ratio: Rational::new(1, 10),
+                minimum_stake_ratio: Ratio::new(1, 10),
             },
         );
         let prev_epoch_height = 7;

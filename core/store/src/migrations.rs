@@ -9,17 +9,11 @@ use near_primitives::types::AccountId;
 
 use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
-fn set_store_version_inner(store_update: &mut StoreUpdate, db_version: u32) {
-    store_update.set(
-        DBCol::DbVersion,
-        crate::db::VERSION_KEY,
-        &serde_json::to_vec(&db_version).expect("Failed to serialize version"),
-    );
-}
-
 pub fn set_store_version(store: &Store, db_version: u32) {
     let mut store_update = store.store_update();
-    set_store_version_inner(&mut store_update, db_version);
+    // Contrary to other integers, we’re using textual representation for
+    // storing DbVersion in VERSION_KEY thus to_string rather than to_le_bytes.
+    store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
     store_update.commit().expect("Failed to write version to database");
 }
 
@@ -35,7 +29,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         Self { batch_size_limit, batch_size: 0, store, store_update: Some(store.store_update()) }
     }
 
-    fn commit(&mut self) -> Result<(), std::io::Error> {
+    fn commit(&mut self) -> std::io::Result<()> {
         let store_update = self.store_update.take().unwrap();
         store_update.commit()?;
         self.store_update = Some(self.store.store_update());
@@ -48,7 +42,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         col: DBCol,
         key: &[u8],
         value: &T,
-    ) -> Result<(), std::io::Error> {
+    ) -> std::io::Result<()> {
         let value_bytes = value.try_to_vec()?;
         self.batch_size += key.as_ref().len() + value_bytes.len() + 8;
         self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
@@ -60,7 +54,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(), std::io::Error> {
+    pub fn finish(mut self) -> std::io::Result<()> {
         if self.batch_size > 0 {
             self.commit()?;
         }
@@ -69,53 +63,18 @@ impl<'a> BatchedStoreUpdate<'a> {
     }
 }
 
-fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
+fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> std::io::Result<()>
 where
     T: BorshDeserialize,
     U: BorshSerialize,
     F: Fn(T) -> U,
 {
-    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
     let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
-
-    for key in keys {
-        let value: T = store.get_ser(col, key.as_ref())?.unwrap();
-        let new_value = f(value);
-        store_update.set_ser(col, key.as_ref(), &new_value)?;
+    for (key, value) in store.iter(col).map(Result::unwrap) {
+        let new_value = f(T::try_from_slice(&value).unwrap());
+        store_update.set_ser(col, &key, &new_value)?;
     }
-
-    store_update.finish()?;
-
-    Ok(())
-}
-
-#[allow(unused)]
-fn map_col_from_key<U, F>(store: &Store, col: DBCol, f: F) -> Result<(), std::io::Error>
-where
-    U: BorshSerialize,
-    F: Fn(&[u8]) -> U,
-{
-    let mut store_update = store.store_update();
-    let batch_size_limit = 10_000_000;
-    let mut batch_size = 0;
-    for (key, _) in store.iter(col) {
-        let new_value = f(&key);
-        let new_bytes = new_value.try_to_vec()?;
-        batch_size += key.as_ref().len() + new_bytes.len() + 8;
-        store_update.set(col, key.as_ref(), &new_bytes);
-
-        if batch_size > batch_size_limit {
-            store_update.commit()?;
-            store_update = store.store_update();
-            batch_size = 0;
-        }
-    }
-
-    if batch_size > 0 {
-        store_update.commit()?;
-    }
-
-    Ok(())
+    store_update.finish()
 }
 
 pub fn migrate_28_to_29(store_opener: &StoreOpener) {
@@ -187,7 +146,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
     // the AGGREGATOR_KEY differently from all others.
     let col = DBCol::EpochInfo;
-    let keys: Vec<_> = store.iter(col).map(|(key, _)| key).collect();
+    let keys: Vec<_> = store.iter(col).map(Result::unwrap).map(|(key, _)| key).collect();
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for key in keys {
         if key.as_ref() == AGGREGATOR_KEY {

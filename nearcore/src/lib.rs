@@ -279,7 +279,7 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    config.network_config.verify().with_context(|| "start_with_config")?;
+    config.network_config.verify().context("start_with_config")?;
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
         let client_actor = client_actor.clone();
         let view_client = view_client.clone();
@@ -302,8 +302,6 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            #[cfg(feature = "test_features")]
-            network_actor,
         ));
     }
 
@@ -441,7 +439,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut total_written: u64 = 0;
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
-        for (key, value) in src_store.iter_raw_bytes(column) {
+        for item in src_store.iter_raw_bytes(column) {
+            let (key, value) = item.with_context(|| format!("scanning column {column:?}"))?;
             store_update.set_raw_bytes(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;

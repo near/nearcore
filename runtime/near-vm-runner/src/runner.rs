@@ -175,11 +175,7 @@ impl VMResult {
         error: VMError,
         current_protocol_version: u32,
     ) -> VMResult {
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
             VMResult::abort(logic, error)
         } else {
             VMResult::nop_outcome(error)
