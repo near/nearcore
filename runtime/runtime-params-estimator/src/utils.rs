@@ -323,7 +323,7 @@ pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
 }
 
 /// We expect our cost computations to be fairly reproducible, and just flag
-/// "high-variance" measurements as suspicious. We require that standard
+/// "high-variance" measurements as suspicious. We require that sample standard
 /// deviation is no more than 10% of the mean.
 ///
 /// Note that this looks at block processing times, and each block contains
@@ -333,10 +333,13 @@ pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
 pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
     let threshold = 0.1;
 
+    if samples.len() <= 1 {
+        return true;
+    }
     let mean = samples.iter().copied().sum::<f64>() / (samples.len() as f64);
-    let variance =
-        samples.iter().map(|value| (mean - *value).powi(2)).sum::<f64>() / samples.len() as f64;
-    let stddev = variance.sqrt();
+    let s2 = samples.iter().map(|value| (mean - *value).powi(2)).sum::<f64>()
+        / (samples.len() - 1) as f64;
+    let stddev = s2.sqrt();
     stddev / mean > threshold
 }
 
