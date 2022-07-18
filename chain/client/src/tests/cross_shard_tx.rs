@@ -57,11 +57,9 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
-                    (NetworkResponses::NoResponse.into(), true)
-                },
-            ))),
+            Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
+                (NetworkResponses::NoResponse.into(), true)
+            }),
         );
         *connectors.write().unwrap() = conn;
 
@@ -436,14 +434,9 @@ fn test_cross_shard_tx_common(
             vec![true; validators.iter().map(|x| x.len()).sum()],
             vec![false; validators.iter().map(|x| x.len()).sum()],
             true,
-            Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
-                    (
-                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
-                        true,
-                    )
-                },
-            ))),
+            Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
+                (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+            }),
         );
         *connectors.write().unwrap() = conn;
         let block_hash = *genesis_block.hash();
