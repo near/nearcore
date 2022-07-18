@@ -790,11 +790,21 @@ impl<'a> VMLogic<'a> {
 
     /// Gas price at the current block height.
     ///
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If [`gas_price_ptr`, `gas_price_ptr` + 16) is outside guest memory
+    ///   returns `MemoryAccessViolation`.
+    ///
     /// # Cost
     ///
-    /// `base`
+    /// `base` + `write_memory_base` + 16 * `write_memory_byte`
     pub fn current_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "current_gas_price".to_string(),
+            }
+            .into());
+        }
         self.memory_set_u128(gas_price_ptr, self.context.current_gas_price)
     }
 
@@ -806,11 +816,21 @@ impl<'a> VMLogic<'a> {
     /// balance is left in the account after refunds, or how much allowance will
     /// be left in an access key.
     ///
+    /// * If called as view function returns `ProhibitedInView`.
+    /// * If [`gas_price_ptr`, `gas_price_ptr` + 16) is outside guest memory
+    ///   returns `MemoryAccessViolation`.
+    ///
     /// # Cost
     ///
-    /// `base`
+    /// `base` + `write_memory_base` + 16 * `write_memory_byte`
     pub fn pessimistic_receipt_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "pessimistic_receipt_gas_price".to_string(),
+            }
+            .into());
+        }
         self.memory_set_u128(gas_price_ptr, self.context.receipt_gas_price)
     }
 
