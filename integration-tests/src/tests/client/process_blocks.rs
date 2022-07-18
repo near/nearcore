@@ -5160,19 +5160,22 @@ mod runtime_gas_price {
             block_hash: CryptoHash::default(),
         };
 
-        let old_result = env.execute_tx(tx.clone(), &signer, epoch_length);
-        insta::assert_debug_snapshot!(
-            format!("{snap_name} before {feature:?}"),
-            old_result.receipts_outcome[0].outcome
-        );
+        let mut old_result = env.execute_tx(tx.clone(), &signer, epoch_length);
+        let old_outcome = &mut old_result.receipts_outcome[0].outcome;
+        // Overwrite receipt ids, those will change for many different reasons that are not relevant.
+        for receipt in &mut old_outcome.receipt_ids {
+            *receipt = CryptoHash::default();
+        }
+        insta::assert_debug_snapshot!(format!("{snap_name} before {feature:?}"), old_outcome);
 
         env.upgrade_protocol(new_protocol_version);
 
-        let new_result = env.execute_tx(tx, &signer, epoch_length);
-        insta::assert_debug_snapshot!(
-            format!("{snap_name} with {feature:?}"),
-            new_result.receipts_outcome[0].outcome
-        );
+        let mut new_result = env.execute_tx(tx, &signer, epoch_length);
+        let new_outcome = &mut new_result.receipts_outcome[0].outcome;
+        for receipt in &mut new_outcome.receipt_ids {
+            *receipt = CryptoHash::default();
+        }
+        insta::assert_debug_snapshot!(format!("{snap_name} with {feature:?}"), new_outcome);
     }
 
     /// Test that current_gas_price host function returns the correct value.
@@ -5240,7 +5243,7 @@ mod runtime_gas_price {
 
     /// WAT module that calls `fn_name` and asserts that the result is equal to
     /// `expected_gas_price`.
-    /// 
+    ///
     /// `fn_name` needs to be a host function with signature `(&mut u128) ->
     /// ()`, such as `current_gas_price` and `pessimistic_receipt_gas_price`.
     fn assert_gas_price_contract(fn_name: &str, expected_gas_price: u64) -> String {

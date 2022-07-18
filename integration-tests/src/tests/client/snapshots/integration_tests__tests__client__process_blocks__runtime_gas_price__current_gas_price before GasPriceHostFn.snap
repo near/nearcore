@@ -1,11 +1,11 @@
 ---
 source: integration-tests/src/tests/client/process_blocks.rs
-expression: "old_result.receipts_outcome[0].outcome"
+expression: old_outcome
 ---
 ExecutionOutcomeView {
     logs: [],
     receipt_ids: [
-        `9sRrKQc1ALz5waWnjVKthsZNqMwEtodUrXZSmt5kAx5C`,
+        `11111111111111111111111111111111`,
     ],
     gas_burnt: 2428022178199,
     tokens_burnt: 2428022178199000000000,
