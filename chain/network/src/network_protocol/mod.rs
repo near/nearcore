@@ -15,6 +15,7 @@ mod _proto {
 pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_crypto::PublicKey;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
@@ -31,59 +32,99 @@ use protobuf::Message as _;
 use std::fmt;
 use thiserror::Error;
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
     addr: std::net::SocketAddr,
     peer_id: Option<PeerId>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub struct Validator {
-    peers: Vec<PeerAddr>,
-    account_id: AccountId,
-    epoch_id: EpochId,
-    timestamp: time::Utc,
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct AccountData {
+    pub peers: Vec<PeerAddr>,
+    pub account_id: AccountId,
+    pub epoch_id: EpochId,
+    pub timestamp: time::Utc,
 }
 
-impl Validator {
-    pub fn sign(self, signer: &dyn near_crypto::Signer) -> SignedValidator {
+// Limit on the size of the serialized AccountData message.
+// It is important to have such a constraint on the serialized proto,
+// because it may contain many unknown fields (which are dropped during parsing).
+pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
+
+impl AccountData {
+    pub fn sign(self, signer: &dyn near_crypto::Signer) -> anyhow::Result<SignedAccountData> {
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
+            anyhow::bail!(
+                "payload size = {}, max is {}",
+                payload.len(),
+                MAX_ACCOUNT_DATA_SIZE_BYTES
+            );
+        }
+        // TODO: here we should validate that payload is not too big - i.e. that it won't exceed
+        // the maximal allowed size.
         let signature = signer.sign(&payload);
-        SignedValidator { validator: self, payload: AccountKeySignedPayload { payload, signature } }
+        Ok(SignedAccountData {
+            account_data: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        })
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub struct SignedValidator {
-    validator: Validator,
+impl AccountKeySignedPayload {
+    pub fn len(&self) -> usize {
+        self.payload.len()
+    }
+    pub fn verify(&self, key: &PublicKey) -> bool {
+        self.signature.verify(&self.payload, key)
+    }
+}
+
+// TODO(gprusak): if we expect this to be large, perhaps we should
+// pass around an Arc, rather than pass it by value.
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct SignedAccountData {
+    account_data: AccountData,
     // serialized and signed validator.
     payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedAccountData {
+    type Target = AccountData;
+    fn deref(&self) -> &Self::Target {
+        &self.account_data
+    }
+}
+
+impl SignedAccountData {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
-    pub validators: Vec<SignedValidator>,
 }
 
 impl RoutingTableUpdate {
     pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new(), validators: Vec::new() }
+        Self { edges, accounts: Vec::new() }
     }
 
     pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts, validators: Vec::new() }
+        Self { edges: Vec::new(), accounts }
     }
 
     pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts, validators: Vec::new() }
+        Self { edges, accounts }
     }
 }
 /// Structure representing handshake between peers.
@@ -133,6 +174,13 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct SyncAccountsData {
+    pub accounts_data: Vec<SignedAccountData>,
+    pub requesting_full_sync: bool,
+    pub incremental: bool,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -144,6 +192,8 @@ pub enum PeerMessage {
     SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
+
+    SyncAccountsData(SyncAccountsData),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
