@@ -8,6 +8,7 @@ rust-version = "1.62.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
 ansi_term = "0.12"
 actix = "0.13.0"
 actix-rt = "2"

@@ -44,17 +44,21 @@ use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
+use anyhow::Context as _;
 use itertools::Itertools;
 use near_chain::chain::ChainAccess;
+use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+    AccountKeys, ChainInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+    SetChainInfo,
 };
 use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
+use std::collections::BTreeMap;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -121,6 +125,10 @@ pub struct Client {
     /// used only for debug purposes.
     pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
     pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
+
+    /// Cached precomputed set of TIER1 accounts.
+    /// See send_network_chain_info().
+    tier1_accounts: lru::LruCache<EpochId, Arc<AccountKeys>>,
 }
 
 // Debug information about the upcoming block.
@@ -243,6 +251,7 @@ impl Client {
             last_time_head_progress_made: Clock::instant(),
             block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            tier1_accounts: lru::LruCache::new(1),
         })
     }
 
@@ -1232,6 +1241,9 @@ impl Client {
                     panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
                 }
             }
+            if let Err(err) = self.send_network_chain_info() {
+                error!(target:"client","Failed to update network chain info: {err}");
+            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
@@ -2138,5 +2150,54 @@ impl Client {
             num_of_orphans: self.chain.orphans().len(),
             next_blocks_by_chunks,
         }
+    }
+}
+
+impl Client {
+    fn get_tier1_accounts(&mut self, tip: &Tip) -> anyhow::Result<Arc<AccountKeys>> {
+        if let Some(it) = self.tier1_accounts.get(&tip.epoch_id) {
+            return Ok(it.clone());
+        }
+        let info = self
+            .runtime_adapter
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(tip.epoch_id.clone()))
+            .context("runtime_adapter.get_validator_info()")?;
+        let mut accounts = BTreeMap::new();
+        accounts.extend(
+            info.current_validators
+                .into_iter()
+                .map(|v| ((tip.epoch_id.clone(), v.account_id), v.public_key)),
+        );
+        accounts.extend(
+            info.next_validators
+                .into_iter()
+                .map(|v| ((tip.next_epoch_id.clone(), v.account_id), v.public_key)),
+        );
+        let accounts = Arc::new(accounts);
+        self.tier1_accounts.put(tip.epoch_id.clone(), accounts.clone());
+        Ok(accounts)
+    }
+
+    fn send_network_chain_info(&mut self) -> anyhow::Result<()> {
+        let tip = self.chain.head().context("Cannot retrieve chain head")?;
+        // convert config tracked shards
+        // runtime will track all shards if config tracked shards is not empty
+        // https://github.com/near/nearcore/issues/4930
+        let tracked_shards = if self.config.tracked_shards.is_empty() {
+            vec![]
+        } else {
+            let num_shards = self
+                .runtime_adapter
+                .num_shards(&tip.epoch_id)
+                .context("Cannot retrieve num shards")?;
+            (0..num_shards).collect()
+        };
+        let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        self.network_adapter.do_send(SetChainInfo(ChainInfo {
+            height: tip.height,
+            tracked_shards,
+            tier1_accounts,
+        }));
+        Ok(())
     }
 }

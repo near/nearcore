@@ -55,6 +55,7 @@ use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMes
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+    SetChainInfo,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -92,6 +93,11 @@ impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         (self.handle)(msg, ctx)
     }
+}
+
+impl actix::Handler<SetChainInfo> for PeerManagerMock {
+    type Result = ();
+    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
 }
 
 /// min block production time in milliseconds

@@ -12,6 +12,7 @@ use near_network::types::{
 };
 use near_network_primitives::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    SetChainInfo,
 };
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
@@ -330,6 +331,12 @@ impl Actor for MockPeerManagerActor {
 
         self.send_incoming_requests(ctx);
     }
+}
+
+impl Handler<SetChainInfo> for MockPeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
 }
 
 impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
