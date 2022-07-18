@@ -5196,18 +5196,18 @@ mod runtime_gas_price {
         );
     }
 
-    /// Test that pessimistic_receipt_gas_price host function returns the correct value.
+    /// Test that purchased_gas_price host function returns the correct value.
     #[test]
-    fn test_pessimistic_receipt_gas_price_300_tgas() {
+    fn test_purchased_gas_price_300_tgas() {
         // With 300 Tgas, pessimistic inflation is 1.03 ^ 61 = 6.06835119717
         // and with some rounding it gets to 6_068_351_198.
         let gas = 3 * 10u64.pow(14);
         let expected_pessimistic_price = 6_068_351_198;
         let wat_code =
-            &assert_gas_price_contract("pessimistic_receipt_gas_price", expected_pessimistic_price);
+            &assert_gas_price_contract("purchased_gas_price", expected_pessimistic_price);
         let contract = wat::parse_str(wat_code).unwrap();
         check_outcome_with_and_without_feature(
-            "300Tgas_pessimistic_receipt_gas_price",
+            "300Tgas_purchased_gas_price",
             Action::FunctionCall(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: vec![],
@@ -5220,16 +5220,16 @@ mod runtime_gas_price {
     }
 
     #[test]
-    fn test_pessimistic_receipt_gas_price_100_tgas() {
+    fn test_purchased_gas_price_100_tgas() {
         // With 100 Tgas, pessimistic inflation is 1.03 ^ 20 = 1.80611123467
         // and with some rounding it gets to 1_806_111_235.
         let gas = 10u64.pow(14);
         let expected_pessimistic_price = 1_806_111_235;
         let wat_code =
-            &assert_gas_price_contract("pessimistic_receipt_gas_price", expected_pessimistic_price);
+            &assert_gas_price_contract("purchased_gas_price", expected_pessimistic_price);
         let contract = wat::parse_str(wat_code).unwrap();
         check_outcome_with_and_without_feature(
-            "100Tgas_pessimistic_receipt_gas_price",
+            "100Tgas_purchased_gas_price",
             Action::FunctionCall(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: vec![],
@@ -5245,7 +5245,7 @@ mod runtime_gas_price {
     /// `expected_gas_price`.
     ///
     /// `fn_name` needs to be a host function with signature `(&mut u128) ->
-    /// ()`, such as `current_gas_price` and `pessimistic_receipt_gas_price`.
+    /// ()`, such as `current_gas_price` and `purchased_gas_price`.
     fn assert_gas_price_contract(fn_name: &str, expected_gas_price: u64) -> String {
         format!(
             r#"

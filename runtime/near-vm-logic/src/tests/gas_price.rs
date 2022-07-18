@@ -26,6 +26,6 @@ fn test_receipt_gas_price() {
     let mut logic = logic_builder.build(context);
 
     let mut output: u128 = 0x0abc_abcd_bcde_cdef_0123_1234_3456_4567;
-    logic.pessimistic_receipt_gas_price((&mut output) as *mut u128 as _).unwrap();
+    logic.purchased_gas_price((&mut output) as *mut u128 as _).unwrap();
     assert_eq!(output, expected);
 }

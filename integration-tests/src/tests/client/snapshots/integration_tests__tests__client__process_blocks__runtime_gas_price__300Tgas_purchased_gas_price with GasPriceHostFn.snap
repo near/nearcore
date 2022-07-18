@@ -7,8 +7,8 @@ ExecutionOutcomeView {
     receipt_ids: [
         `11111111111111111111111111111111`,
     ],
-    gas_burnt: 2431259071024,
-    tokens_burnt: 2431259071024000000000,
+    gas_burnt: 2431254736024,
+    tokens_burnt: 2431254736024000000000,
     executor_id: AccountId(
         "test0",
     ),
@@ -30,7 +30,7 @@ ExecutionOutcomeView {
                 CostGasUsed {
                     cost_category: "WASM_HOST_COST",
                     cost: "CONTRACT_LOADING_BYTES",
-                    gas_used: 61990500,
+                    gas_used: 57655500,
                 },
                 CostGasUsed {
                     cost_category: "WASM_HOST_COST",

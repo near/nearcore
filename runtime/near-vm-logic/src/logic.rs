@@ -823,11 +823,11 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base` + `write_memory_base` + 16 * `write_memory_byte`
-    pub fn pessimistic_receipt_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
+    pub fn purchased_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "pessimistic_receipt_gas_price".to_string(),
+                method_name: "purchased_gas_price".to_string(),
             }
             .into());
         }
