@@ -2,6 +2,8 @@ mod alt_bn128;
 mod context;
 mod fixtures;
 mod gas_counter;
+#[cfg(feature = "protocol_feature_gas_price_host_fn")]
+mod gas_price;
 mod helpers;
 mod iterators;
 mod miscs;

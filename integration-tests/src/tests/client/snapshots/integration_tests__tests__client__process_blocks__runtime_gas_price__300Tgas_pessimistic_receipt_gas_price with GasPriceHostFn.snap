@@ -1,0 +1,53 @@
+---
+source: integration-tests/src/tests/client/process_blocks.rs
+expression: "new_result.receipts_outcome[0].outcome"
+---
+ExecutionOutcomeView {
+    logs: [],
+    receipt_ids: [
+        `FrywHzwne4B8iJDL3NxVtkgFHsDao5SgQ9bznUhYAkSQ`,
+    ],
+    gas_burnt: 2431259071024,
+    tokens_burnt: 2431259071024000000000,
+    executor_id: AccountId(
+        "test0",
+    ),
+    status: SuccessValue(``),
+    metadata: ExecutionMetadataView {
+        version: 1,
+        gas_profile: Some(
+            [
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "BASE",
+                    gas_used: 264768111,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "CONTRACT_LOADING_BASE",
+                    gas_used: 35445963,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "CONTRACT_LOADING_BYTES",
+                    gas_used: 61990500,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "WASM_INSTRUCTION",
+                    gas_used: 119547501,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "WRITE_MEMORY_BASE",
+                    gas_used: 2803794861,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "WRITE_MEMORY_BYTE",
+                    gas_used: 43580352,
+                },
+            ],
+        ),
+    },
+}

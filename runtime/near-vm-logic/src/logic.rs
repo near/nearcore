@@ -788,6 +788,32 @@ impl<'a> VMLogic<'a> {
         Ok(self.gas_counter.used_gas())
     }
 
+    /// Gas price at the current block height.
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    pub fn current_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(gas_price_ptr, self.context.current_gas_price)
+    }
+
+    /// Gas priced paid to purchase gas for the current receipt.
+    ///
+    /// The difference between this and the current gas price will be refunded
+    /// for all the burnt gas, while unused gas will be refunded at the full
+    /// pessimistic price. This function can be used to calculate how much
+    /// balance is left in the account after refunds, or how much allowance will
+    /// be left in an access key.
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    pub fn pessimistic_receipt_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
+        self.gas_counter.pay_base(base)?;
+        self.memory_set_u128(gas_price_ptr, self.context.receipt_gas_price)
+    }
+
     // ############
     // # Math API #
     // ############

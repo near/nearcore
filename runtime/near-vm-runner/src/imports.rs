@@ -96,6 +96,8 @@ imports! {
     attached_deposit<[balance_ptr: u64] -> []>,
     prepaid_gas<[] -> [u64]>,
     used_gas<[] -> [u64]>,
+    #["protocol_feature_gas_price_host_fn", GasPriceHostFn] current_gas_price<[price_ptr: u64] -> []>,
+    #["protocol_feature_gas_price_host_fn", GasPriceHostFn] pessimistic_receipt_gas_price<[price_ptr: u64] -> []>,
     // ############
     // # Math API #
     // ############

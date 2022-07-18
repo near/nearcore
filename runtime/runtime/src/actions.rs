@@ -96,6 +96,8 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config,
         output_data_receivers,
+        current_gas_price: apply_state.gas_price,
+        receipt_gas_price: action_receipt.gas_price,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for

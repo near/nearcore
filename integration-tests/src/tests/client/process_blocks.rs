@@ -61,7 +61,8 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
+    BlockHeaderView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+    QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{get, DBCol};
@@ -5005,7 +5006,6 @@ mod lower_storage_key_limit_test {
 
 mod new_contract_loading_cost {
     use super::*;
-    use near_primitives::views::FinalExecutionOutcomeView;
 
     /// Check that normal execution has the same gas cost after FixContractLoadingCost.
     #[test]
@@ -5079,29 +5079,6 @@ mod new_contract_loading_cost {
         assert_eq!(old_gas + loading_cost, new_gas);
     }
 
-    /// Create a `TestEnv` with a contract deployed for an account.
-    fn test_env_with_contract(
-        epoch_length: u64,
-        protocol_version: u32,
-        account: AccountId,
-        contract: Vec<u8>,
-    ) -> TestEnv {
-        let mut genesis = Genesis::test(vec![account], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = protocol_version;
-        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
-        deploy_test_contract(
-            &mut env,
-            "test0".parse().unwrap(),
-            &contract,
-            epoch_length.clone(),
-            1,
-        );
-        env
-    }
-
     /// Execute a function call transaction that calls main on the `TestEnv`.
     fn call_main(
         env: &mut TestEnv,
@@ -5134,5 +5111,180 @@ mod new_contract_loading_cost {
             env.process_block(0, block.clone(), Provenance::PRODUCED);
         }
         env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
+    }
+}
+
+/// Create a `TestEnv` with a contract deployed for an account.
+fn test_env_with_contract(
+    epoch_length: u64,
+    protocol_version: u32,
+    account: AccountId,
+    contract: Vec<u8>,
+) -> TestEnv {
+    let mut genesis = Genesis::test(vec![account.clone()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = protocol_version;
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    env
+}
+
+#[cfg(feature = "protocol_feature_gas_price_host_fn")]
+mod runtime_gas_price {
+    use super::*;
+    use near_primitives::version::ProtocolFeature;
+
+    /// Snapshot-check outcome of action, with given contract deployed first.
+    fn check_outcome_with_and_without_feature(
+        snap_name: &str,
+        action: Action,
+        contract: Vec<u8>,
+        feature: ProtocolFeature,
+    ) {
+        let account: AccountId = "test0".parse().unwrap();
+        let new_protocol_version = feature.protocol_version();
+        let old_protocol_version = new_protocol_version - 1;
+        let epoch_length: BlockHeight = 5;
+        let mut env =
+            test_env_with_contract(epoch_length, old_protocol_version, account.clone(), contract);
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+
+        let tx = Transaction {
+            signer_id: signer.account_id.clone(),
+            receiver_id: signer.account_id.clone(),
+            public_key: signer.public_key(),
+            actions: vec![action],
+            nonce: 0,
+            block_hash: CryptoHash::default(),
+        };
+
+        let old_result = env.execute_tx(tx.clone(), &signer, epoch_length);
+        insta::assert_debug_snapshot!(
+            format!("{snap_name} before {feature:?}"),
+            old_result.receipts_outcome[0].outcome
+        );
+
+        env.upgrade_protocol(new_protocol_version);
+
+        let new_result = env.execute_tx(tx, &signer, epoch_length);
+        insta::assert_debug_snapshot!(
+            format!("{snap_name} with {feature:?}"),
+            new_result.receipts_outcome[0].outcome
+        );
+    }
+
+    /// Test that current_gas_price host function returns the correct value.
+    #[test]
+    fn test_current_gas_price() {
+        let wat_code = &assert_gas_price_contract("current_gas_price", 10u64.pow(9));
+        let contract = wat::parse_str(wat_code).unwrap();
+        check_outcome_with_and_without_feature(
+            "current_gas_price",
+            Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas: 3 * 10u64.pow(14),
+                deposit: 0,
+            }),
+            contract,
+            ProtocolFeature::GasPriceHostFn,
+        );
+    }
+
+    /// Test that pessimistic_receipt_gas_price host function returns the correct value.
+    #[test]
+    fn test_pessimistic_receipt_gas_price_300_tgas() {
+        // With 300 Tgas, pessimistic inflation is 1.03 ^ 61 = 6.06835119717
+        // and with some rounding it gets to 6_068_351_198.
+        let gas = 3 * 10u64.pow(14);
+        let expected_pessimistic_price = 6_068_351_198;
+        let wat_code =
+            &assert_gas_price_contract("pessimistic_receipt_gas_price", expected_pessimistic_price);
+        let contract = wat::parse_str(wat_code).unwrap();
+        check_outcome_with_and_without_feature(
+            "300Tgas_pessimistic_receipt_gas_price",
+            Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas,
+                deposit: 0,
+            }),
+            contract,
+            ProtocolFeature::GasPriceHostFn,
+        );
+    }
+
+    #[test]
+    fn test_pessimistic_receipt_gas_price_100_tgas() {
+        // With 100 Tgas, pessimistic inflation is 1.03 ^ 20 = 1.80611123467
+        // and with some rounding it gets to 1_806_111_235.
+        let gas = 10u64.pow(14);
+        let expected_pessimistic_price = 1_806_111_235;
+        let wat_code =
+            &assert_gas_price_contract("pessimistic_receipt_gas_price", expected_pessimistic_price);
+        let contract = wat::parse_str(wat_code).unwrap();
+        check_outcome_with_and_without_feature(
+            "100Tgas_pessimistic_receipt_gas_price",
+            Action::FunctionCall(FunctionCallAction {
+                method_name: "main".to_string(),
+                args: vec![],
+                gas,
+                deposit: 0,
+            }),
+            contract,
+            ProtocolFeature::GasPriceHostFn,
+        );
+    }
+
+    /// WAT module that calls `current_gas_price` and asserts that the result is equal to X.
+    fn assert_gas_price_contract(fn_name: &str, expected_gas_price: u64) -> String {
+        format!(
+            r#"
+            (module
+                (import "env" "{fn_name}" (func ${fn_name} (param i64)))
+                (import "env" "panic" (func $panic))
+                (func $main (export "main")
+                (local i32 i32)
+                (global.set 0
+                (local.tee 0
+                    (i32.sub
+                    (global.get 0)
+                    (i32.const 16))))
+                (i64.store
+                (local.tee 1
+                    (i32.add
+                    (local.get 0)
+                    (i32.const 8)))
+                (i64.const 0))
+                (i64.store
+                (local.get 0)
+                (i64.const 0))
+                (call ${fn_name}
+                (i64.extend_i32_u
+                    (local.get 0)))
+                (block
+                (br_if 0
+                    (i64.eqz
+                    (i64.or
+                        (i64.xor
+                        (i64.load
+                            (local.get 0))
+                        (i64.const {expected_gas_price}))
+                        (i64.load
+                        (local.get 1)))))
+                (call $panic))
+                (global.set 0
+                (i32.add
+                    (local.get 0)
+                    (i32.const 16))))
+            (table 1 1 funcref)
+            (memory (export "memory") 16)
+            (global (mut i32) (i32.const 1048576))
+            (global (export "__data_end") i32 (i32.const 1048576))
+            (global (export "__heap_base") i32 (i32.const 1048576)))
+            "#
+        )
     }
 }

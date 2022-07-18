@@ -19,6 +19,8 @@ pub fn create_context() -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        current_gas_price: 10u128.pow(8),
+        receipt_gas_price: 5 * 10u128.pow(8),
     }
 }
 

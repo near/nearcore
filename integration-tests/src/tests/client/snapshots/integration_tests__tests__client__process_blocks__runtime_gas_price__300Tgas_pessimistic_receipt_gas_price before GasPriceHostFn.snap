@@ -1,0 +1,33 @@
+---
+source: integration-tests/src/tests/client/process_blocks.rs
+expression: "old_result.receipts_outcome[0].outcome"
+---
+ExecutionOutcomeView {
+    logs: [],
+    receipt_ids: [
+        `CpbWi41HhfSBCd6pKFRrWBuVesWoyDGt3Y8sfvpN9cCZ`,
+    ],
+    gas_burnt: 2428027380199,
+    tokens_burnt: 2428027380199000000000,
+    executor_id: AccountId(
+        "test0",
+    ),
+    status: Failure(ActionError(ActionError { index: Some(0), kind: FunctionCallError(ExecutionError("Link Error: Error while importing \"env\".\"pessimistic_receipt_gas_price\": unknown import. Expected Function(FunctionType { params: [I64], results: [] })")) })),
+    metadata: ExecutionMetadataView {
+        version: 1,
+        gas_profile: Some(
+            [
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "CONTRACT_LOADING_BASE",
+                    gas_used: 35445963,
+                },
+                CostGasUsed {
+                    cost_category: "WASM_HOST_COST",
+                    cost: "CONTRACT_LOADING_BYTES",
+                    gas_used: 61990500,
+                },
+            ],
+        ),
+    },
+}

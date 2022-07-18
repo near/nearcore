@@ -35,7 +35,7 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
     ShardId,
@@ -1591,6 +1591,26 @@ impl TestEnv {
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+    }
+
+    /// Process a transaction, process chunks for one epoch length and return the execution outcome.
+    pub fn execute_tx(
+        &mut self,
+        mut tx: Transaction,
+        signer: &InMemorySigner,
+        epoch_length: u64,
+    ) -> FinalExecutionOutcomeView {
+        let tip = self.clients[0].chain.head().unwrap();
+        tx.nonce = tip.height + 1;
+        tx.block_hash = tip.last_block_hash;
+        let signed_tx = tx.sign(signer);
+        let tx_hash = signed_tx.get_hash().clone();
+        self.clients[0].process_tx(signed_tx, false, false);
+        for i in 0..epoch_length {
+            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            self.process_block(0, block.clone(), Provenance::PRODUCED);
+        }
+        self.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 }
 

@@ -94,8 +94,12 @@ no_cpu_compatibility_checks = []
 
 no_cache = []
 
+protocol_feature_gas_price_host_fn = [
+  "near-vm-logic/protocol_feature_gas_price_host_fn"
+]
 nightly = [
     "near-primitives/nightly",
+    "protocol_feature_gas_price_host_fn",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 io_trace = ["near-vm-logic/io_trace"]

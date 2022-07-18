@@ -41,6 +41,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 [features]
 default = []
 io_trace = ["tracing"]
+protocol_feature_gas_price_host_fn = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

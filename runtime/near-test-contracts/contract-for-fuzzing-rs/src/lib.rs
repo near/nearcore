@@ -27,6 +27,10 @@ extern "C" {
     fn attached_deposit(balance_ptr: u64);
     fn prepaid_gas() -> u64;
     fn used_gas() -> u64;
+    #[cfg(feature = "protocol_feature_gas_price_host_fn")]
+    fn current_gas_price(gas_price_ptr: u64);
+    #[cfg(feature = "protocol_feature_gas_price_host_fn")]
+    fn pessimistic_receipt_gas_price(gas_price_ptr: u64);
     // ############
     // # Math API #
     // ############
