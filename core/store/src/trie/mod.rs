@@ -116,8 +116,11 @@ impl TrieNodeWithSize {
     }
 }
 
+/// Trie Merkle Proof Item is an element of a merkle proof
+///
+/// Can be either a Leaf, an Extension or a Branch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Level {
+pub enum TrieMerkleProofItem {
     Leaf(Vec<u8>, u32, CryptoHash, u64),
     Extension((Vec<u8>, CryptoHash, u64)),
     // the branch info without the element, memory usage and the index in the children array
@@ -771,15 +774,15 @@ impl Trie {
         &self,
         root: &CryptoHash,
         key: &[u8],
-    ) -> Result<Option<Vec<Level>>, StorageError> {
+    ) -> Result<Vec<TrieMerkleProofItem>, StorageError> {
         let mut key = NibbleSlice::new(key);
 
         let mut hash = *root;
-        let mut levels: Vec<Level> = vec![];
+        let mut levels: Vec<TrieMerkleProofItem> = vec![];
 
         loop {
             if hash == Trie::empty_root() {
-                return Ok(None);
+                return Ok(vec![]);
             }
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
@@ -791,7 +794,7 @@ impl Trie {
                 RawTrieNode::Leaf(existing_key, a, h) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
                         let existing_key_clone = existing_key.clone();
-                        levels.push(Level::Leaf(existing_key, a, h, memory_usage));
+                        levels.push(TrieMerkleProofItem::Leaf(existing_key, a, h, memory_usage));
 
                         let node = RawTrieNodeWithSize {
                             node: RawTrieNode::Leaf(existing_key_clone, a, h),
@@ -800,9 +803,9 @@ impl Trie {
                         let mut v = vec![];
                         node.encode_into(&mut v).unwrap();
                         levels.reverse();
-                        return Ok(Some(levels));
+                        return Ok(levels);
                     } else {
-                        return Ok(None);
+                        return Ok(vec![]);
                     }
                 }
                 RawTrieNode::Extension(existing_key, child) => {
@@ -812,22 +815,21 @@ impl Trie {
                         hash = child;
                         key = key.mid(existing_key.len());
 
-                        levels.push(Level::Extension((
+                        levels.push(TrieMerkleProofItem::Extension((
                             existing_key_clone,
-                            // CryptoHash::hash_bytes(bytes.as_ref()),
                             child,
                             memory_usage,
                         )));
                     } else {
-                        return Ok(None);
+                        return Ok(vec![]);
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
                     let mut children_copy = children.clone();
                     if key.is_empty() {
                         match value {
-                            Some(_) => return Ok(Some(levels)),
-                            None => return Ok(None),
+                            Some(_) => return Ok(levels),
+                            None => return Ok(vec![]),
                         }
                     } else {
                         let mut level = [None; 16];
@@ -836,7 +838,7 @@ impl Trie {
                         for (idx, child) in children.iter().enumerate() {
                             if !child_visited && idx as u8 == key.at(0) {
                                 if child.is_none() {
-                                    return Ok(None);
+                                    return Ok(vec![]);
                                 }
                                 hash = child.unwrap();
                                 key = key.mid(1);
@@ -851,7 +853,12 @@ impl Trie {
                                 level[idx] = *child;
                             }
                         }
-                        levels.push(Level::Branch((children_copy, value, memory_usage, hash_idx)));
+                        levels.push(TrieMerkleProofItem::Branch((
+                            children_copy,
+                            value,
+                            memory_usage,
+                            hash_idx,
+                        )));
                     }
                 }
             };
@@ -903,7 +910,7 @@ mod tests {
     impl Trie {
         pub fn verify_proof(
             &self,
-            levels: Vec<Level>,
+            levels: Vec<TrieMerkleProofItem>,
             value: &[u8],
             expected_hash: CryptoHash,
         ) -> bool {
@@ -915,7 +922,7 @@ mod tests {
             let mut hash = CryptoHash::default();
             for level in levels {
                 match level {
-                    Level::Leaf(v, a, h, memory_usage) => {
+                    TrieMerkleProofItem::Leaf(v, a, h, memory_usage) => {
                         if CryptoHash::hash_bytes(value) != h {
                             return false;
                         }
@@ -924,14 +931,14 @@ mod tests {
 
                         hash = hash_node(node);
                     }
-                    Level::Extension((key, h, memory_usage)) => {
+                    TrieMerkleProofItem::Extension((key, h, memory_usage)) => {
                         let node = RawTrieNodeWithSize {
                             node: RawTrieNode::Extension(key, h),
                             memory_usage,
                         };
                         hash = hash_node(node);
                     }
-                    Level::Branch((mut children, value, memory_usage, hash_idx)) => {
+                    TrieMerkleProofItem::Branch((mut children, value, memory_usage, hash_idx)) => {
                         children[hash_idx as usize] = Some(hash);
                         let node = RawTrieNodeWithSize {
                             node: RawTrieNode::Branch(children, value),
@@ -1360,15 +1367,15 @@ mod tests {
             test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), changes);
 
         assert_eq!(Some(b"coin".to_vec()), trie.get(&root, b"doge").unwrap());
-        let proof = trie.get_proof(&root, b"doge").unwrap().unwrap();
+        let proof = trie.get_proof(&root, b"doge").unwrap();
         assert!(trie.verify_proof(proof, b"coin", root));
 
         assert_eq!(Some(b"value".to_vec()), trie.get(&root, b"docu").unwrap());
-        let proof = trie.get_proof(&root, b"docu").unwrap().unwrap();
+        let proof = trie.get_proof(&root, b"docu").unwrap();
         assert!(trie.verify_proof(proof, b"value", root));
 
         assert_eq!(Some(b"stallion".to_vec()), trie.get(&root, b"horse").unwrap());
-        let proof = trie.get_proof(&root, b"horse").unwrap().unwrap();
+        let proof = trie.get_proof(&root, b"horse").unwrap();
         assert!(trie.verify_proof(proof.clone(), b"stallion", root));
         assert_eq!(trie.verify_proof(proof, b"stallion0", root), false);
     }
