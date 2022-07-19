@@ -185,7 +185,7 @@ pub fn state_dump_redis(
                     redis_connection.hset(
                         [b"k:d:", account_id.as_ref().as_bytes()].concat(),
                         data_key.as_ref() as &[u8],
-                        block_hash.as_ref() as &[u8])?;
+                        block_height)?;
                     println!("Data written: {}", account_id);
                 }
 
@@ -207,7 +207,7 @@ pub fn state_dump_redis(
                     redis_connection.hset(
                         [b"k:k:", account_id.as_ref().as_bytes()].concat(),
                         data_key.as_ref() as &[u8],
-                        block_hash.as_ref() as &[u8])?;
+                        block_height)?;
                     println!("Access key written: {}", account_id);
                 }
 
