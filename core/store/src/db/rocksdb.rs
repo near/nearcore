@@ -465,8 +465,8 @@ impl RocksDB {
     }
 
     /// Returns version of the database state on disk.
-    pub fn get_version(path: &Path) -> io::Result<DbVersion> {
-        let value = RocksDB::open(path, &StoreConfig::default(), Mode::ReadOnly)?
+    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<DbVersion> {
+        let value = RocksDB::open(path, config, Mode::ReadOnly)?
             .get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?
             .ok_or_else(|| {
                 other_error(
