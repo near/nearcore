@@ -89,11 +89,15 @@ impl RocksDBMetrics {
                             .with_label_values(&[&format!("{:.2}", percentile as f64 * 0.01)])
                             .set(value);
                     }
+                    // Adding rocksdb property as labeled integer gauge metric.
+                    // Label = column's verbose name.
                     StatsValue::ColumnValue(col, value) => {
                         let key = &stat_name;
                         let label = col_verbose_name(col);
 
+                        // Checking for metric to be present.
                         let gauge = match self.int_vec_gauges.entry(key.to_string()) {
+                            // If not -> creating it.
                             Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(
                                 &get_prometheus_metric_name(&stat_name),
                                 &stat_name,
@@ -101,6 +105,7 @@ impl RocksDBMetrics {
                             )?),
                             Entry::Occupied(entry) => entry.into_mut(),
                         };
+                        // Writing value for column.
                         gauge.with_label_values(&[&label]).set(value);
                     }
                 }

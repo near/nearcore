@@ -121,6 +121,7 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
+/// Returns column's name as name in the DBCol enum without '_' prefix for deprecated columns.
 pub fn col_verbose_name(col: DBCol) -> &'static str {
     let name: &str = col.into();
     name.strip_prefix("_").unwrap_or(name)
@@ -436,6 +437,9 @@ impl Database for RocksDB {
         self.db.flush().map_err(into_other)
     }
 
+    /// Trying to get
+    /// 1. RocksDB statistics
+    /// 2. Selected RockdDB properties for column families
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
@@ -745,6 +749,7 @@ impl RocksDB {
         Checkpoint::new(&self.db).map_err(into_other)
     }
 
+    /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
         for stat_name in CF_STAT_NAMES {
             let mut values = vec![];
@@ -828,7 +833,7 @@ impl TestDB {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StatsValue {
     Count(i64),
     Sum(i64),
@@ -842,6 +847,7 @@ pub struct StoreStatistics {
 }
 
 /// Parses a string containing RocksDB statistics.
+/// Results are added into provided 'result' parameter.
 fn parse_statistics(
     statistics: &str,
     result: &mut StoreStatistics,
@@ -958,6 +964,7 @@ mod tests {
         let mut result = StoreStatistics { data: vec![] };
         {
             let parse_result = parse_statistics(statistics, &mut result);
+            // We should be able to parse stats and the result should be Ok(()).
             assert_eq!(parse_result.unwrap(), ());
         }
         assert_eq!(
