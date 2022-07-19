@@ -162,15 +162,17 @@ impl ChunkTestFixture {
         // 3 block producer. 1 block producer + 2 chunk only producer per shard
         // This setup ensures that the chunk producer
         let (block_producers, chunk_producers) = make_validators(6, 2, 3);
-        let mock_runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-            store.clone(),
-            block_producers,
-            chunk_producers,
-            3,
-            3,
-            5,
-            false,
-        ));
+        let mock_runtime = Arc::new(
+            KeyValueRuntime::new_with_validators_and_no_gc(
+                store.clone(),
+                block_producers,
+                3,
+                3,
+                5,
+                false,
+            )
+            .with_chunk_only_producers(chunk_producers),
+        );
         Self::new_with_runtime(false, mock_runtime)
     }
 
