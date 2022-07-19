@@ -26,10 +26,7 @@ use crate::logging;
 use crate::merkle::MerklePath;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::serialize::{
-    base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
-    u128_dec_format, u64_dec_format,
-};
+use crate::serialize::{base64_format, dec_format, from_base64, option_base64_format, to_base64};
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
@@ -52,9 +49,9 @@ use validator_stake_view::ValidatorStakeView;
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub locked: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
@@ -141,7 +138,7 @@ impl From<ContractCodeView> for ContractCode {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum AccessKeyPermissionView {
     FunctionCall {
-        #[serde(with = "option_u128_dec_format")]
+        #[serde(with = "dec_format")]
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
@@ -456,21 +453,21 @@ pub struct BlockHeaderView {
     pub challenges_root: CryptoHash,
     /// Legacy json number. Should not be used.
     pub timestamp: u64,
-    #[serde(with = "u64_dec_format")]
+    #[serde(with = "dec_format")]
     pub timestamp_nanosec: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub validator_reward: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     pub challenges_result: ChallengesResult,
     pub last_final_block: CryptoHash,
@@ -649,7 +646,7 @@ pub struct BlockHeaderInnerLiteView {
     pub outcome_root: CryptoHash,
     /// Legacy json number. Should not be used.
     pub timestamp: u64,
-    #[serde(with = "u64_dec_format")]
+    #[serde(with = "dec_format")]
     pub timestamp_nanosec: u64,
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
@@ -724,12 +721,12 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub validator_reward: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
@@ -848,15 +845,15 @@ pub enum ActionView {
         method_name: String,
         args: String,
         gas: Gas,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         deposit: Balance,
     },
     Transfer {
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         deposit: Balance,
     },
     Stake {
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
         public_key: PublicKey,
     },
@@ -1056,7 +1053,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 pub struct CostGasUsed {
     pub cost_category: String,
     pub cost: String,
-    #[serde(with = "u64_dec_format")]
+    #[serde(with = "dec_format")]
     pub gas_used: Gas,
 }
 
@@ -1130,7 +1127,7 @@ pub struct ExecutionOutcomeView {
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -1236,7 +1233,7 @@ pub mod validator_stake_view {
     use serde::{Deserialize, Serialize};
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    use crate::serialize::u128_dec_format;
+    use crate::serialize::dec_format;
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_crypto::PublicKey;
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -1281,7 +1278,7 @@ pub mod validator_stake_view {
     pub struct ValidatorStakeViewV2 {
         pub account_id: AccountId,
         pub public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         pub stake: Balance,
         pub is_chunk_only: bool,
     }
@@ -1312,7 +1309,7 @@ pub mod validator_stake_view {
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub stake: Balance,
 }
 
@@ -1339,7 +1336,7 @@ pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
         signer_public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -1462,7 +1459,7 @@ pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     pub is_slashed: bool,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub stake: Balance,
     pub shards: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
@@ -1478,7 +1475,7 @@ pub struct CurrentEpochValidatorInfo {
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub stake: Balance,
     pub shards: Vec<ShardId>,
 }
@@ -1513,7 +1510,7 @@ impl From<BlockHeader> for LightClientBlockLiteView {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GasPriceView {
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub gas_price: Balance,
 }
 

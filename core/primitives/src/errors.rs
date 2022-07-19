@@ -1,4 +1,4 @@
-use crate::serialize::u128_dec_format;
+use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -117,9 +117,9 @@ pub enum InvalidTxError {
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Signer account doesn't have enough balance after transaction.
@@ -127,7 +127,7 @@ pub enum InvalidTxError {
         /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
         /// Required balance to cover the state.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// An integer overflow occurred during transaction cost estimation.
@@ -161,9 +161,9 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         allowance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Having a deposit with a function call action is not allowed with a function call access key.
@@ -408,7 +408,7 @@ pub enum ActionErrorKind {
         /// An account which needs balance
         account_id: AccountId,
         /// Balance required to complete an action.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
@@ -416,18 +416,18 @@ pub enum ActionErrorKind {
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         locked: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
     },
     InsufficientStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
@@ -558,30 +558,30 @@ impl std::error::Error for InvalidAccessKeyError {}
 )]
 pub struct BalanceMismatchError {
     // Input balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_validator_rewards: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub processed_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub outgoing_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub new_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_postponed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub tx_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub slashed_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub other_burnt_amount: Balance,
 }
 
