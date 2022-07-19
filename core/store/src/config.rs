@@ -56,7 +56,11 @@ pub enum Mode {
 
 impl Mode {
     pub fn read_write(rw: bool) -> Self {
-        if rw { Self::ReadWrite } else { Self::ReadOnly }
+        if rw {
+            Self::ReadWrite
+        } else {
+            Self::ReadOnly
+        }
     }
 }
 

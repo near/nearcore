@@ -18,7 +18,6 @@ use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
-
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -42,8 +41,6 @@ pub struct RocksDB {
 // this file and safe to share across threads.
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
-
-
 
 /// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
 /// of file descriptors.
@@ -85,7 +82,6 @@ fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), String> {
         ))
     }
 }
-
 
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
@@ -325,7 +321,6 @@ fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
         Some(next)
     }
 }
-
 
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
@@ -608,7 +603,6 @@ fn col_name(col: DBCol) -> String {
     format!("col{}", col as usize)
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::db::{Database, StatsValue};
@@ -619,8 +613,12 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store =
-            RocksDB::open(tmp_dir.path(), &StoreConfig::test_config(), crate::config::Mode::ReadWrite).unwrap();
+        let store = RocksDB::open(
+            tmp_dir.path(),
+            &StoreConfig::test_config(),
+            crate::config::Mode::ReadWrite,
+        )
+        .unwrap();
         store.pre_write_check().unwrap()
     }
 
