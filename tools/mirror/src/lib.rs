@@ -351,11 +351,21 @@ impl TxMirror {
                 let replacement =
                     crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref());
                 let public_key = replacement.public_key();
-                self.db.put_cf(
-                    self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                    &public_key.try_to_vec().unwrap(),
-                    &NonceDiff::default().try_to_vec().unwrap(),
-                )?;
+                // TODO: probably better to use a merge operator here. Not urgent, though.
+                if self
+                    .db
+                    .get_cf(
+                        self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
+                        &public_key.try_to_vec().unwrap(),
+                    )?
+                    .is_none()
+                {
+                    self.db.put_cf(
+                        self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
+                        &public_key.try_to_vec().unwrap(),
+                        &NonceDiff::default().try_to_vec().unwrap(),
+                    )?;
+                }
 
                 Ok(Some(Action::AddKey(AddKeyAction {
                     public_key,
