@@ -46,107 +46,6 @@ pub trait BaseDecode:
     }
 }
 
-/// Serialize `Vec<u8>` as `String`.
-///
-/// Fails during serialisation if the buffer does not contain valid UTF-8
-/// string.
-pub mod bytes_as_str {
-    use serde::{ser, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(std::str::from_utf8(arr).map_err(ser::Error::custom)?)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(s.into_bytes())
-    }
-}
-
-#[test]
-fn test_bytes_as_str() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "bytes_as_str")]
-        field: Vec<u8>,
-    }
-
-    assert_round_trip("{\"field\":\"\"}", Test { field: b"".to_vec() });
-    assert_round_trip("{\"field\":\"foo\"}", Test { field: b"foo".to_vec() });
-    assert_ser_error(Test { field: b"\xff".to_vec() });
-}
-
-/// Serialize `Vec<Vec<u8>>` as `Vec<String>`.
-///
-/// Fails during serialisation if the buffer does not contain valid UTF-8
-/// string.
-pub mod vec_bytes_as_str {
-    use std::fmt;
-
-    use serde::de::{SeqAccess, Visitor};
-    use serde::ser::{self, SerializeSeq};
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S>(data: &Vec<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(data.len()))?;
-        for v in data {
-            seq.serialize_element(&std::str::from_utf8(v.as_slice()).map_err(ser::Error::custom)?)?;
-        }
-        seq.end()
-    }
-
-    struct VecBytesVisitor;
-
-    impl<'de> Visitor<'de> for VecBytesVisitor {
-        type Value = Vec<Vec<u8>>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("an array with string in the first element")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<Vec<u8>>, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut vec = Vec::new();
-            while let Some(s) = seq.next_element::<String>()? {
-                vec.push(s.into_bytes());
-            }
-            Ok(vec)
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Vec<u8>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(VecBytesVisitor {})
-    }
-}
-
-#[test]
-fn test_vec_bytes_as_str() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "vec_bytes_as_str")]
-        field: Vec<Vec<u8>>,
-    }
-
-    assert_round_trip("{\"field\":[]}", Test { field: vec![] });
-    let field = vec![b"foo".to_vec(), b"bar".to_vec(), b"baz".to_vec()];
-    assert_round_trip("{\"field\":[\"foo\",\"bar\",\"baz\"]}", Test { field });
-    assert_ser_error(Test { field: vec![b"foo".to_vec(), b"\xff".to_vec()] });
-}
-
 pub mod base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -438,12 +337,6 @@ where
     T: serde::Deserialize<'a> + std::fmt::Debug + std::cmp::PartialEq,
 {
     assert_eq!(obj, serde_json::from_str(serialised).unwrap());
-}
-
-#[cfg(test)]
-#[track_caller]
-fn assert_ser_error<T: serde::Serialize + std::fmt::Debug>(obj: T) {
-    serde_json::to_string(&obj).unwrap_err();
 }
 
 #[cfg(test)]
