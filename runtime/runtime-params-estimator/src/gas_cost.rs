@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::panic::Location;
 use std::time::{Duration, Instant};
-use std::{fmt, ops};
+use std::{fmt, iter, ops};
 
 use near_primitives::types::Gas;
 use num_rational::Ratio;
@@ -438,6 +438,16 @@ impl ops::Add for GasCost {
 impl ops::AddAssign for GasCost {
     fn add_assign(&mut self, rhs: GasCost) {
         *self = self.clone() + rhs;
+    }
+}
+
+impl iter::Sum for GasCost {
+    fn sum<I: Iterator<Item = Self>>(mut iter: I) -> Self {
+        let mut accum = iter.next().unwrap_or(GasCost::zero(GasMetric::Time));
+        for gas in iter {
+            accum += gas;
+        }
+        accum
     }
 }
 
