@@ -55,31 +55,142 @@ pub(crate) enum DBOp {
 }
 
 impl DBTransaction {
-    pub fn new() -> Self {
+    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
+        Some(num) => num,
+        None => panic!(),
+    };
+
+    pub(crate) fn new() -> Self {
         Self { ops: Vec::new() }
     }
 
-    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+    /// Inserts a new value into the database.
+    ///
+    /// It is a programming error if `insert` overwrites an existing, different
+    /// value. Use it for insert-only columns.
+    pub fn insert<T: Into<Vec<u8>>>(&mut self, col: DBCol, key: T, value: T) {
+        assert!(col.is_insert_only(), "can't insert: {col}");
+        self.ops.push(DBOp::Insert { col, key: key.into(), value: value.into() });
+    }
+
+    /// Serialises and inserts an object into the database.
+    ///
+    /// This is like [`Self::insert`] but value is first borsh-serialised.
+    pub fn insert_ser<T: borsh::BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: impl Into<Vec<u8>>,
+        value: &T,
+    ) -> io::Result<()> {
+        self.insert(col, key.into(), value.try_to_vec()?);
+        Ok(())
+    }
+
+    /// Inserts a new reference-counted value or increases its reference count
+    /// if it’s already there.
+    ///
+    /// It is a programming error if `increment_refcount_by` supplies a different
+    /// value than the one stored in the database.  It may lead to data
+    /// corruption or panics.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn increment_refcount_by<T: Into<Vec<u8>>>(
+        &mut self,
+        column: DBCol,
+        key: T,
+        data: &[u8],
+        increase: std::num::NonZeroU32,
+    ) {
+        let value = refcount::add_positive_refcount(data, increase);
+        self.update_refcount(column, key.into(), value);
+    }
+
+    /// Same as `self.increment_refcount_by(column, key, data, 1)`.
+    pub fn increment_refcount<T: Into<Vec<u8>>>(&mut self, column: DBCol, key: T, data: &[u8]) {
+        self.increment_refcount_by(column, key, data, Self::ONE)
+    }
+
+    /// Decreases value of an existing reference-counted value.
+    ///
+    /// Since decrease of reference count is encoded without the data, only key
+    /// and reference count delta arguments are needed.
+    ///
+    /// Panics if this is used for columns which are not reference-counted
+    /// (see [`DBCol::is_rc`]).
+    pub fn decrement_refcount_by<T: Into<Vec<u8>>>(
+        &mut self,
+        column: DBCol,
+        key: T,
+        decrease: std::num::NonZeroU32,
+    ) {
+        let value = refcount::encode_negative_refcount(decrease);
+        self.update_refcount(column, key.into(), value)
+    }
+
+    /// Same as `self.decrement_refcount_by(column, key, 1)`.
+    pub fn decrement_refcount(&mut self, column: DBCol, key: &[u8]) {
+        let value = refcount::MINUS_ONE_REFCOUNT.to_vec();
+        self.update_refcount(column, key.into(), value)
+    }
+
+    fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_rc(), "can't update refcount: {col}");
+        self.ops.push(DBOp::UpdateRefcount { col, key, value })
+    }
+
+    /// Modifies a value in the database.
+    ///
+    /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
+    /// modifications are allowed, and extra care must be taken to aviod
+    /// consistency anomalies.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
+    pub fn set<T: Into<Vec<u8>>>(&mut self, col: DBCol, key: T, value: T) {
+        assert!(!(col.is_rc() || col.is_insert_only()), "can't set: {col}");
+        self.set_raw_bytes(col, key.into(), value.into());
+    }
+
+    /// Saves a BorshSerialized value.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
+    pub fn set_ser<T: borsh::BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: impl Into<Vec<u8>>,
+        value: &T,
+    ) -> io::Result<()> {
+        self.set(col, key.into(), value.try_to_vec()?);
+        Ok(())
+    }
+
+    /// Modify raw value stored in the database, without doing any sanity checks
+    /// for ref counts.
+    ///
+    /// This method is a deliberate escape hatch, and shouldn't be used outside
+    /// of auxilary code like migrations which wants to hack on the database
+    /// directly.
+    pub fn set_raw_bytes(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         self.ops.push(DBOp::Set { col, key, value });
     }
 
-    pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
-        self.ops.push(DBOp::Insert { col, key, value });
+    /// Deletes the given key from the database.
+    ///
+    /// Must not be used for reference-counted columns; use
+    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
+    pub fn delete(&mut self, col: DBCol, key: impl Into<Vec<u8>>) {
+        assert!(!col.is_rc(), "can't delete: {col}");
+        self.ops.push(DBOp::Delete { col, key: key.into() });
     }
 
-    pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
-        self.ops.push(DBOp::UpdateRefcount { col, key, value });
-    }
-
-    pub fn delete(&mut self, col: DBCol, key: Vec<u8>) {
-        self.ops.push(DBOp::Delete { col, key });
-    }
-
+    /// Deletes all data from given column.
     pub fn delete_all(&mut self, col: DBCol) {
         self.ops.push(DBOp::DeleteAll { col });
     }
 
-    pub fn merge(&mut self, other: DBTransaction) {
+    pub(crate) fn merge(&mut self, other: DBTransaction) {
         self.ops.extend(other.ops)
     }
 }
@@ -873,12 +984,12 @@ mod tests {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, vec![1], &[1]);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, vec![1], &[1]);
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));

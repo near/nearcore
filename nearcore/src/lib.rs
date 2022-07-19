@@ -220,7 +220,7 @@ fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::
     );
     if !store_is_archive && client_is_archive {
         let mut update = store.store_update();
-        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
+        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY.to_vec(), &true)?;
         update.commit()?;
     }
 
@@ -441,9 +441,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut count_keys: u64 = 0;
         for item in src_store.iter_raw_bytes(column) {
             let (key, value) = item.with_context(|| format!("scanning column {column:?}"))?;
-            store_update.set_raw_bytes(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;
+            store_update.set_raw_bytes(column, key.into_vec(), value.into_vec());
             count_keys += 1;
             if batch_written >= BATCH_SIZE_BYTES {
                 store_update.commit()?;
@@ -476,7 +476,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let chunk_tail = final_head_height.unwrap();
         info!(target: "recompress", %chunk_tail, "Setting chunk tail");
         let mut store_update = dst_store.store_update();
-        store_update.set_ser(DBCol::BlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+        store_update.set_ser(DBCol::BlockMisc, near_store::CHUNK_TAIL_KEY.to_vec(), &chunk_tail)?;
         store_update.commit()?;
     }
 

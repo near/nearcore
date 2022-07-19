@@ -653,7 +653,7 @@ impl ChainStore {
     /// Save the latest known.
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
-        store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
+        store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY.to_vec(), &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
     }
@@ -2273,8 +2273,8 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         let key = get_block_shard_id(block_hash, shard_id);
-        store_update.delete(DBCol::OutgoingReceipts, &key);
         self.chain_store.outgoing_receipts.pop(&key);
+        store_update.delete(DBCol::OutgoingReceipts, key);
         self.inc_gc(DBCol::OutgoingReceipts);
         self.merge(store_update);
     }
@@ -2296,7 +2296,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 } else {
                     store_update.set_ser(
                         DBCol::TransactionResult,
-                        outcome_id.as_bytes(),
+                        outcome_id,
                         &outcomes_with_id,
                     )?;
                 }
@@ -2599,7 +2599,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 .insert(*hash);
             store_update.set_ser(
                 DBCol::BlockPerHeight,
-                &index_to_bytes(block.header().height()),
+                index_to_bytes(block.header().height()),
                 &map,
             )?;
             self.chain_store_cache_update
@@ -2625,18 +2625,14 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
-            store_update.set_ser(
-                DBCol::HeaderHashesByHeight,
-                &index_to_bytes(height),
-                &hash_set,
-            )?;
+            store_update.set_ser(DBCol::HeaderHashesByHeight, index_to_bytes(height), &hash_set)?;
         }
         for ((block_hash, shard_uid), chunk_extra) in
             self.chain_store_cache_update.chunk_extras.iter()
         {
             store_update.set_ser(
                 DBCol::ChunkExtra,
-                &get_block_shard_uid(block_hash, shard_uid),
+                get_block_shard_uid(block_hash, shard_uid),
                 chunk_extra,
             )?;
         }
@@ -2647,7 +2643,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store_cache_update.chunk_hash_per_height_shard.iter()
         {
             let key = get_height_shard_id(*height, *shard_id);
-            store_update.insert_ser(DBCol::ChunkPerHeightShard, &key, chunk_hash)?;
+            store_update.insert_ser(DBCol::ChunkPerHeightShard, key, chunk_hash)?;
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
@@ -2695,36 +2691,33 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
         }
         for (height, hash_set) in chunk_hashes_by_height {
-            store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
+            store_update.set_ser(DBCol::ChunkHashesByHeight, index_to_bytes(height), &hash_set)?;
         }
         for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
-            store_update.insert_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
+            store_update.insert_ser(DBCol::PartialChunks, chunk_hash, partial_chunk)?;
         }
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
+            let key = index_to_bytes(*height);
             if let Some(hash) = hash {
-                store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(*height), hash)?;
+                store_update.set_ser(DBCol::BlockHeight, key, hash)?;
             } else {
-                store_update.delete(DBCol::BlockHeight, &index_to_bytes(*height));
+                store_update.delete(DBCol::BlockHeight, key);
             }
         }
         for (block_hash, next_hash) in self.chain_store_cache_update.next_block_hashes.iter() {
-            store_update.set_ser(DBCol::NextBlockHashes, block_hash.as_ref(), next_hash)?;
+            store_update.set_ser(DBCol::NextBlockHashes, block_hash, next_hash)?;
         }
         for (epoch_hash, light_client_block) in
             self.chain_store_cache_update.epoch_light_client_blocks.iter()
         {
-            store_update.set_ser(
-                DBCol::EpochLightClientBlocks,
-                epoch_hash.as_ref(),
-                light_client_block,
-            )?;
+            store_update.set_ser(DBCol::EpochLightClientBlocks, epoch_hash, light_client_block)?;
         }
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.outgoing_receipts.iter()
         {
             store_update.set_ser(
                 DBCol::OutgoingReceipts,
-                &get_block_shard_id(block_hash, *shard_id),
+                get_block_shard_id(block_hash, *shard_id),
                 receipt,
             )?;
         }
@@ -2733,40 +2726,40 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 DBCol::IncomingReceipts,
-                &get_block_shard_id(block_hash, *shard_id),
+                get_block_shard_id(block_hash, *shard_id),
                 receipt,
             )?;
         }
         for (hash, outcomes) in self.chain_store_cache_update.outcomes.iter() {
             let mut existing_outcomes = self.chain_store.get_outcomes_by_id(hash)?;
             existing_outcomes.extend_from_slice(outcomes);
-            store_update.set_ser(DBCol::TransactionResult, hash.as_ref(), &existing_outcomes)?;
+            store_update.set_ser(DBCol::TransactionResult, hash, &existing_outcomes)?;
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
                 DBCol::OutcomeIds,
-                &get_block_shard_id(block_hash, *shard_id),
+                get_block_shard_id(block_hash, *shard_id),
                 &ids,
             )?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             let data = shard_id.try_to_vec()?;
-            store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
+            store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id, &data);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
-            store_update.set_ser(DBCol::BlockRefCount, block_hash.as_ref(), refcount)?;
+            store_update.set_ser(DBCol::BlockRefCount, block_hash, refcount)?;
         }
         for (block_hash, block_merkle_tree) in
             self.chain_store_cache_update.block_merkle_tree.iter()
         {
-            store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree)?;
+            store_update.set_ser(DBCol::BlockMerkleTree, block_hash, block_merkle_tree)?;
         }
         for (block_ordinal, block_hash) in
             self.chain_store_cache_update.block_ordinal_to_hash.iter()
         {
             store_update.set_ser(
                 DBCol::BlockOrdinal,
-                &index_to_bytes(*block_ordinal),
+                index_to_bytes(*block_ordinal),
                 block_hash,
             )?;
         }
@@ -2785,14 +2778,14 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
+                get_block_shard_id(&block_hash, shard_id),
                 &state_changes,
             )?;
         }
         for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
             store_update.delete(
                 DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
+                get_block_shard_id(&block_hash, shard_id),
             );
         }
 
@@ -2869,7 +2862,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for block_height in self.chain_store_cache_update.processed_block_heights.iter() {
             store_update.set_ser(
                 DBCol::ProcessedBlockHeights,
-                &index_to_bytes(*block_height),
+                index_to_bytes(*block_height),
                 &(),
             )?;
         }
@@ -2882,7 +2875,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             store_update.set_ser(
                 DBCol::GCCount,
-                &col.try_to_vec().expect("Failed to serialize DBCol"),
+                col.try_to_vec().expect("Failed to serialize DBCol"),
                 &gc_count,
             )?;
         }

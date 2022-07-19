@@ -302,8 +302,8 @@ impl WrappedTrieChanges {
                 KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key);
             store_update.set(
                 DBCol::StateChanges,
-                storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
+                Vec::from(storage_key),
+                change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
             );
         }
     }
@@ -311,7 +311,7 @@ impl WrappedTrieChanges {
     pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> io::Result<()> {
         store_update.set_ser(
             DBCol::TrieChanges,
-            &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
+            shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
         )
     }

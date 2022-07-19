@@ -63,6 +63,8 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> Vec<u8> {
     (-i64::from(rc.get())).to_le_bytes().to_vec()
 }
 
+pub(crate) static MINUS_ONE_REFCOUNT: [u8; 8] = (-1i64).to_le_bytes();
+
 /// Merge reference counted values together.
 ///
 /// Extracts reference count from all provided value and sums them together and

@@ -2652,7 +2652,7 @@ impl Chain {
 
         // Saving the header data
         let mut store_update = self.store.store().store_update();
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::StateHeaders, key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(shard_state_header)
@@ -2713,7 +2713,7 @@ impl Chain {
 
         // Saving the part data
         let mut store_update = self.store.store().store_update();
-        store_update.set(DBCol::StateParts, &key, &state_part);
+        store_update.set(DBCol::StateParts, key, state_part.clone());
         store_update.commit()?;
 
         Ok(state_part)
@@ -2868,7 +2868,7 @@ impl Chain {
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::StateHeaders, key, &shard_state_header)?;
         store_update.commit()?;
 
         Ok(())
@@ -2900,7 +2900,7 @@ impl Chain {
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
         let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
-        store_update.set(DBCol::StateParts, &key, data);
+        store_update.set(DBCol::StateParts, key, data.clone());
         store_update.commit()?;
         Ok(())
     }

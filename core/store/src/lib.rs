@@ -192,11 +192,6 @@ pub struct StoreUpdate {
 }
 
 impl StoreUpdate {
-    const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
-        Some(num) => num,
-        None => panic!(),
-    };
-
     pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
         StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
     }
@@ -207,128 +202,6 @@ impl StoreUpdate {
             transaction: DBTransaction::new(),
             shard_tries: Some(tries),
         }
-    }
-
-    /// Inserts a new value into the database.
-    ///
-    /// It is a programming error if `insert` overwrites an existing, different
-    /// value. Use it for insert-only columns.
-    pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(column.is_insert_only(), "can't insert: {column:?}");
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
-    }
-
-    pub fn insert_ser<T: BorshSerialize>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
-        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
-        let data = value.try_to_vec()?;
-        self.insert(column, key, &data);
-        Ok(())
-    }
-
-    /// Inserts a new reference-counted value or increases its reference count
-    /// if it’s already there.
-    ///
-    /// It is a programming error if `increment_refcount_by` supplies a different
-    /// value than the one stored in the database.  It may lead to data
-    /// corruption or panics.
-    ///
-    /// Panics if this is used for columns which are not reference-counted
-    /// (see [`DBCol::is_rc`]).
-    pub fn increment_refcount_by(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        data: &[u8],
-        increase: std::num::NonZeroU32,
-    ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = refcount::add_positive_refcount(data, increase);
-        self.transaction.update_refcount(column, key.to_vec(), value);
-    }
-
-    /// Same as `self.increment_refcount_by(column, key, data, 1)`.
-    pub fn increment_refcount(&mut self, column: DBCol, key: &[u8], data: &[u8]) {
-        self.increment_refcount_by(column, key, data, Self::ONE)
-    }
-
-    /// Decreases value of an existing reference-counted value.
-    ///
-    /// Since decrease of reference count is encoded without the data, only key
-    /// and reference count delta arguments are needed.
-    ///
-    /// Panics if this is used for columns which are not reference-counted
-    /// (see [`DBCol::is_rc`]).
-    pub fn decrement_refcount_by(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        decrease: std::num::NonZeroU32,
-    ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
-        let value = refcount::encode_negative_refcount(decrease);
-        self.transaction.update_refcount(column, key.to_vec(), value)
-    }
-
-    /// Same as `self.decrement_refcount_by(column, key, 1)`.
-    pub fn decrement_refcount(&mut self, column: DBCol, key: &[u8]) {
-        self.decrement_refcount_by(column, key, Self::ONE)
-    }
-
-    /// Modifies a value in the database.
-    ///
-    /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
-    /// modifications are allowed, and extra care must be taken to aviod
-    /// consistency anomalies.
-    ///
-    /// Must not be used for reference-counted columns; use
-    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
-        self.transaction.set(column, key.to_vec(), value.to_vec())
-    }
-
-    /// Saves a BorshSerialized value.
-    ///
-    /// Must not be used for reference-counted columns; use
-    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
-        let data = value.try_to_vec()?;
-        self.set(column, key, &data);
-        Ok(())
-    }
-
-    /// Modify raw value stored in the database, without doing any sanity checks
-    /// for ref counts.
-    ///
-    /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
-    /// directly.
-    pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        self.transaction.set(column, key.to_vec(), value.to_vec())
-    }
-
-    /// Deletes the given key from the database.
-    ///
-    /// Must not be used for reference-counted columns; use
-    /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column:?}");
-        self.transaction.delete(column, key.to_vec());
-    }
-
-    pub fn delete_all(&mut self, column: DBCol) {
-        self.transaction.delete_all(column);
     }
 
     /// Set shard_tries to given object.
@@ -403,6 +276,19 @@ impl StoreUpdate {
             }
         }
         self.storage.write(self.transaction)
+    }
+}
+
+impl std::ops::Deref for StoreUpdate {
+    type Target = DBTransaction;
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
+}
+
+impl std::ops::DerefMut for StoreUpdate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.transaction
     }
 }
 
@@ -613,13 +499,13 @@ pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
 
 pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHash) {
     store_update
-        .set_ser::<CryptoHash>(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY, genesis_hash)
+        .set_ser(DBCol::BlockMisc, GENESIS_JSON_HASH_KEY.to_vec(), genesis_hash)
         .expect("Borsh cannot fail");
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY.to_vec(), genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -657,9 +543,9 @@ mod tests {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.increment_refcount(DBCol::State, &[2], &[2]);
-            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.increment_refcount(DBCol::State, vec![1], &[1]);
+            store_update.increment_refcount(DBCol::State, vec![2], &[2]);
+            store_update.increment_refcount(DBCol::State, vec![3], &[3]);
             store_update.commit().unwrap();
         }
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
@@ -715,7 +601,7 @@ mod tests {
             buf[..prefix.len()].clone_from_slice(prefix);
             for _ in 0..COUNT {
                 rng.fill(&mut buf[prefix.len()..]);
-                update.set(COLUMN, &buf, &buf);
+                update.set(COLUMN, buf.to_vec(), buf.to_vec());
             }
         }
         update.commit().unwrap();
