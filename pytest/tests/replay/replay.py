@@ -31,6 +31,7 @@ def save_genesis_with_new_key_pair(genesis_path, key_pair, output_path):
         genesis = json.load(fin)
 
     new_key = key_pair.pk.split(':')[1] if ':' in key_pair.pk else key_pair.pk
+    # TODO(jc-near): Use different key pairs for different accounts.
     for i in range(len(genesis['validators'])):
         genesis['validators'][i]['public_key'] = new_key
     for record in genesis['records']:
