@@ -22,7 +22,7 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -36,7 +36,7 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, Transaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
     ShardId,
@@ -1511,16 +1511,6 @@ impl TestEnv {
         }
     }
 
-    #[track_caller]
-    pub fn query_transaction_status(
-        &mut self,
-        transaction_hash: &CryptoHash,
-    ) -> FinalExecutionOutcomeView {
-        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
-            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
-        })
-    }
-
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
         self.query_account(account_id).amount
     }
@@ -1557,6 +1547,55 @@ impl TestEnv {
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+    }
+
+    /// Create and process a SIR tx from actions and return the execution outcome.
+    ///
+    /// The signer defines both sender and receiver of the transaction, hence it
+    /// is a Sender-is-Receiver transaction.
+    pub fn execute_sir_tx(
+        &mut self,
+        actions: Vec<Action>,
+        signer: &InMemorySigner,
+    ) -> FinalExecutionOutcomeView {
+        let tip = self.clients[0].chain.head().unwrap();
+        let tx = Transaction {
+            signer_id: signer.account_id.clone(),
+            receiver_id: signer.account_id.clone(),
+            public_key: signer.public_key(),
+            actions,
+            nonce: tip.height + 1,
+            block_hash: tip.last_block_hash,
+        };
+        let signed_tx = tx.sign(signer);
+        let tx_hash = signed_tx.get_hash().clone();
+        self.clients[0].process_tx(signed_tx, false, false);
+        let max_iters = 1000;
+        for i in 0..max_iters {
+            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            self.process_block(0, block.clone(), Provenance::PRODUCED);
+            if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
+                return outcome;
+            }
+        }
+        panic!("No transaction outcome found after {max_iters} blocks.")
+    }
+
+    /// Execute a function call transaction that calls main on the `TestEnv`.
+    ///
+    /// This function assumes that account has been deployed and that
+    /// `InMemorySigner::from_seed` produces a valid signer that has it's key
+    /// deployed already.
+    pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: 3 * 10u64.pow(14),
+            deposit: 0,
+        })];
+
+        self.execute_sir_tx(actions, &signer)
     }
 }
 
