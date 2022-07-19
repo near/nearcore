@@ -5202,9 +5202,9 @@ mod runtime_gas_price {
         // With 300 Tgas, pessimistic inflation is 1.03 ^ 61 = 6.06835119717
         // and with some rounding it gets to 6_068_351_198.
         let gas = 3 * 10u64.pow(14);
-        let expected_pessimistic_price = 6_068_351_198;
+        let expected_purchase_price = 6_068_351_198;
         let wat_code =
-            &assert_gas_price_contract("purchased_gas_price", expected_pessimistic_price);
+            &assert_gas_price_contract("purchased_gas_price", expected_purchase_price);
         let contract = wat::parse_str(wat_code).unwrap();
         check_outcome_with_and_without_feature(
             "300Tgas_purchased_gas_price",
@@ -5224,9 +5224,9 @@ mod runtime_gas_price {
         // With 100 Tgas, pessimistic inflation is 1.03 ^ 20 = 1.80611123467
         // and with some rounding it gets to 1_806_111_235.
         let gas = 10u64.pow(14);
-        let expected_pessimistic_price = 1_806_111_235;
+        let expected_purchase_price = 1_806_111_235;
         let wat_code =
-            &assert_gas_price_contract("purchased_gas_price", expected_pessimistic_price);
+            &assert_gas_price_contract("purchased_gas_price", expected_purchase_price);
         let contract = wat::parse_str(wat_code).unwrap();
         check_outcome_with_and_without_feature(
             "100Tgas_purchased_gas_price",
