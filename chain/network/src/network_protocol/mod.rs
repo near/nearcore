@@ -91,7 +91,7 @@ impl AccountKeySignedPayload {
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct SignedAccountData {
     account_data: AccountData,
-    // serialized and signed validator.
+    // Serialized and signed AccountData.
     payload: AccountKeySignedPayload,
 }
 
