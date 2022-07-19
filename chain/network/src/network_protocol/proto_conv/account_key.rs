@@ -3,13 +3,13 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
-use crate::network_protocol::{AccountKeySignedPayload, SignedValidator, Validator};
+use crate::network_protocol::{AccountData, AccountKeySignedPayload, SignedAccountData};
 use near_primitives::account::id::ParseAccountError;
 use near_primitives::types::EpochId;
 use protobuf::{Message as _, MessageField as MF};
 
 #[derive(thiserror::Error, Debug)]
-pub enum ParseValidatorError {
+pub enum ParseAccountDataError {
     #[error("bad payload type")]
     BadPayloadType,
     #[error("account_id: {0}")]
@@ -25,10 +25,10 @@ pub enum ParseValidatorError {
 // TODO: currently a direct conversion Validator <-> proto::AccountKeyPayload is implemented.
 // When more variants are available, consider whether to introduce an intermediate
 // AccountKeyPayload enum.
-impl From<&Validator> for proto::AccountKeyPayload {
-    fn from(x: &Validator) -> Self {
+impl From<&AccountData> for proto::AccountKeyPayload {
+    fn from(x: &AccountData) -> Self {
         Self {
-            payload_type: Some(ProtoPT::Validator(proto::Validator {
+            payload_type: Some(ProtoPT::AccountData(proto::AccountData {
                 account_id: x.account_id.to_string(),
                 peers: x.peers.iter().map(Into::into).collect(),
                 epoch_id: MF::some((&x.epoch_id.0).into()),
@@ -40,11 +40,11 @@ impl From<&Validator> for proto::AccountKeyPayload {
     }
 }
 
-impl TryFrom<&proto::AccountKeyPayload> for Validator {
-    type Error = ParseValidatorError;
+impl TryFrom<&proto::AccountKeyPayload> for AccountData {
+    type Error = ParseAccountDataError;
     fn try_from(x: &proto::AccountKeyPayload) -> Result<Self, Self::Error> {
         let x = match x.payload_type.as_ref().ok_or(Self::Error::BadPayloadType)? {
-            ProtoPT::Validator(v) => v,
+            ProtoPT::AccountData(a) => a,
             #[allow(unreachable_patterns)]
             _ => return Err(Self::Error::BadPayloadType),
         };
@@ -60,27 +60,18 @@ impl TryFrom<&proto::AccountKeyPayload> for Validator {
 
 //////////////////////////////////////////
 
-// TODO(CPR-74): I took this number out of thin air,
-// determine a reasonable limit later. Calibrate before starting
-// using SignedValidator. Also possibly should be moved
-// to business logic, which actually stores those structs (see TODO
-// below).
-const VALIDATOR_PAYLOAD_MAX_BYTES: usize = 10000;
-
 #[derive(thiserror::Error, Debug)]
-pub enum ParseSignedValidatorError {
-    #[error("payload too large: {0}B")]
-    PayloadTooLarge(usize),
+pub enum ParseSignedAccountDataError {
     #[error("decode: {0}")]
     Decode(protobuf::Error),
     #[error("validator: {0}")]
-    Validator(ParseValidatorError),
+    AccountData(ParseAccountDataError),
     #[error("signature: {0}")]
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
-impl From<&SignedValidator> for proto::AccountKeySignedPayload {
-    fn from(x: &SignedValidator) -> Self {
+impl From<&SignedAccountData> for proto::AccountKeySignedPayload {
+    fn from(x: &SignedAccountData) -> Self {
         Self {
             payload: (&x.payload.payload).clone(),
             signature: MF::some((&x.payload.signature).into()),
@@ -89,23 +80,13 @@ impl From<&SignedValidator> for proto::AccountKeySignedPayload {
     }
 }
 
-impl TryFrom<&proto::AccountKeySignedPayload> for SignedValidator {
-    type Error = ParseSignedValidatorError;
+impl TryFrom<&proto::AccountKeySignedPayload> for SignedAccountData {
+    type Error = ParseSignedAccountDataError;
     fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
-        // We definitely should tolerate unknown fields, so that we can do
-        // backward compatible changes. We also need to limit the total
-        // size of the payload, to prevent large message attacks.
-        // TODO(CPR-74): is this the right place to do this check? Should we do the same while encoding?
-        // An alternative would be to do this check in the business logic of PeerManagerActor,
-        // probably together with signature validation. The amount of memory a node
-        // maintains per vaidator should be bounded.
-        if x.payload.len() > VALIDATOR_PAYLOAD_MAX_BYTES {
-            return Err(Self::Error::PayloadTooLarge(x.payload.len()));
-        }
-        let validator =
+        let account_data =
             proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
         Ok(Self {
-            validator: (&validator).try_into().map_err(Self::Error::Validator)?,
+            account_data: (&account_data).try_into().map_err(Self::Error::AccountData)?,
             payload: AccountKeySignedPayload {
                 payload: x.payload.clone(),
                 signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
