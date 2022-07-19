@@ -49,6 +49,11 @@ impl DBCol {
     }
 }
 
+// returns bytes that serve as the key corresponding to this pair in the Nonces column
+fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
+    (account_id.clone(), public_key.clone()).try_to_vec().unwrap()
+}
+
 // For a given AddKey Action, records the starting nonces of the
 // resulting Access Keys.  We need this because when an AddKey receipt
 // is processed, the nonce field of the AddKey action is actually
@@ -295,7 +300,7 @@ impl TxMirror {
         nonce: Nonce,
         source_block_hash: &CryptoHash,
     ) -> anyhow::Result<Result<Nonce, MapNonceError>> {
-        let db_key = target_public.try_to_vec().unwrap();
+        let db_key = nonce_col_key(signer_id, target_public);
         let mut m =
             // TODO: cache this?
             match self.db.get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)? {
@@ -339,7 +344,11 @@ impl TxMirror {
         Ok(m.map(nonce))
     }
 
-    fn map_action(&self, a: &ActionView) -> anyhow::Result<Option<Action>> {
+    fn map_action(
+        &self,
+        a: &ActionView,
+        receiver_id: &AccountId,
+    ) -> anyhow::Result<Option<Action>> {
         // this try_from() won't fail since the ActionView was constructed from the Action
         let action = Action::try_from(a.clone()).unwrap();
 
@@ -348,18 +357,16 @@ impl TxMirror {
                 let replacement =
                     crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref());
                 let public_key = replacement.public_key();
+                let db_key = nonce_col_key(receiver_id, &public_key);
                 // TODO: probably better to use a merge operator here. Not urgent, though.
                 if self
                     .db
-                    .get_cf(
-                        self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                        &public_key.try_to_vec().unwrap(),
-                    )?
+                    .get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
                     .is_none()
                 {
                     self.db.put_cf(
                         self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                        &public_key.try_to_vec().unwrap(),
+                        &db_key,
                         &NonceDiff::default().try_to_vec().unwrap(),
                     )?;
                 }
@@ -375,7 +382,7 @@ impl TxMirror {
                 let public_key = replacement.public_key();
                 self.db.delete_cf(
                     self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                    &public_key.try_to_vec().unwrap(),
+                    &nonce_col_key(receiver_id, &public_key),
                 )?;
 
                 Ok(Some(Action::DeleteKey(DeleteKeyAction { public_key })))
@@ -437,7 +444,7 @@ impl TxMirror {
                 let public_key = mapped_key.public_key();
                 let mut actions = Vec::new();
                 for action in t.actions.iter() {
-                    if let Some(action) = self.map_action(action)? {
+                    if let Some(action) = self.map_action(action, &t.receiver_id)? {
                         actions.push(action);
                     }
                 }
@@ -559,6 +566,13 @@ impl TxMirror {
 
     fn set_next_source_height(&mut self, height: BlockHeight) -> anyhow::Result<()> {
         self.next_source_height = Some(height);
+        // TODO: we should instead save something like the
+        // (block_height, shard_id, idx_in_chunk) of the last
+        // transaction sent. Currently we set next_source_height after
+        // sending all of the transactions in that chunk, so if we get
+        // SIGTERM or something in the middle of sending a batch of
+        // txs, we'll send some that we already sent next time we
+        // start. Not a giant problem but kind of unclean.
         self.db.put_cf(
             self.db.cf_handle(DBCol::Misc.name()).unwrap(),
             "next_source_height",
