@@ -15,9 +15,8 @@ use near_primitives::version::DbVersion;
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::{Mode, RocksDB};
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
-use near_store::{DBCol, Store, StoreOpener};
+use near_store::{DBCol, Mode, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -74,7 +73,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
+    let db = near_store::db::RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
