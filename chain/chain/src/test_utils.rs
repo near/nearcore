@@ -113,7 +113,6 @@ struct KVState {
 /// Block producers are assigned to shards via `validator_groups`.
 /// Each shard will have `block_producers.len() / validator_groups` of validators who are also block
 /// producers
-#[derive(Default)]
 struct EpochValidatorSet {
     block_producers: Vec<ValidatorStake>,
     /// index of this list is shard_id
@@ -181,13 +180,9 @@ impl KeyValueRuntime {
         num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let valset_num = block_producers.len();
         Self::new_with_validators_and_no_gc(
             store,
             block_producers,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            vec![vec![vec![]; num_shards as usize]; valset_num],
             validator_groups,
             num_shards,
             epoch_length,
@@ -198,9 +193,6 @@ impl KeyValueRuntime {
     pub fn new_with_validators_and_no_gc(
         store: Store,
         block_producers: Vec<Vec<AccountId>>,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")] chunk_only_producers: Vec<
-            Vec<Vec<AccountId>>,
-        >,
         validator_groups: u64,
         num_shards: NumShards,
         epoch_length: u64,
@@ -227,8 +219,6 @@ impl KeyValueRuntime {
         // We cannot do any reasonable validations of it in test_utils.
         let state = HashMap::from([(StateRoot::default(), kv_state)]);
         let state_size = HashMap::from([(StateRoot::default(), data_len)]);
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        assert_eq!(block_producers.len(), chunk_only_producers.len());
 
         let mut validators = HashMap::new();
         let validators_by_valset: Vec<EpochValidatorSet> = block_producers
@@ -263,24 +253,6 @@ impl KeyValueRuntime {
             })
             .collect();
 
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let mut validators_by_valset = validators_by_valset;
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        for (epoch_idx, epoch_cops) in chunk_only_producers.into_iter().enumerate() {
-            for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
-                for account_id in shard_cops {
-                    let stake = ValidatorStake::new(
-                        account_id.clone(),
-                        SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
-                        1_000_000,
-                    );
-                    let prev = validators.insert(account_id, stake.clone());
-                    assert!(prev.is_none(), "chunk only produced is also a block producer");
-                    validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
-                }
-            }
-        }
-
         KeyValueRuntime {
             store,
             tries,
@@ -298,6 +270,29 @@ impl KeyValueRuntime {
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    pub fn with_chunk_only_producers(
+        mut self,
+        chunk_only_producers: Vec<Vec<Vec<AccountId>>>,
+    ) -> Self {
+        assert_eq!(self.validators_by_valset.len(), chunk_only_producers.len());
+        for (epoch_idx, epoch_cops) in chunk_only_producers.into_iter().enumerate() {
+            for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
+                for account_id in shard_cops {
+                    let stake = ValidatorStake::new(
+                        account_id.clone(),
+                        SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
+                        1_000_000,
+                    );
+                    let prev = self.validators.insert(account_id, stake.clone());
+                    assert!(prev.is_none(), "chunk only produced is also a block producer");
+                    self.validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
+                }
+            }
+        }
+        self
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
