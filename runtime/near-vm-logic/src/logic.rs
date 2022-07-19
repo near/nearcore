@@ -2345,7 +2345,17 @@ impl<'a> VMLogic<'a> {
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "write",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = value_len,
+            evicted_len = evicted.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2424,8 +2434,16 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+
+        near_o11y::io_trace!(
+            storage_op = "read",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = read.as_ref().map(Vec::len),
+            tn_db_reads = nodes_delta.db_reads,
+            tn_mem_reads = nodes_delta.mem_reads,
+        );
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;
@@ -2478,7 +2496,16 @@ impl<'a> VMLogic<'a> {
 
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "remove",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            evicted_len = removed.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2525,7 +2552,15 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "exists",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         Ok(res? as u64)
     }
 
@@ -2714,11 +2749,7 @@ impl<'a> VMLogic<'a> {
                 ));
             return Err(error);
         }
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 let error =
                     VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
@@ -2736,11 +2767,7 @@ impl<'a> VMLogic<'a> {
         current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), VMError> {
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if !checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 return Err(VMError::FunctionCallError(
                     near_vm_errors::FunctionCallError::HostError(

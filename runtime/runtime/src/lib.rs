@@ -221,7 +221,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "process_transaction").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -1252,7 +1252,11 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie.get_trie_nodes_count())
+                node_counter = ?state_update.trie.get_trie_nodes_count(),
+                predecessor = %receipt.predecessor_id,
+                receiver = %receipt.receiver_id,
+                id = %receipt.receipt_id,
+            )
             .entered();
             let result = self.process_receipt(
                 state_update,

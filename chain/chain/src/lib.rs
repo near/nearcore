@@ -1,4 +1,4 @@
-pub use block_processing_utils::BlockProcessingArtifact;
+pub use block_processing_utils::{BlockProcessingArtifact, DoneApplyChunkCallback};
 pub use chain::{check_known, collect_receipts, Chain, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};

@@ -30,6 +30,7 @@ mod tests {
         super::tests::{BAD_ACCOUNT_IDS, OK_ACCOUNT_IDS},
         AccountId,
     };
+
     use serde_json::json;
 
     #[test]
@@ -59,5 +60,19 @@ mod tests {
                 account_id
             );
         }
+    }
+
+    #[test]
+    fn fuzz() {
+        bolero::check!().for_each(|input: &[u8]| {
+            if let Ok(account_id) = std::str::from_utf8(input) {
+                if let Ok(account_id) = serde_json::from_value::<AccountId>(json!(account_id)) {
+                    assert_eq!(
+                        account_id,
+                        serde_json::from_value(serde_json::to_value(&account_id).unwrap()).unwrap()
+                    );
+                }
+            }
+        });
     }
 }

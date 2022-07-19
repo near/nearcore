@@ -17,6 +17,11 @@ deny = [
 ]
 
 skip = [
+    # See https://github.com/camshaft/bolero/issues/85
+    { name = "crossbeam-channel", version = "=0.4.4" },
+    { name = "crossbeam-utils", version = "=0.7.2" },
+    { name = "strsim", version = "=0.8.0" },
+
     { name = "clap", version = "=2.34.0" },
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },

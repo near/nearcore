@@ -12,11 +12,12 @@ use runtime_params_estimator::{
 };
 use std::env;
 use std::fmt::Write;
-use std::fs;
+use std::fs::{self};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time;
+use tracing_subscriber::Layer;
 
 #[derive(Parser)]
 struct CliArgs {
@@ -78,6 +79,9 @@ struct CliArgs {
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
+    /// Records IO events in JSON format and stores it in a given file.
+    #[clap(long)]
+    record_io_trace: Option<PathBuf>,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -176,16 +180,33 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    #[cfg(feature = "io_trace")]
+    let mut _maybe_writer_guard = None;
+
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
     } else {
         use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-        use tracing_subscriber::util::SubscriberInitExt;
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::layer())
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-    }
+        let log_layer = tracing_subscriber::fmt::layer()
+            .with_filter(tracing_subscriber::EnvFilter::from_default_env());
+        let subscriber = tracing_subscriber::registry().with(log_layer);
+        #[cfg(feature = "io_trace")]
+        let subscriber = subscriber.with(cli_args.record_io_trace.map(|path| {
+            let log_file =
+                fs::File::create(path).expect("unable to create or truncate IO trace output file");
+            let (subscriber, guard) = near_o11y::make_io_tracing_layer(log_file);
+            _maybe_writer_guard = Some(guard);
+            subscriber
+        }));
+
+        #[cfg(not(feature = "io_trace"))]
+        if cli_args.record_io_trace.is_some() {
+            anyhow::bail!("`--record-io-trace` requires `--feature=io_trace`");
+        }
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+    };
 
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
@@ -254,7 +275,7 @@ fn main_docker(
     let project_root = project_root();
 
     let image = "rust-emu";
-    let tag = "rust-1.61.0"; //< Update this when Dockerfile changes
+    let tag = "rust-1.62.0"; //< Update this when Dockerfile changes
     let tagged_image = format!("{}:{}", image, tag);
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
