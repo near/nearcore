@@ -285,7 +285,7 @@ impl TxMirror {
 
     // If the access key was present in the genesis records, just
     // return the same nonce. Otherwise, we need to change the
-    // nonce. So check if we already know what the difference is
+    // nonce. So check if we already know what the difference in
     // nonces is, and if not, try to fetch that info and store it.
     async fn map_nonce(
         &self,
@@ -301,36 +301,33 @@ impl TxMirror {
             match self.db.get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)? {
                 Some(v) => NonceDiff::try_from_slice(&v).unwrap(),
                 // If it's not stored in the database, it's an access key that was present in the genesis
-                // recods, so we don't need to do anything to the nonce.
+                // records, so we don't need to do anything to the nonce.
                 None => return Ok(Ok(nonce)),
             };
         if m.known() {
             return Ok(m.map(nonce));
         }
 
-        let source_nonce = fetch_access_key_nonce(
-            &self.source_view_client,
-            signer_id,
-            source_public,
-            Some(source_block_hash),
-        )
-        .await?;
-
-        let target_nonce =
-            fetch_access_key_nonce(&self.target_view_client, signer_id, target_public, None)
-                .await?
-                // add one because we need to start from a nonce one greater than the current one
-                .map(|n| n + 1);
-
         let mut rewrite = false;
-        if m.source_start.is_none() && source_nonce.is_some() {
-            rewrite = true;
-            m.source_start = source_nonce;
+        if m.source_start.is_none() {
+            m.source_start = fetch_access_key_nonce(
+                &self.source_view_client,
+                signer_id,
+                source_public,
+                Some(source_block_hash),
+            )
+            .await?;
+            rewrite |= m.source_start.is_some();
         }
-        if m.target_start.is_none() && target_nonce.is_some() {
-            rewrite = true;
-            m.target_start = target_nonce;
+        if m.target_start.is_none() {
+            m.target_start =
+                fetch_access_key_nonce(&self.target_view_client, signer_id, target_public, None)
+                    .await?
+                    // add one because we need to start from a nonce one greater than the current one
+                    .map(|n| n + 1);
+            rewrite |= m.target_start.is_some();
         }
+
         if rewrite {
             tracing::debug!(target: "mirror", "storing {:?} in DB for ({:?}, {:?})", &m, signer_id, target_public);
             self.db.put_cf(
