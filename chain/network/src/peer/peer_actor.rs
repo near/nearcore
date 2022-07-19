@@ -550,7 +550,8 @@ impl PeerActor {
             | PeerMessage::BlockRequest(_)
             | PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::EpochSyncRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_) => {
+            | PeerMessage::EpochSyncFinalizationRequest(_)
+            | PeerMessage::SyncAccountsData(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }

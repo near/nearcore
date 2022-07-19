@@ -91,7 +91,7 @@ impl Client {
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) =
             self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
-        assert!(errors.is_empty());
+        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         Ok(accepted_blocks)
     }
 
