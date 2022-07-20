@@ -7,6 +7,8 @@ use near_o11y::{
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
+use near_store::db::RocksDB;
+use near_store::Mode;
 use std::cell::Cell;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -69,7 +71,7 @@ impl NeardCmd {
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             NeardSubCommand::StateViewer(cmd) => {
-                let mode = if cmd.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
+                let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
                 cmd.subcmd.run(&home_dir, genesis_validation, mode);
             }
 
@@ -427,7 +429,7 @@ impl RunCmd {
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
-        near_store::db::RocksDB::block_until_all_instances_are_dropped();
+        RocksDB::block_until_all_instances_are_dropped();
     }
 }
 
