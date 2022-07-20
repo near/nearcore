@@ -228,6 +228,23 @@ fn prepare_env_with_congestion(
     (env, tx_hashes)
 }
 
+/// Create a `TestEnv` with an account and a contract deployed to that account.
+fn prepare_env_with_contract(
+    epoch_length: u64,
+    protocol_version: u32,
+    account: AccountId,
+    contract: Vec<u8>,
+) -> TestEnv {
+    let mut genesis = Genesis::test(vec![account.clone()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = protocol_version;
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    env
+}
+
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
@@ -2709,32 +2726,7 @@ fn test_execution_metadata() {
     };
 
     // Call the contract and get the execution outcome.
-    let execution_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let tx = Transaction {
-            signer_id: "test0".parse().unwrap(),
-            receiver_id: "test0".parse().unwrap(),
-            public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
-                gas: 100_000_000_000_000,
-                deposit: 0,
-            })],
-
-            nonce: 10,
-            block_hash: tip.last_block_hash,
-        }
-        .sign(&signer);
-        let tx_hash = tx.get_hash();
-
-        env.clients[0].process_tx(tx, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.query_transaction_status(&tx_hash)
-    };
+    let execution_outcome = env.call_main(&"test0".parse().unwrap());
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -3358,49 +3350,12 @@ fn verify_contract_limits_upgrade(
         env
     };
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: 100_000_000_000_000,
-            deposit: 0,
-        })],
-
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction & get tx outcome.
-    let old_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
+    let account = "test0".parse().unwrap();
+    let old_outcome = env.call_main(&account);
 
     env.upgrade_protocol(new_protocol_version);
 
-    // Re-run the transaction & get tx outcome.
-    let new_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
+    let new_outcome = env.call_main(&account);
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     let e = match new_outcome.status {
@@ -3494,33 +3449,15 @@ fn test_deploy_cost_increased() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::DeployContract(DeployContractAction { code: test_contract })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
+    let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
-    // Run the transaction & get tx outcome in a closure.
-    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..epoch_length {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
-
-    let old_outcome = deploy_contract(&mut env, 10);
+    let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
+    let old_outcome = env.execute_tx(tx);
 
     env.upgrade_protocol(new_protocol_version);
 
-    let new_outcome = deploy_contract(&mut env, 11);
+    let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+    let new_outcome = env.execute_tx(tx);
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -4990,7 +4927,6 @@ mod lower_storage_key_limit_test {
 
 mod new_contract_loading_cost {
     use super::*;
-    use near_primitives::views::FinalExecutionOutcomeView;
 
     /// Check that normal execution has the same gas cost after FixContractLoadingCost.
     #[test]
@@ -5005,18 +4941,20 @@ mod new_contract_loading_cost {
         let epoch_length: BlockHeight = 5;
 
         let account: AccountId = "test0".parse().unwrap();
-        let mut env =
-            test_env_with_contract(epoch_length, old_protocol_version, account.clone(), contract);
+        let mut env = prepare_env_with_contract(
+            epoch_length,
+            old_protocol_version,
+            account.clone(),
+            contract,
+        );
 
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-
-        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_result = env.call_main(&account);
         let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
 
         env.upgrade_protocol(new_protocol_version);
 
-        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_result = env.call_main(&account);
         let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
 
@@ -5036,22 +4974,20 @@ mod new_contract_loading_cost {
         let epoch_length: BlockHeight = 5;
 
         let account: AccountId = "test0".parse().unwrap();
-        let mut env = test_env_with_contract(
+        let mut env = prepare_env_with_contract(
             epoch_length,
             old_protocol_version,
             account.clone(),
             bad_contract,
         );
 
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-
-        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_result = env.call_main(&account);
         let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
 
         env.upgrade_protocol(new_protocol_version);
 
-        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_result = env.call_main(&account);
         let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
 
@@ -5062,62 +4998,5 @@ mod new_contract_loading_cost {
         let loading_byte = 216_750;
         let loading_cost = loading_base + contract_size as u64 * loading_byte;
         assert_eq!(old_gas + loading_cost, new_gas);
-    }
-
-    /// Create a `TestEnv` with a contract deployed for an account.
-    fn test_env_with_contract(
-        epoch_length: u64,
-        protocol_version: u32,
-        account: AccountId,
-        contract: Vec<u8>,
-    ) -> TestEnv {
-        let mut genesis = Genesis::test(vec![account], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = protocol_version;
-        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
-        deploy_test_contract(
-            &mut env,
-            "test0".parse().unwrap(),
-            &contract,
-            epoch_length.clone(),
-            1,
-        );
-        env
-    }
-
-    /// Execute a function call transaction that calls main on the `TestEnv`.
-    fn call_main(
-        env: &mut TestEnv,
-        signer: &InMemorySigner,
-        epoch_length: u64,
-    ) -> FinalExecutionOutcomeView {
-        let tx = Transaction {
-            signer_id: "test0".parse().unwrap(),
-            receiver_id: "test0".parse().unwrap(),
-            public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: vec![],
-                gas: 3 * 10u64.pow(14),
-                deposit: 0,
-            })],
-
-            nonce: 0,
-            block_hash: CryptoHash::default(),
-        };
-
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_tx =
-            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
-                .sign(signer);
-        let tx_hash = signed_tx.get_hash().clone();
-        env.clients[0].process_tx(signed_tx, false, false);
-        for i in 0..epoch_length {
-            let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-            env.process_block(0, block.clone(), Provenance::PRODUCED);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 }
