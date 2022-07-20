@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use glob::Pattern;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
@@ -129,6 +130,8 @@ pub fn state_dump(
 }
 
 pub fn state_dump_redis(
+    include: Vec<String>,
+    exclude: Vec<String>,
     runtime: NightshadeRuntime,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
@@ -166,6 +169,9 @@ pub fn state_dump_redis(
         Ok(())
     };
 
+    let include_patterns: Vec<Pattern> = include.iter().map(|str| { Pattern::new(&str).expect(&format!("error parsing include: '{}'", str)) }).collect();
+    let exclude_patterns: Vec<Pattern> = exclude.iter().map(|str| { Pattern::new(&str).expect(&format!("error parsing exclude: '{}'", str)) }).collect();
+
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
             .get_trie_for_shard(
@@ -178,6 +184,14 @@ pub fn state_dump_redis(
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                let account_id = state_record_to_account_id(&sr);
+                if !include_patterns.is_empty() && !include_patterns.iter().any(|pattern| pattern.matches(account_id)) {
+                    continue;
+                }
+                if !exclude_patterns.is_empty() && exclude_patterns.iter().any(|pattern| pattern.matches(account_id)) {
+                    continue;
+                }
+
                 if let StateRecord::Account { account_id, account } = &sr {
                     let value = account.try_to_vec().unwrap();
                     handle_update(b"a", account_id, None, &value)?;

@@ -102,6 +102,8 @@ pub(crate) fn dump_state(
 
 pub(crate) fn dump_state_redis(
     height: Option<BlockHeight>,
+    include: Vec<String>,
+    exclude: Vec<String>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -113,7 +115,7 @@ pub(crate) fn dump_state_redis(
     let (runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
 
-    let res = state_dump_redis(runtime, &state_roots, header);
+    let res = state_dump_redis(include, exclude, runtime, &state_roots, header);
     assert_eq!(res, Ok(()));
 }
 

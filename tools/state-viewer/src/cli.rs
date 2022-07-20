@@ -160,11 +160,19 @@ pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
     height: Option<BlockHeight>,
+
+    /// Optionally, can specify which accounts to include (supports glob patterns)
+    #[clap(long)]
+    include: Vec<String>,
+
+    /// Optionally, can specify which accounts to exclude (supports glob patterns)
+    #[clap(long)]
+    exclude: Vec<String>,
 }
 
 impl DumpStateRedisCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        dump_state_redis(self.height, home_dir, near_config, store);
+        dump_state_redis(self.height, self.include, self.exclude, home_dir, near_config, store);
     }
 }
 

@@ -10,6 +10,7 @@ ansi_term.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
+glob.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
