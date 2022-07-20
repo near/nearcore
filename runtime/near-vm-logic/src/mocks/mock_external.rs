@@ -1,9 +1,7 @@
 use crate::{External, ValuePtr};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::TrieNodesCount;
-use near_primitives_core::serialize;
-use near_primitives_core::types::{AccountId, Balance, Gas};
-use serde::{Deserialize, Serialize};
+use near_primitives_core::types::{AccountId, Balance};
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
@@ -44,7 +42,6 @@ impl MockedExternal {
 }
 
 use crate::dependencies::Result;
-use crate::types::PublicKey;
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -92,84 +89,4 @@ impl External for MockedExternal {
     fn validator_total_stake(&self) -> Result<Balance> {
         Ok(self.validators.values().sum())
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Receipt {
-    receipt_indices: Vec<u64>,
-    receiver_id: AccountId,
-    actions: Vec<Action>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum Action {
-    CreateAccount,
-    DeployContract(DeployContractAction),
-    FunctionCall(FunctionCallAction),
-    Transfer(TransferAction),
-    Stake(StakeAction),
-    AddKeyWithFullAccess(AddKeyWithFullAccessAction),
-    AddKeyWithFunctionCall(AddKeyWithFunctionCallAction),
-    DeleteKey(DeleteKeyAction),
-    DeleteAccount(DeleteAccountAction),
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DeployContractAction {
-    pub code: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct FunctionCallAction {
-    #[serde(with = "serialize::bytes_as_str")]
-    method_name: Vec<u8>,
-    /// Most function calls still take JSON as input, so we'll keep it there as a string.
-    /// Once we switch to borsh, we'll have to switch to base64 encoding.
-    /// Right now, it is only used with standalone runtime when passing in Receipts or expecting
-    /// receipts. The workaround for input is to use a VMContext input.
-    #[serde(with = "serialize::bytes_as_str")]
-    args: Vec<u8>,
-    gas: Gas,
-    deposit: Balance,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TransferAction {
-    deposit: Balance,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct StakeAction {
-    stake: Balance,
-    #[serde(with = "serialize::base_bytes_format")]
-    public_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct AddKeyWithFullAccessAction {
-    #[serde(with = "serialize::base_bytes_format")]
-    public_key: PublicKey,
-    nonce: u64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct AddKeyWithFunctionCallAction {
-    #[serde(with = "serialize::base_bytes_format")]
-    public_key: PublicKey,
-    nonce: u64,
-    allowance: Option<Balance>,
-    receiver_id: AccountId,
-    #[serde(with = "serialize::vec_bytes_as_str")]
-    method_names: Vec<Vec<u8>>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DeleteKeyAction {
-    #[serde(with = "serialize::base_bytes_format")]
-    public_key: PublicKey,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DeleteAccountAction {
-    beneficiary_id: AccountId,
 }
