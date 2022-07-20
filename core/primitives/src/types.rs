@@ -445,6 +445,7 @@ impl StateRootNode {
     Eq,
     PartialEq,
     PartialOrd,
+    Ord,
     DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,

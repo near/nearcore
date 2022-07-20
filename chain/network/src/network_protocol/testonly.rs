@@ -87,7 +87,8 @@ pub fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
 
 pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
     let account_id = make_account_id(rng);
-    InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, &account_id)
+    let seed = rng.gen::<u64>().to_string();
+    InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
 }
 
 pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
@@ -314,7 +315,8 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
-    clock: &time::Clock,
+    timestamp: time::Utc,
+    epoch_id: EpochId,
     account_id: AccountId,
 ) -> AccountData {
     AccountData {
@@ -335,14 +337,17 @@ pub fn make_account_data(
             },
         ],
         account_id,
-        epoch_id: make_epoch_id(rng),
-        timestamp: clock.now_utc(),
+        epoch_id,
+        timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_signer(rng);
-    make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
+    let epoch_id = make_epoch_id(rng);
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.account_id.clone())
+        .sign(&signer)
+        .unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData
