@@ -140,6 +140,32 @@ pub fn state_dump_redis(
     let block_height = last_block_header.height();
     let block_hash = last_block_header.hash();
 
+    let mut handle_update = |scope: &[u8], account_id: &AccountId, data_key: Option<&[u8]>, data_value: &[u8]| -> redis::RedisResult<()> {
+        let redis_key = if let Some(data_key) = data_key {
+            [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat()
+        } else {
+            account_id.as_ref().as_bytes().to_vec()
+        };
+
+        redis_connection.zadd(
+            [b"h:", scope, b":", redis_key.as_slice()].concat(),
+            block_hash.as_ref(),
+            block_height,
+        )?;
+        redis_connection.set(
+            [b"d", scope, b":", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+            data_value,
+        )?;
+        if let Some(data_key) = data_key {
+            redis_connection.hset(
+                [b"k:", scope, b":", account_id.as_ref().as_bytes()].concat(),
+                data_key.as_ref() as &[u8],
+                block_height)?;
+        }
+
+        Ok(())
+    };
+
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
             .get_trie_for_shard(
@@ -153,78 +179,26 @@ pub fn state_dump_redis(
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
-                    println!("Account: {}", account_id);
-                    let redis_key = account_id.as_ref().as_bytes();
-                    redis_connection.zadd(
-                        [b"h:a:", redis_key].concat(),
-                        block_hash.as_ref(),
-                        block_height,
-                    )?;
                     let value = account.try_to_vec().unwrap();
-                    redis_connection.set(
-                        [b"d:a:", redis_key, b":", block_hash.as_ref()].concat(),
-                        value,
-                    )?;
-                    println!("Account written: {}", account_id);
+                    handle_update(b"a", account_id, None, &value)?;
+                    println!("Account: {}", account_id);
                 }
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
+                    handle_update(b"d", account_id, Some(data_key), &value)?;
                     println!("Data: {}", account_id);
-                    let redis_key =
-                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
-                    redis_connection.zadd(
-                        [b"h:d:", redis_key.as_slice()].concat(),
-                        block_hash.as_ref(),
-                        block_height,
-                    )?;
-                    let value_vec: &[u8] = value.as_ref();
-                    redis_connection.set(
-                        [b"d:d:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
-                        value_vec,
-                    )?;
-                    redis_connection.hset(
-                        [b"k:d:", account_id.as_ref().as_bytes()].concat(),
-                        data_key.as_ref() as &[u8],
-                        block_height)?;
-                    println!("Data written: {}", account_id);
                 }
 
                 if let StateRecord::AccessKey { account_id, public_key, access_key } = &sr {
-                    println!("Data: {}", account_id);
                     let data_key = public_key.try_to_vec().unwrap();
-                    let redis_key =
-                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
-                    redis_connection.zadd(
-                        [b"h:k:", redis_key.as_slice()].concat(),
-                        block_hash.as_ref(),
-                        block_height,
-                    )?;
-                    let value_vec = access_key.try_to_vec().unwrap();
-                    redis_connection.set(
-                        [b"d:k:", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
-                        value_vec,
-                    )?;
-                    redis_connection.hset(
-                        [b"k:k:", account_id.as_ref().as_bytes()].concat(),
-                        data_key.as_ref() as &[u8],
-                        block_height)?;
-                    println!("Access key written: {}", account_id);
+                    let value = access_key.try_to_vec().unwrap();
+                    handle_update(b"k", account_id, Some(&data_key), &value)?;
+                    println!("AccessKey: {}", account_id);
                 }
 
                 if let StateRecord::Contract { account_id, code } = &sr {
+                    handle_update(b"c", account_id, None, code.as_ref())?;
                     println!("Contract: {}", account_id);
-                    let redis_key = account_id.as_ref().as_bytes();
-                    redis_connection.zadd(
-                        [b"h:c:", redis_key.clone()].concat(),
-                        block_hash.as_ref(),
-                        block_height
-                    )?;
-                    let value_vec: &[u8] = code.as_ref();
-                    redis_connection.set(
-                       [b"d:c:", redis_key.clone(), b":", block_hash.as_ref()].concat(),
-                        value_vec,
-                    )?;
-                    println!("Contract written: {}", account_id);
                 }
             }
         }
