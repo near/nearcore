@@ -62,9 +62,51 @@ pub(crate) fn print_epoch_info(
             epoch_manager,
             runtime_adapter.clone(),
         );
+
+        println!("---");
+
+        display_block_and_chunk_producers(
+            epoch_id,
+            epoch_info,
+            chain_store,
+            epoch_manager,
+            runtime_adapter.clone(),
+        );
     }
     println!("=========================");
     println!("Found {} epochs", epoch_ids.len());
+}
+
+fn display_block_and_chunk_producers(
+    epoch_id: &EpochId,
+    epoch_info: &EpochInfo,
+    chain_store: &mut ChainStore,
+    epoch_manager: &mut EpochManager,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+) {
+    let block_height_range: Range<BlockHeight> =
+        get_block_height_range(&epoch_info, &chain_store, epoch_manager);
+    let num_shards = runtime_adapter.num_shards(epoch_id).unwrap();
+    let _: Vec<()> = block_height_range
+        .clone()
+        .into_iter()
+        .map(|block_height| {
+            let bp = epoch_info.sample_block_producer(block_height);
+            let bp = epoch_info.get_validator(bp).account_id().clone();
+            let cps: Vec<AccountId> = (0..num_shards)
+                .into_iter()
+                .map(|shard_id| {
+                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                    let cp = epoch_info.get_validator(cp).account_id().clone();
+                    cp
+                })
+                .collect();
+            println!(
+                "Block height: {}. Block Producer: {}. Chunk Producers: {:?}",
+                block_height, bp, cps
+            );
+        })
+        .collect();
 }
 
 // Iterate over each epoch starting from the head. Find the requested epoch and its previous epoch
