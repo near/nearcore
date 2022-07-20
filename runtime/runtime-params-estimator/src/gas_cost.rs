@@ -24,7 +24,7 @@ pub(crate) struct GasCost {
     /// nanoseconds here!
     time_ns: Option<Ratio<u64>>,
     // Values used for `GasMetric::ICount`
-    qemu_measurement: Option<QemuMeasurement>,
+    qemu: Option<QemuMeasurement>,
     /// Signals that the measurement was uncertain (ie, had high variance), and
     /// that the estimation needs to be re-run.
     ///
@@ -48,7 +48,7 @@ struct MeasurementUncertainty {
 
 impl GasCost {
     pub(crate) fn zero() -> GasCost {
-        GasCost { time_ns: None, qemu_measurement: None, uncertain: None }
+        GasCost { time_ns: None, qemu: None, uncertain: None }
     }
 
     pub(crate) fn measure(metric: GasMetric) -> GasClock {
@@ -65,7 +65,7 @@ impl GasCost {
         let mut result = GasCost::zero();
         match metric {
             GasMetric::ICount => {
-                result.qemu_measurement = Some(QemuMeasurement {
+                result.qemu = Some(QemuMeasurement {
                     instructions: raw / GAS_IN_INSTR,
                     io_r_bytes: 0.into(),
                     io_w_bytes: 0.into(),
@@ -143,7 +143,7 @@ impl GasCost {
     }
 
     fn saturating_sub_no_uncertain_check(&self, rhs: &Self) -> Self {
-        let qemu_measurement = match (&self.qemu_measurement, &rhs.qemu_measurement) {
+        let qemu = match (&self.qemu, &rhs.qemu) {
             (Some(lhs), Some(rhs)) => Some(QemuMeasurement {
                 instructions: saturating_sub(lhs.instructions, rhs.instructions),
                 io_r_bytes: saturating_sub(lhs.io_r_bytes, rhs.io_r_bytes),
@@ -155,7 +155,7 @@ impl GasCost {
             (Some(lhs), Some(rhs)) => Some(saturating_sub(lhs, rhs)),
             (any_lhs, _any_rhs) => any_lhs,
         };
-        GasCost { time_ns, qemu_measurement, uncertain: None }
+        GasCost { time_ns, qemu, uncertain: None }
     }
 
     /// Does nothing if `GasCost` is already uncertain, otherise copies
@@ -171,13 +171,13 @@ impl GasCost {
     /// stable.
 
     pub fn to_json(&self) -> serde_json::Value {
-        if let Some(qemu_measurement) = &self.qemu_measurement {
+        if let Some(qemu) = &self.qemu {
             json!({
                 "gas": self.to_gas(),
                 "metric": "icount",
-                "instructions": qemu_measurement.instructions.to_f64(),
-                "io_r_bytes": qemu_measurement.io_r_bytes.to_f64(),
-                "io_w_bytes": qemu_measurement.io_w_bytes.to_f64(),
+                "instructions": qemu.instructions.to_f64(),
+                "io_r_bytes": qemu.io_r_bytes.to_f64(),
+                "io_w_bytes": qemu.io_w_bytes.to_f64(),
                 // `None` will be printed as `null`
                 "uncertain_reason": self.uncertain.map(|u| u.reason),
             })
@@ -291,20 +291,16 @@ fn least_squares_method_gas_cost_pos_neg(
     pos_factor.uncertain = uncertain;
 
     if let Some(first) = ys.get(0) {
-        if first.qemu_measurement.is_some() {
-            assert!(
-                ys.iter().all(|y| y.qemu_measurement.is_some()),
-                "least square expects homogenous data"
-            );
+        if first.qemu.is_some() {
+            assert!(ys.iter().all(|y| y.qemu.is_some()), "least square expects homogenous data");
 
-            let qemu_ys =
-                ys.iter().map(|y| y.qemu_measurement.clone().unwrap()).collect::<Vec<_>>();
+            let qemu_ys = ys.iter().map(|y| y.qemu.clone().unwrap()).collect::<Vec<_>>();
 
             let (pos, neg) = crate::least_squares::qemu_measurement_least_squares(xs, &qemu_ys);
-            pos_base.qemu_measurement = Some(pos.0);
-            pos_factor.qemu_measurement = Some(pos.1);
-            neg_base.qemu_measurement = Some(neg.0);
-            neg_factor.qemu_measurement = Some(neg.1);
+            pos_base.qemu = Some(pos.0);
+            pos_factor.qemu = Some(pos.1);
+            neg_base.qemu = Some(neg.0);
+            neg_factor.qemu = Some(neg.1);
         }
         if first.time_ns.is_some() {
             assert!(ys.iter().all(|y| y.time_ns.is_some()), "least square expects homogenous data");
@@ -338,8 +334,8 @@ impl GasClock {
 
         match self.metric {
             GasMetric::ICount => {
-                let qemu_measurement = QemuMeasurement::end_count_instructions();
-                result.qemu_measurement = Some(qemu_measurement);
+                let qemu = QemuMeasurement::end_count_instructions();
+                result.qemu = Some(qemu);
             }
             GasMetric::Time => {
                 let ns: u64 = self.start.elapsed().as_nanos().try_into().unwrap();
@@ -353,13 +349,13 @@ impl GasClock {
 
 impl fmt::Debug for GasCost {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(qemu_measurement) = &self.qemu_measurement {
+        if let Some(qemu) = &self.qemu {
             write!(
                 f,
                 "{:0.2}i {:0.2}r {:0.2}w",
-                qemu_measurement.instructions.to_f64().unwrap(),
-                qemu_measurement.io_r_bytes.to_f64().unwrap(),
-                qemu_measurement.io_w_bytes.to_f64().unwrap()
+                qemu.instructions.to_f64().unwrap(),
+                qemu.io_r_bytes.to_f64().unwrap(),
+                qemu.io_w_bytes.to_f64().unwrap()
             )
         } else if let Some(time_ns) = self.time_ns {
             if time_ns >= 1.into() {
@@ -379,7 +375,7 @@ impl ops::Add for GasCost {
 
     fn add(mut self, rhs: GasCost) -> Self::Output {
         self.combine_uncertain(&rhs);
-        let qemu_measurement = match (self.qemu_measurement, rhs.qemu_measurement) {
+        let qemu = match (self.qemu, rhs.qemu) {
             (None, None) => None,
             (Some(lhs), Some(rhs)) => Some(lhs + rhs),
             (single_value, None) | (None, single_value) => single_value,
@@ -389,7 +385,7 @@ impl ops::Add for GasCost {
             (Some(lhs), Some(rhs)) => Some(lhs + rhs),
             (single_value, None) | (None, single_value) => single_value,
         };
-        GasCost { time_ns, qemu_measurement, uncertain: self.uncertain }
+        GasCost { time_ns, qemu, uncertain: self.uncertain }
     }
 }
 
@@ -422,10 +418,10 @@ impl ops::Mul<u64> for GasCost {
     type Output = GasCost;
 
     fn mul(mut self, rhs: u64) -> Self::Output {
-        if let Some(qemu_measurement) = &mut self.qemu_measurement {
-            qemu_measurement.instructions *= rhs;
-            qemu_measurement.io_r_bytes *= rhs;
-            qemu_measurement.io_w_bytes *= rhs;
+        if let Some(qemu) = &mut self.qemu {
+            qemu.instructions *= rhs;
+            qemu.io_r_bytes *= rhs;
+            qemu.io_w_bytes *= rhs;
         }
         if let Some(time_ns) = &mut self.time_ns {
             *time_ns *= rhs;
@@ -438,10 +434,10 @@ impl ops::Div<u64> for GasCost {
     type Output = GasCost;
 
     fn div(mut self, rhs: u64) -> Self::Output {
-        if let Some(qemu_measurement) = &mut self.qemu_measurement {
-            qemu_measurement.instructions /= rhs;
-            qemu_measurement.io_r_bytes /= rhs;
-            qemu_measurement.io_w_bytes /= rhs;
+        if let Some(qemu) = &mut self.qemu {
+            qemu.instructions /= rhs;
+            qemu.io_r_bytes /= rhs;
+            qemu.io_w_bytes /= rhs;
         }
         if let Some(time_ns) = &mut self.time_ns {
             *time_ns /= rhs;
@@ -472,7 +468,7 @@ impl Ord for GasCost {
 
 impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
-        if let Some(qemu) = &self.qemu_measurement {
+        if let Some(qemu) = &self.qemu {
             (GAS_IN_INSTR * qemu.instructions
                 + IO_READ_BYTE_COST * qemu.io_r_bytes
                 + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
@@ -528,12 +524,12 @@ mod tests {
             io_w_bytes: impl Into<Ratio<u64>>,
         ) -> Self {
             let mut result = GasCost::zero();
-            let qemu_measurement = QemuMeasurement {
+            let qemu = QemuMeasurement {
                 instructions: instructions.into(),
                 io_r_bytes: io_r_bytes.into(),
                 io_w_bytes: io_w_bytes.into(),
             };
-            result.qemu_measurement = Some(qemu_measurement);
+            result.qemu = Some(qemu);
             result
         }
     }
