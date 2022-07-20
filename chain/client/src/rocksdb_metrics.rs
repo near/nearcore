@@ -2,7 +2,7 @@ use near_metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };
-use near_store::db::{col_verbose_name, StatsValue, StoreStatistics};
+use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -31,6 +31,12 @@ pub(crate) struct RocksDBMetrics {
     int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
+}
+
+/// Returns column's name as name in the DBCol enum without '_' prefix for deprecated columns.
+fn col_verbose_name(col: near_store::DBCol) -> &'static str {
+    let name: &str = col.into();
+    name.strip_prefix("_").unwrap_or(name)
 }
 
 impl RocksDBMetrics {

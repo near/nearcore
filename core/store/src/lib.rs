@@ -44,7 +44,7 @@ pub mod migrations;
 pub mod test_utils;
 mod trie;
 
-pub use crate::config::{StoreConfig, StoreOpener};
+pub use crate::config::{Mode, StoreConfig, StoreOpener};
 
 #[derive(Clone)]
 pub struct Store {
