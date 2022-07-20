@@ -18,6 +18,11 @@ use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
+/// List of integer RocskDB properties we’re reading when collecting statistics.
+///
+/// In the end, they are exported as Prometheus metrics.
+pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -281,18 +286,22 @@ impl Database for RocksDB {
         self.db.flush().map_err(into_other)
     }
 
+    /// Trying to get
+    /// 1. RocksDB statistics
+    /// 2. Selected RockdDB properties for column families
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
+        let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
-            match parse_statistics(&stats_str) {
-                Ok(parsed_statistics) => {
-                    return Some(parsed_statistics);
-                }
-                Err(err) => {
-                    warn!(target: "store", "Failed to parse store statistics: {:?}", err);
-                }
+            if let Err(err) = parse_statistics(&stats_str, &mut result) {
+                warn!(target: "store", "Failed to parse store statistics: {:?}", err);
             }
         }
-        None
+        self.get_cf_statistics(&mut result);
+        if result.data.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 }
 
@@ -501,6 +510,22 @@ impl RocksDB {
     pub fn checkpoint(&self) -> io::Result<Checkpoint> {
         Checkpoint::new(&self.db).map_err(into_other)
     }
+
+    /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
+    fn get_cf_statistics(&self, result: &mut StoreStatistics) {
+        for stat_name in CF_STAT_NAMES {
+            let mut values = vec![];
+            for col in DBCol::iter() {
+                let size = self.db.property_int_value_cf(self.cf_handle(col), stat_name);
+                if let Ok(Some(value)) = size {
+                    values.push(StatsValue::ColumnValue(col, value as i64));
+                }
+            }
+            if !values.is_empty() {
+                result.data.push((stat_name.to_string(), values));
+            }
+        }
+    }
 }
 
 fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
@@ -561,8 +586,11 @@ impl Drop for InstanceCounter {
 }
 
 /// Parses a string containing RocksDB statistics.
-fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::error::Error>> {
-    let mut result = vec![];
+/// Results are added into provided 'result' parameter.
+fn parse_statistics(
+    statistics: &str,
+    result: &mut StoreStatistics,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Statistics are given one per line.
     for line in statistics.lines() {
         // Each line follows one of two formats:
@@ -585,10 +613,11 @@ fn parse_statistics(statistics: &str) -> Result<StoreStatistics, Box<dyn std::er
                     }
                 }
             }
-            result.push((stat_name.to_string(), values));
+            // We push some stats to result, even if later parsing will fail.
+            result.data.push((stat_name.to_string(), values));
         }
     }
-    Ok(StoreStatistics { data: result })
+    Ok(())
 }
 
 fn other_error(msg: String) -> io::Error {
@@ -687,9 +716,12 @@ mod tests {
     fn test_parse_statistics() {
         let statistics = "rocksdb.cold.file.read.count COUNT : 999\n\
          rocksdb.db.get.micros P50 : 9.171086 P95 : 222.678751 P99 : 549.611652 P100 : 45816.000000 COUNT : 917578 SUM : 38313754";
-        let result = super::parse_statistics(statistics);
+        let mut result = StoreStatistics { data: vec![] };
+        let parse_result = parse_statistics(statistics, &mut result);
+        // We should be able to parse stats and the result should be Ok(()).
+        assert_eq!(parse_result.unwrap(), ());
         assert_eq!(
-            result.unwrap(),
+            result,
             StoreStatistics {
                 data: vec![
                     ("rocksdb.cold.file.read.count".to_string(), vec![StatsValue::Count(999)]),

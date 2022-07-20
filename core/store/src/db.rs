@@ -149,6 +149,7 @@ pub enum StatsValue {
     Count(i64),
     Sum(i64),
     Percentile(u32, f64),
+    ColumnValue(DBCol, i64),
 }
 
 #[derive(Debug, PartialEq)]
