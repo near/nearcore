@@ -69,7 +69,7 @@ impl NeardCmd {
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             NeardSubCommand::StateViewer(cmd) => {
-                let mode = near_store::Mode::read_write(cmd.readwrite);
+                let mode = if cmd.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
                 cmd.subcmd.run(&home_dir, genesis_validation, mode);
             }
 

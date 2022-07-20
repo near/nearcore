@@ -54,16 +54,6 @@ pub enum Mode {
     ReadWrite,
 }
 
-impl Mode {
-    pub fn read_write(rw: bool) -> Self {
-        if rw {
-            Self::ReadWrite
-        } else {
-            Self::ReadOnly
-        }
-    }
-}
-
 impl StoreConfig {
     /// Returns configuration meant for tests.
     ///
