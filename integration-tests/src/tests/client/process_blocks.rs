@@ -3449,33 +3449,15 @@ fn test_deploy_cost_increased() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::DeployContract(DeployContractAction { code: test_contract })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
+    let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
-    // Run the transaction & get tx outcome in a closure.
-    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..epoch_length {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
-
-    let old_outcome = deploy_contract(&mut env, 10);
+    let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
+    let old_outcome = env.execute_tx(tx);
 
     env.upgrade_protocol(new_protocol_version);
 
-    let new_outcome = deploy_contract(&mut env, 11);
+    let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+    let new_outcome = env.execute_tx(tx);
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));
