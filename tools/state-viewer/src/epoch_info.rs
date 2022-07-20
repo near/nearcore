@@ -131,9 +131,13 @@ fn get_block_height_range(
             epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
             epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
+        let cur_epoch_start_height =
+            epoch_manager.get_epoch_start_height(cur_block_info.hash()).unwrap();
+        let cur_epoch_id = cur_block_info.epoch_id();
+        let next_epoch_start_height = cur_epoch_start_height
+            + epoch_manager.get_epoch_config(cur_epoch_id).unwrap().epoch_length;
         if cur_epoch_height == epoch_info.epoch_height() {
-            return epoch_manager.get_epoch_start_height(cur_block_info.hash()).unwrap()
-                ..(cur_block_info.height() + 1);
+            return cur_epoch_start_height..next_epoch_start_height;
         }
         cur_block_info = prev_epoch_last_block_info;
     }
