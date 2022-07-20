@@ -22,7 +22,7 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -36,7 +36,7 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, Transaction};
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
     ShardId,
@@ -1549,28 +1549,30 @@ impl TestEnv {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
 
-    /// Create and process a SIR tx from actions and return the execution outcome.
-    ///
-    /// The signer defines both sender and receiver of the transaction, hence it
-    /// is a Sender-is-Receiver transaction.
-    pub fn execute_sir_tx(
+    /// Create and sign transaction ready for execution.
+    pub fn tx_from_actions(
         &mut self,
         actions: Vec<Action>,
         signer: &InMemorySigner,
-    ) -> FinalExecutionOutcomeView {
+        receiver: AccountId,
+    ) -> SignedTransaction {
         let tip = self.clients[0].chain.head().unwrap();
-        let tx = Transaction {
-            signer_id: signer.account_id.clone(),
-            receiver_id: signer.account_id.clone(),
-            public_key: signer.public_key(),
+        SignedTransaction::from_actions(
+            tip.height + 1,
+            signer.account_id.clone(),
+            receiver,
+            signer,
             actions,
-            nonce: tip.height + 1,
-            block_hash: tip.last_block_hash,
-        };
-        let signed_tx = tx.sign(signer);
-        let tx_hash = signed_tx.get_hash().clone();
-        self.clients[0].process_tx(signed_tx, false, false);
-        let max_iters = 1000;
+            tip.last_block_hash,
+        )
+    }
+
+    /// Process a tx and its receipts, then return the execution outcome.
+    pub fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
+        let tx_hash = tx.get_hash().clone();
+        self.clients[0].process_tx(tx, false, false);
+        let max_iters = 100;
+        let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
             let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             self.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -1594,8 +1596,8 @@ impl TestEnv {
             gas: 3 * 10u64.pow(14),
             deposit: 0,
         })];
-
-        self.execute_sir_tx(actions, &signer)
+        let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
+        self.execute_tx(tx)
     }
 }
 
