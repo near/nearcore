@@ -88,9 +88,14 @@ Saves the current state of the network in a new genesis file.
 
 Flags:
 
-* `--height` takes state from the genesis up to and including the given height. By default, the tool dumps all available states.
+* `--height` describes states to be dumped from the genesis up to and including the given height.
 
-* `--account-ids`, if set, specifies the only accounts that will appear in the output genesis file, except for validators, who will always be included.
+* `--account-ids`, if set, specifies the only accounts that will appear in the output genesis file,
+  except for validators, which and treasury accounts, which will always be included.
+
+* `--validator-cap`, if set, specifies the maximum number of validators suggested in the output.
+  Note that this cap may be exceeded if validators are selected in the `--account-ids` parameter.
+  By default, the cap is unlimited.
 
 Example:
 
