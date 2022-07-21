@@ -801,7 +801,6 @@ impl Trie {
                         value_hash,
                         memory_usage,
                     ));
-                    levels.reverse();
                     return Ok(levels);
                 }
                 RawTrieNode::Extension(existing_key, child) => {
@@ -904,7 +903,7 @@ mod tests {
                 CryptoHash::hash_bytes(&v)
             };
             let mut hash = Trie::empty_root();
-            for (item_idx, level) in levels.into_iter().enumerate() {
+            for (item_idx, level) in levels.into_iter().rev().enumerate() {
                 match level {
                     TrieMerkleProofItem::Leaf(v, hash_index, hash_value, memory_usage) => {
                         // verify that the leaf always appears as the first element in the level
