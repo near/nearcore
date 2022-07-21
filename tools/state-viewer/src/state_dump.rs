@@ -160,7 +160,8 @@ pub fn state_dump_redis(
             data_value,
         )?;
         if let Some(data_key) = data_key {
-            redis_connection.hset(
+            // NOTE: using hset_nx to avoid overwriting data from running indexer
+            redis_connection.hset_nx(
                 [b"k:", scope, b":", account_id.as_ref().as_bytes()].concat(),
                 data_key.as_ref() as &[u8],
                 block_height)?;
