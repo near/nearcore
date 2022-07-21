@@ -11,8 +11,10 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state_proof::{
+    TrieProofBranch, TrieProofExtension, TrieProofItem, TrieProofLeaf,
+};
 use near_primitives::types::{StateRoot, StateRootNode};
-use serde::{Deserialize, Serialize};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -114,17 +116,6 @@ impl TrieNodeWithSize {
     fn empty() -> TrieNodeWithSize {
         TrieNodeWithSize { node: TrieNode::Empty, memory_usage: 0 }
     }
-}
-
-/// Trie Merkle Proof Item is an element of a merkle proof
-///
-/// Can be either a Leaf, an Extension or a Branch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TrieMerkleProofItem {
-    Leaf(Vec<u8>, u32, CryptoHash, u64),
-    Extension((Vec<u8>, CryptoHash, u64)),
-    // the branch info without the element, memory usage and the index in the children array
-    Branch(([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>, u64, u8)),
 }
 
 impl TrieNode {
@@ -781,7 +772,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         key: &[u8],
-    ) -> Result<Vec<TrieMerkleProofItem>, StorageError> {
+    ) -> Result<Vec<TrieProofItem>, StorageError> {
         let mut key = NibbleSlice::new(key);
 
         let mut hash = *root;
@@ -789,7 +780,7 @@ impl Trie {
             return Ok(vec![]);
         }
 
-        let mut levels: Vec<TrieMerkleProofItem> = vec![];
+        let mut levels: Vec<TrieProofItem> = vec![];
         loop {
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
@@ -802,53 +793,59 @@ impl Trie {
                     if NibbleSlice::from_encoded(&existing_key).0 != key {
                         return Ok(vec![]);
                     }
-                    levels.push(TrieMerkleProofItem::Leaf(
-                        existing_key,
+                    levels.push(TrieProofItem::Leaf(Box::new(TrieProofLeaf {
+                        key: existing_key,
                         value_length,
                         value_hash,
                         memory_usage,
-                    ));
+                    })));
                     return Ok(levels);
                 }
-                RawTrieNode::Extension(existing_key, child) => {
+                RawTrieNode::Extension(existing_key, child_hash) => {
                     let existing_key_clone = existing_key.clone();
                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
                     if !key.starts_with(&existing_key) {
                         return Ok(vec![]);
                     }
-                    hash = child;
+                    hash = child_hash;
                     key = key.mid(existing_key.len());
 
-                    levels.push(TrieMerkleProofItem::Extension((
-                        existing_key_clone,
-                        child,
+                    levels.push(TrieProofItem::Extension(Box::new(TrieProofExtension {
+                        key: existing_key_clone,
+                        child_hash,
                         memory_usage,
-                    )));
+                    })));
                 }
                 RawTrieNode::Branch(children, value) => {
+                    let mut level = children.clone();
+                    let idx = key.at(0) as usize;
+                    levels.push(TrieProofItem::Branch(Box::new(TrieProofBranch {
+                        children: level,
+                        value,
+                        memory_usage,
+                        index: idx as _,
+                    })));
+
                     if key.is_empty() {
                         match value {
                             Some(_) => return Ok(levels),
                             None => return Ok(vec![]),
                         }
                     } else {
-                        let mut level = children.clone();
-                        let idx = key.at(0) as usize;
                         let child = children[idx];
                         if child.is_none() {
                             return Ok(vec![]);
                         }
-                        let hash_idx = idx as _;
                         hash = child.unwrap();
                         level[idx] = None;
                         key = key.mid(1);
 
-                        levels.push(TrieMerkleProofItem::Branch((
-                            level,
+                        levels.push(TrieProofItem::Branch(Box::new(TrieProofBranch {
+                            children: level,
                             value,
                             memory_usage,
-                            hash_idx,
-                        )));
+                            index: idx as _,
+                        })));
                     }
                 }
             };
@@ -900,7 +897,7 @@ mod tests {
     impl Trie {
         pub fn verify_proof(
             &self,
-            levels: Vec<TrieMerkleProofItem>,
+            levels: Vec<TrieProofItem>,
             value: &[u8],
             expected_hash: CryptoHash,
         ) -> bool {
@@ -912,28 +909,31 @@ mod tests {
             let mut hash = Trie::empty_root();
             for (item_idx, level) in levels.into_iter().rev().enumerate() {
                 match level {
-                    TrieMerkleProofItem::Leaf(v, hash_index, hash_value, memory_usage) => {
+                    TrieProofItem::Leaf(inner) => {
+                        let TrieProofLeaf { key, value_length, value_hash, memory_usage } = *inner;
                         // verify that the leaf always appears as the first element in the level
                         assert!(item_idx == 0);
-                        if CryptoHash::hash_bytes(value) != hash_value {
+                        if CryptoHash::hash_bytes(value) != value_hash {
                             return false;
                         }
                         let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Leaf(v, hash_index, hash_value),
+                            node: RawTrieNode::Leaf(key, value_length, value_hash),
                             memory_usage,
                         };
 
                         hash = hash_node(node);
                     }
-                    TrieMerkleProofItem::Extension((key, hash_value, memory_usage)) => {
+                    TrieProofItem::Extension(inner) => {
+                        let TrieProofExtension { key, child_hash, memory_usage } = *inner;
                         let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Extension(key, hash_value),
+                            node: RawTrieNode::Extension(key, child_hash),
                             memory_usage,
                         };
                         hash = hash_node(node);
                     }
-                    TrieMerkleProofItem::Branch((mut children, value, memory_usage, hash_idx)) => {
-                        children[hash_idx as usize] = Some(hash);
+                    TrieProofItem::Branch(inner) => {
+                        let TrieProofBranch { mut children, value, memory_usage, index } = *inner;
+                        children[index as usize] = Some(hash);
                         let node = RawTrieNodeWithSize {
                             node: RawTrieNode::Branch(children, value),
                             memory_usage,

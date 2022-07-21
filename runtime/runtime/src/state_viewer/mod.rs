@@ -160,16 +160,7 @@ impl TrieViewer {
         let trie = state_update.trie();
         let root = state_update.get_root();
 
-        let proof = trie
-            .get_proof(&root, &query)?
-            .unwrap_or_else(|| vec![])
-            .iter()
-            .map(|level| {
-                serde_json::to_string(level).map_err(|e| errors::ViewStateError::InternalError {
-                    error_message: e.to_string(),
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let proof = trie.get_proof(&root, &query)?;
         Ok(ViewStateResult { values, proof })
     }
 
