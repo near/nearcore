@@ -118,11 +118,23 @@ pub struct DumpStateCmd {
     /// This is a directory if --stream is set, and a file otherwise.
     #[clap(long, parse(from_os_str))]
     file: Option<PathBuf>,
-    /// List of account IDs to dump.
-    /// Note: validators will always be dumped.
-    /// If not set, all account IDs will be dumped.
+    /// List of only account IDs to dump, except for validators (at least one validator will always
+    /// be included) and treasury accounts (always included).
+    /// If not set, all accounts will be dumped, except for validators (the number of validators
+    /// can be controlled by the parameter `validator_cap`.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// A suggestion on the maximum number of validators to include in the output file.
+    /// Must be at least 1.
+    /// If set, instructs the tool to generate an output that contains at most `validator_cap`
+    /// validators, if feasible.
+    /// If not set, the number of validators in the output will not be capped.
+    /// ** Caution ** : the cap should not be viewed as a forced mandate.  The actual number of
+    /// validators in the output may be higher than the number given. For instance, accounts
+    /// listed in `account_ids` and treasury accounts are always included, while those accounts
+    /// may at the same time be validators, making a given cap unfeasible.
+    #[clap(long)]
+    validator_cap: Option<usize>,
 }
 
 impl DumpStateCmd {
@@ -135,6 +147,7 @@ impl DumpStateCmd {
             near_config,
             store,
             self.account_ids.as_ref(),
+            self.validator_cap,
         );
     }
 }

@@ -30,6 +30,7 @@ pub fn state_dump(
     near_config: &NearConfig,
     records_path: Option<&Path>,
     select_account_ids: Option<&Vec<AccountId>>,
+    validator_cap: Option<usize>,
 ) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -57,7 +58,30 @@ pub fn state_dump(
     let mut genesis_config = near_config.genesis.config.clone();
     genesis_config.genesis_height = genesis_height;
     genesis_config.genesis_time = Utc::now();
-    genesis_config.validators = validators
+    let mut chosen_validators = HashMap::new();
+    if validators.contains_key(&genesis_config.protocol_treasury_account) {
+        chosen_validators.insert(
+            genesis_config.protocol_treasury_account.clone(),
+            validators[&genesis_config.protocol_treasury_account].clone(),
+        );
+    }
+    if let Some(select_account_id_list) = select_account_ids {
+        for select_account_id in select_account_id_list {
+            if validators.contains_key(select_account_id) {
+                chosen_validators
+                    .insert(select_account_id.clone(), validators[select_account_id].clone());
+            }
+        }
+    }
+    for (validator_account_id, validator_other_info) in &validators {
+        if let Some(cap) = validator_cap {
+            if chosen_validators.len() >= cap {
+                break;
+            }
+        }
+        chosen_validators.insert(validator_account_id.clone(), validator_other_info.clone());
+    }
+    genesis_config.validators = chosen_validators
         .iter()
         .map(|(account_id, (public_key, amount))| AccountInfo {
             account_id: account_id.clone(),
@@ -385,6 +409,7 @@ mod test {
             &near_config,
             Some(&records_file.path().to_path_buf()),
             None,
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -458,6 +483,7 @@ mod test {
             &near_config,
             None,
             Some(&select_account_ids),
+            None,
         );
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
@@ -515,6 +541,7 @@ mod test {
             &near_config,
             None,
             None,
+            None,
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -554,6 +581,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
@@ -599,6 +627,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
@@ -682,6 +711,7 @@ mod test {
             &near_config,
             Some(&records_file.path().to_path_buf()),
             None,
+            None,
         );
     }
 
@@ -750,6 +780,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
+            None,
             None,
         );
         let new_genesis = new_near_config.genesis;
