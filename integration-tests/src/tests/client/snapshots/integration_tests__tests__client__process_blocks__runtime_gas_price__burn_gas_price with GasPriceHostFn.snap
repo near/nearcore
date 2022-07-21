@@ -1,6 +1,5 @@
 ---
 source: integration-tests/src/tests/client/process_blocks.rs
-assertion_line: 5051
 expression: new_outcome
 ---
 ExecutionOutcomeView {
