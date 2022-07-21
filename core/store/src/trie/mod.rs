@@ -770,6 +770,13 @@ impl Trie {
         self.storage.get_trie_nodes_count()
     }
 
+    /// Given a root and a key, it returns a MerkleProof for that key.
+    ///
+    ///  Whenever a proof is not found, an empty vector is returned.
+    ///
+    /// # Errors
+    ///
+    /// If the root is not found on the trie, a `StorageError` will be returned
     pub fn get_proof(
         &self,
         root: &CryptoHash,
