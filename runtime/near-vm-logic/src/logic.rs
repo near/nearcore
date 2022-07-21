@@ -792,11 +792,11 @@ impl<'a> VMLogic<'a> {
     ///
     /// Returns the actual gas price execution costs right now. This value may
     /// change between cross-contract calls due to price adjustment.
-    /// 
+    ///
     /// Note: At the time of introduction, this is always equal to the gas price
     /// of the current block height. But this is not guaranteed to remain that
     /// way for future protocol versions.
-    /// 
+    ///
     /// * If called as view function returns `ProhibitedInView`.
     /// * If [`gas_price_ptr`, `gas_price_ptr` + 16) is outside guest memory
     ///   returns `MemoryAccessViolation`.
