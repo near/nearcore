@@ -1,5 +1,6 @@
 ---
 source: integration-tests/src/tests/client/process_blocks.rs
+assertion_line: 5041
 expression: old_outcome
 ---
 ExecutionOutcomeView {
@@ -7,8 +8,8 @@ ExecutionOutcomeView {
     receipt_ids: [
         `11111111111111111111111111111111`,
     ],
-    gas_burnt: 2428022178199,
-    tokens_burnt: 2428022178199000000000,
+    gas_burnt: 2428020877699,
+    tokens_burnt: 2428020877699000000000,
     executor_id: AccountId(
         "test0",
     ),
@@ -25,7 +26,7 @@ ExecutionOutcomeView {
                 CostGasUsed {
                     cost_category: "WASM_HOST_COST",
                     cost: "CONTRACT_LOADING_BYTES",
-                    gas_used: 56788500,
+                    gas_used: 55488000,
                 },
             ],
         ),

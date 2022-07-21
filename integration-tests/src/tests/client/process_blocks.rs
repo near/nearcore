@@ -5005,6 +5005,7 @@ mod new_contract_loading_cost {
 mod runtime_gas_price {
     use super::*;
     use near_primitives::version::ProtocolFeature;
+    use near_test_contracts::wat_contract;
 
     /// Snapshot-check outcome of action, with given contract deployed first.
     fn check_outcome_with_and_without_feature(
@@ -5017,12 +5018,17 @@ mod runtime_gas_price {
         let new_protocol_version = feature.protocol_version();
         let old_protocol_version = new_protocol_version - 1;
         let epoch_length: BlockHeight = 5;
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            contract,
-        );
+
+        let mut genesis = Genesis::test(vec![account.clone()], 1);
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = old_protocol_version;
+        genesis.config.gas_price_adjustment_rate = Ratio::new(103, 100);
+        genesis.config.min_gas_price = 10u128.pow(9);
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+        deploy_test_contract(&mut env, account.clone(), &contract, epoch_length.clone(), 1);
+
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
 
         let tx = env.tx_from_actions(vec![action.clone()], &signer, signer.account_id.clone());
@@ -5049,7 +5055,7 @@ mod runtime_gas_price {
     #[test]
     fn test_burn_gas_price() {
         let wat_code = &assert_gas_price_contract("burn_gas_price", 10u64.pow(9));
-        let contract = wat::parse_str(wat_code).unwrap();
+        let contract = wat_contract(wat_code);
         check_outcome_with_and_without_feature(
             "burn_gas_price",
             Action::FunctionCall(FunctionCallAction {
@@ -5071,7 +5077,7 @@ mod runtime_gas_price {
         let gas = 3 * 10u64.pow(14);
         let expected_purchase_price = 6_068_351_198;
         let wat_code = &assert_gas_price_contract("purchased_gas_price", expected_purchase_price);
-        let contract = wat::parse_str(wat_code).unwrap();
+        let contract = wat_contract(wat_code);
         check_outcome_with_and_without_feature(
             "300Tgas_purchased_gas_price",
             Action::FunctionCall(FunctionCallAction {
@@ -5092,7 +5098,7 @@ mod runtime_gas_price {
         let gas = 10u64.pow(14);
         let expected_purchase_price = 1_806_111_235;
         let wat_code = &assert_gas_price_contract("purchased_gas_price", expected_purchase_price);
-        let contract = wat::parse_str(wat_code).unwrap();
+        let contract = wat_contract(wat_code);
         check_outcome_with_and_without_feature(
             "100Tgas_purchased_gas_price",
             Action::FunctionCall(FunctionCallAction {
