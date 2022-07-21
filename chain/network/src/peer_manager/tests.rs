@@ -80,8 +80,6 @@ async fn repeated_data_in_sync_routing_table() {
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: edges_want.iter().cloned().collect(),
             accounts: accounts_want.iter().cloned().collect(),
-            // TODO(gprusak): once implemented, test validator broadcasting as well.
-            validators: vec![],
         }))
         .await;
     }

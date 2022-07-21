@@ -211,7 +211,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     if total_raw_with_gas < total_raw_no_gas {
         // This might happen due to experimental error, especially when running
         // without warmup or too few iterations.
-        let mut null_cost = GasCost::zero(gas_metric);
+        let mut null_cost = GasCost::zero();
         null_cost.set_uncertain("NEGATIVE-COST");
         return null_cost;
     }

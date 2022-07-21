@@ -110,14 +110,13 @@ struct KVState {
 /// Stores the validator information in an epoch.
 /// Block producers are specified by `block_producers`
 /// Chunk producers have two types, validators who are also block producers and chunk only producers.
-/// Block producers are assigned to shards via another field in `validator_groups` in `KeyValueRuntime`.
+/// Block producers are assigned to shards via `validator_groups`.
 /// Each shard will have `block_producers.len() / validator_groups` of validators who are also block
 /// producers
 struct EpochValidatorSet {
     block_producers: Vec<ValidatorStake>,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     /// index of this list is shard_id
-    chunk_only_producers: Vec<Vec<ValidatorStake>>,
+    chunk_producers: Vec<Vec<ValidatorStake>>,
 }
 
 /// Simple key value runtime for tests.
@@ -130,10 +129,6 @@ pub struct KeyValueRuntime {
     /// Maps from account id to validator stake for all validators, both block producers and
     /// chunk producers
     validators: HashMap<AccountId, ValidatorStake>,
-    /// This number determines how block producers are assigned to be chunk producers. Each
-    /// shard will have total_block_producers / validator_groups of block producers to produce
-    /// its chunks.
-    validator_groups: u64,
     num_shards: NumShards,
     epoch_length: u64,
     no_gc: bool,
@@ -185,13 +180,9 @@ impl KeyValueRuntime {
         num_shards: NumShards,
         epoch_length: u64,
     ) -> Self {
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let valset_num = block_producers.len();
         Self::new_with_validators_and_no_gc(
             store,
             block_producers,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            vec![vec![vec![]; num_shards as usize]; valset_num],
             validator_groups,
             num_shards,
             epoch_length,
@@ -202,9 +193,6 @@ impl KeyValueRuntime {
     pub fn new_with_validators_and_no_gc(
         store: Store,
         block_producers: Vec<Vec<AccountId>>,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")] chunk_only_producers: Vec<
-            Vec<Vec<AccountId>>,
-        >,
         validator_groups: u64,
         num_shards: NumShards,
         epoch_length: u64,
@@ -231,13 +219,12 @@ impl KeyValueRuntime {
         // We cannot do any reasonable validations of it in test_utils.
         let state = HashMap::from([(StateRoot::default(), kv_state)]);
         let state_size = HashMap::from([(StateRoot::default(), data_len)]);
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        assert_eq!(block_producers.len(), chunk_only_producers.len());
+
         let mut validators = HashMap::new();
-        let block_producers: Vec<Vec<_>> = block_producers
+        let validators_by_valset: Vec<EpochValidatorSet> = block_producers
             .iter()
             .map(|account_ids| {
-                account_ids
+                let block_producers: Vec<ValidatorStake> = account_ids
                     .iter()
                     .map(|account_id| {
                         let stake = ValidatorStake::new(
@@ -249,50 +236,28 @@ impl KeyValueRuntime {
                         validators.insert(account_id.clone(), stake.clone());
                         stake
                     })
-                    .collect()
-            })
-            .collect();
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let chunk_only_producers: Vec<Vec<Vec<_>>> = chunk_only_producers
-            .into_iter()
-            .map(|v| {
-                v.into_iter()
-                    .map(|account_ids| {
-                        account_ids
-                            .into_iter()
-                            .map(|account_id| {
-                                let stake = ValidatorStake::new(
-                                    account_id.clone(),
-                                    SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
-                                        .public_key(),
-                                    1_000_000,
-                                );
-                                validators.insert(account_id, stake.clone());
-                                stake
-                            })
-                            .collect()
+                    .collect();
+
+                let validators_per_shard = block_producers.len() as ShardId / validator_groups;
+                let coef = block_producers.len() as ShardId / num_shards;
+
+                let chunk_producers: Vec<Vec<ValidatorStake>> = (0..num_shards)
+                    .map(|shard_id| {
+                        let offset = (shard_id * coef / validators_per_shard * validators_per_shard)
+                            as usize;
+                        block_producers[offset..offset + validators_per_shard as usize].to_vec()
                     })
-                    .collect()
+                    .collect();
+
+                EpochValidatorSet { block_producers, chunk_producers }
             })
             .collect();
+
         KeyValueRuntime {
             store,
             tries,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            validators_by_valset: std::iter::zip(block_producers, chunk_only_producers)
-                .into_iter()
-                .map(|(block_producers, chunk_only_producers)| EpochValidatorSet {
-                    block_producers,
-                    chunk_only_producers,
-                })
-                .collect(),
-            #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-            validators_by_valset: block_producers
-                .into_iter()
-                .map(|block_producers| EpochValidatorSet { block_producers })
-                .collect(),
             validators,
-            validator_groups,
+            validators_by_valset,
             num_shards,
             epoch_length,
             state: RwLock::new(state),
@@ -305,6 +270,29 @@ impl KeyValueRuntime {
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    pub fn with_chunk_only_producers(
+        mut self,
+        chunk_only_producers: Vec<Vec<Vec<AccountId>>>,
+    ) -> Self {
+        assert_eq!(self.validators_by_valset.len(), chunk_only_producers.len());
+        for (epoch_idx, epoch_cops) in chunk_only_producers.into_iter().enumerate() {
+            for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
+                for account_id in shard_cops {
+                    let stake = ValidatorStake::new(
+                        account_id.clone(),
+                        SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
+                        1_000_000,
+                    );
+                    let prev = self.validators.insert(account_id, stake.clone());
+                    assert!(prev.is_none(), "chunk only produced is also a block producer");
+                    self.validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
+                }
+            }
+        }
+        self
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -395,23 +383,7 @@ impl KeyValueRuntime {
     }
 
     fn get_chunk_producers(&self, valset: usize, shard_id: ShardId) -> Vec<ValidatorStake> {
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let EpochValidatorSet { block_producers, chunk_only_producers } =
-            &self.validators_by_valset[valset];
-        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-        let EpochValidatorSet { block_producers } = &self.validators_by_valset[valset];
-        assert_eq!((block_producers.len() as u64) % self.num_shards, 0);
-        assert_eq!(0, block_producers.len() as u64 % self.validator_groups);
-        let validators_per_shard = block_producers.len() as ShardId / self.validator_groups;
-        let coef = block_producers.len() as ShardId / self.num_shards;
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-
-        #[allow(unused_mut)]
-        let mut chunk_producers =
-            block_producers[offset..offset + validators_per_shard as usize].to_vec();
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        chunk_producers.extend_from_slice(&chunk_only_producers[shard_id as usize]);
-        chunk_producers
+        self.validators_by_valset[valset].chunk_producers[shard_id as usize].clone()
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
@@ -431,9 +403,11 @@ impl KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<&[ValidatorStake], Error> {
+    ) -> Result<Vec<&ValidatorStake>, Error> {
         let valset = self.get_valset_for_epoch(epoch_id)?;
-        Ok(&self.validators_by_valset[valset].chunk_only_producers[shard_id as usize])
+        let block_producers = &self.validators_by_valset[valset].block_producers;
+        let chunk_producers = &self.validators_by_valset[valset].chunk_producers[shard_id as usize];
+        Ok(chunk_producers.iter().filter(|it| !block_producers.contains(it)).collect())
     }
 }
 
@@ -1275,7 +1249,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
         #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        for validator_stake in validators.chunk_only_producers.iter().flatten() {
+        for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));
             }
