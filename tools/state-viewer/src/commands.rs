@@ -137,6 +137,7 @@ pub(crate) fn dump_tx(
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(&home_dir).join("tx.json"),
     };
+    println!("Saving tx (height {} to {}) into {}", start_height, end_height, json_path.display(),);
     fs::write(json_path, json!(txs).to_string())
         .expect("Error writing the results to a json file.");
     return Ok(());
