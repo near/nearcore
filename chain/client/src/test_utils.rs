@@ -36,7 +36,7 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
     ShardId,
@@ -91,7 +91,7 @@ impl Client {
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) =
             self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
-        assert!(errors.is_empty());
+        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         Ok(accepted_blocks)
     }
 
@@ -152,13 +152,9 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    let valset_num = validators.len();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        vec![vec![vec![]; num_shards as usize]; valset_num],
         validator_groups,
         num_shards,
         epoch_length,
@@ -251,8 +247,6 @@ pub fn setup_only_view(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
         validators,
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        vec![vec![vec![]; num_shards as usize]],
         validator_groups,
         num_shards,
         epoch_length,
@@ -1511,16 +1505,6 @@ impl TestEnv {
         }
     }
 
-    #[track_caller]
-    pub fn query_transaction_status(
-        &mut self,
-        transaction_hash: &CryptoHash,
-    ) -> FinalExecutionOutcomeView {
-        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
-            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
-        })
-    }
-
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
         self.query_account(account_id).amount
     }
@@ -1557,6 +1541,57 @@ impl TestEnv {
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+    }
+
+    /// Create and sign transaction ready for execution.
+    pub fn tx_from_actions(
+        &mut self,
+        actions: Vec<Action>,
+        signer: &InMemorySigner,
+        receiver: AccountId,
+    ) -> SignedTransaction {
+        let tip = self.clients[0].chain.head().unwrap();
+        SignedTransaction::from_actions(
+            tip.height + 1,
+            signer.account_id.clone(),
+            receiver,
+            signer,
+            actions,
+            tip.last_block_hash,
+        )
+    }
+
+    /// Process a tx and its receipts, then return the execution outcome.
+    pub fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
+        let tx_hash = tx.get_hash().clone();
+        self.clients[0].process_tx(tx, false, false);
+        let max_iters = 100;
+        let tip = self.clients[0].chain.head().unwrap();
+        for i in 0..max_iters {
+            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            self.process_block(0, block.clone(), Provenance::PRODUCED);
+            if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
+                return outcome;
+            }
+        }
+        panic!("No transaction outcome found after {max_iters} blocks.")
+    }
+
+    /// Execute a function call transaction that calls main on the `TestEnv`.
+    ///
+    /// This function assumes that account has been deployed and that
+    /// `InMemorySigner::from_seed` produces a valid signer that has it's key
+    /// deployed already.
+    pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: 3 * 10u64.pow(14),
+            deposit: 0,
+        })];
+        let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
+        self.execute_tx(tx)
     }
 }
 

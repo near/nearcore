@@ -1,5 +1,4 @@
 use crate::apply_block_cost;
-use crate::config::Config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
@@ -68,12 +67,7 @@ pub(crate) fn transaction_cost_ext(
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    aggregate_per_block_measurements(
-        testbed.config,
-        block_size,
-        measurements,
-        Some(measurement_overhead),
-    )
+    aggregate_per_block_measurements(block_size, measurements, Some(measurement_overhead))
 }
 
 /// Returns the total measurement overhead for a measured block.
@@ -193,7 +187,7 @@ pub(crate) fn fn_cost_with_setup(
             .collect();
 
         let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements, Some(overhead));
+            aggregate_per_block_measurements(block_size, measurements, Some(overhead));
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
@@ -268,7 +262,7 @@ pub(crate) fn fn_cost_in_contract(
     let overhead = None;
     let block_size = 1;
     let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(ctx.config, block_size, measurements, overhead);
+        aggregate_per_block_measurements(block_size, measurements, overhead);
     gas_cost.saturating_sub(&base_gas_cost, &NonNegativeTolerance::Strict) / (n_actions - 1) as u64
 }
 
@@ -282,14 +276,13 @@ fn function_call_action(method_name: String) -> Action {
 }
 
 pub(crate) fn aggregate_per_block_measurements(
-    config: &Config,
     block_size: usize,
     measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
     overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost::zero(config.metric);
+    let mut total = GasCost::zero();
     let mut n = 0;
     for (gas_cost, ext_cost) in measurements {
         block_costs.push(gas_cost.to_gas() as f64);

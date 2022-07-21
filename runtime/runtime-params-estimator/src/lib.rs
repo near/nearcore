@@ -628,7 +628,7 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
         compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, smallest_contract);
     let smallest_size = smallest_contract.len() as u64;
 
-    let mut max_bytes_cost = GasCost::zero(ctx.config.metric);
+    let mut max_bytes_cost = GasCost::zero();
     for (contract, _) in REAL_CONTRACTS_SAMPLE {
         let binary = read_resource(contract);
         let cost = compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &binary);
