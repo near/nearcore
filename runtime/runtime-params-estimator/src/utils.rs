@@ -1,5 +1,4 @@
 use crate::apply_block_cost;
-use crate::config::Config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
@@ -68,12 +67,7 @@ pub(crate) fn transaction_cost_ext(
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    aggregate_per_block_measurements(
-        testbed.config,
-        block_size,
-        measurements,
-        Some(measurement_overhead),
-    )
+    aggregate_per_block_measurements(block_size, measurements, Some(measurement_overhead))
 }
 
 /// Returns the total measurement overhead for a measured block.
@@ -193,7 +187,7 @@ pub(crate) fn fn_cost_with_setup(
             .collect();
 
         let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements, Some(overhead));
+            aggregate_per_block_measurements(block_size, measurements, Some(overhead));
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
@@ -268,7 +262,7 @@ pub(crate) fn fn_cost_in_contract(
     let overhead = None;
     let block_size = 1;
     let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(ctx.config, block_size, measurements, overhead);
+        aggregate_per_block_measurements(block_size, measurements, overhead);
     gas_cost.saturating_sub(&base_gas_cost, &NonNegativeTolerance::Strict) / (n_actions - 1) as u64
 }
 
@@ -282,14 +276,13 @@ fn function_call_action(method_name: String) -> Action {
 }
 
 pub(crate) fn aggregate_per_block_measurements(
-    config: &Config,
     block_size: usize,
     measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
     overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost::zero(config.metric);
+    let mut total = GasCost::zero();
     let mut n = 0;
     for (gas_cost, ext_cost) in measurements {
         block_costs.push(gas_cost.to_gas() as f64);
@@ -312,10 +305,10 @@ pub(crate) fn aggregate_per_block_measurements(
     (gas_cost, total_ext_costs)
 }
 
-pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost {
-    let total = measurements.iter().fold(GasCost::zero(config.metric), |acc, x| acc + x.clone());
-    let mut avg = total / measurements.len() as u64;
+pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
     let scalar_costs = measurements.iter().map(|cost| cost.to_gas() as f64).collect::<Vec<_>>();
+    let total: GasCost = measurements.into_iter().sum();
+    let mut avg = total / scalar_costs.len() as u64;
     if is_high_variance(&scalar_costs) {
         avg.set_uncertain("HIGH-VARIANCE");
     }
@@ -323,23 +316,24 @@ pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost
 }
 
 /// We expect our cost computations to be fairly reproducible, and just flag
-/// "high-variance" measurements as suspicious. To make results easily
-/// explainable, we just require that all the samples don't deviate from the
-/// mean by more than 15%, where the number 15 is somewhat arbitrary.
+/// "high-variance" measurements as suspicious. We require that sample standard
+/// deviation is no more than 10% of the mean.
 ///
 /// Note that this looks at block processing times, and each block contains
 /// multiples of things we are actually measuring. As low block variance doesn't
 /// guarantee low within-block variance, this is necessary an approximate sanity
 /// check.
 pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
-    let threshold = 0.15;
+    let threshold = 0.1;
 
+    if samples.len() <= 1 {
+        return true;
+    }
     let mean = samples.iter().copied().sum::<f64>() / (samples.len() as f64);
-
-    let all_below_threshold =
-        samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
-
-    !all_below_threshold
+    let s2 = samples.iter().map(|value| (mean - *value).powi(2)).sum::<f64>()
+        / (samples.len() - 1) as f64;
+    let stddev = s2.sqrt();
+    stddev / mean > threshold
 }
 
 /// Returns several percentile values from the given vector of costs. For

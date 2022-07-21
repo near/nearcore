@@ -1,8 +1,6 @@
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
-use crate::db::Mode;
-
 const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -47,6 +45,13 @@ pub struct StoreConfig {
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub trie_cache_capacities: Vec<(ShardUId, usize)>,
+}
+
+/// Mode in which to open the storage.
+#[derive(Clone, Copy)]
+pub enum Mode {
+    ReadOnly,
+    ReadWrite,
 }
 
 impl StoreConfig {
@@ -158,7 +163,7 @@ impl<'a> StoreOpener<'a> {
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
-            Some(crate::RocksDB::get_version(&self.path)).transpose()
+            Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
         } else {
             Ok(None)
         }

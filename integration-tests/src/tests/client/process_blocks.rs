@@ -228,6 +228,23 @@ fn prepare_env_with_congestion(
     (env, tx_hashes)
 }
 
+/// Create a `TestEnv` with an account and a contract deployed to that account.
+fn prepare_env_with_contract(
+    epoch_length: u64,
+    protocol_version: u32,
+    account: AccountId,
+    contract: Vec<u8>,
+) -> TestEnv {
+    let mut genesis = Genesis::test(vec![account.clone()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = protocol_version;
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    env
+}
+
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
@@ -506,19 +523,7 @@ fn produce_block_with_approvals_arrived_early() {
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
-        let network_mock: Arc<
-            RwLock<
-                Box<
-                    dyn FnMut(
-                        AccountId,
-                        &PeerManagerMessageRequest,
-                    ) -> (PeerManagerMessageResponse, bool),
-                >,
-            >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
-            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
-        })));
-        let (_, conns, _) = setup_mock_all_validators(
+        setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -531,49 +536,51 @@ fn produce_block_with_approvals_arrived_early() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            network_mock.clone(),
-        );
-        *network_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
-                let msg = msg.as_network_requests_ref();
-                match msg {
-                    NetworkRequests::Block { block } => {
-                        if block.header().height() == 3 {
-                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                if i > 0 {
-                                    client.do_send(NetworkClientMessages::Block(
-                                        block.clone(),
-                                        PeerInfo::random().id,
-                                        false,
-                                    ))
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    let msg = msg.as_network_requests_ref();
+                    match msg {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() == 3 {
+                                for (i, (client, _)) in conns.iter().enumerate() {
+                                    if i > 0 {
+                                        client.do_send(NetworkClientMessages::Block(
+                                            block.clone(),
+                                            PeerInfo::random().id,
+                                            false,
+                                        ))
+                                    }
                                 }
+                                *block_holder.write().unwrap() = Some(block.clone());
+                                return (NetworkResponses::NoResponse.into(), false);
+                            } else if block.header().height() == 4 {
+                                System::current().stop();
                             }
-                            *block_holder.write().unwrap() = Some(block.clone());
-                            return (NetworkResponses::NoResponse.into(), false);
-                        } else if block.header().height() == 4 {
-                            System::current().stop();
+                            (NetworkResponses::NoResponse.into(), true)
                         }
-                        (NetworkResponses::NoResponse.into(), true)
+                        NetworkRequests::Approval { approval_message } => {
+                            if approval_message.target.as_ref() == "test1"
+                                && approval_message.approval.target_height == 4
+                            {
+                                approval_counter += 1;
+                            }
+                            if approval_counter == 3 {
+                                let block = block_holder.read().unwrap().clone().unwrap();
+                                conns[0].0.do_send(NetworkClientMessages::Block(
+                                    block,
+                                    PeerInfo::random().id,
+                                    false,
+                                ));
+                            }
+                            (NetworkResponses::NoResponse.into(), true)
+                        }
+                        _ => (NetworkResponses::NoResponse.into(), true),
                     }
-                    NetworkRequests::Approval { approval_message } => {
-                        if approval_message.target.as_ref() == "test1"
-                            && approval_message.approval.target_height == 4
-                        {
-                            approval_counter += 1;
-                        }
-                        if approval_counter == 3 {
-                            let block = block_holder.read().unwrap().clone().unwrap();
-                            conns[0].0.do_send(NetworkClientMessages::Block(
-                                block,
-                                PeerInfo::random().id,
-                                false,
-                            ));
-                        }
-                        (NetworkResponses::NoResponse.into(), true)
-                    }
-                    _ => (NetworkResponses::NoResponse.into(), true),
-                }
-            },
+                },
+            ),
         );
 
         near_network::test_utils::wait_or_panic(10000);
@@ -739,20 +746,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
-        let peer_manager_mock: Arc<
-            RwLock<
-                Box<
-                    dyn FnMut(
-                        AccountId,
-                        &PeerManagerMessageRequest,
-                    ) -> (PeerManagerMessageResponse, bool),
-                >,
-            >,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
-            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
-        })));
-
-        let (_, conns, _) = setup_mock_all_validators(
+        let mut sent_bad_blocks = false;
+        setup_mock_all_validators(
             validators.clone(),
             key_pairs,
             1,
@@ -765,96 +760,84 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            peer_manager_mock.clone(),
-        );
-        let mut sent_bad_blocks = false;
-        *peer_manager_mock.write().unwrap() = Box::new(
-            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
-                match msg.as_network_requests_ref() {
-                    NetworkRequests::Block { block } => {
-                        if block.header().height() >= 4 && !sent_bad_blocks {
-                            let block_producer_idx =
-                                block.header().height() as usize % validators[0].len();
-                            let block_producer = &validators[0][block_producer_idx];
-                            let validator_signer1 = InMemoryValidatorSigner::from_seed(
-                                block_producer.clone(),
-                                KeyType::ED25519,
-                                block_producer.as_ref(),
-                            );
-                            sent_bad_blocks = true;
-                            let mut block_mut = block.clone();
-                            match mode {
-                                InvalidBlockMode::InvalidHeader => {
-                                    // produce an invalid block with invalid header.
-                                    block_mut.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-                                    block_mut.mut_header().resign(&validator_signer1);
-                                }
-                                InvalidBlockMode::IllFormed => {
-                                    // produce an ill-formed block
-                                    block_mut
-                                        .mut_header()
-                                        .get_mut()
-                                        .inner_rest
-                                        .chunk_headers_root = hash(&[1]);
-                                    block_mut.mut_header().resign(&validator_signer1);
-                                }
-                                InvalidBlockMode::InvalidBlock => {
-                                    // produce an invalid block whose invalidity cannot be verified by just
-                                    // having its header.
-                                    let proposals = vec![ValidatorStake::new(
-                                        "test1".parse().unwrap(),
-                                        PublicKey::empty(KeyType::ED25519),
-                                        0,
-                                    )];
+            Box::new(
+                move |conns,
+                      _,
+                      msg: &PeerManagerMessageRequest|
+                      -> (PeerManagerMessageResponse, bool) {
+                    match msg.as_network_requests_ref() {
+                        NetworkRequests::Block { block } => {
+                            if block.header().height() >= 4 && !sent_bad_blocks {
+                                let block_producer_idx =
+                                    block.header().height() as usize % validators[0].len();
+                                let block_producer = &validators[0][block_producer_idx];
+                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
+                                    block_producer.clone(),
+                                    KeyType::ED25519,
+                                    block_producer.as_ref(),
+                                );
+                                sent_bad_blocks = true;
+                                let mut block_mut = block.clone();
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader => {
+                                        // produce an invalid block with invalid header.
+                                        block_mut.mut_header().get_mut().inner_rest.chunk_mask =
+                                            vec![];
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::IllFormed => {
+                                        // produce an ill-formed block
+                                        block_mut
+                                            .mut_header()
+                                            .get_mut()
+                                            .inner_rest
+                                            .chunk_headers_root = hash(&[1]);
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
+                                    InvalidBlockMode::InvalidBlock => {
+                                        // produce an invalid block whose invalidity cannot be verified by just
+                                        // having its header.
+                                        let proposals = vec![ValidatorStake::new(
+                                            "test1".parse().unwrap(),
+                                            PublicKey::empty(KeyType::ED25519),
+                                            0,
+                                        )];
 
-                                    block_mut
-                                        .mut_header()
-                                        .get_mut()
-                                        .inner_rest
-                                        .validator_proposals = proposals;
-                                    block_mut.mut_header().resign(&validator_signer1);
+                                        block_mut
+                                            .mut_header()
+                                            .get_mut()
+                                            .inner_rest
+                                            .validator_proposals = proposals;
+                                        block_mut.mut_header().resign(&validator_signer1);
+                                    }
                                 }
-                            }
 
-                            for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                if i != block_producer_idx {
-                                    client.do_send(NetworkClientMessages::Block(
-                                        block_mut.clone(),
-                                        PeerInfo::random().id,
-                                        false,
-                                    ))
+                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                    if i != block_producer_idx {
+                                        client.do_send(NetworkClientMessages::Block(
+                                            block_mut.clone(),
+                                            PeerInfo::random().id,
+                                            false,
+                                        ))
+                                    }
                                 }
-                            }
 
-                            return (
-                                PeerManagerMessageResponse::NetworkResponses(
-                                    NetworkResponses::NoResponse,
-                                ),
-                                false,
-                            );
-                        }
-                        if block.header().height() > 20 {
-                            match mode {
-                                InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                                    assert_eq!(ban_counter, 3);
-                                }
-                                _ => {}
+                                return (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    false,
+                                );
                             }
-                            System::current().stop();
-                        }
-                        (
-                            PeerManagerMessageResponse::NetworkResponses(
-                                NetworkResponses::NoResponse,
-                            ),
-                            true,
-                        )
-                    }
-                    NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
-                        InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
-                            assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
-                            ban_counter += 1;
-                            if ban_counter > 3 {
-                                panic!("more bans than expected");
+                            if block.header().height() > 20 {
+                                match mode {
+                                    InvalidBlockMode::InvalidHeader
+                                    | InvalidBlockMode::IllFormed => {
+                                        assert_eq!(ban_counter, 3);
+                                    }
+                                    _ => {}
+                                }
+                                System::current().stop();
                             }
                             (
                                 PeerManagerMessageResponse::NetworkResponses(
@@ -863,18 +846,37 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 true,
                             )
                         }
-                        InvalidBlockMode::InvalidBlock => {
-                            panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
-                        }
-                    },
-                    _ => (
-                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
-                        true,
-                    ),
-                }
-            },
+                        NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
+                            InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
+                                assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
+                                ban_counter += 1;
+                                if ban_counter > 3 {
+                                    panic!("more bans than expected");
+                                }
+                                (
+                                    PeerManagerMessageResponse::NetworkResponses(
+                                        NetworkResponses::NoResponse,
+                                    ),
+                                    true,
+                                )
+                            }
+                            InvalidBlockMode::InvalidBlock => {
+                                panic!(
+                                    "banning peer {:?} unexpectedly for {:?}",
+                                    peer_id, ban_reason
+                                );
+                            }
+                        },
+                        _ => (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        ),
+                    }
+                },
+            ),
         );
-
         near_network::test_utils::wait_or_panic(20000);
     });
 }
@@ -2724,32 +2726,7 @@ fn test_execution_metadata() {
     };
 
     // Call the contract and get the execution outcome.
-    let execution_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let tx = Transaction {
-            signer_id: "test0".parse().unwrap(),
-            receiver_id: "test0".parse().unwrap(),
-            public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: Vec::new(),
-                gas: 100_000_000_000_000,
-                deposit: 0,
-            })],
-
-            nonce: 10,
-            block_hash: tip.last_block_hash,
-        }
-        .sign(&signer);
-        let tx_hash = tx.get_hash();
-
-        env.clients[0].process_tx(tx, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.query_transaction_status(&tx_hash)
-    };
+    let execution_outcome = env.call_main(&"test0".parse().unwrap());
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -3373,49 +3350,12 @@ fn verify_contract_limits_upgrade(
         env
     };
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "main".to_string(),
-            args: Vec::new(),
-            gas: 100_000_000_000_000,
-            deposit: 0,
-        })],
-
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction & get tx outcome.
-    let old_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
+    let account = "test0".parse().unwrap();
+    let old_outcome = env.call_main(&account);
 
     env.upgrade_protocol(new_protocol_version);
 
-    // Re-run the transaction & get tx outcome.
-    let new_outcome = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
+    let new_outcome = env.call_main(&account);
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     let e = match new_outcome.status {
@@ -3509,33 +3449,15 @@ fn test_deploy_cost_increased() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::DeployContract(DeployContractAction { code: test_contract })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
+    let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
-    // Run the transaction & get tx outcome in a closure.
-    let deploy_contract = |env: &mut TestEnv, nonce: u64| {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..epoch_length {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
-    };
-
-    let old_outcome = deploy_contract(&mut env, 10);
+    let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
+    let old_outcome = env.execute_tx(tx);
 
     env.upgrade_protocol(new_protocol_version);
 
-    let new_outcome = deploy_contract(&mut env, 11);
+    let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+    let new_outcome = env.execute_tx(tx);
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -5005,7 +4927,6 @@ mod lower_storage_key_limit_test {
 
 mod new_contract_loading_cost {
     use super::*;
-    use near_primitives::views::FinalExecutionOutcomeView;
 
     /// Check that normal execution has the same gas cost after FixContractLoadingCost.
     #[test]
@@ -5020,18 +4941,20 @@ mod new_contract_loading_cost {
         let epoch_length: BlockHeight = 5;
 
         let account: AccountId = "test0".parse().unwrap();
-        let mut env =
-            test_env_with_contract(epoch_length, old_protocol_version, account.clone(), contract);
+        let mut env = prepare_env_with_contract(
+            epoch_length,
+            old_protocol_version,
+            account.clone(),
+            contract,
+        );
 
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-
-        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_result = env.call_main(&account);
         let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
 
         env.upgrade_protocol(new_protocol_version);
 
-        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_result = env.call_main(&account);
         let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
 
@@ -5051,22 +4974,20 @@ mod new_contract_loading_cost {
         let epoch_length: BlockHeight = 5;
 
         let account: AccountId = "test0".parse().unwrap();
-        let mut env = test_env_with_contract(
+        let mut env = prepare_env_with_contract(
             epoch_length,
             old_protocol_version,
             account.clone(),
             bad_contract,
         );
 
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-
-        let old_result = call_main(&mut env, &signer, epoch_length);
+        let old_result = env.call_main(&account);
         let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
 
         env.upgrade_protocol(new_protocol_version);
 
-        let new_result = call_main(&mut env, &signer, epoch_length);
+        let new_result = env.call_main(&account);
         let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
         assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
 
@@ -5077,62 +4998,5 @@ mod new_contract_loading_cost {
         let loading_byte = 216_750;
         let loading_cost = loading_base + contract_size as u64 * loading_byte;
         assert_eq!(old_gas + loading_cost, new_gas);
-    }
-
-    /// Create a `TestEnv` with a contract deployed for an account.
-    fn test_env_with_contract(
-        epoch_length: u64,
-        protocol_version: u32,
-        account: AccountId,
-        contract: Vec<u8>,
-    ) -> TestEnv {
-        let mut genesis = Genesis::test(vec![account], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = protocol_version;
-        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
-        deploy_test_contract(
-            &mut env,
-            "test0".parse().unwrap(),
-            &contract,
-            epoch_length.clone(),
-            1,
-        );
-        env
-    }
-
-    /// Execute a function call transaction that calls main on the `TestEnv`.
-    fn call_main(
-        env: &mut TestEnv,
-        signer: &InMemorySigner,
-        epoch_length: u64,
-    ) -> FinalExecutionOutcomeView {
-        let tx = Transaction {
-            signer_id: "test0".parse().unwrap(),
-            receiver_id: "test0".parse().unwrap(),
-            public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "main".to_string(),
-                args: vec![],
-                gas: 3 * 10u64.pow(14),
-                deposit: 0,
-            })],
-
-            nonce: 0,
-            block_hash: CryptoHash::default(),
-        };
-
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_tx =
-            Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
-                .sign(signer);
-        let tx_hash = signed_tx.get_hash().clone();
-        env.clients[0].process_tx(signed_tx, false, false);
-        for i in 0..epoch_length {
-            let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-            env.process_block(0, block.clone(), Provenance::PRODUCED);
-        }
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap()
     }
 }
