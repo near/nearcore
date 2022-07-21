@@ -199,9 +199,6 @@ pub fn state_dump_redis(
 fn should_include_record(
     record: &StateRecord,
     account_allowlist: &Option<HashSet<&AccountId>>,
-    //    validators: &HashMap<AccountId, (PublicKey, Balance)>,
-    //    protocol_treasury_account: &AccountId,
-    //    select_account_ids: Option<&Vec<AccountId>>,
 ) -> bool {
     match account_allowlist {
         None => true,
