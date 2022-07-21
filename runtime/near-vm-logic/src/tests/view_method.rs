@@ -20,6 +20,8 @@ fn test_prohibited_view_methods() {
     test_prohibited!(attached_deposit, 0);
     test_prohibited!(prepaid_gas);
     test_prohibited!(used_gas);
+    test_prohibited!(burn_gas_price, 0);
+    test_prohibited!(purchased_gas_price, 0);
     test_prohibited!(promise_create, 0, 0, 0, 0, 0, 0, 0, 0);
     test_prohibited!(promise_then, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     test_prohibited!(promise_and, 0, 0);
