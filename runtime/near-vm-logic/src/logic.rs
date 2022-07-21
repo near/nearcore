@@ -788,8 +788,15 @@ impl<'a> VMLogic<'a> {
         Ok(self.gas_counter.used_gas())
     }
 
-    /// Gas price at the current block height.
+    /// Effective gas price for execution of the current receipt.
     ///
+    /// Returns the actual gas price execution costs right now. This value may
+    /// change between cross-contract calls due to price adjustment.
+    /// 
+    /// Note: At the time of introduction, this is always equal to the gas price
+    /// of the current block height. But this is not guaranteed to remain that
+    /// way for future protocol versions.
+    /// 
     /// * If called as view function returns `ProhibitedInView`.
     /// * If [`gas_price_ptr`, `gas_price_ptr` + 16) is outside guest memory
     ///   returns `MemoryAccessViolation`.
@@ -797,20 +804,19 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base` + `write_memory_base` + 16 * `write_memory_byte`
-    pub fn current_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
+    pub fn burn_gas_price(&mut self, gas_price_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "current_gas_price".to_string(),
-            }
-            .into());
+            return Err(
+                HostError::ProhibitedInView { method_name: "burn_gas_price".to_string() }.into()
+            );
         }
-        self.memory_set_u128(gas_price_ptr, self.context.current_gas_price)
+        self.memory_set_u128(gas_price_ptr, self.context.burn_gas_price)
     }
 
     /// Gas priced paid to purchase gas for the current receipt.
     ///
-    /// The difference between this and the current gas price will be refunded
+    /// The difference between this and the `burn_gas_price` will be refunded
     /// for all the burnt gas, while unused gas will be refunded at the full
     /// pessimistic price. This function can be used to calculate how much
     /// balance is left in the account after refunds, or how much allowance will
@@ -831,7 +837,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.memory_set_u128(gas_price_ptr, self.context.receipt_gas_price)
+        self.memory_set_u128(gas_price_ptr, self.context.purchased_gas_price)
     }
 
     // ############

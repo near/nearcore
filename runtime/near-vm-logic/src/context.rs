@@ -62,9 +62,9 @@ pub struct VMContext {
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
     /// The gas price at the current block height.
-    pub current_gas_price: Balance,
-    /// The current function call's receipt's gas price.
-    pub receipt_gas_price: Balance,
+    pub burn_gas_price: Balance,
+    /// The current function call's receipt's purchase gas price.
+    pub purchased_gas_price: Balance,
 }
 
 impl VMContext {

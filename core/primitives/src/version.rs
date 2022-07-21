@@ -169,7 +169,7 @@ pub enum ProtocolFeature {
     AccountIdInFunctionCallPermission,
     /// Allows smart contacts to query for the current gas price, as well as the receipt gas price.
     ///
-    /// This feature enables the two host functions `current_gas_price` and
+    /// This feature enables the two host functions `burn_gas_price` and
     /// `purchased_gas_price`.
     #[cfg(feature = "protocol_feature_gas_price_host_fn")]
     GasPriceHostFn,

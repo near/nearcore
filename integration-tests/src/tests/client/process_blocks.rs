@@ -5045,13 +5045,13 @@ mod runtime_gas_price {
         insta::assert_debug_snapshot!(format!("{snap_name} with {feature:?}"), new_outcome);
     }
 
-    /// Test that current_gas_price host function returns the correct value.
+    /// Test that burn_gas_price host function returns the correct value.
     #[test]
-    fn test_current_gas_price() {
-        let wat_code = &assert_gas_price_contract("current_gas_price", 10u64.pow(9));
+    fn test_burn_gas_price() {
+        let wat_code = &assert_gas_price_contract("burn_gas_price", 10u64.pow(9));
         let contract = wat::parse_str(wat_code).unwrap();
         check_outcome_with_and_without_feature(
-            "current_gas_price",
+            "burn_gas_price",
             Action::FunctionCall(FunctionCallAction {
                 method_name: "main".to_string(),
                 args: vec![],
@@ -5110,7 +5110,7 @@ mod runtime_gas_price {
     /// `expected_gas_price`.
     ///
     /// `fn_name` needs to be a host function with signature `(&mut u128) ->
-    /// ()`, such as `current_gas_price` and `purchased_gas_price`.
+    /// ()`, such as `burn_gas_price` and `purchased_gas_price`.
     fn assert_gas_price_contract(fn_name: &str, expected_gas_price: u64) -> String {
         format!(
             r#"

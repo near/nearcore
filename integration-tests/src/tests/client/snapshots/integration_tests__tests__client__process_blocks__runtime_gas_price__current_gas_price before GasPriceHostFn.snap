@@ -12,7 +12,7 @@ ExecutionOutcomeView {
     executor_id: AccountId(
         "test0",
     ),
-    status: Failure(ActionError(ActionError { index: Some(0), kind: FunctionCallError(ExecutionError("Link Error: Error while importing \"env\".\"current_gas_price\": unknown import. Expected Function(FunctionType { params: [I64], results: [] })")) })),
+    status: Failure(ActionError(ActionError { index: Some(0), kind: FunctionCallError(ExecutionError("Link Error: Error while importing \"env\".\"burn_gas_price\": unknown import. Expected Function(FunctionType { params: [I64], results: [] })")) })),
     metadata: ExecutionMetadataView {
         version: 1,
         gas_profile: Some(
