@@ -23,7 +23,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 
@@ -321,48 +321,9 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-#[derive(Debug)]
-pub struct WithHash<T> {
-    inner: T,
-    hash: u64,
-}
-
-impl<T: Hash> Hash for WithHash<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.hash);
-    }
-}
-
-impl<T: Hash + Default> Default for WithHash<T> {
-    fn default() -> Self {
-        WithHash::new(T::default())
-    }
-}
-
-impl<T> std::cmp::PartialEq for WithHash<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
-    }
-}
-
-impl<T> std::ops::Deref for WithHash<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T: Hash> WithHash<T> {
-    pub fn new(inner: T) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        inner.hash(&mut hasher);
-        Self { inner, hash: hasher.finish() }
-    }
-}
-
 /// Set of account keys with a cached hash.
 /// BTreeMap implements Hash (while HashMap doesn't).
-pub type AccountKeys = WithHash<BTreeMap<(EpochId, AccountId), PublicKey>>;
+pub type AccountKeys = BTreeMap<(EpochId, AccountId), PublicKey>;
 
 // Network-relevant data about the epoch.
 #[derive(Debug, Clone)]

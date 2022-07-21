@@ -26,37 +26,43 @@
 //!       lot of peers
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
-use near_network_primitives::types::{AccountKeys, WithHash};
+use near_network_primitives::types::AccountKeys;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
-use std::collections::{BTreeMap, HashMap};
+use rayon::iter::{ParallelBridge, ParallelIterator};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
-/// Runtime is a wrapper of tokio::runtime::Runtime
-/// which starts rutime shutdown when dropped.
-// TODO(gprusak): replace Option with ManuallyDrop?
-struct Runtime(Option<tokio::runtime::Runtime>);
-
-impl std::ops::Deref for Runtime {
-    type Target = tokio::runtime::Runtime;
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref().unwrap()
-    }
+async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
+    let (send, recv) = tokio::sync::oneshot::channel();
+    rayon::spawn(move || send.send(f()).ok().unwrap());
+    recv.await.unwrap()
 }
 
-impl Drop for Runtime {
-    fn drop(&mut self) {
-        self.0.take().unwrap().shutdown_background()
-    }
-}
-
-impl Runtime {
-    fn new() -> Self {
-        Self(Some(tokio::runtime::Runtime::new().unwrap()))
-    }
+/// Applies f to the iterated elements and collects the results, until the first None is returned.
+/// Returns the results collected so far and a bool (false iff any None was returned).
+fn try_map<I: ParallelIterator, T: Send>(
+    iter: I,
+    f: impl Sync + Send + Fn(I::Item) -> Option<T>,
+) -> (Vec<T>, bool) {
+    let ok = AtomicBool::new(true);
+    let res = iter
+        .filter_map(|v| {
+            if !ok.load(Ordering::Acquire) {
+                return None;
+            }
+            let res = f(v);
+            if res.is_none() {
+                ok.store(false, Ordering::Release);
+            }
+            res
+        })
+        .collect();
+    (res, ok.load(Ordering::Acquire))
 }
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
@@ -99,7 +105,6 @@ impl CacheInner {
 
 pub(crate) struct Cache {
     inner: RwLock<CacheInner>,
-    runtime: Runtime,
 }
 
 // TODO(gprusak): Cache will be used in the next PR.
@@ -108,10 +113,9 @@ impl Cache {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(CacheInner {
-                keys: Arc::new(WithHash::new(BTreeMap::new())),
+                keys: Arc::new(AccountKeys::default()),
                 data: HashMap::new(),
             }),
-            runtime: Runtime::new(),
         }
     }
 
@@ -120,7 +124,8 @@ impl Cache {
     /// Returns true iff the set of accounts actually changed.
     pub fn set_keys(&self, keys: Arc<AccountKeys>) -> bool {
         let mut inner = self.inner.write();
-        if keys == inner.keys {
+        // Skip further processing if the key set didn't change.
+        if Arc::ptr_eq(&keys, &inner.keys) || keys == inner.keys {
             return false;
         }
         inner.data.retain(|k, _| keys.contains_key(k));
@@ -164,14 +169,16 @@ impl Cache {
         }
         drop(inner);
 
-        // We verify signatures synchronously for now.
-        // To verify signatures in parallel, we should have a way to stop verification at the first invalid one.
-        let mut data = vec![];
-        for (d, key) in data_and_keys.into_values() {
-            if !d.payload().verify(&key) {
-                return (data, Some(Error::InvalidSignature));
+        // Verify the signatures in parallel.
+        // Verification will stop at the first encountered error.
+        let (data, ok) = try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
+            if d.payload().verify(&key) {
+                return Some(d);
             }
-            data.push(d);
+            return None;
+        });
+        if !ok {
+            return (data, Some(Error::InvalidSignature));
         }
         (data, None)
     }
@@ -183,18 +190,13 @@ impl Cache {
         self: Arc<Self>,
         data: Vec<SignedAccountData>,
     ) -> (Vec<SignedAccountData>, Option<Error>) {
-        let x = self.clone();
-        // Execute insertion in a dedicated runtime.
-        self.runtime
-            .spawn(async move {
-                let (data, err) = x.verify(data);
-                // Insert the successfully verified data, even if an error has been encountered.
-                let mut inner = x.inner.write();
-                // Return the inserted data.
-                (data.into_iter().filter_map(|d| inner.try_insert(d)).collect(), err)
-            })
-            .await
-            .unwrap()
+        let this = self.clone();
+        // Execute verification on the rayon threadpool.
+        let (data, err) = rayon_spawn(move || this.verify(data)).await;
+        // Insert the successfully verified data, even if an error has been encountered.
+        let mut inner = self.inner.write();
+        // Return the inserted data.
+        (data.into_iter().filter_map(|d| inner.try_insert(d)).collect(), err)
     }
 
     /// Copies and returns all the AccountData in the cache.

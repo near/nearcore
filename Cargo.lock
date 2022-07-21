@@ -3184,6 +3184,7 @@ dependencies = [
  "protobuf-codegen",
  "rand 0.6.5",
  "rand_pcg",
+ "rayon",
  "serde",
  "smart-default",
  "strum",

@@ -1,7 +1,7 @@
 use crate::accounts_data::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
-use crate::testonly::{make_rng, AsSet as _, Rng};
+use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use near_network_primitives::time;
 use near_network_primitives::types::AccountKeys;
 use near_primitives::types::EpochId;
@@ -42,14 +42,14 @@ fn make_signers(rng: &mut Rng, n: usize) -> Vec<Signer> {
 }
 
 fn make_account_keys(signers: &[Signer]) -> Arc<AccountKeys> {
-    Arc::new(WithHash::new(
+    Arc::new(
         signers
             .iter()
             .map(|s| {
                 ((s.epoch_id.clone(), s.signer.account_id.clone()), s.signer.public_key.clone())
             })
             .collect(),
-    ))
+    )
 }
 
 #[tokio::test]
@@ -140,7 +140,7 @@ async fn data_too_large() {
         .await;
     assert_eq!(Some(Error::DataTooLarge), res.1);
     // Partial update is allowed, in case an error is encountered.
-    assert!([&a0, &a1].as_set().is_superset(&res.0.as_set()));
+    assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
     assert_eq!(res.0.as_set(), cache.dump().as_set());
 }
@@ -173,7 +173,7 @@ async fn invalid_signature() {
         .await;
     assert_eq!(Some(Error::InvalidSignature), res.1);
     // Partial update is allowed, in case an error is encountered.
-    assert!([&a0, &a1].as_set().is_superset(&res.0.as_set()));
+    assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
     assert_eq!(res.0.as_set(), cache.dump().as_set());
 }
@@ -200,7 +200,7 @@ async fn single_account_multiple_data() {
         cache.clone().insert(vec![a0.clone(), a1.clone(), a2old.clone(), a2new.clone()]).await;
     assert_eq!(Some(Error::SingleAccountMultipleData), res.1);
     // Partial update is allowed, in case an error is encountered.
-    assert!([&a0, &a1, &a2old, &a2new].as_set().is_superset(&res.0.as_set()));
+    assert_is_superset(&[&a0, &a1, &a2old, &a2new].as_set(), &res.0.as_set());
     // Partial update should match the state, this also verifies that only 1 of the competing
     // entries has been applied.
     assert_eq!(res.0.as_set(), cache.dump().as_set());
