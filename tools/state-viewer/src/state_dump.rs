@@ -8,7 +8,6 @@ use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
-use near_store::TrieIterator;
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
 use redis::Commands;
@@ -141,7 +140,7 @@ pub fn state_dump_redis(
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        let trie = trie.iter(&state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
@@ -232,7 +231,7 @@ fn iterate_over_records(
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, state_root).unwrap();
+        let trie = trie.iter(state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {

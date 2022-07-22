@@ -11,7 +11,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
 
@@ -59,7 +59,7 @@ impl Trie {
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
-            let mut iterator = TrieIterator::new(self, root_hash)?;
+            let mut iterator = self.iter(root_hash)?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
             if let Some(item) = iterator.next() {
@@ -211,7 +211,7 @@ impl Trie {
             trie.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
         let path_end =
             trie.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
-        let mut iterator = TrieIterator::new(&trie, state_root)?;
+        let mut iterator = trie.iter(state_root)?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
@@ -416,7 +416,7 @@ mod tests {
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
-            let mut iterator = TrieIterator::new(self, root_hash)?;
+            let mut iterator = self.iter(root_hash)?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
             loop {
