@@ -283,11 +283,13 @@ pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
     indexer_config: IndexerConfig,
+    store_config: near_store::StoreConfig,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let mut indexer_db_path = near_store::get_store_path(&indexer_config.home_dir);
-    indexer_db_path.push("indexer");
+    let indexer_db_path = near_store::Store::opener(&indexer_config.home_dir, &store_config)
+        .get_path()
+        .join("indexer");
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();

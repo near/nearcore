@@ -520,7 +520,7 @@ impl BlockSync {
             // Then go forward for as long as we know the next block
             let mut ret_hash = candidate.1;
             loop {
-                match chain.mut_store().get_next_block_hash(&ret_hash) {
+                match chain.store().get_next_block_hash(&ret_hash) {
                     Ok(hash) => {
                         if chain.block_exists(&hash)? {
                             ret_hash = hash;
@@ -542,7 +542,7 @@ impl BlockSync {
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
-            match chain.mut_store().get_next_block_hash(&next_hash) {
+            match chain.store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,
@@ -1303,8 +1303,8 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{setup, setup_with_validators};
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::test_utils::{process_block_sync, setup, setup_with_validators};
+    use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::block::{Approval, Block, GenesisId};
@@ -1312,6 +1312,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_logger_utils::init_test_logger;
     use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1355,33 +1356,27 @@ mod test {
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer);
-            chain
-                .process_block(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
-            chain2
-                .process_block(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                    &mut |_| {},
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain2,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
@@ -1623,6 +1618,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
+        init_test_logger();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
@@ -1637,7 +1633,9 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
+        let mut challenges = vec![];
+        env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
+        assert!(challenges.is_empty());
 
         // fetch three blocks at a time
         for i in 0..3 {
@@ -1666,7 +1664,7 @@ mod test {
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
-        let _ = env.clients[1].process_block(
+        let _ = env.clients[1].process_block_test(
             MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
             Provenance::NONE,
         );
@@ -1682,7 +1680,8 @@ mod test {
 
         // Receive all blocks. Should not request more.
         for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
-            env.process_block(1, blocks[i].clone(), Provenance::NONE);
+            let _ = env.clients[1]
+                .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
@@ -1705,7 +1704,9 @@ mod test {
         }
         let block_headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
         let peer_infos = create_peer_infos(2);
-        env.clients[1].chain.sync_block_headers(block_headers, &mut |_| unreachable!()).unwrap();
+        let mut challenges = vec![];
+        env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
+        assert!(challenges.is_empty());
         let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());

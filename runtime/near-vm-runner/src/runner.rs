@@ -1,3 +1,4 @@
+use near_primitives::checked_feature;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -37,7 +38,17 @@ pub fn run(
 ) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
-        runtime.run(
+        let span = tracing::debug_span!(
+            target: "vm",
+            "run",
+            "code.len" = code.code().len(),
+            %method_name,
+            ?vm_kind,
+            burnt_gas = tracing::field::Empty,
+        )
+        .entered();
+
+        let res = runtime.run(
             code,
             method_name,
             ext,
@@ -46,7 +57,10 @@ pub fn run(
             promise_results,
             current_protocol_version,
             cache,
-        )
+        );
+
+        span.record("burnt_gas", &res.outcome().burnt_gas);
+        res
     } else {
         panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
     }
@@ -95,7 +109,8 @@ pub trait VM {
 impl VMKind {
     /// Make a [`Runtime`] for this [`VMKind`].
     ///
-    /// This is not intended to be used by code other than standalone-vm-runner.
+    /// This is not intended to be used by code other than internal tools like
+    /// the estimator.
     pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
@@ -151,6 +166,20 @@ impl VMResult {
             action_receipts: Vec::new(),
         };
         VMResult::Aborted(outcome, error)
+    }
+
+    /// Like `VMResult::abort()` but without feature `FixContractLoadingCost` it
+    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    pub fn abort_but_nop_outcome_in_old_protocol(
+        logic: VMLogic,
+        error: VMError,
+        current_protocol_version: u32,
+    ) -> VMResult {
+        if checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
+            VMResult::abort(logic, error)
+        } else {
+            VMResult::nop_outcome(error)
+        }
     }
 
     /// Borrow the internal outcome, if there is one.

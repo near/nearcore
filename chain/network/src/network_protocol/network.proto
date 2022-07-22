@@ -3,6 +3,44 @@
 syntax = "proto3";
 package network;
 
+import "google/protobuf/timestamp.proto";
+
+// A payload that can be signed with account keys.
+// Since account keys are used to sign things in independent contexts,
+// we need this common enum to prevent message replay attacks, like this one:
+// - messages M1 and M2 of different types happen to have the same serialized representation.
+// - an attacker observes M1 signed by A in some context
+// - the attacker then sends M2 with A's signature of M1 (which also matches M2, since
+//   their serialized representations match) to B, effectively impersonating A.
+// NOTE that proto serialization is non-unique, so the message passed around with the signature
+// should be in serialized form.
+// TODO: move to a separate file, probably in a separate package.
+message AccountKeyPayload {
+  reserved 1;
+  oneof payload_type {
+    AccountData account_data = 2;
+  }
+}
+
+// Wrapper of borsh-encoded Signature.
+// TODO: link to the rust Signature type.
+message Signature {
+  bytes borsh = 1;
+}
+
+message AccountKeySignedPayload {
+  // protobuf-serialized AccountKeyPayload, required.
+  // It is passed in serialized form, because the protobuf encoding is non-deterministic.
+  // In particular encode(decode(payload)) might not match the signature.
+  bytes payload = 1;
+  // Signature of the payload, required.
+  Signature signature = 2;
+  // TODO: this is a good place to add optional fields: account_id, account_public_key,
+  // in case the signer of the message is not implied by the payload, or the context.
+  // Add them if needed.
+}
+//////////////////////////////////////
+
 // Wrapper of borsh-encoded PublicKey.
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/crypto/src/signature.rs#L201
 message PublicKey {
@@ -138,6 +176,33 @@ message LastEdge {
   Edge edge = 1;
 }
 
+message SocketAddr {
+  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
+  bytes ip = 1;
+  // TCP port (actually uint16, however uint32 is smallest supported protobuf type).
+  uint32 port = 2;
+}
+
+message PeerAddr {
+  SocketAddr addr = 1; // required
+  PublicKey peer_id = 2; // optional
+}
+
+message AccountData {
+  string account_id = 1; // required
+  // Either address of the node handling the account (if it has a public IP),
+  // or a list of peers known to be connected to the validator.
+  repeated PeerAddr peers = 2; // non-empty, at most 10 elements (this is an arbitrary limit, might be relaxed in the future).
+
+  // Epoch for which this data is valid.
+  // This AccountData should be signed with the account key assigned to
+  // <account_id> for epoch <epoch_id>.
+  CryptoHash epoch_id = 3;
+  // If there are multiple signed AccountData messages for the same
+  // account_id for the same epoch, the one with the most recent timestamp is valid.
+  google.protobuf.Timestamp timestamp = 4; 
+}
+
 // Message sent whenever the sender learns about new connections
 // between the peers in the network (I think).
 // It provides a view of the whole NEAR network to each peer.
@@ -150,6 +215,7 @@ message LastEdge {
 // Accounts provides a mapping AccountId -> PeerId, providing knowledge
 // about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
+  reserved 3,4;
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
@@ -163,6 +229,19 @@ message UpdateNonceRequest {
 // TODO: document it.
 message UpdateNonceResponse {
   Edge edge = 1;
+}
+
+message SyncAccountsData {
+  // Data about the (important) accounts,
+  // which should be broadcasted to the whole network.
+  // Contains AccountKeyPayload.account_data.
+  repeated AccountKeySignedPayload accounts_data = 1;
+  // Indicates whether this message is an incremental sync (true), or
+  // a full sync (false). Useful for tracking time since the last full sync.
+  bool incremental = 2;
+  // Indicates that sender requests a full sync message in return.
+  // Useful for soliciting a full sync periodically.
+  bool requesting_full_sync = 3;
 }
 
 // Request to send a list of known healthy peers
@@ -216,7 +295,9 @@ message SignedTransaction {
 // Wrapper of borsh-encoded RoutedMessage
 // https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/mod.rs#L295
 message RoutedMessage {
-  bytes borsh = 1; 
+  bytes borsh = 1;
+  // Timestamp of creating the Routed message by its original author.
+  google.protobuf.Timestamp created_at = 2;
 }
 
 // Disconnect is send by a node before closing a TCP connection.
@@ -266,6 +347,8 @@ message PeerMessage {
   // between borsh and protobuf encodings:
   // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit
   reserved 1,2,3;
+  // Deprecated fields.
+  reserved 24;
 
   oneof message_type {
     Handshake handshake = 4;
@@ -275,6 +358,8 @@ message PeerMessage {
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
+
+    SyncAccountsData sync_accounts_data = 25;
 
     PeersRequest peers_request = 10;
     PeersResponse peers_response = 11;
@@ -294,7 +379,5 @@ message PeerMessage {
     EpochSyncResponse epoch_sync_response = 21;
     EpochSyncFinalizationRequest epoch_sync_finalization_request = 22;
     EpochSyncFinalizationResponse epoch_sync_finalization_response = 23;
-    
-    RoutingSyncV2 routing_table_sync_v2 = 24;
   }
 }

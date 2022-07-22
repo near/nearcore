@@ -171,6 +171,7 @@ pub enum Parameter {
     MaxFunctionsNumberPerContract,
     Wasmer2StackLimit,
     MaxLocalsPerContract,
+    AccountIdValidityRulesVersion,
 }
 
 #[derive(
@@ -264,17 +265,11 @@ impl Parameter {
             Parameter::WasmPromiseReturn,
             Parameter::WasmValidatorStakeBase,
             Parameter::WasmValidatorTotalStakeBase,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128G1MultiexpBase,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128G1MultiexpElement,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128PairingCheckBase,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128PairingCheckElement,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128G1SumBase,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             Parameter::WasmAltBn128G1SumElement,
         ]
         .iter()
@@ -309,6 +304,7 @@ impl Parameter {
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
+            Parameter::AccountIdValidityRulesVersion,
         ]
         .iter()
     }

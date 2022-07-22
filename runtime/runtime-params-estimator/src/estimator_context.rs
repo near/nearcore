@@ -8,7 +8,7 @@ use near_vm_logic::ExtCosts;
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::get_account_id;
+use genesis_populate::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -26,7 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) deploy_contract_base: Option<GasCost>,
     pub(crate) noop_function_call_cost: Option<GasCost>,
     pub(crate) storage_read_base: Option<GasCost>,
-    pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
+    pub(crate) contract_loading_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
@@ -47,7 +47,9 @@ impl<'c> EstimatorContext<'c> {
             config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
-                (0..self.config.active_accounts).map(get_account_id).collect(),
+                (0..self.config.active_accounts)
+                    .map(|index| get_account_id(index as u64))
+                    .collect(),
             ),
         }
     }
@@ -126,7 +128,7 @@ impl<'c> Testbed<'c> {
         caching_storage
     }
 
-    fn clear_caches(&mut self) {
+    pub(crate) fn clear_caches(&mut self) {
         // Flush out writes hanging in memtable
         self.inner.flush_db_write_buffer();
 

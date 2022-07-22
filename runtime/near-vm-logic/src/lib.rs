@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-#[cfg(feature = "protocol_feature_alt_bn128")]
 mod alt_bn128;
-#[cfg(feature = "protocol_feature_alt_bn128")]
 mod array_utils;
 mod context;
 mod dependencies;
@@ -10,7 +8,6 @@ pub mod gas_counter;
 mod logic;
 pub mod mocks;
 pub(crate) mod receipt_manager;
-pub mod serde_with;
 #[cfg(test)]
 mod tests;
 pub mod types;

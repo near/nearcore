@@ -11,10 +11,13 @@ use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_primitives::time::Utc;
-use num_rational::Rational;
+use num_rational::Ratio;
+use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{
+    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -33,13 +36,13 @@ use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
     ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
@@ -49,7 +52,6 @@ use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
-use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{
@@ -70,6 +72,66 @@ pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
 pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
 
 const TEST_SEED: RngSeed = [3; 32];
+
+impl Client {
+    /// Unlike Client::start_process_block, which returns before the block finishes processing
+    /// This function waits until the block is processed.
+    /// `should_produce_chunk`: Normally, if a block is accepted, client will try to produce
+    ///                         chunks for the next block if it is the chunk producer.
+    ///                         If `should_produce_chunk` is set to false, client will skip the
+    ///                         chunk production. This is useful in tests that need to tweak
+    ///                         the produced chunk content.
+    fn process_block_sync_with_produce_chunk_options(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+        should_produce_chunk: bool,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        wait_for_all_blocks_in_processing(&mut self.chain);
+        let (accepted_blocks, errors) =
+            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        Ok(accepted_blocks)
+    }
+
+    pub fn process_block_test(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, true)
+    }
+
+    pub fn process_block_test_no_produce_chunk(
+        &mut self,
+        block: MaybeValidated<Block>,
+        provenance: Provenance,
+    ) -> Result<Vec<CryptoHash>, near_chain::Error> {
+        self.process_block_sync_with_produce_chunk_options(block, provenance, false)
+    }
+
+    /// This function finishes processing all blocks that started being processed.
+    pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
+        let mut accepted_blocks = vec![];
+        while wait_for_all_blocks_in_processing(&mut self.chain) {
+            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+        }
+        accepted_blocks
+    }
+
+    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// has started.
+    pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
+        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+            let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            assert!(errors.is_empty());
+            return accepted_blocks;
+        }
+        vec![]
+    }
+}
+
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<AccountId>>,
@@ -105,7 +167,7 @@ pub fn setup(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -146,6 +208,7 @@ pub fn setup(
     );
 
     let client = ClientActor::new(
+        ctx.address(),
         config,
         chain_genesis,
         runtime,
@@ -196,7 +259,7 @@ pub fn setup_only_view(
         min_gas_price: 100,
         max_gas_price: 1_000_000_000,
         total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Rational::from_integer(0),
+        gas_price_adjustment_rate: Ratio::from_integer(0),
         transaction_validity_period,
         epoch_length,
         protocol_version: PROTOCOL_VERSION,
@@ -415,7 +478,7 @@ impl BlockStats {
 }
 
 fn send_chunks<T, I, F>(
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: &[(Addr<ClientActor>, Addr<ViewClientActor>)],
     recipients: I,
     target: T,
     drop_chunks: bool,
@@ -428,7 +491,7 @@ fn send_chunks<T, I, F>(
     for (i, name) in recipients {
         if name == target {
             if !drop_chunks || !sample_binary(1, 10) {
-                connectors.read().unwrap()[i].0.do_send(create_msg());
+                connectors[i].0.do_send(create_msg());
             }
         }
     }
@@ -479,17 +542,15 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    peer_manager_mock: Arc<
-        RwLock<
-            Box<
-                dyn FnMut(
-                    AccountId,
-                    &PeerManagerMessageRequest,
-                ) -> (PeerManagerMessageResponse, bool),
-            >,
-        >,
+    peer_manager_mock: Box<
+        dyn FnMut(
+            &[(Addr<ClientActor>, Addr<ViewClientActor>)],
+            AccountId,
+            &PeerManagerMessageRequest,
+        ) -> (PeerManagerMessageResponse, bool),
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
+    let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
 
@@ -497,12 +558,8 @@ pub fn setup_mock_all_validators(
     let genesis_time = Clock::utc();
     let mut ret = vec![];
 
-    let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-        Arc::new(RwLock::new(vec![]));
-
-    // Lock the connectors so that none of the threads spawned below access them until we overwrite
-    //    them at the end of this function
-    let mut locked_connectors = connectors.write().unwrap();
+    let connectors: Arc<OnceCell<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+        Default::default();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
@@ -516,16 +573,13 @@ pub fn setup_mock_all_validators(
 
     for (index, account_id) in validators.into_iter().flatten().enumerate() {
         let block_stats1 = block_stats.clone();
-        let view_client_addr = Arc::new(RwLock::new(None));
-        let view_client_addr1 = view_client_addr.clone();
-        let validators_clone1 = validators_clone.clone();
+        let mut view_client_addr_slot = None;
         let validators_clone2 = validators_clone.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
         let key_pairs1 = key_pairs.clone();
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
-        let connectors2 = connectors.clone();
         let network_mock1 = peer_manager_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
@@ -535,36 +589,28 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
-        let client_addr = ClientActor::create(move |ctx| {
+        let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+                // Note: this `.wait` will block until all `ClientActors` are created.
+                let connectors1 = connectors1.wait();
                 let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
+                let (resp, perform_default) = guard.deref_mut()(connectors1.as_slice(), account_id.clone(), msg);
                 drop(guard);
 
                 if perform_default {
-                    let mut my_key_pair = None;
-                    let mut my_address = None;
-                    let mut my_ord = None;
-                    for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                        if name == &account_id {
-                            my_key_pair = Some(key_pairs[i].clone());
-                            my_address = Some(addresses[i]);
-                            my_ord = Some(i);
-                        }
-                    }
-                    let my_key_pair = my_key_pair.unwrap();
-                    let my_address = my_address.unwrap();
-                    let my_ord = my_ord.unwrap();
+                    let my_ord = validators_clone2.iter().flatten().position(|it| it == &account_id).unwrap();
+                    let my_key_pair = key_pairs[my_ord].clone();
+                    let my_address = addresses[my_ord];
 
                     {
                         let last_height2 = last_height2.read().unwrap();
                         let peers: Vec<_> = key_pairs1
                             .iter()
-                            .take(connectors2.read().unwrap().len())
+                            .take(connectors1.len())
                             .enumerate()
                             .map(|(i, peer_info)| FullPeerInfo {
                                 peer_info: peer_info.clone(),
@@ -602,7 +648,7 @@ pub fn setup_mock_all_validators(
                                 block_stats2.check_stats(false);
                             }
 
-                            for (client, _) in connectors1.read().unwrap().iter() {
+                            for (client, _) in connectors1 {
                                 client.do_send(NetworkClientMessages::Block(
                                     block.clone(),
                                     PeerInfo::random().id,
@@ -629,7 +675,7 @@ pub fn setup_mock_all_validators(
                                 )
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
@@ -641,7 +687,7 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 addresses.iter().enumerate(),
                                 route_back,
                                 drop_chunks,
@@ -658,7 +704,7 @@ pub fn setup_mock_all_validators(
                                 )
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
@@ -670,7 +716,7 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
                             };
                             send_chunks(
-                                Arc::clone(&connectors1),
+                                connectors1,
                                 validators_clone2.iter().flatten().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
@@ -681,20 +727,16 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::BlockRequest(*hash))
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::Block(
-                                                                *block, peer_id, true,
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::Block(*block, peer_id, true));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -709,9 +751,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncRequest{
                                                 epoch_id: epoch_id.clone(),
@@ -720,11 +762,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::EpochSyncResponse(
-                                                                peer_id, response
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -739,9 +777,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
                                                 epoch_id: epoch_id.clone(),
@@ -750,11 +788,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(NetworkClientMessages::EpochSyncFinalizationResponse(
-                                                                peer_id, response
-                                                            ));
+                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -769,9 +803,9 @@ pub fn setup_mock_all_validators(
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();
                                 if peer_info.id == peer_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::BlockHeadersRequest(
                                                 hashes.clone(),
@@ -782,13 +816,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::BlockHeaders(
                                                         headers,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                                NetworkClientMessages::BlockHeaders(
-                                                                    headers, peer_id,
-                                                                ),
-                                                            );
+                                                        me.do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -810,9 +838,9 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
@@ -824,13 +852,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                            NetworkClientMessages::StateResponse(
-                                                                *response,
-                                                            ),
-                                                        );
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -853,9 +875,9 @@ pub fn setup_mock_all_validators(
                             };
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
-                                    let connectors2 = connectors1.clone();
+                                    let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
-                                        connectors1.read().unwrap()[i]
+                                        connectors1[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestPart {
                                                 shard_id: *shard_id,
@@ -868,13 +890,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        connectors2.read().unwrap()[my_ord]
-                                                            .0
-                                                            .do_send(
-                                                            NetworkClientMessages::StateResponse(
-                                                                *response,
-                                                            ),
-                                                        );
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -888,7 +904,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1.read().unwrap()[i].0.do_send(
+                                    connectors1[i].0.do_send(
                                         NetworkClientMessages::StateResponse(response.clone()),
                                     );
                                 }
@@ -902,7 +918,7 @@ pub fn setup_mock_all_validators(
                             );
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
-                                for (_, view_client) in connectors1.read().unwrap().iter() {
+                                for (_, view_client) in connectors1 {
                                     view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
                                         vec![(announce_account.clone(), None)],
                                     ))
@@ -930,7 +946,7 @@ pub fn setup_mock_all_validators(
                             if do_propagate {
                                 for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                     if name == &approval_message.target {
-                                        connectors1.read().unwrap()[i].0.do_send(
+                                        connectors1[i].0.do_send(
                                             NetworkClientMessages::BlockApproval(
                                                 approval.clone(),
                                                 my_key_pair.id.clone(),
@@ -974,17 +990,11 @@ pub fn setup_mock_all_validators(
                             };
                         }
                         NetworkRequests::ForwardTx(_, _)
-                        | NetworkRequests::SyncRoutingTable { .. }
-                        | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo { .. }
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
-                        | NetworkRequests::RequestUpdateNonce(_, _)
-                        | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
-                        | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -993,7 +1003,7 @@ pub fn setup_mock_all_validators(
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm.recipient());
             let (block, client, view_client_addr) = setup(
-                validators_clone1.clone(),
+                validators_clone.clone(),
                 validator_groups,
                 num_shards,
                 epoch_length,
@@ -1009,19 +1019,18 @@ pub fn setup_mock_all_validators(
                 genesis_time,
                 ctx,
             );
-            *view_client_addr1.write().unwrap() = Some(view_client_addr);
+            view_client_addr_slot = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
             client
         });
-
-        ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
+        ret.push((client_addr, view_client_addr_slot.unwrap()));
     }
     hash_to_height.write().unwrap().insert(CryptoHash::default(), 0);
     hash_to_height
         .write()
         .unwrap()
         .insert(*genesis_block.read().unwrap().as_ref().unwrap().header().clone().hash(), 0);
-    *locked_connectors = ret.clone();
+    connectors.set(ret.clone()).unwrap();
     let value = genesis_block.read().unwrap();
     (value.clone().unwrap(), ret, block_stats)
 }
@@ -1313,35 +1322,10 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    pub fn process_block_with_options(
-        &mut self,
-        id: usize,
-        block: Block,
-        provenance: Provenance,
-        should_run_catchup: bool,
-        should_produce_chunk: bool,
-    ) {
-        let (mut accepted_blocks, result) =
-            self.clients[id].process_block(MaybeValidated::from(block), provenance);
-        assert!(result.is_ok(), "{:?}", result);
-        if should_run_catchup {
-            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-            accepted_blocks.extend(more_accepted_blocks);
-        }
-        for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted_with_optional_chunk_produce(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-                !should_produce_chunk,
-            );
-        }
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        self.process_block_with_options(id, block, provenance, true, true);
+        self.clients[id].process_block_test(MaybeValidated::from(block), provenance).unwrap();
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1368,9 +1352,10 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(MaybeValidated::from(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ))
+                        .process_partial_encoded_chunk(
+                            MaybeValidated::from(PartialEncodedChunk::from(partial_encoded_chunk)),
+                            Arc::new(|_| {}),
+                        )
                         .unwrap();
                 }
             }
@@ -1397,11 +1382,9 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            let accepted_blocks =
-                self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
-            for block in accepted_blocks {
-                self.clients[id].on_block_accepted(block.hash, block.status, block.provenance);
-            }
+            self.clients[id]
+                .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
+                .unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1446,6 +1429,34 @@ impl TestEnv {
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
         self.clients[id].process_tx(tx, false, false)
+    }
+
+    pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
+        assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
+
+        let tip = self.clients[0].chain.head().unwrap();
+        let epoch_id = self.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&tip.last_block_hash)
+            .unwrap();
+        let block_producer =
+            self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+
+        let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            block_producer.clone(),
+            KeyType::ED25519,
+            block_producer.as_ref(),
+        ));
+
+        let _ = self.clients[0]
+            .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
+            .unwrap();
+
+        for i in 0..self.clients[0].chain.epoch_length * 2 {
+            self.produce_block(0, tip.height + i + 2);
+        }
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
@@ -1494,16 +1505,6 @@ impl TestEnv {
         }
     }
 
-    #[track_caller]
-    pub fn query_transaction_status(
-        &mut self,
-        transaction_hash: &CryptoHash,
-    ) -> FinalExecutionOutcomeView {
-        self.clients[0].chain.get_final_transaction_result(transaction_hash).unwrap_or_else(|err| {
-            panic!("failed to get transaction status for {}: {}", transaction_hash, err)
-        })
-    }
-
     pub fn query_balance(&mut self, account_id: AccountId) -> Balance {
         self.query_account(account_id).amount
     }
@@ -1540,6 +1541,57 @@ impl TestEnv {
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+    }
+
+    /// Create and sign transaction ready for execution.
+    pub fn tx_from_actions(
+        &mut self,
+        actions: Vec<Action>,
+        signer: &InMemorySigner,
+        receiver: AccountId,
+    ) -> SignedTransaction {
+        let tip = self.clients[0].chain.head().unwrap();
+        SignedTransaction::from_actions(
+            tip.height + 1,
+            signer.account_id.clone(),
+            receiver,
+            signer,
+            actions,
+            tip.last_block_hash,
+        )
+    }
+
+    /// Process a tx and its receipts, then return the execution outcome.
+    pub fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
+        let tx_hash = tx.get_hash().clone();
+        self.clients[0].process_tx(tx, false, false);
+        let max_iters = 100;
+        let tip = self.clients[0].chain.head().unwrap();
+        for i in 0..max_iters {
+            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            self.process_block(0, block.clone(), Provenance::PRODUCED);
+            if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
+                return outcome;
+            }
+        }
+        panic!("No transaction outcome found after {max_iters} blocks.")
+    }
+
+    /// Execute a function call transaction that calls main on the `TestEnv`.
+    ///
+    /// This function assumes that account has been deployed and that
+    /// `InMemorySigner::from_seed` produces a valid signer that has it's key
+    /// deployed already.
+    pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
+        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "main".to_string(),
+            args: vec![],
+            gas: 3 * 10u64.pow(14),
+            deposit: 0,
+        })];
+        let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
+        self.execute_tx(tx)
     }
 }
 
@@ -1642,8 +1694,7 @@ pub fn create_chunk(
             *chunk.header.height_included_mut() = next_height;
         }
     }
-    let block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+    let block_merkle_tree = client.chain.store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
@@ -1657,7 +1708,7 @@ pub fn create_chunk(
         last_block.header().next_epoch_id().clone(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Ratio::new(0, 1),
         0,
         100,
         None,
@@ -1671,11 +1722,14 @@ pub fn create_chunk(
     (chunk, merkle_paths, receipts, block)
 }
 
+/// Keep running catchup until there is no more catchup work that can be done
+/// Note that this function does not necessarily mean that all blocks are caught up.
+/// It's possible that some blocks that need to be caught up are still being processed
+/// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &Vec<FullPeerInfo>,
-) -> Result<Vec<AcceptedBlock>, Error> {
-    let mut result = vec![];
+) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
@@ -1688,21 +1742,26 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let rt = client.runtime_adapter.clone();
-    while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+    loop {
+        client.run_catchup(
+            highest_height_peers,
+            &f,
+            &block_catch_up,
+            &state_split,
+            Arc::new(|_| {}),
+        )?;
+        let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.work);
+            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
-                let saved_store_update =
-                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
-                blocks_catch_up_state
-                    .processed_blocks
-                    .insert(msg.block_hash, (saved_store_update, results));
+                assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
+                blocks_catch_up_state.processed_blocks.insert(msg.block_hash, results);
             } else {
                 panic!("block catch up processing result from unknown sync hash");
             }
+            catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
             let results = rt.build_state_for_split_shards(
@@ -1716,8 +1775,11 @@ pub fn run_catchup(
             } else {
                 client.state_sync.set_split_result(msg.shard_id, results);
             }
+            catchup_done = false;
         }
-        result.extend(call);
+        if catchup_done {
+            break;
+        }
     }
-    Ok(result)
+    Ok(())
 }

@@ -19,10 +19,10 @@ use near_primitives::types::{
 use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
-    ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
-    LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -346,32 +346,6 @@ pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
-}
-
-// Different debug requests that can be sent by HTML pages, via GET.
-pub enum DebugStatus {
-    // Request for the current sync status
-    SyncStatus,
-    // Request currently tracked shards
-    TrackedShards,
-    // Detailed information about last couple epochs.
-    EpochInfo,
-    // Detailed information about last couple blocks.
-    BlockStatus,
-}
-
-impl Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
-}
-
-#[derive(Serialize, Debug)]
-pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
-    TrackedShards(TrackedShardsView),
-    // List of epochs - in descending order (next epoch is first).
-    EpochInfo(Vec<EpochInfoView>),
-    // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -826,4 +800,26 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum SandboxMessage {
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
+    SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
+    SandboxNoResponse,
+}
+#[cfg(feature = "sandbox")]
+impl Message for SandboxMessage {
+    type Result = SandboxResponse;
 }

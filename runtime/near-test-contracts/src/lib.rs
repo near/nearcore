@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 use rand::{Fill, SeedableRng};
 use std::path::Path;
 
-/// Trivial contact with a do-nothing main function.
+/// Parse a WASM contract from WAT representation.
 pub fn wat_contract(wat: &str) -> Vec<u8> {
     wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
 }
@@ -19,11 +19,23 @@ pub fn trivial_contract() -> &'static [u8] {
 /// Contract with exact size in bytes.
 pub fn sized_contract(size: usize) -> Vec<u8> {
     let payload = "x".repeat(size);
-    let base_size =
-        wat_contract(&format!("(module (data \"{payload}\") (func (export \"main\")))")).len();
+    let base_size = wat_contract(&format!(
+        r#"(module
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    ))
+    .len();
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
-    let code = format!("(module (data \"{payload}\") (func (export \"main\")))");
+    let code = format!(
+        r#"(module 
+            (memory 1)
+            (func (export "main"))
+            (data (i32.const 0) "{payload}")
+        )"#
+    );
     let contract = wat_contract(&code);
     assert_eq!(contract.len(), size);
     contract
@@ -65,6 +77,43 @@ pub fn ts_contract() -> &'static [u8] {
 pub fn fuzzing_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
+}
+
+/// Smallest (reasonable) contract possible to build.
+///
+/// This contract is guaranteed to have a "sum" function
+pub fn smallest_rs_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT
+        .get_or_init(|| {
+            wat_contract(
+                r#"(module
+            (func $input (import "env" "input") (param i64))
+            (func $sum (export "sum") (param i32 i32) (result i32)
+            (call $input
+              (i64.const 0))
+            (i32.add
+              (local.get 1)
+              (local.get 0)))
+            (memory 16)
+            (memory (export "memory") 16)
+            (global (mut i32) (i32.const 1048576))
+            (global (export "__data_end") i32 (i32.const 1048576))
+            (global (export "__heap_base") i32 (i32.const 1048576)))"#,
+            )
+        })
+        .as_slice()
+}
+
+/// Contract that has all methods required by the gas parameter estimator.
+pub fn estimator_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    let file_name = if cfg!(feature = "nightly") {
+        "nightly_estimator_contract.wasm"
+    } else {
+        "stable_estimator_contract.wasm"
+    };
+    CONTRACT.get_or_init(|| read_contract(file_name)).as_slice()
 }
 
 /// Read given wasm file or panic if unable to.
@@ -167,7 +216,7 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     config.exceptions_enabled = false;
     config.saturating_float_to_int_enabled = false;
     config.sign_extension_enabled = false;
-    config.available_imports = Some(rs_contract().to_vec());
+    config.available_imports = Some(base_rs_contract().to_vec());
     let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
     module.to_bytes()
 }

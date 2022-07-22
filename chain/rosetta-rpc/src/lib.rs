@@ -358,6 +358,7 @@ async fn account_balance(
             .await?
             .runtime_config;
 
+    let account_id_for_access_key = account_identifier.address.clone();
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
@@ -383,13 +384,25 @@ async fn account_balance(
     } else {
         account_balances.liquid
     };
-
+    let nonces = if let Some(metadata) = account_identifier.metadata {
+        Some(
+            crate::utils::get_nonces(
+                &view_client_addr,
+                account_id_for_access_key,
+                metadata.public_keys,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     Ok(Json(models::AccountBalanceResponse {
         block_identifier: models::BlockIdentifier {
             hash: block_hash.to_base(),
             index: block_height.try_into().unwrap(),
         },
         balances: vec![models::Amount::from_yoctonear(balance)],
+        metadata: nonces,
     }))
 }
 
@@ -461,6 +474,7 @@ async fn construction_derive(
         account_identifier: models::AccountIdentifier {
             address: address.parse().unwrap(),
             sub_account: None,
+            metadata: None,
         },
     }))
 }
@@ -487,6 +501,7 @@ async fn construction_preprocess(
         required_public_keys: vec![models::AccountIdentifier {
             address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
+            metadata: None,
         }],
         options: models::ConstructionMetadataOptions {
             signer_account_id: near_actions.sender_account_id.into(),

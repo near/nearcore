@@ -81,10 +81,9 @@ fn precompilation_cost(
     let cache_store1: Arc<StoreCompiledContractCache>;
     let cache_store2: Arc<MockCompiledContractCache>;
     let cache: Option<&dyn CompiledContractCache>;
-    let use_file_store = true;
-    if use_file_store {
-        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
+    let use_store = true;
+    if use_store {
+        let store = near_store::test_utils::create_test_store();
         cache_store1 = Arc::new(StoreCompiledContractCache { store });
         cache = Some(cache_store1.as_ref());
     } else {
@@ -126,11 +125,11 @@ fn precompilation_cost(
     // Contracts binaries are taken from near-sdk-rs examples, ae20fc458858144e4a35faf58be778d13c2b0511.
     let validate_contracts = vec![
         // File 139637.
-        read_resource("test-contract/res/status_message.wasm"),
+        read_resource("res/status_message.wasm"),
         // File 157010.
-        read_resource("test-contract/res/mission_control.wasm"),
+        read_resource("res/mission_control.wasm"),
         // File 218444.
-        read_resource("test-contract/res/fungible_token.wasm"),
+        read_resource("res/fungible_token.wasm"),
     ];
 
     for raw_bytes in validate_contracts {
@@ -155,8 +154,7 @@ pub(crate) fn compile_single_contract_cost(
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
 
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
+    let store = near_store::test_utils::create_test_store();
     let cache = Arc::new(StoreCompiledContractCache { store });
 
     measure_contract(vm_kind, metric, &contract, Some(cache.as_ref()))

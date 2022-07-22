@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::panic::Location;
 use std::time::{Duration, Instant};
-use std::{fmt, ops};
+use std::{fmt, iter, ops};
 
 use near_primitives::types::Gas;
 use num_rational::Ratio;
@@ -10,7 +10,6 @@ use serde_json::json;
 
 use crate::config::GasMetric;
 use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
-use crate::least_squares::least_squares_method;
 use crate::qemu::QemuMeasurement;
 
 /// Result of cost estimation.
@@ -23,12 +22,9 @@ pub(crate) struct GasCost {
     /// The smallest thing we are measuring is one wasm instruction, and it
     /// takes about a nanosecond, so we do need to account for fractional
     /// nanoseconds here!
-    time_ns: Ratio<u64>,
+    time_ns: Option<Ratio<u64>>,
     // Values used for `GasMetric::ICount`
-    instructions: Ratio<u64>,
-    io_r_bytes: Ratio<u64>,
-    io_w_bytes: Ratio<u64>,
-    metric: GasMetric,
+    qemu: Option<QemuMeasurement>,
     /// Signals that the measurement was uncertain (ie, had high variance), and
     /// that the estimation needs to be re-run.
     ///
@@ -51,15 +47,8 @@ struct MeasurementUncertainty {
 }
 
 impl GasCost {
-    pub(crate) fn zero(metric: GasMetric) -> GasCost {
-        GasCost {
-            metric,
-            time_ns: 0.into(),
-            instructions: 0.into(),
-            io_r_bytes: 0.into(),
-            io_w_bytes: 0.into(),
-            uncertain: None,
-        }
+    pub(crate) fn zero() -> GasCost {
+        GasCost { time_ns: None, qemu: None, uncertain: None }
     }
 
     pub(crate) fn measure(metric: GasMetric) -> GasClock {
@@ -73,10 +62,16 @@ impl GasCost {
     /// Creates `GasCost` out of raw numeric value of gas. This is required mostly for
     /// compatibility with existing code, prefer using `measure` instead.
     pub(crate) fn from_gas(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
-        let mut result = GasCost::zero(metric);
+        let mut result = GasCost::zero();
         match metric {
-            GasMetric::ICount => result.instructions = raw / GAS_IN_INSTR,
-            GasMetric::Time => result.time_ns = raw / GAS_IN_NS,
+            GasMetric::ICount => {
+                result.qemu = Some(QemuMeasurement {
+                    instructions: raw / GAS_IN_INSTR,
+                    io_r_bytes: 0.into(),
+                    io_w_bytes: 0.into(),
+                })
+            }
+            GasMetric::Time => result.time_ns = Some(raw / GAS_IN_NS),
         }
         result
     }
@@ -107,6 +102,19 @@ impl GasCost {
         tolerance: &LeastSquaresTolerance,
         verbose: bool,
     ) -> (Self, Self) {
+        if verbose {
+            eprintln!("Least squares input:");
+            eprint!("[");
+            for x in xs {
+                eprint!("{x},");
+            }
+            eprintln!("] * x =");
+            eprint!("[");
+            for y in ys {
+                eprint!("{},", y.to_gas());
+            }
+            eprintln!("]");
+        }
         match least_squares_method_gas_cost_pos_neg(xs, ys, verbose) {
             Ok(res) => res,
             Err((mut pos, neg)) => {
@@ -124,7 +132,6 @@ impl GasCost {
     /// If the given tolerance is breached, the result will be marked as uncertain.
     #[track_caller]
     pub(crate) fn saturating_sub(&self, rhs: &Self, tolerance: &NonNegativeTolerance) -> Self {
-        assert_eq!(self.metric, rhs.metric);
         let mut pos = self.saturating_sub_no_uncertain_check(rhs);
         let neg = rhs.saturating_sub_no_uncertain_check(self);
         if !tolerance.tolerates(&pos, &neg) {
@@ -136,15 +143,19 @@ impl GasCost {
     }
 
     fn saturating_sub_no_uncertain_check(&self, rhs: &Self) -> Self {
-        assert_eq!(self.metric, rhs.metric);
-        GasCost {
-            time_ns: saturating_sub(self.time_ns, rhs.time_ns),
-            instructions: saturating_sub(self.instructions, rhs.instructions),
-            io_r_bytes: saturating_sub(self.io_r_bytes, rhs.io_r_bytes),
-            io_w_bytes: saturating_sub(self.io_w_bytes, rhs.io_w_bytes),
-            metric: self.metric,
-            uncertain: None,
-        }
+        let qemu = match (&self.qemu, &rhs.qemu) {
+            (Some(lhs), Some(rhs)) => Some(QemuMeasurement {
+                instructions: saturating_sub(lhs.instructions, rhs.instructions),
+                io_r_bytes: saturating_sub(lhs.io_r_bytes, rhs.io_r_bytes),
+                io_w_bytes: saturating_sub(lhs.io_w_bytes, rhs.io_w_bytes),
+            }),
+            (any_lhs, _any_rhs) => any_lhs.clone(),
+        };
+        let time_ns = match (self.time_ns, rhs.time_ns) {
+            (Some(lhs), Some(rhs)) => Some(saturating_sub(lhs, rhs)),
+            (any_lhs, _any_rhs) => any_lhs,
+        };
+        GasCost { time_ns, qemu, uncertain: None }
     }
 
     /// Does nothing if `GasCost` is already uncertain, otherise copies
@@ -158,24 +169,28 @@ impl GasCost {
     /// other scripts, such as the continuous estimation pipeline. Consumers
     /// should expect more fields to be added. But existing fields should remain
     /// stable.
+
     pub fn to_json(&self) -> serde_json::Value {
-        match self.metric {
-            GasMetric::ICount => json!({
+        if let Some(qemu) = &self.qemu {
+            json!({
                 "gas": self.to_gas(),
                 "metric": "icount",
-                "instructions": self.instructions.to_f64(),
-                "io_r_bytes": self.io_r_bytes.to_f64(),
-                "io_w_bytes": self.io_w_bytes.to_f64(),
+                "instructions": qemu.instructions.to_f64(),
+                "io_r_bytes": qemu.io_r_bytes.to_f64(),
+                "io_w_bytes": qemu.io_w_bytes.to_f64(),
                 // `None` will be printed as `null`
                 "uncertain_reason": self.uncertain.map(|u| u.reason),
-            }),
-            GasMetric::Time => json!({
+            })
+        } else if let Some(time_ns) = self.time_ns {
+            json!({
                 "gas": self.to_gas(),
                 "metric": "time",
-                "time_ns": self.time_ns.to_f64(),
-                "uncertain": self.uncertain.is_some(),
+                "time_ns": time_ns.to_f64(),
+                // `None` will be printed as `null`
                 "uncertain_reason": self.uncertain.map(|u| u.reason),
-            }),
+            })
+        } else {
+            serde_json::Value::Null
         }
     }
 }
@@ -257,126 +272,76 @@ impl NonNegativeTolerance {
     }
 }
 
-/// Like GasCost::least_squares_method_gas_cost but in the case of a solution with negative parameters, it returns  (A,B), where A has negative values set to zero and B contains the
-/// values so that solution = A-B.
+/// Like GasCost::least_squares_method_gas_cost but in the case of a solution
+/// with negative parameters, it returns  (A,B), where A has negative values set
+/// to zero and B contains the values so that solution = A-B.
 fn least_squares_method_gas_cost_pos_neg(
     xs: &[u64],
     ys: &[GasCost],
     verbose: bool,
 ) -> Result<(GasCost, GasCost), ((GasCost, GasCost), (GasCost, GasCost))> {
-    let metric = ys[0].metric;
     let uncertain = ys.iter().find_map(|cost| cost.uncertain);
 
-    let mut t = (0.into(), 0.into(), vec![]);
-    let mut i = (0.into(), 0.into(), vec![]);
-    let mut r = (0.into(), 0.into(), vec![]);
-    let mut w = (0.into(), 0.into(), vec![]);
+    let mut pos_base = GasCost::zero();
+    let mut pos_factor = GasCost::zero();
+    let mut neg_base = GasCost::zero();
+    let mut neg_factor = GasCost::zero();
 
-    match metric {
-        GasMetric::ICount => {
-            i = least_squares_method(
-                xs,
-                &ys.iter()
-                    .map(|gas_cost| gas_cost.instructions.to_u64().unwrap())
-                    .collect::<Vec<_>>(),
-            );
-            r = least_squares_method(
-                xs,
-                &ys.iter()
-                    .map(|gas_cost| gas_cost.io_r_bytes.to_u64().unwrap())
-                    .collect::<Vec<_>>(),
-            );
-            w = least_squares_method(
-                xs,
-                &ys.iter()
-                    .map(|gas_cost| gas_cost.io_w_bytes.to_u64().unwrap())
-                    .collect::<Vec<_>>(),
-            );
+    pos_base.uncertain = uncertain;
+    pos_factor.uncertain = uncertain;
+
+    if let Some(first) = ys.get(0) {
+        if first.qemu.is_some() {
+            assert!(ys.iter().all(|y| y.qemu.is_some()), "least square expects homogenous data");
+
+            let qemu_ys = ys.iter().map(|y| y.qemu.clone().unwrap()).collect::<Vec<_>>();
+
+            let (pos, neg) = crate::least_squares::qemu_measurement_least_squares(xs, &qemu_ys);
+            pos_base.qemu = Some(pos.0);
+            pos_factor.qemu = Some(pos.1);
+            neg_base.qemu = Some(neg.0);
+            neg_factor.qemu = Some(neg.1);
         }
-        GasMetric::Time => {
-            t = least_squares_method(
-                xs,
-                &ys.iter().map(|gas_cost| gas_cost.time_ns.to_u64().unwrap()).collect::<Vec<_>>(),
-            );
+        if first.time_ns.is_some() {
+            assert!(ys.iter().all(|y| y.time_ns.is_some()), "least square expects homogenous data");
+            let time_ys = ys.iter().map(|y| y.time_ns.unwrap()).collect::<Vec<_>>();
+            let (pos, neg) = crate::least_squares::time_measurement_least_squares(xs, &time_ys);
+            pos_base.time_ns = Some(pos.0);
+            pos_factor.time_ns = Some(pos.1);
+            neg_base.time_ns = Some(neg.0);
+            neg_factor.time_ns = Some(neg.1);
         }
     }
 
-    let (pos_t_base, neg_t_base) = split_pos_neg(t.0);
-    let (pos_i_base, neg_i_base) = split_pos_neg(i.0);
-    let (pos_r_base, neg_r_base) = split_pos_neg(r.0);
-    let (pos_w_base, neg_w_base) = split_pos_neg(w.0);
-
-    let (pos_t_factor, neg_t_factor) = split_pos_neg(t.1);
-    let (pos_i_factor, neg_i_factor) = split_pos_neg(i.1);
-    let (pos_r_factor, neg_r_factor) = split_pos_neg(r.1);
-    let (pos_w_factor, neg_w_factor) = split_pos_neg(w.1);
-
-    let neg_base = GasCost {
-        time_ns: neg_t_base,
-        instructions: neg_i_base,
-        io_r_bytes: neg_r_base,
-        io_w_bytes: neg_w_base,
-        metric,
-        uncertain,
-    };
-    let neg_factor = GasCost {
-        time_ns: neg_t_factor,
-        instructions: neg_i_factor,
-        io_r_bytes: neg_r_factor,
-        io_w_bytes: neg_w_factor,
-        metric,
-        uncertain,
-    };
-    let pos_base = GasCost {
-        time_ns: pos_t_base,
-        instructions: pos_i_base,
-        io_r_bytes: pos_r_base,
-        io_w_bytes: pos_w_base,
-        metric,
-        uncertain,
-    };
-    let pos_factor = GasCost {
-        time_ns: pos_t_factor,
-        instructions: pos_i_factor,
-        io_r_bytes: pos_r_factor,
-        io_w_bytes: pos_w_factor,
-        metric,
-        uncertain,
-    };
-
     if neg_base.to_gas() == 0 && neg_factor.to_gas() == 0 {
+        if verbose {
+            eprintln!("Least-squares output: {pos_base:?} + N * {pos_factor:?}",);
+        }
         Ok((pos_base, pos_factor))
     } else {
         if verbose {
             eprintln!(
-                "Least-squares had negative parameters: ({:?} - {:?}) + N * ({:?} - {:?})",
-                pos_base, neg_base, pos_factor, neg_factor
+                "Least-squares had negative parameters: ({pos_base:?} - {neg_base:?}) + N * ({pos_factor:?} - {neg_factor:?})",
             );
         }
         Err(((pos_base, pos_factor), (neg_base, neg_factor)))
     }
 }
 
-/// Transforms input C into two components, where A,B are non-negative and where A-B ~= input.
-/// This method intentionally rounds fractions to whole integers, rounding towards zero.
-fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
-    let pos = num.to_integer().to_u64().unwrap_or_default().into();
-    let neg = (-num).to_integer().to_u64().unwrap_or_default().into();
-    (pos, neg)
-}
-
 impl GasClock {
     pub(crate) fn elapsed(self) -> GasCost {
-        let mut result = GasCost::zero(self.metric);
-        let ns: u64 = self.start.elapsed().as_nanos().try_into().unwrap();
-        result.time_ns = ns.into();
+        let mut result = GasCost::zero();
 
-        if let GasMetric::ICount = self.metric {
-            let qemu_measurement = QemuMeasurement::end_count_instructions();
-            result.instructions = qemu_measurement.instructions.into();
-            result.io_r_bytes = qemu_measurement.io_r_bytes.into();
-            result.io_w_bytes = qemu_measurement.io_w_bytes.into();
-        };
+        match self.metric {
+            GasMetric::ICount => {
+                let qemu = QemuMeasurement::end_count_instructions();
+                result.qemu = Some(qemu);
+            }
+            GasMetric::Time => {
+                let ns: u64 = self.start.elapsed().as_nanos().try_into().unwrap();
+                result.time_ns = Some(ns.into());
+            }
+        }
 
         result
     }
@@ -384,17 +349,23 @@ impl GasClock {
 
 impl fmt::Debug for GasCost {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.metric {
-            GasMetric::ICount => {
-                write!(
-                    f,
-                    "{:0.2}i {:0.2}r {:0.2}w",
-                    self.instructions.to_f64().unwrap(),
-                    self.io_r_bytes.to_f64().unwrap(),
-                    self.io_w_bytes.to_f64().unwrap()
-                )
+        if let Some(qemu) = &self.qemu {
+            write!(
+                f,
+                "{:0.2}i {:0.2}r {:0.2}w",
+                qemu.instructions.to_f64().unwrap(),
+                qemu.io_r_bytes.to_f64().unwrap(),
+                qemu.io_w_bytes.to_f64().unwrap()
+            )
+        } else if let Some(time_ns) = self.time_ns {
+            if time_ns >= 1.into() {
+                fmt::Debug::fmt(&Duration::from_nanos(time_ns.round().to_integer()), f)
+            } else {
+                // Sometimes, dividing costs yields results smaller than one ns.
+                write!(f, "{}ps", (time_ns * 1000).to_integer())
             }
-            GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.time_ns.to_integer()), f),
+        } else {
+            write!(f, "empty-measurement")
         }
     }
 }
@@ -403,22 +374,34 @@ impl ops::Add for GasCost {
     type Output = GasCost;
 
     fn add(mut self, rhs: GasCost) -> Self::Output {
-        assert_eq!(self.metric, rhs.metric);
         self.combine_uncertain(&rhs);
-        GasCost {
-            time_ns: self.time_ns + rhs.time_ns,
-            instructions: self.instructions + rhs.instructions,
-            io_r_bytes: self.io_r_bytes + rhs.io_r_bytes,
-            io_w_bytes: self.io_w_bytes + rhs.io_w_bytes,
-            metric: self.metric,
-            uncertain: self.uncertain,
-        }
+        let qemu = match (self.qemu, rhs.qemu) {
+            (None, None) => None,
+            (Some(lhs), Some(rhs)) => Some(lhs + rhs),
+            (single_value, None) | (None, single_value) => single_value,
+        };
+        let time_ns = match (self.time_ns, rhs.time_ns) {
+            (None, None) => None,
+            (Some(lhs), Some(rhs)) => Some(lhs + rhs),
+            (single_value, None) | (None, single_value) => single_value,
+        };
+        GasCost { time_ns, qemu, uncertain: self.uncertain }
     }
 }
 
 impl ops::AddAssign for GasCost {
     fn add_assign(&mut self, rhs: GasCost) {
         *self = self.clone() + rhs;
+    }
+}
+
+impl iter::Sum for GasCost {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut accum = GasCost::zero();
+        for gas in iter {
+            accum += gas;
+        }
+        accum
     }
 }
 
@@ -434,28 +417,32 @@ impl ops::Sub for GasCost {
 impl ops::Mul<u64> for GasCost {
     type Output = GasCost;
 
-    fn mul(self, rhs: u64) -> Self::Output {
-        GasCost {
-            time_ns: self.time_ns * rhs,
-            instructions: self.instructions * rhs,
-            io_r_bytes: self.io_r_bytes * rhs,
-            io_w_bytes: self.io_w_bytes * rhs,
-            ..self
+    fn mul(mut self, rhs: u64) -> Self::Output {
+        if let Some(qemu) = &mut self.qemu {
+            qemu.instructions *= rhs;
+            qemu.io_r_bytes *= rhs;
+            qemu.io_w_bytes *= rhs;
         }
+        if let Some(time_ns) = &mut self.time_ns {
+            *time_ns *= rhs;
+        }
+        self
     }
 }
 
 impl ops::Div<u64> for GasCost {
     type Output = GasCost;
 
-    fn div(self, rhs: u64) -> Self::Output {
-        GasCost {
-            time_ns: self.time_ns / rhs,
-            instructions: self.instructions / rhs,
-            io_r_bytes: self.io_r_bytes / rhs,
-            io_w_bytes: self.io_w_bytes / rhs,
-            ..self
+    fn div(mut self, rhs: u64) -> Self::Output {
+        if let Some(qemu) = &mut self.qemu {
+            qemu.instructions /= rhs;
+            qemu.io_r_bytes /= rhs;
+            qemu.io_w_bytes /= rhs;
         }
+        if let Some(time_ns) = &mut self.time_ns {
+            *time_ns /= rhs;
+        }
+        self
     }
 }
 
@@ -481,25 +468,24 @@ impl Ord for GasCost {
 
 impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
-        match self.metric {
-            GasMetric::ICount => {
-                self.instructions * GAS_IN_INSTR
-                    + self.io_r_bytes * IO_READ_BYTE_COST
-                    + self.io_w_bytes * IO_WRITE_BYTE_COST
-            }
-            GasMetric::Time => self.time_ns * GAS_IN_NS,
+        if let Some(qemu) = &self.qemu {
+            (GAS_IN_INSTR * qemu.instructions
+                + IO_READ_BYTE_COST * qemu.io_r_bytes
+                + IO_WRITE_BYTE_COST * qemu.io_w_bytes)
+                .to_integer()
+        } else if let Some(ns) = self.time_ns {
+            (GAS_IN_NS * ns).to_integer()
+        } else {
+            0
         }
-        .to_integer()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance};
-    use crate::{
-        config::GasMetric,
-        estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST},
-    };
+    use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
+    use crate::qemu::QemuMeasurement;
     use near_primitives::types::Gas;
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
@@ -528,8 +514,8 @@ mod tests {
 
     impl GasCost {
         pub(crate) fn new_time_based(time_ns: impl Into<Ratio<u64>>) -> Self {
-            let mut result = GasCost::zero(GasMetric::Time);
-            result.time_ns = time_ns.into();
+            let mut result = GasCost::zero();
+            result.time_ns = Some(time_ns.into());
             result
         }
         pub(crate) fn new_icount_based(
@@ -537,10 +523,13 @@ mod tests {
             io_r_bytes: impl Into<Ratio<u64>>,
             io_w_bytes: impl Into<Ratio<u64>>,
         ) -> Self {
-            let mut result = GasCost::zero(GasMetric::ICount);
-            result.instructions = instructions.into();
-            result.io_r_bytes = io_r_bytes.into();
-            result.io_w_bytes = io_w_bytes.into();
+            let mut result = GasCost::zero();
+            let qemu = QemuMeasurement {
+                instructions: instructions.into(),
+                io_r_bytes: io_r_bytes.into(),
+                io_w_bytes: io_w_bytes.into(),
+            };
+            result.qemu = Some(qemu);
             result
         }
     }
@@ -570,6 +559,20 @@ mod tests {
         check_uncertainty(&xs, &ys, Default::default(), false);
         check_uncertainty(&xs, &ys, abs_tolerance(1, 1), false);
         check_uncertainty(&xs, &ys, rel_tolerance(0.1, 0.1), false);
+    }
+
+    #[test]
+    fn least_squares_method_gas_cost_time_below_ns() {
+        let xs = [1, 2, 3];
+
+        let ys = [
+            GasCost::new_time_based(Ratio::new(11, 10)),
+            GasCost::new_time_based(Ratio::new(12, 10)),
+            GasCost::new_time_based(Ratio::new(13, 10)),
+        ];
+
+        let expected = Ok((GasCost::new_time_based(1), GasCost::new_time_based(Ratio::new(1, 10))));
+        check_least_squares_method_gas_cost_pos_neg(&xs, &ys, expected);
     }
 
     #[test]

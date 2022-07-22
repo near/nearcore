@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [lib]
@@ -31,7 +31,5 @@ incremental = false
 members = []
 
 [features]
-nightly = ["protocol_feature_alt_bn128"]
-protocol_feature_alt_bn128 = []
-protocol_feature_function_call_weight = []
+nightly = []
 latest_protocol = []

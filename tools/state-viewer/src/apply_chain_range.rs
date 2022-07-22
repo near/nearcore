@@ -22,11 +22,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
 
-fn timestamp() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-}
-
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
@@ -35,6 +30,7 @@ pub const TGAS: u64 = 1024 * 1024 * 1024 * 1024;
 
 struct ProgressReporter {
     cnt: AtomicU64,
+    // Timestamp to make relative measurements of block processing speed (in ms)
     ts: AtomicU64,
     all: u64,
     skipped: AtomicU64,
@@ -165,7 +161,13 @@ fn apply_block_from_range(
             height
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
-        let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
+        let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+        let chunk = chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
+            panic!(
+                "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
+                height, chunk_hash, error
+            );
+        });
 
         let prev_block = match chain_store.get_block(block.header().prev_hash()) {
             Ok(prev_block) => prev_block,
@@ -364,7 +366,7 @@ pub fn apply_chain_range(
     let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
-        ts: AtomicU64::new(timestamp()),
+        ts: AtomicU64::new(timestamp_ms()),
         all: end_height - start_height,
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),

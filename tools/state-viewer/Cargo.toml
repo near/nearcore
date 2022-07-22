@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 
 [dependencies]
@@ -30,6 +30,7 @@ near-network = { path = "../../chain/network" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-store = { path = "../../core/store" }
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
 nearcore = { path = "../../nearcore" }
 node-runtime = { path = "../../runtime/runtime" }
 
@@ -42,7 +43,6 @@ testlib = { path = "../../test-utils/testlib" }
 sandbox = [
   "node-runtime/sandbox",
   "near-chain/sandbox",
-  "near-network/sandbox",
   "near-client/sandbox",
 ]
 nightly = [

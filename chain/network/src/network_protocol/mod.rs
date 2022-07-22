@@ -3,6 +3,11 @@ mod borsh;
 mod borsh_conv;
 mod proto_conv;
 
+#[cfg(test)]
+pub(crate) mod testonly;
+#[cfg(test)]
+mod tests;
+
 mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
@@ -10,25 +15,118 @@ mod _proto {
 pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_crypto::PublicKey;
+use near_network_primitives::time;
 use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{EpochId, ProtocolVersion};
+use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
 use thiserror::Error;
 
-pub use self::borsh::{
-    PartialSync, RoutingState, RoutingSyncV2, RoutingTableUpdate, RoutingVersion2,
-};
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct PeerAddr {
+    addr: std::net::SocketAddr,
+    peer_id: Option<PeerId>,
+}
 
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct AccountData {
+    pub peers: Vec<PeerAddr>,
+    pub account_id: AccountId,
+    pub epoch_id: EpochId,
+    pub timestamp: time::Utc,
+}
+
+// Limit on the size of the serialized AccountData message.
+// It is important to have such a constraint on the serialized proto,
+// because it may contain many unknown fields (which are dropped during parsing).
+pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
+
+impl AccountData {
+    pub fn sign(self, signer: &dyn near_crypto::Signer) -> anyhow::Result<SignedAccountData> {
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
+            anyhow::bail!(
+                "payload size = {}, max is {}",
+                payload.len(),
+                MAX_ACCOUNT_DATA_SIZE_BYTES
+            );
+        }
+        // TODO: here we should validate that payload is not too big - i.e. that it won't exceed
+        // the maximal allowed size.
+        let signature = signer.sign(&payload);
+        Ok(SignedAccountData {
+            account_data: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct AccountKeySignedPayload {
+    payload: Vec<u8>,
+    signature: near_crypto::Signature,
+}
+
+impl AccountKeySignedPayload {
+    pub fn len(&self) -> usize {
+        self.payload.len()
+    }
+    pub fn verify(&self, key: &PublicKey) -> bool {
+        self.signature.verify(&self.payload, key)
+    }
+}
+
+// TODO(gprusak): if we expect this to be large, perhaps we should
+// pass around an Arc, rather than pass it by value.
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct SignedAccountData {
+    account_data: AccountData,
+    // Serialized and signed AccountData.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedAccountData {
+    type Target = AccountData;
+    fn deref(&self) -> &Self::Target {
+        &self.account_data
+    }
+}
+
+impl SignedAccountData {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
+pub struct RoutingTableUpdate {
+    pub edges: Vec<Edge>,
+    pub accounts: Vec<AnnounceAccount>,
+}
+
+impl RoutingTableUpdate {
+    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
+        Self { edges, accounts: Vec::new() }
+    }
+
+    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
+        Self { edges: Vec::new(), accounts }
+    }
+
+    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
+        Self { edges, accounts }
+    }
+}
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
@@ -76,6 +174,13 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct SyncAccountsData {
+    pub accounts_data: Vec<SignedAccountData>,
+    pub requesting_full_sync: bool,
+    pub incremental: bool,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
@@ -88,6 +193,8 @@ pub enum PeerMessage {
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
 
+    SyncAccountsData(SyncAccountsData),
+
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
 
@@ -98,7 +205,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessage>),
+    Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
@@ -107,8 +214,6 @@ pub enum PeerMessage {
     EpochSyncResponse(Box<EpochSyncResponse>),
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
-
-    RoutingTableSyncV2(RoutingSyncV2),
 }
 
 impl fmt::Display for PeerMessage {
@@ -161,7 +266,7 @@ impl PeerMessage {
 
     pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
-            PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
+            PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
             _ => self.into(),
         }
     }
@@ -175,7 +280,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncResponse(_)
             | PeerMessage::Transaction(_) => true,
             PeerMessage::Routed(r) => matches!(
-                r.body,
+                r.msg.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
                     | RoutedMessageBody::PartialEncodedChunk(_)
@@ -197,7 +302,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncFinalizationRequest(_)
             | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
-                r.body,
+                r.msg.body,
                 RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)

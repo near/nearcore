@@ -6,7 +6,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use chrono::DateTime;
 use near_crypto::Signature;
-use num_rational::Rational;
 use primitive_types::U256;
 
 use crate::block::BlockValidityError::{
@@ -17,6 +16,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::num_rational::Rational32;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
@@ -206,7 +206,7 @@ impl Block {
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Signature>>,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
@@ -315,7 +315,7 @@ impl Block {
         prev_gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
         let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
@@ -334,7 +334,7 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
@@ -584,7 +584,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
+    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),

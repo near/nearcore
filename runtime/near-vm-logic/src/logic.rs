@@ -7,9 +7,11 @@ use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
+use near_primitives::checked_feature;
+use near_primitives::config::ViewConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -18,8 +20,8 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
+use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -817,7 +819,6 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -861,7 +862,6 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -906,7 +906,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -2346,7 +2345,17 @@ impl<'a> VMLogic<'a> {
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "write",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = value_len,
+            evicted_len = evicted.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2425,8 +2434,16 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let read = self.ext.storage_get(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+
+        near_o11y::io_trace!(
+            storage_op = "read",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            size = read.as_ref().map(Vec::len),
+            tn_db_reads = nodes_delta.db_reads,
+            tn_mem_reads = nodes_delta.mem_reads,
+        );
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;
@@ -2479,7 +2496,16 @@ impl<'a> VMLogic<'a> {
 
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "remove",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            evicted_len = removed.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2526,7 +2552,15 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "exists",
+            key =  %near_primitives::serialize::to_base(key.clone()),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         Ok(res? as u64)
     }
 
@@ -2673,6 +2707,13 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    /// Add a cost for loading the contract code in the VM.
+    ///
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
     pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
         self.gas_counter.pay_base(contract_loading_base)
@@ -2688,6 +2729,54 @@ impl<'a> VMLogic<'a> {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
+    }
+
+    /// VM independent setup before loading the executable.
+    ///
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
+        &mut self,
+        method_name: &str,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if method_name.is_empty() {
+            let error =
+                VMError::FunctionCallError(near_vm_errors::FunctionCallError::MethodResolveError(
+                    near_vm_errors::MethodResolveError::MethodEmptyName,
+                ));
+            return Err(error);
+        }
+        if checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                let error =
+                    VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_loading_executable(
+        &mut self,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), VMError> {
+        if !checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                return Err(VMError::FunctionCallError(
+                    near_vm_errors::FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

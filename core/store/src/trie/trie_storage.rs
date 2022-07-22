@@ -19,7 +19,7 @@ pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Arc<[u8]>>>>);
 
 impl TrieCache {
     pub fn new() -> Self {
-        Self::with_capacity(TRIE_MAX_SHARD_CACHE_SIZE)
+        Self::with_capacity(TRIE_DEFAULT_SHARD_CACHE_SIZE)
     }
 
     pub fn with_capacity(cap: usize) -> Self {
@@ -143,20 +143,20 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
-/// Maximum number of cache entries.
+/// Default number of cache entries.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
-/// TRIE_LIMIT_CACHED_VALUE_SIZE * 2 (number of caches - for regular and view client) = 1.6 GB.
+/// TRIE_LIMIT_CACHED_VALUE_SIZE * 2 (number of caches - for regular and view client) = 0.4 GB.
 /// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
 /// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_MAX_SHARD_CACHE_SIZE: usize = 50000;
+const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
 
 #[cfg(feature = "no_cache")]
-const TRIE_MAX_SHARD_CACHE_SIZE: usize = 1;
+const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
-/// Note that Trie inner nodes are always smaller than this.
-pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 4000;
+/// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
+pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
@@ -171,7 +171,6 @@ pub struct TrieCachingStorage {
     /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
     /// `TrieCachingStorage` is removed.
     /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
-    /// TODO (#5920): enable chunk nodes caching in Runtime::apply.
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
@@ -242,8 +241,12 @@ impl TrieStorage for TrieCachingStorage {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
         let val = match guard.get(hash) {
-            Some(val) => val.clone(),
+            Some(val) => {
+                near_o11y::io_trace!(count: "shard_cache_hit");
+                val.clone()
+            }
             None => {
+                near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
                 let val = self
@@ -261,6 +264,8 @@ impl TrieStorage for TrieCachingStorage {
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
+                } else {
+                    near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
                 val

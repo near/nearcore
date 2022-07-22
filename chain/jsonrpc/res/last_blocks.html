@@ -29,13 +29,26 @@
         tr.active {
             background-color: #eff8bf;
         }
+
+        .skippedChunk {
+            background-color: grey;
+        }
+
+        .validatorUnavailable {
+            color: red;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        let known_producers = new Set([]);
+
         function createHashElement(hashValue, creator) {
             var element = $('<span>');
             element.addClass('hashElem');
-            element.attr("hashValue", hashValue);
+            if (!known_producers.has(creator)) {
+                element.addClass('validatorUnavailable')
+            }
+            element.attr("hashvalue", hashValue);
             element.attr("creator", creator);
             element.css("font-family", "monospace");
             var suffix = "...";
@@ -46,16 +59,11 @@
             element.click(function () {
                 element.text(hashValue + " " + creator);
             })
+
             return element;
         }
 
-        $(document).ready(function () {
-            $(".expand_all").click(function () {
-                $(".hashElem").click();
-            })
-
-            var root = $("#blocks_table_tbody");
-            root.html("Loading...");
+        function fetchBlockStatus() {
             $.ajax({
                 type: "GET",
                 url: "/debug/api/block_status",
@@ -70,13 +78,14 @@
                             }
                         });
                     });
+                    let chunks_by_index = {};
 
                     prepareTableHeader(max_shard);
                     data.status_response.BlockStatus.forEach(element => {
                         var row = $('<tr>');
 
                         row.append($('<td>').text(element.block_height));
-                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer)));
+                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer, "block_id")));
 
                         row.append($('<td>').text(element.processing_time_ms));
                         row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
@@ -87,8 +96,10 @@
                         for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
                             shards_cells.push($('<td>'));
                         }
-                        element.chunks.forEach(chunk => {
-                            shards_cells[chunk.shard_id * 3].append(createHashElement(chunk.chunk_hash, chunk.chunk_producer));
+                        element.chunks.forEach((chunk, index) => {
+                            let element = createHashElement(chunk.chunk_hash, chunk.chunk_producer);
+                            (chunks_by_index[index] = chunks_by_index[index] || []).push(element);
+                            shards_cells[chunk.shard_id * 3].append(element);
                             shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
                             shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
                         });
@@ -99,6 +110,19 @@
                         root.append(row);
 
                     });
+
+                    for (let i = 0; i <= max_shard; i += 1) {
+                        let previous_hash = ""
+                        for (let j = chunks_by_index[i].length - 1; j >= 0; j -= 1) {
+                            let new_hash = chunks_by_index[i][j][0].attributes['hashvalue'].value;
+                            if (previous_hash == new_hash) {
+                                chunks_by_index[i][j].addClass('skippedChunk')
+                            }
+                            previous_hash = new_hash;
+                        }
+
+                    }
+
                     return;
                 },
                 dataType: "json",
@@ -112,7 +136,39 @@
                 },
                 contentType: "application/json; charset=utf-8",
             })
+        }
 
+
+
+        $(document).ready(function () {
+            $(".expand_all").click(function () {
+                $(".hashElem").click();
+            })
+
+            var root = $("#blocks_table_tbody");
+            root.html("Loading...");
+
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: function (data) {
+                    data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                        known_producers.add(element.account_id);
+                    });
+                    fetchBlockStatus();
+                    return;
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    if (errMsg.status == 405) {
+                        // Method not allowd.
+                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
+                    } else {
+                        alert("Failed: " + textStatus + " :" + errorThrown);
+                    }
+                },
+                contentType: "application/json; charset=utf-8",
+            })
         });
 
         function prepareTableHeader(max_shard) {
@@ -130,6 +186,9 @@
     <h1>
         Most recent blocks.
     </h1>
+    Skipped chunks have grey background.<br>
+    Skipped blocks have hashes set to 11111. <br>
+    Red text means that we don't know this producer (it is not present in our announce account list). <br>
     <button class="expand_all">Expand all</button><br>
     <div id="blocks_table">
         <table>

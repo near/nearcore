@@ -1,2 +1,7 @@
 [build]
+# We compile with `panic=abort`, so we need `-Cforce-unwind-tables=y`
+# to get a useful backtrace on panic.
+rustflags = ["-Cforce-unwind-tables=y"]
+
+[target.'cfg(target_arch = "x86_64")']
 rustflags = ["-Ctarget-feature=+sse4.1,+sse4.2"]

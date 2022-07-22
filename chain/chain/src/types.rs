@@ -4,22 +4,25 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
-use num_rational::Rational;
+use num_rational::Rational32;
 
-use near_chain_configs::{GenesisConfig, ProtocolConfig};
+use crate::DoomslugThresholdMode;
+use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
-pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -35,10 +38,7 @@ use near_primitives::version::{
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
-use crate::DoomslugThresholdMode;
-use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_record::StateRecord;
+pub use near_primitives::block::{Block, BlockHeader, Tip};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -160,7 +160,7 @@ impl BlockHeaderInfo {
 
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
-    gas_price_adjustment_rate: Rational,
+    gas_price_adjustment_rate: Rational32,
     min_gas_price: Balance,
     max_gas_price: Balance,
     genesis_protocol_version: ProtocolVersion,
@@ -201,7 +201,7 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
+    pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational32 {
         self.gas_price_adjustment_rate
     }
 }
@@ -226,29 +226,25 @@ pub struct ChainGenesis {
     pub min_gas_price: Balance,
     pub max_gas_price: Balance,
     pub total_supply: Balance,
-    pub gas_price_adjustment_rate: Rational,
+    pub gas_price_adjustment_rate: Rational32,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     pub protocol_version: ProtocolVersion,
 }
 
-impl<T> From<T> for ChainGenesis
-where
-    T: AsRef<GenesisConfig>,
-{
-    fn from(genesis_config: T) -> Self {
-        let genesis_config = genesis_config.as_ref();
+impl ChainGenesis {
+    pub fn new(genesis: &Genesis) -> Self {
         Self {
-            time: genesis_config.genesis_time,
-            height: genesis_config.genesis_height,
-            gas_limit: genesis_config.gas_limit,
-            min_gas_price: genesis_config.min_gas_price,
-            max_gas_price: genesis_config.max_gas_price,
-            total_supply: genesis_config.total_supply,
-            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
-            transaction_validity_period: genesis_config.transaction_validity_period,
-            epoch_length: genesis_config.epoch_length,
-            protocol_version: genesis_config.protocol_version,
+            time: genesis.config.genesis_time,
+            height: genesis.config.genesis_height,
+            gas_limit: genesis.config.gas_limit,
+            min_gas_price: genesis.config.min_gas_price,
+            max_gas_price: genesis.config.max_gas_price,
+            total_supply: genesis.config.total_supply,
+            gas_price_adjustment_rate: genesis.config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis.config.transaction_validity_period,
+            epoch_length: genesis.config.epoch_length,
+            protocol_version: genesis.config.protocol_version,
         }
     }
 }
@@ -411,6 +407,9 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
+
+    /// Returns all the chunk producers for a given epoch.
+    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(
@@ -609,7 +608,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -633,7 +632,7 @@ pub trait RuntimeAdapter: Send + Sync {
             false,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            state_patch,
         )
     }
 
@@ -655,7 +654,7 @@ pub trait RuntimeAdapter: Send + Sync {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: Option<SandboxStatePatch>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(

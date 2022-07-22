@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
+rust-version = "1.62.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
@@ -19,6 +19,7 @@ bs58 = "0.4"
 derive_more = "0.99.3"
 num-rational = { version = "0.3.1", features = ["serde"]}
 serde = { version = "1", features = ["derive"] }
+serde_repr = { version = "0.1.8" }
 strum = { version = "0.24", features = ["derive"] }
 sha2 = "0.10"
 deepsize = { version = "0.2.0", optional = true }
@@ -30,8 +31,6 @@ serde_json = "1"
 
 [features]
 default = []
-protocol_feature_alt_bn128 = []
-protocol_feature_routing_exchange_algorithm = []
 deepsize_feature = [
   "deepsize",
   "near-account-id/deepsize_feature",
