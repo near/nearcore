@@ -3,6 +3,7 @@ use near_primitives_core::hash::CryptoHash;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 pub struct TrieProofLeaf {
     pub key: Vec<u8>,
     pub value_length: u32,
@@ -11,6 +12,7 @@ pub struct TrieProofLeaf {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 pub struct TrieProofExtension {
     pub key: Vec<u8>,
     pub child_hash: CryptoHash,
@@ -18,6 +20,7 @@ pub struct TrieProofExtension {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 pub struct TrieProofBranch {
     pub children: [Option<CryptoHash>; 16],
     pub value: Option<(u32, CryptoHash)>,
@@ -29,6 +32,7 @@ pub struct TrieProofBranch {
 ///
 /// Can either be a Leaf, an Extension, or a Branch.
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 pub enum TrieProofItem {
     Leaf(Box<TrieProofLeaf>),
     Extension(Box<TrieProofExtension>),
