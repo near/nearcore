@@ -521,8 +521,7 @@ mod tests {
 
             // push receipt to trie
             let tries = create_tries();
-            let mut trie_update =
-                tries.new_trie_update(ShardUId::single_shard(), StateRoot::default());
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
             for (i, receipt) in all_receipts.iter().enumerate() {

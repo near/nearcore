@@ -1725,7 +1725,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .get_split_shard_uids(shard_id)
             .ok_or(Error::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
-            new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
+            new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
         let checked_account_id_to_shard_id = |account_id: &AccountId| {
             let new_shard_uid = account_id_to_shard_uid(account_id, next_epoch_shard_layout);
@@ -2737,7 +2737,7 @@ mod test {
         root_node_wrong.data = vec![123];
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(
-            &StateRoot::default(),
+            &Trie::EMPTY_ROOT,
             PartId::new(0, 1),
             &state_part
         ));

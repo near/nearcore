@@ -24,7 +24,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, EpochId, StateRoot};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -362,7 +362,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
         *last_block.hash(),
-        StateRoot::default(),
+        Trie::EMPTY_ROOT,
         CryptoHash::default(),
         last_block.header().height() + 1,
         0,
