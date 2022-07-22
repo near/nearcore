@@ -122,20 +122,24 @@ impl ShardTries {
         let mut shards = HashMap::new();
         for op in &transaction.ops {
             match op {
-                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::State => {
-                    let (shard_uid, hash) =
-                        TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
-                }
-                DBOp::Set { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::Delete { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::DeleteAll { col } if *col == DBCol::State => {
-                    // Delete is possible in reset_data_pre_state_sync
-                    for (_, cache) in caches.iter() {
-                        cache.clear();
+                DBOp::UpdateRefcount { col, key, value } => {
+                    if *col == DBCol::State {
+                        let (shard_uid, hash) =
+                            TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
+                        shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                     }
                 }
-                _ => {}
+                DBOp::DeleteAll { col } => {
+                    if *col == DBCol::State {
+                        // Delete is possible in reset_data_pre_state_sync
+                        for (_, cache) in caches.iter() {
+                            cache.clear();
+                        }
+                    }
+                }
+                DBOp::Set { col, .. } | DBOp::Insert { col, .. } | DBOp::Delete { col, .. } => {
+                    assert_ne!(*col, DBCol::State);
+                }
             }
         }
         for (shard_uid, ops) in shards {
