@@ -1804,7 +1804,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
     ) -> bool {
-        if state_root == &CryptoHash::default() {
+        if state_root == &Trie::EMPTY_ROOT {
             return state_root_node == &StateRootNode::empty();
         }
         if hash(&state_root_node.data) != *state_root {
