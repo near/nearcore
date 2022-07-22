@@ -2008,6 +2008,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<AcceptedBlock, Error> {
+        let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
             self.blocks_in_processing.remove(&block_hash).expect(&format!(
                 "block {:?} finished applying chunks but not in blocks_in_processing pool",
@@ -2059,6 +2060,7 @@ impl Chain {
                 .saturating_duration_since(block_start_processing_time.clone())
                 .as_secs_f64(),
         );
+        timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
         self.check_orphans(
@@ -2092,6 +2094,7 @@ impl Chain {
         ),
         Error,
     > {
+        let timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
@@ -2240,6 +2243,7 @@ impl Chain {
             state_patch,
         )?;
 
+        timer.observe_duration();
         Ok((
             apply_chunk_work,
             BlockPreprocessInfo {
