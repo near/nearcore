@@ -767,7 +767,7 @@ impl Trie {
     ///
     /// # Errors
     ///
-    /// If the root is not found on the trie, a `StorageError` will be returned
+    /// If the root or any subsequent is not found in the trie, `StorageError` will be returned
     pub fn get_proof(
         &self,
         root: &CryptoHash,
