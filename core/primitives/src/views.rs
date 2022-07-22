@@ -198,7 +198,7 @@ impl From<AccessKeyView> for AccessKey {
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Vec<TrieProofItem>;
+pub type TrieProofPath = Option<Vec<TrieProofItem>>;
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

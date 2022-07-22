@@ -153,7 +153,7 @@ impl TrieViewer {
             values.push(StateItem {
                 key: to_base64(&key[acc_sep_len..]),
                 value: to_base64(&value),
-                proof: vec![],
+                proof: None,
             });
         }
         // TODO(2076): Add proofs for the storage items.

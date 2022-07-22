@@ -135,12 +135,12 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, Vec::<_>::new());
+    assert_eq!(result.proof, None);
     assert_eq!(
         result.values,
         [
-            StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: vec![] },
-            StateItem { key: "dGVzdDMyMQ==".to_string(), value: "MzIx".to_string(), proof: vec![] }
+            StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: None },
+            StateItem { key: "dGVzdDMyMQ==".to_string(), value: "MzIx".to_string(), proof: None }
         ]
     );
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"xyz").unwrap();
@@ -148,275 +148,324 @@ fn test_view_state() {
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
     assert_eq!(
         result.values,
-        [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: vec![] }]
+        [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: None }]
     );
     assert_eq!(
         result.proof,
-        vec![
-            TrieProofItem::Extension(Box::new(TrieProofExtension {
-                key: vec![16],
-                child_hash: CryptoHash::from_str("FwUXNsdcWaTQdZHgmHDjXuCGPmS8f4veZEKSpnNwFL6e")
+        Some(vec![
+            TrieProofItem::Extension(
+                TrieProofExtension {
+                    key: vec![16],
+                    child_hash: CryptoHash::from_str(
+                        "FwUXNsdcWaTQdZHgmHDjXuCGPmS8f4veZEKSpnNwFL6e"
+                    )
                     .unwrap(),
-                memory_usage: 97430
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    Some(
-                        CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
-                            .unwrap()
-                    ),
-                    Some(
-                        CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
-                            .unwrap()
-                    ),
-                    Some(
-                        CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("FLxcnKrm7fPnZNdeVvybWtnQGBmyoUuXjhXmhq3NgNPa")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 97378,
-                index: 9
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    Some(
-                        CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
-                            .unwrap()
-                    ),
-                    Some(
-                        CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
-                            .unwrap()
-                    ),
-                    Some(
-                        CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 97378,
-                index: 9
-            })),
-            TrieProofItem::Extension(Box::new(TrieProofExtension {
-                key: vec![22, 22, 198],
-                child_hash: CryptoHash::from_str("HCEH9UoyeZUv5UDgu9QpFTxWoFGPMrS4VAV2TZHzSLjw")
+                    memory_usage: 97430
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        Some(
+                            CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
+                                .unwrap()
+                        ),
+                        Some(
+                            CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
+                                .unwrap()
+                        ),
+                        Some(
+                            CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("FLxcnKrm7fPnZNdeVvybWtnQGBmyoUuXjhXmhq3NgNPa")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 97378,
+                    index: 9
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        Some(
+                            CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
+                                .unwrap()
+                        ),
+                        Some(
+                            CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
+                                .unwrap()
+                        ),
+                        Some(
+                            CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 97378,
+                    index: 9
+                }
+                .into()
+            ),
+            TrieProofItem::Extension(
+                TrieProofExtension {
+                    key: vec![22, 22, 198],
+                    child_hash: CryptoHash::from_str(
+                        "HCEH9UoyeZUv5UDgu9QpFTxWoFGPMrS4VAV2TZHzSLjw"
+                    )
                     .unwrap(),
-                memory_usage: 780
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("HQRiU7i61GFKWtorr8RzY1QyQVJqX5hrytYqwhiyHZHd")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 724,
-                index: 9
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 724,
-                index: 9
-            })),
-            TrieProofItem::Extension(Box::new(TrieProofExtension {
-                key: vec![22],
-                child_hash: CryptoHash::from_str("GqYVVbkA7nvAEuCsvKZdWQ7Ddc5e9bNsfVhTTusWyvup")
+                    memory_usage: 780
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("HQRiU7i61GFKWtorr8RzY1QyQVJqX5hrytYqwhiyHZHd")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 724,
+                    index: 9
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 724,
+                    index: 9
+                }
+                .into()
+            ),
+            TrieProofItem::Extension(
+                TrieProofExtension {
+                    key: vec![22],
+                    child_hash: CryptoHash::from_str(
+                        "GqYVVbkA7nvAEuCsvKZdWQ7Ddc5e9bNsfVhTTusWyvup"
+                    )
                     .unwrap(),
-                memory_usage: 559
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("5H3fJHA6jCZKnbFnkFDcuPDRbPdmiSgC4mR4jX4D5XD3")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
-                            .unwrap()
-                    ),
-                    None
-                ],
-                value: None,
-                memory_usage: 507,
-                index: 3
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
-                            .unwrap()
-                    ),
-                    None
-                ],
-                value: None,
-                memory_usage: 507,
-                index: 3
-            })),
-            TrieProofItem::Extension(Box::new(TrieProofExtension {
-                key: vec![22, 82, 230, 230, 86, 23, 34, 199, 70, 87, 55, 67],
-                child_hash: CryptoHash::from_str("EeJvs6otTUKtsbpfcgm59ePFGw7QMB5G37hAVAS6n341")
+                    memory_usage: 559
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("5H3fJHA6jCZKnbFnkFDcuPDRbPdmiSgC4mR4jX4D5XD3")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
+                                .unwrap()
+                        ),
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 507,
+                    index: 3
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
+                                .unwrap()
+                        ),
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 507,
+                    index: 3
+                }
+                .into()
+            ),
+            TrieProofItem::Extension(
+                TrieProofExtension {
+                    key: vec![22, 82, 230, 230, 86, 23, 34, 199, 70, 87, 55, 67],
+                    child_hash: CryptoHash::from_str(
+                        "EeJvs6otTUKtsbpfcgm59ePFGw7QMB5G37hAVAS6n341"
+                    )
                     .unwrap(),
-                memory_usage: 342
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    Some(
-                        CryptoHash::from_str("6kH6uEShmyoX7iGisy8nZxoYVNw6w8McqqDgXHct7J6X")
-                            .unwrap()
-                    ),
-                    None,
-                    Some(
-                        CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 268,
-                index: 1
-            })),
-            TrieProofItem::Branch(Box::new(TrieProofBranch {
-                children: [
-                    None,
-                    None,
-                    None,
-                    Some(
-                        CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
-                            .unwrap()
-                    ),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None
-                ],
-                value: None,
-                memory_usage: 268,
-                index: 1
-            })),
-            TrieProofItem::Leaf(Box::new(TrieProofLeaf {
-                key: vec![32, 50, 51],
-                value_length: 3,
-                value_hash: CryptoHash::from_str("CCYa6DM7NuL4iPoSM4PvtYMRcHFydKhD5oRSXx3jfxCS")
+                    memory_usage: 342
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        Some(
+                            CryptoHash::from_str("6kH6uEShmyoX7iGisy8nZxoYVNw6w8McqqDgXHct7J6X")
+                                .unwrap()
+                        ),
+                        None,
+                        Some(
+                            CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 268,
+                    index: 1
+                }
+                .into()
+            ),
+            TrieProofItem::Branch(
+                TrieProofBranch {
+                    children: [
+                        None,
+                        None,
+                        None,
+                        Some(
+                            CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
+                                .unwrap()
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None
+                    ],
+                    value: None,
+                    memory_usage: 268,
+                    index: 1
+                }
+                .into()
+            ),
+            TrieProofItem::Leaf(
+                TrieProofLeaf {
+                    key: vec![32, 50, 51],
+                    value_length: 3,
+                    value_hash: CryptoHash::from_str(
+                        "CCYa6DM7NuL4iPoSM4PvtYMRcHFydKhD5oRSXx3jfxCS"
+                    )
                     .unwrap(),
-                memory_usage: 109
-            })),
-        ]
+                    memory_usage: 109
+                }
+                .into()
+            ),
+        ])
     );
     // TODO: understand why only when prefix is test123 the proof is not empty. Seems like there's an issue on the implementation
     // of proof retrieval

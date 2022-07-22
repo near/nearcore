@@ -27,11 +27,28 @@ pub struct TrieProofBranch {
 
 /// Trie Merkle Proof Item is an element of a merkle proof
 ///
-/// Can be either a Leaf, an Extension or a Branch.
+/// Can either be a Leaf, an Extension, or a Branch.
 #[derive(Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
-
 pub enum TrieProofItem {
     Leaf(Box<TrieProofLeaf>),
     Extension(Box<TrieProofExtension>),
     Branch(Box<TrieProofBranch>),
+}
+
+impl From<TrieProofLeaf> for TrieProofItem {
+    fn from(leaf: TrieProofLeaf) -> Self {
+        Self::Leaf(Box::new(leaf))
+    }
+}
+
+impl From<TrieProofExtension> for TrieProofItem {
+    fn from(extension: TrieProofExtension) -> Self {
+        Self::Extension(Box::new(extension))
+    }
+}
+
+impl From<TrieProofBranch> for TrieProofItem {
+    fn from(branch: TrieProofBranch) -> Self {
+        Self::Branch(Box::new(branch))
+    }
 }

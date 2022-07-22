@@ -993,7 +993,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             QueryRequest::ViewState { .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewState(ViewStateResult {
                     values: Default::default(),
-                    proof: vec![],
+                    proof: None,
                 }),
                 block_height,
                 block_hash: *block_hash,
