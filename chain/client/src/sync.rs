@@ -684,6 +684,11 @@ impl StateSync {
         Ok((request_block, have_block))
     }
 
+    // In the tuple of bools returned by this function, the first one
+    // indicates whether something has changed in `new_shard_sync`,
+    // and therefore whether the client needs to update its
+    // `sync_status`. The second indicates whether state sync is
+    // finished, in which case the client will transition to block sync
     pub fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
