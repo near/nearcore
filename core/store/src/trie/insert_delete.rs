@@ -620,7 +620,7 @@ impl Trie {
                 }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
-            raw_node_with_size.encode_into(&mut buffer).expect("Encode can never fail");
+            raw_node_with_size.encode_into(&mut buffer);
             let key = hash(&buffer);
 
             let (_value, rc) =
