@@ -14,18 +14,20 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 pub const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
-pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
+pub fn get_runtime_and_trie(deploy_test_contract: bool) -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test_sharded_new_version(
         vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
         3,
         vec![3],
     );
-    add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
+    if deploy_test_contract {
+        add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
+    }
     get_runtime_and_trie_from_genesis(&genesis)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
-    let (_, tries, root) = get_runtime_and_trie();
+    let (_, tries, root) = get_runtime_and_trie(true);
     let trie_viewer = TrieViewer::default();
     let state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     (trie_viewer, state_update)

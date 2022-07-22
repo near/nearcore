@@ -108,7 +108,9 @@ fn test_view_call_with_args() {
 
 #[test]
 fn test_view_state() {
-    let (_, tries, root) = get_runtime_and_trie();
+    // in order to ensure determinism under all conditions (compiler, build output, etc)
+    // avoid deploying a test contract. See issue #7238
+    let (_, tries, root) = get_runtime_and_trie(false);
     let shard_uid = TEST_SHARD_UID;
     let mut state_update = tries.new_trie_update(shard_uid, root);
     state_update.set(
@@ -157,10 +159,10 @@ fn test_view_state() {
                 TrieProofExtension {
                     key: vec![16],
                     child_hash: CryptoHash::from_str(
-                        "FwUXNsdcWaTQdZHgmHDjXuCGPmS8f4veZEKSpnNwFL6e"
+                        "95vrqhPKa8Uu9XSa1c5WTo5GqUvLmCSCEb2wtWbX5yDU"
                     )
                     .unwrap(),
-                    memory_usage: 97430
+                    memory_usage: 2610
                 }
                 .into()
             ),
@@ -168,13 +170,10 @@ fn test_view_state() {
                 TrieProofBranch {
                     children: [
                         Some(
-                            CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
+                            CryptoHash::from_str("DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L")
                                 .unwrap()
                         ),
-                        Some(
-                            CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
-                                .unwrap()
-                        ),
+                        None,
                         Some(
                             CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
                                 .unwrap()
@@ -197,7 +196,7 @@ fn test_view_state() {
                         None
                     ],
                     value: None,
-                    memory_usage: 97378,
+                    memory_usage: 2558,
                     index: 9
                 }
                 .into()
@@ -206,13 +205,10 @@ fn test_view_state() {
                 TrieProofBranch {
                     children: [
                         Some(
-                            CryptoHash::from_str("8A6QyKBCCAAtVAeSJcgGtUaFQZCdpd4W8hG9kHNV67WH")
+                            CryptoHash::from_str("DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L")
                                 .unwrap()
                         ),
-                        Some(
-                            CryptoHash::from_str("Ci8TDPmfawsHAVC9tUCvRuJKUTAhPJGrpgGbxKNBCroY")
-                                .unwrap()
-                        ),
+                        None,
                         Some(
                             CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
                                 .unwrap()
@@ -232,7 +228,7 @@ fn test_view_state() {
                         None
                     ],
                     value: None,
-                    memory_usage: 97378,
+                    memory_usage: 2558,
                     index: 9
                 }
                 .into()
@@ -464,16 +460,14 @@ fn test_view_state() {
                     memory_usage: 109
                 }
                 .into()
-            ),
-        ])
+            )
+        ]),
     );
-    // TODO: understand why only when prefix is test123 the proof is not empty. Seems like there's an issue on the implementation
-    // of proof retrieval
 }
 
 #[test]
 fn test_view_state_too_large() {
-    let (_, tries, root) = get_runtime_and_trie();
+    let (_, tries, root) = get_runtime_and_trie(true);
     let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     set_account(
         &mut state_update,
@@ -487,7 +481,7 @@ fn test_view_state_too_large() {
 
 #[test]
 fn test_view_state_with_large_contract() {
-    let (_, tries, root) = get_runtime_and_trie();
+    let (_, tries, root) = get_runtime_and_trie(true);
     let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     let contract_code = [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec();
     set_account(
