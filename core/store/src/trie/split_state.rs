@@ -503,10 +503,10 @@ mod tests {
                 let trie_items: HashMap<_, _> =
                     trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-                state_roots.iter().for_each(|(shard_uid, state_root)| {
+                for (shard_uid, state_root) in state_roots.iter() {
                     let trie = tries.get_view_trie_for_shard(*shard_uid);
                     combined_trie_items.extend(trie.iter(state_root).unwrap().map(Result::unwrap));
-                });
+                }
                 assert_eq!(trie_items, combined_trie_items);
             }
         }

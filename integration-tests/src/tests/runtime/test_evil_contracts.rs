@@ -41,7 +41,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 #[test]
 fn test_evil_deep_trie() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
-    (0..50).for_each(|i| {
+    for i in 0..50 {
         println!("insertStrings #{}", i);
         let from = i * 10 as u64;
         let to = (i + 1) * 10 as u64;
@@ -61,8 +61,8 @@ fn test_evil_deep_trie() {
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
-    });
-    (0..50).rev().for_each(|i| {
+    }
+    for i in (0..50).rev() {
         println!("deleteStrings #{}", i);
         let from = i * 10 as u64;
         let to = (i + 1) * 10 as u64;
@@ -82,15 +82,14 @@ fn test_evil_deep_trie() {
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
         assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
-    });
+    }
 }
 
 #[test]
 fn test_evil_deep_recursion() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
-    [100, 1000, 10000, 100000, 1000000].iter().for_each(|n| {
+    for n in [100u64, 1000, 10000, 100000, 1000000] {
         println!("{}", n);
-        let n = *n as u64;
         let n_bytes = n.to_le_bytes().to_vec();
         let res = node
             .user()
@@ -113,7 +112,7 @@ fn test_evil_deep_recursion() {
         } else {
             assert_matches!(res.status, FinalExecutionStatus::Failure(_), "{:?}", res);
         }
-    });
+    }
 }
 
 #[test]

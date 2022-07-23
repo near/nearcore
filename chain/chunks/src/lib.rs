@@ -2618,13 +2618,13 @@ mod test {
         let count_forwards_and_requests = |fixture: &ChunkTestFixture| -> (usize, usize) {
             let mut forwards_count = 0;
             let mut requests_count = 0;
-            fixture.mock_network.requests.read().unwrap().iter().for_each(|r| {
+            for r in fixture.mock_network.requests.read().unwrap().iter() {
                 match r.as_network_requests_ref() {
                     NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
                     NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
                     _ => (),
                 }
-            });
+            }
             (forwards_count, requests_count)
         };
 

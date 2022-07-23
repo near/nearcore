@@ -109,6 +109,44 @@ Note that for some *big* `Copy` types, notably `CryptoHash`, we sometimes use
 references for performance reasons. As a rule of thumb, `T` is considered *big* if
 `size_of::<T>() > 2 * size_of::<usize>()`.
 
+### Prefer for loops over `for_each` and `try_for_each` methods
+
+Iterators offer `for_each` and `try_for_each` methods which allow executing
+a closure over all elements of the iterator.  This is similar to using a for
+loop but comes with various complications and may lead to less readable code.
+Prefer using a loop rather than those methods, for example:
+
+```rust
+// GOOD
+for outcome_with_id in result? {
+    *total_gas_burnt =
+        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+    outcomes.push(outcome_with_id);
+}
+
+// BAD
+result?.into_iter().try_for_each(
+    |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
+        *total_gas_burnt =
+            safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+        outcomes.push(outcome_with_id);
+        Ok(())
+    },
+)?;
+```
+
+**Rationale:** The `for_each` and `try_for_each` method don’t play nice with
+`break` and `continue` statements or with async IO (since `.await` is not
+possible).  And while `try_for_each` allows for the use of question mark
+operator, one may end up having to uses it twice: once inside the closure and
+second time outside the call to `try_for_each`.  Furthermore, usage of the
+functions often introduce some minor syntax noise.
+
+However, there are situations when those methods may lead to more readable code.
+Common example are long call chains.  In certain situations (e.g. use with
+`chain` or `flat_map`) they may also lead to faster code however it’s often
+better to prioritise readability in those cases.
+
 ### Import Granularity
 
 Group import by module, but not deeper:
