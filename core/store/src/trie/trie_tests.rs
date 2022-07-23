@@ -96,7 +96,7 @@ fn test_reads_with_incomplete_storage() {
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid);
         let trie = Rc::new(trie);
-        let mut state_root = Trie::empty_root();
+        let mut state_root = Trie::EMPTY_ROOT;
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
         if trie_changes.is_empty() {
@@ -148,7 +148,7 @@ mod nodes_counter_tests {
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid);
         let trie = Rc::new(trie);
-        let state_root = Trie::empty_root();
+        let state_root = Trie::EMPTY_ROOT;
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes);
         (trie, state_root)
@@ -220,7 +220,7 @@ mod caching_storage_tests {
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = create_tries();
-        let mut trie_changes = TrieChanges::empty(Trie::empty_root());
+        let mut trie_changes = TrieChanges::empty(Trie::EMPTY_ROOT);
         trie_changes.insertions = values
             .iter()
             .map(|value| TrieRefcountChange {
