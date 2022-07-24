@@ -150,14 +150,14 @@ pub fn state_dump_redis(
             account_id.as_ref().as_bytes().to_vec()
         };
 
+        redis_connection.set(
+            [b"d", scope, b":", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+            data_value,
+        )?;
         redis_connection.zadd(
             [b"h:", scope, b":", redis_key.as_slice()].concat(),
             block_hash.as_ref(),
             block_height,
-        )?;
-        redis_connection.set(
-            [b"d", scope, b":", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
-            data_value,
         )?;
         if let Some(data_key) = data_key {
             // NOTE: using hset_nx to avoid overwriting data from running indexer
