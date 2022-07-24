@@ -8,7 +8,7 @@ If you have any suggestions or comments about the security policy, please email 
 ## Reporting a vulnerability
 
 All security issues and questions should be reported via email to the [NEAR Security Team](mailto:security@near.org) at security@near.org.
-This will be acknowledged within 24 hours by the NEAR Security Team and kick off review process.
+This will be acknowledged within 24 hours by the NEAR Security Team and kick off a review process.
 You will receive a more detailed response to the email within 72 hours, indicating perceived severity and the next steps in handling your report.
 
 After initial reply to your report, the security team will keep you informed about the progress toward patching and public disclosure.
