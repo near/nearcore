@@ -151,7 +151,7 @@ pub fn state_dump_redis(
         };
 
         redis_connection.set(
-            [b"d", scope, b":", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
+            [b"d:", scope, b":", redis_key.as_slice(), b":", block_hash.as_ref()].concat(),
             data_value,
         )?;
         redis_connection.zadd(
