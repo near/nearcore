@@ -15,7 +15,7 @@ fn rand_bytes() -> Vec<u8> {
 fn trie_lookup(bench: &mut Bencher) {
     let tries = create_tries();
     let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-    let root = Trie::empty_root();
+    let root = Trie::EMPTY_ROOT;
     let mut changes = vec![];
     for _ in 0..100 {
         changes.push((rand_bytes(), Some(rand_bytes())));
@@ -37,7 +37,7 @@ fn trie_lookup(bench: &mut Bencher) {
 fn trie_update(bench: &mut Bencher) {
     let tries = create_tries();
     let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-    let root = Trie::empty_root();
+    let root = Trie::EMPTY_ROOT;
     let mut changes = vec![];
     for _ in 0..100 {
         changes.push((rand_bytes(), Some(rand_bytes())));
