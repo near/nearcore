@@ -14,9 +14,6 @@ next_to_visit = []
 
 
 def learn_about_node(node_ip):
-    global known_nodes
-    global next_to_visit
-
     if node_ip not in known_nodes:
         known_nodes.add(node_ip)
         next_to_visit.append(node_ip)
