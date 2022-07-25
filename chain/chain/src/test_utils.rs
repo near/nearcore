@@ -1357,23 +1357,17 @@ pub fn setup_with_tx_validity_period(
 }
 
 pub fn setup_with_validators(
-    validators: Vec<AccountId>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
-    let signers = validators
-        .iter()
+    let signers = vs
+        .all_block_producers()
         .map(|x| {
             Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
         })
         .collect();
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![validators])
-        .num_shards(num_shards)
-        .validator_groups(validator_groups);
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
     let chain = Chain::new(
         runtime.clone(),

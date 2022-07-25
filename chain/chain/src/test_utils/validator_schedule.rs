@@ -33,4 +33,8 @@ impl ValidatorSchedule {
         self.num_shards = num_shards;
         self
     }
+
+    pub fn all_block_producers(&self) -> impl Iterator<Item = &AccountId> {
+        self.block_producers.iter().flatten()
+    }
 }
