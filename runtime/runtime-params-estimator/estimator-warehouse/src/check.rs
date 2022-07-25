@@ -100,8 +100,8 @@ pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<Zul
         estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
 
     let mut report = ZulipReport::new(commit_before, commit_after);
-    for w in warnings {
-        report.add(w, Status::Warn)
+    for warning in warnings {
+        report.add(warning, Status::Warn)
     }
     Ok(report)
 }
