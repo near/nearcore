@@ -235,7 +235,7 @@ pub mod dec_format {
         }
 
         fn visit_unit<E: de::Error>(self) -> Result<T, E> {
-            T::try_from_unit().map_err(|_| de::Error::invalid_type(de::Unexpected::Option, &self))
+            T::try_from_unit().map_err(|()| de::Error::invalid_type(de::Unexpected::Option, &self))
         }
 
         fn visit_u64<E: de::Error>(self, value: u64) -> Result<T, E> {
