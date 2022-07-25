@@ -1786,7 +1786,7 @@ impl PeerManagerActor {
         if last_nonce >= msg.other_edge_info.nonce {
             debug!(target: "network", nonce = msg.other_edge_info.nonce, last_nonce, my_peer_id = ?self.my_peer_id, ?msg.peer_info.id, "Too low nonce");
             // If the check fails don't allow this connection.
-            return RegisterPeerResponse::InvalidNonce(last_edge.cloned().map(Box::new).unwrap());
+            return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
         }
 
         if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
