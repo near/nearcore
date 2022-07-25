@@ -1735,7 +1735,7 @@ impl PeerManagerActor {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         // Check if this is a blacklisted peer.
-        if (msg.peer_info.addr.as_ref()).map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
+        if msg.peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?msg.peer_info, "Dropping connection from blacklisted peer or unknown address");
             return RegisterPeerResponse::Reject;
         }
