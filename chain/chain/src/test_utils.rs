@@ -1,3 +1,5 @@
+mod validator_schedule;
+
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -58,6 +60,8 @@ use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
+
+pub use self::validator_schedule::ValidatorSchedule;
 
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
