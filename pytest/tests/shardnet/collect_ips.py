@@ -64,8 +64,6 @@ def visit_node(node_ip, timeout):
 
 
 def discover_ips(node_ip, timeout):
-    global next_to_visit
-
     learn_about_node(node_ip)
 
     while next_to_visit:
