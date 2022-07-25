@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -290,25 +290,25 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) {
-        let mut cursor = Cursor::new(out);
+        out.clear();
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
             RawTrieNode::Leaf(key, value_length, value_hash) => {
-                cursor.write_u8(LEAF_NODE).unwrap();
-                cursor.write_u32::<LittleEndian>(key.len() as u32).unwrap();
-                cursor.write_all(key).unwrap();
-                cursor.write_u32::<LittleEndian>(*value_length).unwrap();
-                cursor.write_all(value_hash.as_ref()).unwrap();
+                out.push(LEAF_NODE);
+                out.extend((key.len() as u32).to_le_bytes());
+                out.extend(key);
+                out.extend((*value_length as u32).to_le_bytes());
+                out.extend(value_hash.as_bytes());
             }
             // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
                 if let Some((value_length, value_hash)) = value {
-                    cursor.write_u8(BRANCH_NODE_WITH_VALUE).unwrap();
-                    cursor.write_u32::<LittleEndian>(*value_length).unwrap();
-                    cursor.write_all(value_hash.as_ref()).unwrap();
+                    out.push(BRANCH_NODE_WITH_VALUE);
+                    out.extend((*value_length as u32).to_le_bytes());
+                    out.extend(value_hash.as_bytes());
                 } else {
-                    cursor.write_u8(BRANCH_NODE_NO_VALUE).unwrap();
+                    out.push(BRANCH_NODE_NO_VALUE);
                 }
                 let mut bitmap: u16 = 0;
                 let mut pos: u16 = 1;
@@ -318,19 +318,19 @@ impl RawTrieNode {
                     }
                     pos <<= 1;
                 }
-                cursor.write_u16::<LittleEndian>(bitmap).unwrap();
+                out.extend(bitmap.to_le_bytes());
                 for child in children.iter() {
                     if let Some(hash) = child {
-                        cursor.write_all(hash.as_ref()).unwrap();
+                        out.extend(hash.as_bytes());
                     }
                 }
             }
             // size <= 1 + 4 + key_length + 32
             RawTrieNode::Extension(key, child) => {
-                cursor.write_u8(EXTENSION_NODE).unwrap();
-                cursor.write_u32::<LittleEndian>(key.len() as u32).unwrap();
-                cursor.write_all(key).unwrap();
-                cursor.write_all(child.as_ref()).unwrap();
+                out.push(EXTENSION_NODE);
+                out.extend((key.len() as u32).to_le_bytes());
+                out.extend(key);
+                out.extend(child.as_bytes());
             }
         }
     }
@@ -383,10 +383,9 @@ impl RawTrieNode {
 impl RawTrieNodeWithSize {
     fn encode_into(&self, out: &mut Vec<u8>) {
         self.node.encode_into(out);
-        out.write_u64::<LittleEndian>(self.memory_usage).unwrap();
+        out.extend(self.memory_usage.to_le_bytes());
     }
 
-    #[allow(dead_code)]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode_into(&mut out);
