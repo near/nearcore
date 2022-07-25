@@ -17,6 +17,102 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
 
+/// Returns delayed receipts with given range of indices.
+fn get_delayed_receipts(
+    state: &TrieUpdate,
+    from_index: u64,
+    to_index: u64,
+) -> Result<Vec<Receipt>, StorageError> {
+    (from_index..to_index)
+        .map(|index| {
+            get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} should be in the state",
+                    index
+                ))
+            })
+        })
+        .collect()
+}
+
+/// Calculates and returns cost of a receipt.
+fn receipt_cost(
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipt: &Receipt,
+) -> Result<Balance, IntegerOverflowError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut total_cost = total_deposit(&action_receipt.actions)?;
+            if !AccountId::is_system(&receipt.predecessor_id) {
+                let mut total_gas = safe_add_gas(
+                    transaction_costs.action_receipt_creation_config.exec_fee(),
+                    total_prepaid_exec_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        &receipt.receiver_id,
+                        current_protocol_version,
+                    )?,
+                )?;
+                total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
+                let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
+                total_cost = safe_add_balance(total_cost, total_gas_cost)?;
+            }
+            total_cost
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
+}
+
+/// Calculates and returns total cost of all the receipts.
+fn total_receipts_cost(
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipts: &[Receipt],
+) -> Result<Balance, IntegerOverflowError> {
+    receipts.iter().try_fold(0u128, |accumulator, receipt| {
+        let cost = receipt_cost(transaction_costs, current_protocol_version, receipt)?;
+        safe_add_balance(accumulator, cost)
+    })
+}
+
+/// Returns total account balance of all accounts with given ids.
+fn total_accounts_balance(
+    state: &TrieUpdate,
+    accounts_ids: &HashSet<AccountId>,
+) -> Result<Balance, RuntimeError> {
+    accounts_ids
+        .iter()
+        .map(|account_id| {
+            get_account(state, account_id)?.map_or(Ok(0), |a| {
+                safe_add_balance(a.amount(), a.locked())
+                    .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+            })
+        })
+        .collect::<Result<Vec<Balance>, RuntimeError>>()?
+        .into_iter()
+        .try_fold(0u128, safe_add_balance)
+        .map_err(|err| err.into())
+}
+
+/// Calculates and returns total costs of all the postponed receipts.
+fn total_postponed_receipts_cost(
+    state: &TrieUpdate,
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
+) -> Result<Balance, RuntimeError> {
+    Ok(receipt_ids
+        .iter()
+        .map(|(account_id, receipt_id)| {
+            Ok(get_postponed_receipt(state, account_id, *receipt_id)?
+                .map_or(Ok(0), |r| receipt_cost(transaction_costs, current_protocol_version, &r))?)
+        })
+        .collect::<Result<Vec<Balance>, RuntimeError>>()?
+        .into_iter()
+        .try_fold(0u128, safe_add_balance)?)
+}
+
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
     initial_state: &TrieUpdate,
@@ -33,29 +129,18 @@ pub(crate) fn check_balance(
         get(initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-    let get_delayed_receipts = |from_index, to_index, state| {
-        (from_index..to_index)
-            .map(|index| {
-                get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Delayed receipt #{} should be in the state",
-                        index
-                    ))
-                })
-            })
-            .collect::<Result<Vec<Receipt>, StorageError>>()
-    };
+
     // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
+        initial_state,
         initial_delayed_receipt_indices.first_index,
         final_delayed_receipt_indices.first_index,
-        initial_state,
     )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
+        final_state,
         initial_delayed_receipt_indices.next_available_index,
         final_delayed_receipt_indices.next_available_index,
-        final_state,
     )?;
 
     // Accounts
@@ -81,53 +166,12 @@ pub(crate) fn check_balance(
         } else {
             0
         };
-    let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_accounts_ids
-            .iter()
-            .map(|account_id| {
-                get_account(state, account_id)?.map_or(Ok(0), |a| {
-                    safe_add_balance(a.amount(), a.locked())
-                        .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
-                })
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
-    };
-    let initial_accounts_balance = total_accounts_balance(initial_state)?;
-    let final_accounts_balance = total_accounts_balance(final_state)?;
+
+    let initial_accounts_balance = total_accounts_balance(initial_state, &all_accounts_ids)?;
+    let final_accounts_balance = total_accounts_balance(final_state, &all_accounts_ids)?;
     // Receipts
-    let receipt_cost = |receipt: &Receipt| -> Result<Balance, IntegerOverflowError> {
-        Ok(match &receipt.receipt {
-            ReceiptEnum::Action(action_receipt) => {
-                let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if !AccountId::is_system(&receipt.predecessor_id) {
-                    let mut total_gas = safe_add_gas(
-                        transaction_costs.action_receipt_creation_config.exec_fee(),
-                        total_prepaid_exec_fees(
-                            transaction_costs,
-                            &action_receipt.actions,
-                            &receipt.receiver_id,
-                            current_protocol_version,
-                        )?,
-                    )?;
-                    total_gas =
-                        safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
-                    let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
-                    total_cost = safe_add_balance(total_cost, total_gas_cost)?;
-                }
-                total_cost
-            }
-            ReceiptEnum::Data(_) => 0,
-        })
-    };
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
-        receipts
-            .iter()
-            .map(receipt_cost)
-            .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)
+        total_receipts_cost(transaction_costs, current_protocol_version, receipts)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -140,43 +184,40 @@ pub(crate) fn check_balance(
     let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())
-        .map(|receipt| {
+        .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Ok(Some((account_id.clone(), receipt.receipt_id))),
+                ReceiptEnum::Action(_) => Some(Ok((account_id.clone(), receipt.receipt_id))),
                 ReceiptEnum::Data(data_receipt) => {
-                    if let Some(receipt_id) = get(
+                    let result = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {
                             receiver_id: account_id.clone(),
                             data_id: data_receipt.data_id,
                         },
-                    )? {
-                        Ok(Some((account_id.clone(), receipt_id)))
-                    } else {
-                        Ok(None)
+                    );
+                    match result {
+                        Err(err) => Some(Err(err)),
+                        Ok(None) => None,
+                        Ok(Some(receipt_id)) => Some(Ok((account_id.clone(), receipt_id))),
                     }
                 }
             }
         })
-        .collect::<Result<Vec<Option<_>>, StorageError>>()?
-        .into_iter()
-        .filter_map(|x| x)
-        .collect::<HashSet<_>>();
+        .collect::<Result<HashSet<_>, StorageError>>()?;
 
-    let total_postponed_receipts_cost = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_potential_postponed_receipt_ids
-            .iter()
-            .map(|(account_id, receipt_id)| {
-                Ok(get_postponed_receipt(state, account_id, *receipt_id)?
-                    .map_or(Ok(0), |r| receipt_cost(&r))?)
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
-    };
-    let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
-    let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
+    let initial_postponed_receipts_balance = total_postponed_receipts_cost(
+        initial_state,
+        transaction_costs,
+        current_protocol_version,
+        &all_potential_postponed_receipt_ids,
+    )?;
+    let final_postponed_receipts_balance = total_postponed_receipts_cost(
+        final_state,
+        transaction_costs,
+        current_protocol_version,
+        &all_potential_postponed_receipt_ids,
+    )?;
     // Sum it up
 
     let initial_balance = safe_add_balance_apply!(
