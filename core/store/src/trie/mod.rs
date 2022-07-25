@@ -334,7 +334,7 @@ impl RawTrieNode {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode_into(&mut out);
