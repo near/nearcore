@@ -200,9 +200,9 @@ impl Trie {
         part_id: PartId,
         part: Vec<Vec<u8>>,
     ) -> Result<ApplyStatePartResult, StorageError> {
-        if state_root == &CryptoHash::default() {
+        if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
-                trie_changes: TrieChanges::empty(CryptoHash::default()),
+                trie_changes: TrieChanges::empty(Trie::EMPTY_ROOT),
                 contract_codes: vec![],
             });
         }
@@ -227,7 +227,7 @@ impl Trie {
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
         Ok(ApplyStatePartResult {
             trie_changes: TrieChanges {
-                old_root: CryptoHash::default(),
+                old_root: Trie::EMPTY_ROOT,
                 new_root: *state_root,
                 insertions,
                 deletions,
@@ -325,7 +325,7 @@ mod tests {
             root: &CryptoHash,
             mut on_enter: F,
         ) -> Result<(), StorageError> {
-            if root == &CryptoHash::default() {
+            if root == &Trie::EMPTY_ROOT {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_combine_empty_trie_parts() {
-        let state_root = StateRoot::default();
+        let state_root = Trie::EMPTY_ROOT;
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
@@ -552,7 +552,7 @@ mod tests {
         let tries = create_tries();
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let state_root =
-            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), trie_changes);
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -591,7 +591,7 @@ mod tests {
 
     fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
         if changes.is_empty() {
-            return TrieChanges::empty(CryptoHash::default());
+            return TrieChanges::empty(Trie::EMPTY_ROOT);
         }
         let new_root = changes[0].new_root;
         let mut map = HashMap::new();
@@ -623,7 +623,7 @@ mod tests {
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
@@ -713,7 +713,7 @@ mod tests {
 
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );

@@ -68,7 +68,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
