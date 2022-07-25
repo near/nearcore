@@ -52,7 +52,7 @@ pub struct TrieTraversalItem {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
+    pub(super) fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
