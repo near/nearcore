@@ -213,10 +213,10 @@ impl ChunkSet {
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(
-            vec![StateRoot::default()], // state_roots
-            4,                          // num_shards
-            1000,                       // initial_gas_limit
-            0,                          // genesis_height
+            vec![StateRoot::new()], // state_roots
+            4,                      // num_shards
+            1000,                   // initial_gas_limit
+            0,                      // genesis_height
             PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));

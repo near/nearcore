@@ -34,6 +34,10 @@ impl QemuMeasurement {
 
         QemuMeasurement { instructions, io_r_bytes, io_w_bytes }
     }
+
+    pub(crate) fn zero() -> Self {
+        QemuMeasurement { instructions: 0.into(), io_r_bytes: 0.into(), io_w_bytes: 0.into() }
+    }
 }
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
