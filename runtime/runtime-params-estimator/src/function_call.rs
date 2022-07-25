@@ -32,7 +32,7 @@ pub(crate) fn contract_loading_cost(config: &Config) -> (GasCost, GasCost) {
     }
 
     let tolerance = LeastSquaresTolerance::default();
-    GasCost::least_squares_method_gas_cost(&xs, &ys, &tolerance, false)
+    GasCost::least_squares_method_gas_cost(&xs, &ys, &tolerance, config.debug)
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {

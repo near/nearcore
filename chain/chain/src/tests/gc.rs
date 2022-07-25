@@ -182,7 +182,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut states1 = vec![];
     states1.push((
         genesis1,
-        vec![Trie::empty_root(); num_shards as usize],
+        vec![Trie::EMPTY_ROOT; num_shards as usize],
         vec![Vec::new(); num_shards as usize],
     ));
 
@@ -220,13 +220,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
     let mut start_index = 1; // zero is for genesis
     let mut state_roots2 = vec![];
-    state_roots2.push(Trie::empty_root());
+    state_roots2.push(Trie::EMPTY_ROOT);
 
     for simple_chain in simple_chains.iter() {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
-                state_roots2.push(Trie::empty_root());
+                state_roots2.push(Trie::EMPTY_ROOT);
             }
             start_index += simple_chain.length;
             continue;
@@ -642,7 +642,7 @@ fn test_fork_far_away_from_epoch_end() {
     let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![(
         genesis1,
-        vec![Trie::empty_root(); num_shards as usize],
+        vec![Trie::EMPTY_ROOT; num_shards as usize],
         vec![Vec::new(); num_shards as usize],
     )];
 
