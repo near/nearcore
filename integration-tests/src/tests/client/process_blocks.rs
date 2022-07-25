@@ -229,6 +229,7 @@ fn prepare_env_with_congestion(
 }
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
+#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
 fn prepare_env_with_contract(
     epoch_length: u64,
     protocol_version: u32,
