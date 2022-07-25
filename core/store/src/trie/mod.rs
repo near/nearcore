@@ -290,7 +290,6 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) {
-        out.clear();
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
