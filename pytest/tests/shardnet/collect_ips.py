@@ -41,15 +41,23 @@ def visit_node(node_ip, timeout):
             if account_id in validators and not node_ip in validators_found:
                 validators_found[node_ip] = account_id
                 logger.info(f'Scraped validator {account_id}')
+        peer_id_to_account_id = {}
+        for known_producer in data['detailed_debug_status']['network_info'][
+                'known_producers']:
+            peer_id_to_account_id[
+                known_producer['peer_id']] = known_producer['account_id']
         for peer in data['detailed_debug_status']['network_info'][
                 'connected_peers']:
             ip = peer['addr'].split(':')[0]
             learn_about_node(ip)
+            peer_id = peer['peer_id']
+            if peer_id in peer_id_to_account_id:
+                account_id = peer_id_to_account_id[peer_id]
+                if account_id in validators and not ip in validators_found:
+                    validators_found[ip] = account_id
+                    logger.info(f'Found a validator {account_id} in peers')
 
-            account_id = peer['account_id']
-            if account_id in validators and ip not in validators_found:
-                validators_found[ip] = account_id
-                logger.info(f'Learned IP of a validator {account_id}')
+            # peer['account_id'] is always 'null'
 
     except Exception as e:
         logger.warn(f'Failed to connect {node_ip} {e}')
@@ -68,6 +76,8 @@ def discover_ips(node_ip, timeout):
         next_to_visit = []
         pmap(lambda ip: visit_node(ip, timeout), to_visit)
 
+    logger.info(f'Validators found: {len(validators_found)}.')
+    logger.info(f'Visited nodes: {len(visited_nodes)}.')
     with open('validators.csv', 'w') as f:
         for ip in validators_found:
             f.write('%s,%s\n' % (validators_found[ip], ip))
