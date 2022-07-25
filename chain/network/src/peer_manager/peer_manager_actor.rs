@@ -948,8 +948,7 @@ impl PeerManagerActor {
             }
         }
 
-        Self::send_message(
-            &self.connected_peers,
+        self.send_message(
             other.clone(),
             PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
                 &self.my_peer_id,
@@ -1239,12 +1238,8 @@ impl PeerManagerActor {
 
     /// Send message to peer that belong to our active set
     /// Return whether the message is sent or not.
-    fn send_message(
-        connected_peers: &HashMap<PeerId, ConnectedPeer>,
-        peer_id: PeerId,
-        message: PeerMessage,
-    ) -> bool {
-        if let Some(connected_peer) = connected_peers.get(&peer_id) {
+    fn send_message(&self, peer_id: PeerId, message: PeerMessage) -> bool {
+        if let Some(connected_peer) = self.connected_peers.get(&peer_id) {
             let msg_kind = message.msg_variant().to_string();
             trace!(target: "network", ?msg_kind, "Send message");
             connected_peer
@@ -1254,7 +1249,7 @@ impl PeerManagerActor {
         } else {
             debug!(target: "network",
                    to = ?peer_id,
-                   num_connected_peers = connected_peers.len(),
+                   num_connected_peers = self.connected_peers.len(),
                    ?message,
                    "Failed sending message"
             );
@@ -1301,7 +1296,7 @@ impl PeerManagerActor {
                     );
                 }
 
-                Self::send_message(&self.connected_peers, peer_id, PeerMessage::Routed(msg))
+                self.send_message(peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -1474,22 +1469,14 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::BlockRequest(hash),
-                ) {
+                if self.send_message(peer_id, PeerMessage::BlockRequest(hash)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::BlockHeadersRequest(hashes),
-                ) {
+                if self.send_message(peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1532,22 +1519,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::EpochSyncRequest(epoch_id),
-                ) {
+                if self.send_message(peer_id, PeerMessage::EpochSyncRequest(epoch_id)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::EpochSyncFinalizationRequest(epoch_id),
-                ) {
+                if self.send_message(peer_id, PeerMessage::EpochSyncFinalizationRequest(epoch_id)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
