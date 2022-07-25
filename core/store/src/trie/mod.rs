@@ -299,7 +299,6 @@ impl RawTrieNode {
                 out.extend(key);
                 out.extend((*value_length as u32).to_le_bytes());
                 out.extend(value_hash.as_bytes());
-                out.extend(vec![1]);
             }
             // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
@@ -330,7 +329,6 @@ impl RawTrieNode {
                 out.push(EXTENSION_NODE);
                 out.extend((key.len() as u32).to_le_bytes());
                 out.extend(key);
-                out.extend(child.as_bytes());
             }
         }
     }
