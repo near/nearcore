@@ -1780,7 +1780,7 @@ impl PeerManagerActor {
         }
 
         let last_edge = self.routing_table_view.get_local_edge(&msg.peer_info.id);
-        let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce());
+        let last_nonce = last_edge.map_or(0, |edge| edge.nonce());
 
         // Check that the received nonce is greater than the current nonce of this connection.
         if last_nonce >= msg.other_edge_info.nonce {
