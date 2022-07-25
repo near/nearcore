@@ -1,4 +1,5 @@
 <html>
+
 <head>
     <style>
         table {
@@ -31,6 +32,14 @@
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+
+        function add_debug_port_link(peer_addr) {
+            return $('<a>', {
+                href: "http://" + peer_addr.replace(/:.*/, ":3030/debug"),
+                text: peer_addr
+            });
+        }
+
         $(document).ready(() => {
             $('span').text("Loading...");
             $.ajax({
@@ -86,7 +95,7 @@
                             }
                         });
                         let row = $('.js-tbody-peers').append($('<tr>')
-                            .append($('<td>').append(peer.addr))
+                            .append($('<td>').append(add_debug_port_link(peer.addr)))
                             .append($('<td>').append(validator.join(",")))
                             .append($('<td>').append(peer.peer_id.substr(9, 5) + "..."))
                             .append($('<td>').append(JSON.stringify(peer.height)))
@@ -106,6 +115,7 @@
         });
     </script>
 </head>
+
 <body>
     <h1>
         Welcome to the Network Info page!
