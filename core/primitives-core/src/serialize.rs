@@ -206,7 +206,7 @@ pub mod dec_format {
             Self::from_str_radix(value, 10)
         }
         fn from_u64(value: u64) -> Self {
-            value as u128
+            value.into()
         }
     }
 
