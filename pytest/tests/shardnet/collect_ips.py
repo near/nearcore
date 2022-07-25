@@ -60,7 +60,7 @@ def visit_node(node_ip, timeout):
             # peer['account_id'] is always 'null'
 
     except Exception as e:
-        logger.warn(f'Failed to connect {node_ip} {e}')
+        logger.exception(f'Error scraping {node_ip}')
 
 
 def discover_ips(node_ip, timeout):
