@@ -61,9 +61,10 @@ def discover_ips(node_ip, timeout):
 
     while next_to_visit:
         to_visit = next_to_visit[:]
-        logger.info(
-            f'Will visit {len(to_visit)} nodes. Validators found: {len(validators_found)}. Visited nodes: {len(visited_nodes)}. Known nodes: {len(known_nodes)}.'
-        )
+        logger.info(f'Will visit {len(to_visit)} nodes. '
+                    f'Validators found: {len(validators_found)}. '
+                    f'Visited nodes: {len(visited_nodes)}. '
+                    f'Known nodes: {len(known_nodes)}.')
         next_to_visit.clear()
         pmap(lambda ip: visit_node(ip, timeout), to_visit)
 
