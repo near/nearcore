@@ -44,6 +44,8 @@ tracing-opentelemetry = { version = "0.17" }
 assert_matches = "1.3"
 
 delay-detector = { path = "../../tools/delay_detector" }
+near-concurrency = { path = "../../concurrency/concurrency" }
+near-concurrency-macro = { path = "../../concurrency/macro" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
 near-network-primitives = { path = "../network-primitives" }

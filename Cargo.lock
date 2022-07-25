@@ -2928,6 +2928,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-concurrency"
+version = "0.0.0"
+dependencies = [
+ "near-concurrency-macro",
+]
+
+[[package]]
+name = "near-concurrency-macro"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
@@ -3165,6 +3181,8 @@ dependencies = [
  "futures",
  "itertools",
  "lru",
+ "near-concurrency",
+ "near-concurrency-macro",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",

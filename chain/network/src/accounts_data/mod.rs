@@ -33,10 +33,12 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use near_concurrency::must_complete;
 
 #[cfg(test)]
 mod tests;
 
+#[must_complete]
 async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
     let (send, recv) = tokio::sync::oneshot::channel();
     rayon::spawn(move || send.send(f()).ok().unwrap());

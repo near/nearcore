@@ -17,6 +17,8 @@ members = [
     "chain/pool",
     "chain/rosetta-rpc",
     "chain/telemetry",
+    "concurrency/concurrency",
+    "concurrency/macro",
     "core/account-id",
     "core/account-id/fuzz",
     "core/chain-configs",

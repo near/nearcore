@@ -1,0 +1,16 @@
+[package]
+name = "near-concurrency-macro"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2021"
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.62.0"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1"
+syn = { version = "1", features = ["full"]}
+proc-macro2 = "1"
