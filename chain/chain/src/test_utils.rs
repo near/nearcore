@@ -174,37 +174,24 @@ fn create_receipt_nonce(
 
 impl KeyValueRuntime {
     pub fn new(store: Store, epoch_length: u64) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, epoch_length)
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        Self::new_with_validators(store, vs, epoch_length)
     }
 
-    pub fn new_with_validators(
-        store: Store,
-        block_producers: Vec<Vec<AccountId>>,
-        validator_groups: u64,
-        num_shards: NumShards,
-        epoch_length: u64,
-    ) -> Self {
-        Self::new_with_validators_and_no_gc(
-            store,
-            block_producers,
-            validator_groups,
-            num_shards,
-            epoch_length,
-            false,
-        )
+    pub fn new_with_validators(store: Store, vs: ValidatorSchedule, epoch_length: u64) -> Self {
+        Self::new_with_validators_and_no_gc(store, vs, epoch_length, false)
     }
 
     pub fn new_with_validators_and_no_gc(
         store: Store,
-        block_producers: Vec<Vec<AccountId>>,
-        validator_groups: u64,
-        num_shards: NumShards,
+        vs: ValidatorSchedule,
         epoch_length: u64,
         no_gc: bool,
     ) -> Self {
-        let tries = ShardTries::test(store.clone(), num_shards);
+        let tries = ShardTries::test(store.clone(), vs.num_shards);
         let mut initial_amounts = HashMap::new();
-        for (i, validator) in block_producers.iter().flatten().enumerate() {
+        for (i, validator) in vs.block_producers.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
 
@@ -225,7 +212,8 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut validators = HashMap::new();
-        let validators_by_valset: Vec<EpochValidatorSet> = block_producers
+        let validators_by_valset: Vec<EpochValidatorSet> = vs
+            .block_producers
             .iter()
             .map(|account_ids| {
                 let block_producers: Vec<ValidatorStake> = account_ids
@@ -242,10 +230,10 @@ impl KeyValueRuntime {
                     })
                     .collect();
 
-                let validators_per_shard = block_producers.len() as ShardId / validator_groups;
-                let coef = block_producers.len() as ShardId / num_shards;
+                let validators_per_shard = block_producers.len() as ShardId / vs.validator_groups;
+                let coef = block_producers.len() as ShardId / vs.num_shards;
 
-                let chunk_producers: Vec<Vec<ValidatorStake>> = (0..num_shards)
+                let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
                     .map(|shard_id| {
                         let offset = (shard_id * coef / validators_per_shard * validators_per_shard)
                             as usize;
@@ -262,7 +250,7 @@ impl KeyValueRuntime {
             tries,
             validators,
             validators_by_valset,
-            num_shards,
+            num_shards: vs.num_shards,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -1382,13 +1370,11 @@ pub fn setup_with_validators(
             Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
         })
         .collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        vec![validators],
-        validator_groups,
-        num_shards,
-        epoch_length,
-    ));
+    let vs = ValidatorSchedule::new()
+        .block_producers_per_epoch(vec![validators])
+        .num_shards(num_shards)
+        .validator_groups(validator_groups);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {

@@ -7,9 +7,9 @@ use near_primitives::types::{AccountId, NumShards};
 /// to select the validators. For for tests though, we just want to select them
 /// by fiat.
 pub struct ValidatorSchedule {
-    block_producers: Vec<Vec<AccountId>>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    pub(super) block_producers: Vec<Vec<AccountId>>,
+    pub(super) validator_groups: u64,
+    pub(super) num_shards: NumShards,
 }
 
 impl ValidatorSchedule {
