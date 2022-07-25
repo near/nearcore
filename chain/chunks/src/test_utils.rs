@@ -13,6 +13,8 @@ use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -38,9 +40,7 @@ pub struct SealsManagerTestFixture {
 impl Default for SealsManagerTestFixture {
     fn default() -> Self {
         let store = near_store::test_utils::create_test_store();
-        // 12 validators, 3 shards => 4 validators per shard
-        let validators = make_validators(12);
-        let mock_runtime = KeyValueRuntime::new_with_validators(store.clone(), validators, 1, 3, 5);
+        let mock_runtime = default_runtime();
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
@@ -151,16 +151,32 @@ impl Default for ChunkTestFixture {
 
 impl ChunkTestFixture {
     pub fn new(orphan_chunk: bool) -> Self {
+        // 12 validators, 3 shards, 4 validators per shard
+        Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
+    }
+
+    // Create a ChunkTestFixture to test chunk only producers
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    pub fn new_with_chunk_only_producers() -> Self {
         let store = near_store::test_utils::create_test_store();
-        // 12 validators, 3 shards => 4 validators per shard
-        let validators = make_validators(12);
-        let mock_runtime = Arc::new(KeyValueRuntime::new_with_validators(
-            store.clone(),
-            validators.clone(),
-            1,
-            3,
-            5,
-        ));
+        // 3 block producer. 1 block producer + 2 chunk only producer per shard
+        // This setup ensures that the chunk producer
+        let (block_producers, chunk_producers) = make_validators(6, 2, 3);
+        let mock_runtime = Arc::new(
+            KeyValueRuntime::new_with_validators_and_no_gc(
+                store.clone(),
+                block_producers,
+                3,
+                3,
+                5,
+                false,
+            )
+            .with_chunk_only_producers(chunk_producers),
+        );
+        Self::new_with_runtime(false, mock_runtime)
+    }
+
+    pub fn new_with_runtime(orphan_chunk: bool, mock_runtime: Arc<KeyValueRuntime>) -> Self {
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
 
         let data_parts = mock_runtime.num_data_parts();
@@ -170,6 +186,7 @@ impl ChunkTestFixture {
         // generate a random block hash for the block at height 1
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
+        // setting this to 2 instead of 0 so that when chunk producers
         let mock_shard_id: ShardId = 0;
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
@@ -179,11 +196,16 @@ impl ChunkTestFixture {
             KeyType::ED25519,
             mock_chunk_producer.as_ref(),
         );
+        let validators: Vec<_> = mock_runtime
+            .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
+            .unwrap()
+            .into_iter()
+            .map(|v| v.0.account_id().clone())
+            .collect();
         let mock_shard_tracker = validators
             .iter()
-            .flatten()
             .find(|v| {
-                if *v == &mock_chunk_producer {
+                if v == &&mock_chunk_producer {
                     false
                 } else {
                     let tracks_shard = mock_runtime.cares_about_shard(
@@ -201,10 +223,10 @@ impl ChunkTestFixture {
                 }
             })
             .cloned()
-            .unwrap();
+            .unwrap()
+            .clone();
         let mock_chunk_part_owner = validators
             .into_iter()
-            .flatten()
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
@@ -244,7 +266,7 @@ impl ChunkTestFixture {
             .collect();
         let encoded_chunk =
             mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
-        let chain_store = ChainStore::new(store, 0, true);
+        let chain_store = ChainStore::new(mock_runtime.get_store(), 0, true);
 
         ChunkTestFixture {
             mock_runtime,
@@ -281,6 +303,7 @@ impl ChunkTestFixture {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
 fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
     if n > 26 {
         panic!("I can't make that many validators!");
@@ -290,4 +313,36 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
         ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
     vec![letters]
+}
+
+/// `num_bp` is number of block producers
+/// `num_cp` is number of chunk producers per shard
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn make_validators(
+    num_bp: usize,
+    num_cp_per_shard: usize,
+    num_shards: NumShards,
+) -> (Vec<Vec<AccountId>>, Vec<Vec<Vec<AccountId>>>) {
+    let n = num_bp + num_cp_per_shard * num_shards as usize;
+    if n > 26 {
+        panic!("I can't make that many validators!");
+    }
+
+    let mut accounts: Vec<_> =
+        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
+
+    let bp = vec![accounts.drain(..num_bp).collect()];
+    let cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
+    (bp, cp)
+}
+
+// 12 validators, 3 shards, 4 validators per shard
+fn default_runtime() -> KeyValueRuntime {
+    let store = near_store::test_utils::create_test_store();
+    // 12 validators, 3 shards, 4 validators per shard
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+    let validators = make_validators(12);
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    let validators = make_validators(12, 0, 3).0;
+    KeyValueRuntime::new_with_validators(store.clone(), validators, 3, 3, 5)
 }

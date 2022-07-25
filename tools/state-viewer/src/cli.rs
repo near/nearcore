@@ -7,8 +7,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::db::Mode;
-use near_store::Store;
+use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -155,9 +154,12 @@ impl DumpStateRedisCmd {
 
 #[derive(Parser)]
 pub struct DumpTxCmd {
-    /// Specify which block to dump transactions for.
+    /// Specify the start block by height to begin dumping transactions from, inclusive.
     #[clap(long)]
-    height: BlockHeight,
+    start_height: BlockHeight,
+    /// Specify the end block by height to stop dumping transactions at, inclusive.
+    #[clap(long)]
+    end_height: BlockHeight,
     /// List of account IDs to dump.
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
@@ -170,7 +172,8 @@ pub struct DumpTxCmd {
 impl DumpTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_tx(
-            self.height,
+            self.start_height,
+            self.end_height,
             home_dir,
             near_config,
             store,

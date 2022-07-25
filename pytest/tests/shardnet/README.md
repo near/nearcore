@@ -11,7 +11,6 @@ Optionally creates accounts for the remote nodes, but requires public and privat
 
 ```
 python3 tests/shardnet/restake.py
-    --restaked-url 'https://s3.us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/restaked'
     --delay-sec 60
     --near-pk $NEAR_PUBLIC_KEY
     --near-sk $NEAR_PRIVATE_KEY

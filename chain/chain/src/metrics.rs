@@ -23,6 +23,10 @@ pub static BLOCK_HEIGHT_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_block_height_head", "Height of the current head of the blockchain")
         .unwrap()
 });
+pub static BLOCK_ORDINAL_HEAD: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
+        .unwrap()
+});
 pub static VALIDATOR_AMOUNT_STAKED: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_validators_stake_total",

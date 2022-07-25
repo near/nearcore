@@ -4,6 +4,8 @@
 
 ### Protocol Changes
 
+* Charge the gas cost for loading an smart contract even when it fails.
+
 ### Non-protocol Changes
 
 

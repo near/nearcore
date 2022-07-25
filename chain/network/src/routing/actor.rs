@@ -184,12 +184,12 @@ impl Actor {
     pub fn update_routing_table(
         &mut self,
         mut prune_unreachable_since: Option<time::Instant>,
-    ) -> (Arc<routing::RoutingTable>, Vec<Edge>) {
-        let routing_table = self.graph.read().routing_table();
+    ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
+        let next_hops = self.graph.read().next_hops();
         // Update peer_reachable_at.
         let now = self.clock.now();
         self.peer_reachable_at.insert(self.my_peer_id.clone(), now);
-        for peer in routing_table.keys() {
+        for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         // Do not prune if there are edges to validate in flight.
@@ -200,7 +200,7 @@ impl Actor {
             None => vec![],
             Some(t) => self.prune_unreachable_peers(t),
         };
-        (routing_table, pruned_edges)
+        (next_hops, pruned_edges)
     }
 }
 
@@ -248,7 +248,7 @@ pub enum Response {
         /// to remove those edges.
         local_edges_to_remove: Vec<PeerId>,
         /// Active PeerId that are part of the shortest path to each PeerId.
-        routing_table: Arc<routing::RoutingTable>,
+        next_hops: Arc<routing::NextHopTable>,
         /// List of peers to ban for sending invalid edges.
         peers_to_ban: Vec<PeerId>,
     },
@@ -283,15 +283,14 @@ impl actix::Handler<Message> for Actor {
             }
             // Recalculates the routing table.
             Message::RoutingTableUpdate { prune_unreachable_since } => {
-                let (routing_table, pruned_edges) =
-                    self.update_routing_table(prune_unreachable_since);
+                let (next_hops, pruned_edges) = self.update_routing_table(prune_unreachable_since);
                 Response::RoutingTableUpdateResponse {
                     local_edges_to_remove: pruned_edges
                         .iter()
                         .filter_map(|e| e.other(&self.my_peer_id))
                         .cloned()
                         .collect(),
-                    routing_table,
+                    next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
             }

@@ -1,6 +1,6 @@
+use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
-use itertools::Itertools;
 use lru::LruCache;
 use near_network_primitives::time;
 use near_network_primitives::types::{Edge, PeerIdOrHash};
@@ -12,45 +12,48 @@ use std::sync::Arc;
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
-const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
+const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 
 pub(crate) struct RoutingTableView {
-    /// PeerId associated for every known account id.
-    account_peers: LruCache<AccountId, AnnounceAccount>,
-    /// Active PeerId that are part of the shortest path to each PeerId.
-    pub(crate) peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
+    my_peer_id: PeerId,
     /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
-    pub(crate) local_edges_info: HashMap<PeerId, Edge>,
+    local_edges_info: HashMap<PeerId, Edge>,
+
+    /// Maps an account_id to a peer owning it.
+    account_peers: LruCache<AccountId, AnnounceAccount>,
+    /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
+    /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
+    /// this will be the set of first nodes on all such paths.
+    next_hops: Arc<routing::NextHopTable>,
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
     store: store::Store,
-    /// Number of times each active connection was used to route a message.
-    /// If there are several options use route with minimum nonce.
-    /// New routes are added with minimum nonce.
-    route_nonce: LruCache<PeerId, usize>,
+
+    /// Counter of number of calls to find_route_by_peer_id.
+    find_route_calls: u64,
+    /// Last time the given peer was selected by find_route_by_peer_id.
+    last_routed: LruCache<PeerId, u64>,
 }
 
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
-    Disconnected,
-    PeerNotFound,
+    PeerUnreachable,
     AccountNotFound,
     RouteBackNotFound,
 }
 
 impl RoutingTableView {
-    pub fn new(store: store::Store) -> Self {
-        // Find greater nonce on disk and set `component_nonce` to this value.
-
+    pub fn new(store: store::Store, my_peer_id: PeerId) -> Self {
         Self {
+            my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            peer_forwarding: Default::default(),
+            next_hops: Default::default(),
             local_edges_info: Default::default(),
             route_back: RouteBackCache::default(),
             store,
-            route_nonce: LruCache::new(ROUND_ROBIN_NONCE_CACHE_SIZE),
+            find_route_calls: 0,
+            last_routed: LruCache::new(LAST_ROUTED_CACHE_SIZE),
         }
     }
 
@@ -60,28 +63,28 @@ impl RoutingTableView {
         self.local_edges_info.get(other_peer).map_or(0, |x| x.nonce()) < nonce
     }
 
-    /// Find peer that is connected to `source` and belong to the shortest path
-    /// from `source` to `peer_id`.
+    /// Select a connected peer on some shortest path to `peer_id`.
+    /// If there are several such peers, pick the least recently used one.
     fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        let routes = self.peer_forwarding.get(peer_id).ok_or(FindRouteError::PeerNotFound)?;
-        // Neighbor with minimum and maximum nonce respectively.
-        let ((min_v, next_hop), (max_v, _)) = (routes.iter())
-            .map(|peer_id| (self.route_nonce.get(peer_id).cloned().unwrap_or_default(), peer_id))
-            .minmax()
-            .into_option()
-            .ok_or(FindRouteError::Disconnected)?;
-        // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-        // nonce by one. Additionally if the difference between the highest nonce and the lowest
-        // nonce is greater than some threshold increase the lowest nonce to be at least
-        // max nonce - threshold.
-        self.route_nonce.put(
-            next_hop.clone(),
-            std::cmp::max(
-                min_v + 1,
-                max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
-            ),
-        );
+        let peers = self.next_hops.get(peer_id).ok_or(FindRouteError::PeerUnreachable)?;
+        let next_hop = peers
+            .iter()
+            .min_by_key(|p| self.last_routed.get(*p).copied().unwrap_or(0))
+            .ok_or(FindRouteError::PeerUnreachable)?;
+        self.last_routed.put(next_hop.clone(), self.find_route_calls);
+        self.find_route_calls += 1;
         Ok(next_hop.clone())
+    }
+
+    pub(crate) fn set_next_hops(&mut self, routing_table: Arc<routing::NextHopTable>) {
+        self.next_hops = routing_table;
+    }
+
+    pub(crate) fn reachable_peers(&self) -> usize {
+        // There is an implicit assumption here that all next_hops entries are non-empty.
+        // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
+        // and add appropriate constructors, which would filter out empty entries.
+        self.next_hops.len()
     }
 
     pub(crate) fn find_route(
@@ -98,7 +101,7 @@ impl RoutingTableView {
     }
 
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
-        self.peer_forwarding.get(peer_id)
+        self.next_hops.get(peer_id)
     }
 
     /// Find peer that owns this AccountId.
@@ -130,12 +133,6 @@ impl RoutingTableView {
         })
     }
 
-    pub fn remove_local_edges<'a>(&mut self, peers: impl Iterator<Item = &'a PeerId>) {
-        for other_peer in peers {
-            self.local_edges_info.remove(other_peer);
-        }
-    }
-
     pub(crate) fn add_route_back(
         &mut self,
         clock: &time::Clock,
@@ -161,7 +158,7 @@ impl RoutingTableView {
                 (announce_account.account_id.clone(), announce_account.peer_id.clone())
             })
             .collect();
-        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
+        RoutingTableInfo { account_peers, next_hops: self.next_hops.clone() }
     }
 
     /// Public interface for `account_peers`.
@@ -198,10 +195,23 @@ impl RoutingTableView {
     pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<&Edge> {
         self.local_edges_info.get(other_peer)
     }
+
+    pub(crate) fn add_local_edge(&mut self, edge: Edge) {
+        if let Some(other_peer) = edge.other(&self.my_peer_id) {
+            if !self.is_local_edge_newer(other_peer, edge.nonce()) {
+                return;
+            }
+            self.local_edges_info.insert(other_peer.clone(), edge);
+        }
+    }
+
+    pub(crate) fn remove_local_edge(&mut self, peer_id: &PeerId) {
+        self.local_edges_info.remove(peer_id);
+    }
 }
 
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
-    pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
+    pub next_hops: Arc<routing::NextHopTable>,
 }

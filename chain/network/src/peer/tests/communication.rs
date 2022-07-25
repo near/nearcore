@@ -88,10 +88,7 @@ async fn test_peer_communication(
     assert_eq!(Event::Client(CE::BlockHeaders(want)), inbound.events.recv().await);
 
     // SyncRoutingTable
-    let mut want = data::make_routing_table(&mut rng, &clock.clock());
-    // TODO: validators field is supported only in proto encoding.
-    // Remove this line once borsh support is removed.
-    want.validators = vec![];
+    let want = data::make_routing_table(&mut rng);
     outbound.send(PeerMessage::SyncRoutingTable(want.clone())).await;
     assert_eq!(Event::RoutingTable(want), inbound.events.recv().await);
 

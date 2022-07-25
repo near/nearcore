@@ -4,8 +4,7 @@ use crate::types::{Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RawRoutedMessage,
-    RoutedMessageBody,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -136,7 +135,7 @@ pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
     Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
 }
 
-pub fn make_routing_table<R: Rng>(rng: &mut R, clock: &time::Clock) -> RoutingTableUpdate {
+pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
     RoutingTableUpdate {
         accounts: (0..10).map(|_| make_announce_account(rng)).collect(),
@@ -149,7 +148,6 @@ pub fn make_routing_table<R: Rng>(rng: &mut R, clock: &time::Clock) -> RoutingTa
             }
             e
         },
-        validators: (0..4).map(|_| make_signed_validator(rng, clock)).collect(),
     }
 }
 
@@ -214,10 +212,10 @@ impl ChunkSet {
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(
-            vec![StateRoot::default()], // state_roots
-            4,                          // num_shards
-            1000,                       // initial_gas_limit
-            0,                          // genesis_height
+            vec![StateRoot::new()], // state_roots
+            4,                      // num_shards
+            1000,                   // initial_gas_limit
+            0,                      // genesis_height
             PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
@@ -225,6 +223,9 @@ impl ChunkSet {
     }
 }
 
+pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
+    EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
+}
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
@@ -310,8 +311,12 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
     PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: Some(make_peer_id(rng)) }
 }
 
-pub fn make_validator(rng: &mut impl Rng, clock: &time::Clock, account_id: AccountId) -> Validator {
-    Validator {
+pub fn make_account_data(
+    rng: &mut impl Rng,
+    clock: &time::Clock,
+    account_id: AccountId,
+) -> AccountData {
+    AccountData {
         peers: vec![
             // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
             // doesn't work.
@@ -329,12 +334,12 @@ pub fn make_validator(rng: &mut impl Rng, clock: &time::Clock, account_id: Accou
             },
         ],
         account_id,
-        epoch_id: EpochId::default(),
+        epoch_id: make_epoch_id(rng),
         timestamp: clock.now_utc(),
     }
 }
 
-pub fn make_signed_validator(rng: &mut impl Rng, clock: &time::Clock) -> SignedValidator {
+pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_signer(rng);
-    make_validator(rng, clock, signer.account_id.clone()).sign(&signer)
+    make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
 }
