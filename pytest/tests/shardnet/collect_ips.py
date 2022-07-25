@@ -23,10 +23,6 @@ def learn_about_node(node_ip):
 
 
 def visit_node(node_ip, timeout):
-    global known_nodes
-    global visited_nodes
-    global validators_found
-
     # logger.info(f'Visiting node {node_ip}')
 
     visited_nodes.add(node_ip)
