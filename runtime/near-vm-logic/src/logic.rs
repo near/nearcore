@@ -2749,7 +2749,11 @@ impl<'a> VMLogic<'a> {
                 ));
             return Err(error);
         }
-        if checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 let error =
                     VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
@@ -2767,7 +2771,11 @@ impl<'a> VMLogic<'a> {
         current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), VMError> {
-        if !checked_feature!("stable", FixContractLoadingCost, current_protocol_version) {
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 return Err(VMError::FunctionCallError(
                     near_vm_errors::FunctionCallError::HostError(
