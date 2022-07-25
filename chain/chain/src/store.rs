@@ -3028,7 +3028,7 @@ mod tests {
 
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
-    use crate::test_utils::KeyValueRuntime;
+    use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeAdapter};
 
     fn get_chain() -> Chain {
@@ -3038,19 +3038,10 @@ mod tests {
     fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let validators = vec![vec!["test1"]];
-        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            store,
-            validators
-                .into_iter()
-                .map(|inner| {
-                    inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect()
-                })
-                .collect(),
-            1,
-            1,
-            epoch_length,
-        ));
+        let vs = ValidatorSchedule::new()
+            .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
         Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true)
             .unwrap()
     }

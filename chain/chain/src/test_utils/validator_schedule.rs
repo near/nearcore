@@ -6,6 +6,8 @@ use near_primitives::types::{AccountId, NumShards};
 /// In the real runtime, we use complex algorithm based on randomness and stake
 /// to select the validators. For for tests though, we just want to select them
 /// by fiat.
+///
+/// Conventional short name for `ValidatorSchedule` is `vs`.
 pub struct ValidatorSchedule {
     pub(super) block_producers: Vec<Vec<AccountId>>,
     pub(super) validator_groups: u64,
