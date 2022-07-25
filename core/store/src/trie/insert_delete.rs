@@ -555,7 +555,7 @@ impl Trie {
             let memory_usage = node_with_size.memory_usage;
             let raw_node = match &node_with_size.node {
                 TrieNode::Empty => {
-                    last_hash = Trie::empty_root();
+                    last_hash = Trie::EMPTY_ROOT;
                     continue;
                 }
                 TrieNode::Branch(children, value) => match position {
