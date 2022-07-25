@@ -161,18 +161,9 @@ impl ChunkTestFixture {
         let store = near_store::test_utils::create_test_store();
         // 3 block producer. 1 block producer + 2 chunk only producer per shard
         // This setup ensures that the chunk producer
-        let (block_producers, chunk_producers) = make_validators(6, 2, 3);
-        let mock_runtime = Arc::new(
-            KeyValueRuntime::new_with_validators_and_no_gc(
-                store.clone(),
-                block_producers,
-                3,
-                3,
-                5,
-                false,
-            )
-            .with_chunk_only_producers(chunk_producers),
-        );
+        let vs = make_validators(6, 2, 3);
+        let mock_runtime =
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, 5, false));
         Self::new_with_runtime(false, mock_runtime)
     }
 
@@ -335,8 +326,12 @@ fn make_validators(
         ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
     let bp = vec![accounts.drain(..num_bp).collect()];
-    let _cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
-    ValidatorSchedule::new().num_shards(3).block_producers_per_epoch(bp).validator_groups(3)
+    let cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
+    ValidatorSchedule::new()
+        .num_shards(3)
+        .block_producers_per_epoch(bp)
+        .validator_groups(3)
+        .chunk_only_producers_per_epoch_per_shard(cp)
 }
 
 // 12 validators, 3 shards, 4 validators per shard

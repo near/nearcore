@@ -212,7 +212,8 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut validators = HashMap::new();
-        let validators_by_valset: Vec<EpochValidatorSet> = vs
+        #[allow(unused_mut)]
+        let mut validators_by_valset: Vec<EpochValidatorSet> = vs
             .block_producers
             .iter()
             .map(|account_ids| {
@@ -245,6 +246,26 @@ impl KeyValueRuntime {
             })
             .collect();
 
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        if !vs.chunk_only_producers.is_empty() {
+            assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
+            for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
+                for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
+                    for account_id in shard_cops {
+                        let stake = ValidatorStake::new(
+                            account_id.clone(),
+                            SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
+                                .public_key(),
+                            1_000_000,
+                        );
+                        let prev = validators.insert(account_id, stake.clone());
+                        assert!(prev.is_none(), "chunk only produced is also a block producer");
+                        validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
+                    }
+                }
+            }
+        }
+
         KeyValueRuntime {
             store,
             tries,
@@ -262,29 +283,6 @@ impl KeyValueRuntime {
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
         }
-    }
-
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    pub fn with_chunk_only_producers(
-        mut self,
-        chunk_only_producers: Vec<Vec<Vec<AccountId>>>,
-    ) -> Self {
-        assert_eq!(self.validators_by_valset.len(), chunk_only_producers.len());
-        for (epoch_idx, epoch_cops) in chunk_only_producers.into_iter().enumerate() {
-            for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
-                for account_id in shard_cops {
-                    let stake = ValidatorStake::new(
-                        account_id.clone(),
-                        SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
-                        1_000_000,
-                    );
-                    let prev = self.validators.insert(account_id, stake.clone());
-                    assert!(prev.is_none(), "chunk only produced is also a block producer");
-                    self.validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
-                }
-            }
-        }
-        self
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
