@@ -15,6 +15,7 @@ use tracing::info;
 
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+    ValidatorSchedule,
 };
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
@@ -180,14 +181,12 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        epoch_length,
-        archive,
-    ));
+    let vs = ValidatorSchedule::new()
+        .num_shards(num_shards)
+        .block_producers_per_epoch(validators)
+        .validator_groups(validator_groups);
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -272,14 +271,12 @@ pub fn setup_only_view(
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        epoch_length,
-        archive,
-    ));
+    let vs = ValidatorSchedule::new()
+        .num_shards(num_shards)
+        .block_producers_per_epoch(validators)
+        .validator_groups(validator_groups);
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -1139,13 +1136,12 @@ pub fn setup_client(
     rng_seed: RngSeed,
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        chain_genesis.epoch_length,
-    ));
+    let vs = ValidatorSchedule::new()
+        .num_shards(num_shards)
+        .block_producers_per_epoch(validators)
+        .validator_groups(validator_groups);
+    let runtime_adapter =
+        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
     setup_client_with_runtime(
         num_validator_seats,
         account_id,

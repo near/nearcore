@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use near_primitives::time::Clock;
 
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
@@ -304,7 +304,7 @@ impl ChunkTestFixture {
 }
 
 #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
+fn make_validators(n: usize) -> ValidatorSchedule {
     if n > 26 {
         panic!("I can't make that many validators!");
     }
@@ -312,7 +312,10 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
     let letters =
         ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
-    vec![letters]
+    ValidatorSchedule::new()
+        .num_shards(3)
+        .block_producers_per_epoch(vec![letters])
+        .validator_groups(3)
 }
 
 /// `num_bp` is number of block producers
@@ -322,7 +325,7 @@ fn make_validators(
     num_bp: usize,
     num_cp_per_shard: usize,
     num_shards: NumShards,
-) -> (Vec<Vec<AccountId>>, Vec<Vec<Vec<AccountId>>>) {
+) -> ValidatorSchedule {
     let n = num_bp + num_cp_per_shard * num_shards as usize;
     if n > 26 {
         panic!("I can't make that many validators!");
@@ -332,8 +335,8 @@ fn make_validators(
         ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
     let bp = vec![accounts.drain(..num_bp).collect()];
-    let cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
-    (bp, cp)
+    let _cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
+    ValidatorSchedule::new().num_shards(3).block_producers_per_epoch(bp).validator_groups(3)
 }
 
 // 12 validators, 3 shards, 4 validators per shard
@@ -341,8 +344,8 @@ fn default_runtime() -> KeyValueRuntime {
     let store = near_store::test_utils::create_test_store();
     // 12 validators, 3 shards, 4 validators per shard
     #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    let validators = make_validators(12);
+    let vs = make_validators(12);
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    let validators = make_validators(12, 0, 3).0;
-    KeyValueRuntime::new_with_validators(store.clone(), validators, 3, 3, 5)
+    let vs = make_validators(12, 0, 3);
+    KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
 }
