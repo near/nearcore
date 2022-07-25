@@ -615,10 +615,10 @@ pub trait RuntimeAdapter: Send + Sync {
             "apply_transactions",
             shard_id)
         .entered();
-        let timer = metrics::APPLYING_CHUNKS_TIME
+        let _timer = metrics::APPLYING_CHUNKS_TIME
             .with_label_values(&[&format!("{}", shard_id)])
             .start_timer();
-        let res = self.apply_transactions_with_optional_storage_proof(
+        self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
             height,
@@ -636,9 +636,7 @@ pub trait RuntimeAdapter: Send + Sync {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
-        );
-        timer.observe_duration();
-        res
+        )
     }
 
     fn apply_transactions_with_optional_storage_proof(

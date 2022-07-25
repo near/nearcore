@@ -1863,6 +1863,7 @@ impl Chain {
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
         let state_patch = self.pending_state_patch.take();
+        let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
             me,
             &block,
@@ -1872,8 +1873,12 @@ impl Chain {
             state_patch,
         );
         let preprocess_res = match preprocess_res {
-            Ok(preprocess_res) => preprocess_res,
+            Ok(preprocess_res) => {
+                preprocess_timer.observe_duration();
+                preprocess_res
+            }
             Err(e) => {
+                preprocess_timer.stop_and_discard();
                 match &e {
                     Error::Orphan => {
                         let tail_height = self.store.tail()?;
@@ -2096,7 +2101,6 @@ impl Chain {
         ),
         Error,
     > {
-        let timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
@@ -2245,7 +2249,6 @@ impl Chain {
             state_patch,
         )?;
 
-        timer.observe_duration();
         Ok((
             apply_chunk_work,
             BlockPreprocessInfo {
