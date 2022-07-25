@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+set -eux
 
 account_id=$(grep account_id /home/ubuntu/.near/shardnet/validator_key.json | awk -F'"' '{print $4}')
 mkdir -p /home/ubuntu/.near-credentials/shardnet/
