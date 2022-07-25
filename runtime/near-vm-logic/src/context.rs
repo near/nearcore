@@ -31,23 +31,23 @@ pub struct VMContext {
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    #[serde(with = "serialize::u64_dec_format")]
+    #[serde(with = "serialize::dec_format")]
     pub block_timestamp: u64,
     /// The current epoch height.
     pub epoch_height: EpochHeight,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
-    #[serde(with = "serialize::u128_dec_format_compatible")]
+    #[serde(with = "serialize::dec_format")]
     pub account_balance: Balance,
     /// The balance of locked tokens on the given account.
-    #[serde(with = "serialize::u128_dec_format_compatible")]
+    #[serde(with = "serialize::dec_format")]
     pub account_locked_balance: Balance,
     /// The account's storage usage before the contract execution
     pub storage_usage: StorageUsage,
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
-    #[serde(with = "serialize::u128_dec_format_compatible")]
+    #[serde(with = "serialize::dec_format")]
     pub attached_deposit: Balance,
     /// The gas attached to the call that can be used to pay for the gas fees.
     pub prepaid_gas: Gas,
