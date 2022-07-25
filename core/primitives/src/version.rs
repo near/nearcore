@@ -165,7 +165,7 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    /// Charge for contract loading before it happens.
+    /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
 }
