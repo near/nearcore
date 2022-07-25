@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -289,58 +289,76 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 }
 
 impl RawTrieNode {
-    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
-        let mut cursor = Cursor::new(out);
+    /// Encodes node into a buffer and includes specified suffix at the end.
+    ///
+    /// Specifying suffix is equivalent to passing an empty suffix and later
+    /// extending the output explicitly.  The difference is that this method
+    /// will reserve appropriate amount of space in the output vector if suffix
+    /// is provided.
+    fn encode_into(&self, out: &mut Vec<u8>, suffix: &[u8]) {
+        const U32_LEN: usize = 4;
+        const HASH_LEN: usize = core::mem::size_of::<CryptoHash>();
+
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
-        match &self {
+        match self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
             RawTrieNode::Leaf(key, value_length, value_hash) => {
-                cursor.write_u8(LEAF_NODE)?;
-                cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-                cursor.write_all(key)?;
-                cursor.write_u32::<LittleEndian>(*value_length)?;
-                cursor.write_all(value_hash.as_ref())?;
+                out.reserve(
+                    1 + U32_LEN + key.len() + U32_LEN + value_hash.as_bytes().len() + suffix.len(),
+                );
+                out.push(LEAF_NODE);
+                out.extend_from_slice(&(key.len() as u32).to_le_bytes());
+                out.extend_from_slice(&key);
+                out.extend_from_slice(&value_length.to_le_bytes());
+                out.extend_from_slice(&value_hash.as_bytes()[..]);
             }
             // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
-                if let Some((value_length, value_hash)) = value {
-                    cursor.write_u8(BRANCH_NODE_WITH_VALUE)?;
-                    cursor.write_u32::<LittleEndian>(*value_length)?;
-                    cursor.write_all(value_hash.as_ref())?;
-                } else {
-                    cursor.write_u8(BRANCH_NODE_NO_VALUE)?;
-                }
                 let mut bitmap: u16 = 0;
                 let mut pos: u16 = 1;
+                let mut count = 0;
                 for child in children.iter() {
                     if child.is_some() {
-                        bitmap |= pos
+                        bitmap |= pos;
+                        count += 1;
                     }
                     pos <<= 1;
                 }
-                cursor.write_u16::<LittleEndian>(bitmap)?;
+
+                let len = 1 + 2 + count * HASH_LEN;
+                if let Some((value_length, value_hash)) = value {
+                    out.reserve(len + U32_LEN + HASH_LEN);
+                    out.push(BRANCH_NODE_WITH_VALUE);
+                    out.extend_from_slice(&value_length.to_le_bytes());
+                    out.extend_from_slice(&value_hash.as_bytes()[..]);
+                } else {
+                    out.reserve(len);
+                    out.push(BRANCH_NODE_NO_VALUE);
+                }
+                out.extend_from_slice(&bitmap.to_le_bytes());
                 for child in children.iter() {
                     if let Some(hash) = child {
-                        cursor.write_all(hash.as_ref())?;
+                        out.extend_from_slice(hash.as_bytes());
                     }
                 }
             }
             // size <= 1 + 4 + key_length + 32
             RawTrieNode::Extension(key, child) => {
-                cursor.write_u8(EXTENSION_NODE)?;
-                cursor.write_u32::<LittleEndian>(key.len() as u32)?;
-                cursor.write_all(key)?;
-                cursor.write_all(child.as_ref())?;
+                out.reserve(1 + U32_LEN + key.len() + HASH_LEN);
+                out.push(EXTENSION_NODE);
+                out.extend_from_slice(&(key.len() as u32).to_le_bytes());
+                out.extend_from_slice(&key);
+                out.extend_from_slice(child.as_bytes());
             }
         }
-        Ok(())
+        out.extend_from_slice(suffix);
     }
 
-    #[allow(dead_code)]
-    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
+    #[cfg(test)]
+    fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        self.encode_into(&mut out)?;
-        Ok(out)
+        self.encode_into(&mut out, &[]);
+        out
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
@@ -382,26 +400,25 @@ impl RawTrieNode {
 }
 
 impl RawTrieNodeWithSize {
-    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
-        self.node.encode_into(out)?;
-        out.write_u64::<LittleEndian>(self.memory_usage)
+    /// Encodes node into a buffer.
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.node.encode_into(out, &self.memory_usage.to_le_bytes());
     }
 
-    #[allow(dead_code)]
-    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
+    fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        self.encode_into(&mut out)?;
-        Ok(out)
+        self.encode_into(&mut out);
+        out
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
-        let node = RawTrieNode::decode(&bytes[0..bytes.len() - 8])?;
-        let mut arr: [u8; 8] = Default::default();
-        arr.copy_from_slice(&bytes[bytes.len() - 8..]);
-        let memory_usage = u64::from_le_bytes(arr);
+        // TODO(mina86): Use rsplit_array_ref once it stabilises.
+        let (bytes, tail) = bytes.split_at(bytes.len() - 8);
+        let node = RawTrieNode::decode(bytes)?;
+        let memory_usage = u64::from_le_bytes(tail.try_into().unwrap());
         Ok(RawTrieNodeWithSize { node, memory_usage })
     }
 }
@@ -770,7 +787,7 @@ pub mod estimator {
         let h = hash(&key);
         let node = RawTrieNode::Extension(key, h);
         let node_with_size = RawTrieNodeWithSize { node, memory_usage: 1 };
-        node_with_size.encode().unwrap()
+        node_with_size.encode()
     }
     /// Decode am extension node and return its inner key.
     /// This serves no purpose other than for the estimator.
@@ -823,19 +840,19 @@ mod tests {
         let value_length = 3;
         let value_hash = hash(&value);
         let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
-        let buf = node.encode().expect("Failed to serialize");
+        let buf = node.encode();
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(Trie::EMPTY_ROOT);
         let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
-        let buf = node.encode().expect("Failed to serialize");
+        let buf = node.encode();
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
-        let buf = node.encode().expect("Failed to serialize");
+        let buf = node.encode();
         let new_node = RawTrieNode::decode(&buf).expect("Failed to deserialize");
         assert_eq!(node, new_node);
     }
