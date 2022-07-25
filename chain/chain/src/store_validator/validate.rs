@@ -17,8 +17,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
-    DBCol, TrieChanges, TrieIterator, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    TAIL_KEY,
+    DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::StoreValidator;
@@ -562,7 +561,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     // 4) Trie should exist for `shard_uid` and the root
     let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid);
     let trie_iterator = unwrap_or_err!(
-        TrieIterator::new(&trie, &new_root),
+        trie.iter(&new_root),
         "Trie Node Missing for shard {:?} root {:?}",
         shard_uid,
         new_root
