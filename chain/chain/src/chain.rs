@@ -638,6 +638,8 @@ impl Chain {
               block_head.height, block_head.last_block_hash,
               header_head.height, header_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
+        let block_header = store.get_block_header(&block_head.last_block_hash)?;
+        metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
@@ -4856,6 +4858,7 @@ impl<'a> ChainUpdate<'a> {
 
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
+            metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {

@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn trie() {
         let tries = create_tries_complex(SHARD_VERSION, 2);
-        let root = CryptoHash::default();
+        let root = Trie::EMPTY_ROOT;
         let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, root);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
@@ -393,17 +393,16 @@ mod tests {
         let tries = create_tries_complex(SHARD_VERSION, 2);
 
         // Delete non-existing element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
         trie_update.remove(test_key(b"dog".to_vec()));
-        trie_update
-            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        trie_update.commit(StateChangeCause::TransactionProcessing { tx_hash: Trie::EMPTY_ROOT });
         let trie_changes = trie_update.finalize().unwrap().0;
         let (store_update, new_root) = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID);
         store_update.commit().unwrap();
-        assert_eq!(new_root, CryptoHash::default());
+        assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add and right away delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
@@ -411,17 +410,17 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().0;
         let (store_update, new_root) = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID);
         store_update.commit().unwrap();
-        assert_eq!(new_root, CryptoHash::default());
+        assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add, apply changes and then delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
         let (store_update, new_root) = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID);
         store_update.commit().unwrap();
-        assert_ne!(new_root, CryptoHash::default());
+        assert_ne!(new_root, Trie::EMPTY_ROOT);
         let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
@@ -429,14 +428,13 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().0;
         let (store_update, new_root) = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID);
         store_update.commit().unwrap();
-        assert_eq!(new_root, CryptoHash::default());
+        assert_eq!(new_root, Trie::EMPTY_ROOT);
     }
 
     #[test]
     fn trie_iter() {
         let tries = create_tries();
-        let mut trie_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"aaa".to_vec()), b"puppy".to_vec());
         trie_update

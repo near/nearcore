@@ -217,8 +217,8 @@ impl KeyValueRuntime {
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
-        let state = HashMap::from([(StateRoot::default(), kv_state)]);
-        let state_size = HashMap::from([(StateRoot::default(), data_len)]);
+        let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
+        let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut validators = HashMap::new();
         let validators_by_valset: Vec<EpochValidatorSet> = block_producers
@@ -413,7 +413,7 @@ impl KeyValueRuntime {
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
+        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
     }
 
     fn get_store(&self) -> Store {
