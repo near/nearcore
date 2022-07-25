@@ -27,20 +27,50 @@
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use near_network_primitives::types::AccountKeys;
+use near_o11y::log_assert;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
+struct MustCompleteGuard;
+
+impl Drop for MustCompleteGuard {
+    fn drop(&mut self) {
+        log_assert!(false, "dropped a non-abortable future before completion");
+    }
+}
+
+/// must_complete wraps a future, so that it logs an error if it is dropped before completion.
+/// Possibility of future abort at every await makes the control flow unnecessarily complicated.
+/// In fact, only few basic futures (like io primitives) actually need to be abortable, so
+/// that they can be put together into a tokio::select block. All the higher level logic
+/// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
+/// Rust doesn't support linear types as of now, so best we can do is a runtime check.
+fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
+    let guard = MustCompleteGuard;
+    async move {
+        let res = fut.await;
+        let _ = std::mem::ManuallyDrop::new(guard);
+        res
+    }
+}
+
+/// spawns a closure on a global rayon threadpool and awaits its completion.
+/// Returns the closure result.
 async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
-    let (send, recv) = tokio::sync::oneshot::channel();
-    rayon::spawn(move || send.send(f()).ok().unwrap());
-    recv.await.unwrap()
+    must_complete(async move {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        rayon::spawn(move || log_assert!(send.send(f()).is_ok(), "rayon_spawn has been aborted"));
+        recv.await.unwrap()
+    })
+    .await
 }
 
 /// Applies f to the iterated elements and collects the results, until the first None is returned.
