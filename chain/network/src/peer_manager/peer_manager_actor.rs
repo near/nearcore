@@ -554,9 +554,7 @@ impl PeerManagerActor {
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?full_peer_info, "Consolidated connection");
 
-        if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
-            self.outgoing_peers.remove(&full_peer_info.peer_info.id);
-        }
+        self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         if let Err(err) = self.peer_store.peer_connected(&self.clock, &full_peer_info.peer_info) {
             error!(target: "network", ?err, "Failed to save peer data");
             return;
