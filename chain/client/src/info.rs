@@ -50,14 +50,14 @@ pub struct InfoHelper {
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
-    telemetry_actor: Addr<TelemetryActor>,
+    telemetry_actor: Option<Addr<TelemetryActor>>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
 }
 
 impl InfoHelper {
     pub fn new(
-        telemetry_actor: Addr<TelemetryActor>,
+        telemetry_actor: Option<Addr<TelemetryActor>>,
         client_config: &ClientConfig,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -225,6 +225,34 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
+        if let Some(telemetry_actor) = &self.telemetry_actor {
+            telemetry(
+                telemetry_actor,
+                self.telemetry_info(
+                    head,
+                    sync_status,
+                    node_id,
+                    network_info,
+                    client_config,
+                    cpu_usage,
+                    memory_usage,
+                    is_validator,
+                ),
+            );
+        }
+    }
+
+    fn telemetry_info(
+        &self,
+        head: &Tip,
+        sync_status: &SyncStatus,
+        node_id: &PeerId,
+        network_info: &NetworkInfo,
+        client_config: &ClientConfig,
+        cpu_usage: f32,
+        memory_usage: u64,
+        is_validator: bool,
+    ) -> serde_json::Value {
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
                 name: "near-rs".to_string(),
@@ -249,12 +277,11 @@ impl InfoHelper {
             extra_info: extra_telemetry_info(client_config),
         };
         // Sign telemetry if there is a signer present.
-        let content = if let Some(vs) = self.validator_signer.as_ref() {
+        if let Some(vs) = self.validator_signer.as_ref() {
             vs.sign_telemetry(&info)
         } else {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
-        };
-        telemetry(&self.telemetry_actor, content);
+        }
     }
 }
 
@@ -380,26 +407,6 @@ impl std::fmt::Display for PrettyNumber {
     }
 }
 
-#[test]
-fn test_pretty_number() {
-    for (want, num) in [
-        ("0 U", 0),
-        ("1 U", 1),
-        ("10 U", 10),
-        ("100 U", 100),
-        ("1.00 kU", 1_000),
-        ("10.0 kU", 10_000),
-        ("100 kU", 100_000),
-        ("1.00 MU", 1_000_000),
-        ("10.0 MU", 10_000_000),
-        ("100 MU", 100_000_000),
-        ("18.4 EU", u64::MAX),
-    ] {
-        let got = PrettyNumber(num, "U").to_string();
-        assert_eq!(want, &got, "num={}", num);
-    }
-}
-
 /// Number of blocks and chunks produced and expected by a certain validator.
 pub struct ValidatorProductionStats {
     pub account_id: AccountId,
@@ -443,4 +450,86 @@ pub fn get_validator_epoch_stats(
         stats.push(ValidatorProductionStats::validator(validator));
     }
     stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_network::test_utils::peer_id_from_seed;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use num_rational::Ratio;
+
+    #[test]
+    fn test_pretty_number() {
+        for (want, num) in [
+            ("0 U", 0),
+            ("1 U", 1),
+            ("10 U", 10),
+            ("100 U", 100),
+            ("1.00 kU", 1_000),
+            ("10.0 kU", 10_000),
+            ("100 kU", 100_000),
+            ("1.00 MU", 1_000_000),
+            ("10.0 MU", 10_000_000),
+            ("100 MU", 100_000_000),
+            ("18.4 EU", u64::MAX),
+        ] {
+            let got = PrettyNumber(num, "U").to_string();
+            assert_eq!(want, &got, "num={}", num);
+        }
+    }
+
+    #[test]
+    fn telemetry_info() {
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true);
+        let info_helper = InfoHelper::new(None, &config, None);
+
+        let store = near_store::test_utils::create_test_store();
+        let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
+            store,
+            vec![vec!["test".parse().unwrap()]],
+            1,
+            2,
+            123,
+            false,
+        ));
+        let chain_genesis = ChainGenesis {
+            time: Clock::utc(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+            gas_price_adjustment_rate: Ratio::from_integer(0),
+            transaction_validity_period: 123123,
+            epoch_length: 123,
+            protocol_version: PROTOCOL_VERSION,
+        };
+        let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
+        let chain =
+            Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, true).unwrap();
+
+        let telemetry = info_helper.telemetry_info(
+            &chain.head().unwrap(),
+            &SyncStatus::AwaitingPeers,
+            &peer_id_from_seed("zxc"),
+            &NetworkInfo {
+                connected_peers: vec![],
+                num_connected_peers: 0,
+                peer_max_count: 0,
+                highest_height_peers: vec![],
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+                known_producers: vec![],
+                peer_counter: 0,
+            },
+            &config,
+            0.0,
+            0,
+            false,
+        );
+        assert_eq!(telemetry["extra_info"]["min_block_production_delay"], 1.23);
+    }
 }
