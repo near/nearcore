@@ -307,7 +307,7 @@ mod tests {
                 .map(|(k, (v, rc))| TrieRefcountChange {
                     trie_node_or_value_hash: k,
                     trie_node_or_value: v,
-                    rc,
+                    rc: std::num::NonZeroU32::new(rc).unwrap(),
                 })
                 .collect::<Vec<_>>();
             insertions.sort();
@@ -601,13 +601,13 @@ mod tests {
                 changes_set.insertions
             {
                 map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 +=
-                    rc as i32;
+                    rc.get() as i32;
             }
             for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
                 changes_set.deletions
             {
                 map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 -=
-                    rc as i32;
+                    rc.get() as i32;
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
