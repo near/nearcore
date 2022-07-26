@@ -246,7 +246,7 @@ impl InfoHelper {
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
             },
-            blob: serde_json::to_string(&extra_telemetry(client_config)).unwrap(),
+            extra_info: extra_telemetry_info(client_config),
         };
         // Sign telemetry if there is a signer present.
         let content = if let Some(vs) = self.validator_signer.as_ref() {
@@ -258,7 +258,7 @@ impl InfoHelper {
     }
 }
 
-fn extra_telemetry(client_config: &ClientConfig) -> serde_json::Value {
+fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     serde_json::json!({
         "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_secs_f64(),
         "min_block_production_delay":  client_config.min_block_production_delay.as_secs_f64(),
