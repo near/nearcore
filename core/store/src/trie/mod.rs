@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read};
@@ -418,7 +417,7 @@ pub struct TrieRefcountChange {
     trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
-    rc: u32,
+    rc: std::num::NonZeroU32,
 }
 
 ///
@@ -700,18 +699,18 @@ impl Trie {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
-            match rc.cmp(&0) {
-                Ordering::Greater => insertions.push(TrieRefcountChange {
+            if rc > 0 {
+                insertions.push(TrieRefcountChange {
                     trie_node_or_value_hash,
                     trie_node_or_value,
-                    rc: rc as u32,
-                }),
-                Ordering::Less => deletions.push(TrieRefcountChange {
+                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
+                });
+            } else if rc < 0 {
+                deletions.push(TrieRefcountChange {
                     trie_node_or_value_hash,
                     trie_node_or_value,
-                    rc: (-rc) as u32,
-                }),
-                Ordering::Equal => {}
+                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                });
             }
         }
         // Sort so that trie changes have unique representation
