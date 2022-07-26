@@ -52,7 +52,7 @@ pub struct TrieTraversalItem {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
+    pub(super) fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
@@ -366,7 +366,7 @@ mod tests {
                 }
             }
             let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), shard_uid, trie_changes.clone());
+                test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
 
             {
                 let result1: Vec<_> = trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
@@ -453,7 +453,7 @@ mod tests {
             let trie_changes = simplify_changes(&trie_changes);
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );

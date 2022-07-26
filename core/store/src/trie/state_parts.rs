@@ -11,7 +11,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
 
@@ -59,7 +59,7 @@ impl Trie {
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
-            let mut iterator = TrieIterator::new(self, root_hash)?;
+            let mut iterator = self.iter(root_hash)?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
             if let Some(item) = iterator.next() {
@@ -200,9 +200,9 @@ impl Trie {
         part_id: PartId,
         part: Vec<Vec<u8>>,
     ) -> Result<ApplyStatePartResult, StorageError> {
-        if state_root == &CryptoHash::default() {
+        if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
-                trie_changes: TrieChanges::empty(CryptoHash::default()),
+                trie_changes: TrieChanges::empty(Trie::EMPTY_ROOT),
                 contract_codes: vec![],
             });
         }
@@ -211,7 +211,7 @@ impl Trie {
             trie.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
         let path_end =
             trie.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
-        let mut iterator = TrieIterator::new(&trie, state_root)?;
+        let mut iterator = trie.iter(state_root)?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
@@ -227,7 +227,7 @@ impl Trie {
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
         Ok(ApplyStatePartResult {
             trie_changes: TrieChanges {
-                old_root: CryptoHash::default(),
+                old_root: Trie::EMPTY_ROOT,
                 new_root: *state_root,
                 insertions,
                 deletions,
@@ -307,7 +307,7 @@ mod tests {
                 .map(|(k, (v, rc))| TrieRefcountChange {
                     trie_node_or_value_hash: k,
                     trie_node_or_value: v,
-                    rc,
+                    rc: std::num::NonZeroU32::new(rc).unwrap(),
                 })
                 .collect::<Vec<_>>();
             insertions.sort();
@@ -325,7 +325,7 @@ mod tests {
             root: &CryptoHash,
             mut on_enter: F,
         ) -> Result<(), StorageError> {
-            if root == &CryptoHash::default() {
+            if root == &Trie::EMPTY_ROOT {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
@@ -416,7 +416,7 @@ mod tests {
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
-            let mut iterator = TrieIterator::new(self, root_hash)?;
+            let mut iterator = self.iter(root_hash)?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
             loop {
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_combine_empty_trie_parts() {
-        let state_root = StateRoot::default();
+        let state_root = Trie::EMPTY_ROOT;
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
@@ -552,7 +552,7 @@ mod tests {
         let tries = create_tries();
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let state_root =
-            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), trie_changes);
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -591,7 +591,7 @@ mod tests {
 
     fn merge_trie_changes(changes: Vec<TrieChanges>) -> TrieChanges {
         if changes.is_empty() {
-            return TrieChanges::empty(CryptoHash::default());
+            return TrieChanges::empty(Trie::EMPTY_ROOT);
         }
         let new_root = changes[0].new_root;
         let mut map = HashMap::new();
@@ -601,13 +601,13 @@ mod tests {
                 changes_set.insertions
             {
                 map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 +=
-                    rc as i32;
+                    rc.get() as i32;
             }
             for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
                 changes_set.deletions
             {
                 map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 -=
-                    rc as i32;
+                    rc.get() as i32;
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
@@ -623,7 +623,7 @@ mod tests {
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
@@ -713,7 +713,7 @@ mod tests {
 
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
