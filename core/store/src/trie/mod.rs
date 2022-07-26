@@ -94,7 +94,7 @@ enum TrieNode {
 #[derive(Clone, Debug)]
 pub struct TrieNodeWithSize {
     node: TrieNode,
-    pub memory_usage: u64,
+    memory_usage: u64,
 }
 
 impl TrieNodeWithSize {
