@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::info;
 
-use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
@@ -23,12 +22,11 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_network::test_utils::{MockPeerManagerAdapter, NetworkRecipient};
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerAdapter,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
+    NetworkResponses, PeerManagerAdapter,
 };
-use near_network::PeerManagerActor;
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
@@ -64,7 +62,37 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::utils::MaybeValidated;
 
-pub type PeerManagerMock = Mocker<PeerManagerActor>;
+pub struct PeerManagerMock {
+    handle: Box<
+        dyn FnMut(
+            PeerManagerMessageRequest,
+            &mut actix::Context<Self>,
+        ) -> PeerManagerMessageResponse,
+    >,
+}
+
+impl PeerManagerMock {
+    fn new(
+        f: impl 'static
+            + FnMut(
+                PeerManagerMessageRequest,
+                &mut actix::Context<Self>,
+            ) -> PeerManagerMessageResponse,
+    ) -> Self {
+        Self { handle: Box::new(f) }
+    }
+}
+
+impl actix::Actor for PeerManagerMock {
+    type Context = actix::Context<Self>;
+}
+
+impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+    type Result = PeerManagerMessageResponse;
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        (self.handle)(msg, ctx)
+    }
+}
 
 /// min block production time in milliseconds
 pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
@@ -362,14 +390,11 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     });
     let client_addr1 = client_addr.clone();
 
-    let network_actor = PeerManagerMock::mock(Box::new(move |msg, ctx| {
-        let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
-        let resp = peermanager_mock(msg, ctx, client_addr1.clone());
-        Box::new(Some(resp))
-    }))
-    .start();
+    let network_actor =
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
+            .start();
 
-    network_adapter.set_recipient(network_actor.recipient());
+    network_adapter.set_recipient(network_actor);
 
     (client_addr, vca.unwrap())
 }
@@ -592,13 +617,11 @@ pub fn setup_mock_all_validators(
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
-            let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+            let pm = PeerManagerMock::new(move |msg, _ctx| {
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
-                let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
-
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(connectors1.as_slice(), account_id.clone(), msg);
+                let (resp, perform_default) = guard.deref_mut()(connectors1.as_slice(), account_id.clone(), &msg);
                 drop(guard);
 
                 if perform_default {
@@ -997,11 +1020,10 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
                     };
                 }
-                Box::new(Some(resp))
-            }))
-            .start();
+                resp
+            }).start();
             let network_adapter = NetworkRecipient::default();
-            network_adapter.set_recipient(pm.recipient());
+            network_adapter.set_recipient(pm);
             let (block, client, view_client_addr) = setup(
                 validators_clone.clone(),
                 validator_groups,
