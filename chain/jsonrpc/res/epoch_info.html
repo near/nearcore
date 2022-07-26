@@ -81,7 +81,7 @@
                 let row = $('<tr>');
                 console.log(validator.stake + "validator stake\n");
                 row.append($('<td>').append(validator.account_id));
-                row.append($('<td>').append(100 * validator.stake / total_stake + "%"));
+                row.append($('<td>').append((100 * validator.stake / total_stake).toFixed(2) + "%"));
                 row.append($('<td>').append(validator.shards.join(",")));
                 row.append($('<td>').append(validator.num_expected_blocks - validator.num_produced_blocks));
                 row.append($('<td>').append(validator.num_expected_blocks));
@@ -92,19 +92,23 @@
 
             let row1 = $('<tr>');
             let row2 = $('<tr>');
+            row1.append("<th> Account Id </th>");
+            row2.append("<th> Stake / Stake Percentage </th>");
             validator_info.current_proposals.forEach(proposal=> {
                 row1.append($('<td>').append(proposal.account_id));
-                row2.append($('<td>').append(proposal.stake));
+                row2.append($('<td>').append(proposal.stake + "/" + proposal.stake/total_stake.toFixed(2) + "%"));
             })
             $('.js-tbody-curepoch-proposals').append(row1).append(row2);
 
-            console.log(validator_info.prev_epoch_kickout);
             row1 = $('<tr>');
             row2 = $('<tr>');
+            row1.append("<th> Account Id </th>");
+            row2.append("<th> Kickout Reason </th>");
             validator_info.prev_epoch_kickout.forEach(kickout=> {
                 row1.append($('<td>').append(kickout.account_id));
-                row2.append($('<td>').append(kickout.reason));
+                row2.append($('<td>').append(JSON.stringify(kickout.reason)));
             })
+            console.log(validator_info.prev_epoch_kickout);
             $('.js-tbody-curepoch-kickouts').append(row1).append(row2);
             return total_stake
         }
