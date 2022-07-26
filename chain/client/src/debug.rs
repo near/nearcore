@@ -5,6 +5,7 @@ use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
+use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{near_chain_primitives, ChainStoreAccess};
 use near_client_primitives::debug::{
     BlockProduction, ChunkProduction, DebugStatus, DebugStatusResponse, ProductionAtHeight,
@@ -103,6 +104,7 @@ impl ClientActor {
     fn get_epoch_info_view(
         &mut self,
         current_block: CryptoHash,
+        is_current_block_head: bool,
     ) -> Result<(EpochInfoView, CryptoHash), Error> {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
@@ -161,13 +163,23 @@ impl ClientActor {
             .map(|((a, b), c)| (a.clone(), b.clone(), c.clone()))
             .collect();
 
+        let validator_info = if is_current_block_head {
+            self.client
+                .runtime_adapter
+                .get_validator_info(ValidatorInfoIdentifier::BlockHash(current_block))?
+        } else {
+            self.client
+                .runtime_adapter
+                .get_validator_info(ValidatorInfoIdentifier::EpochId(epoch_id.clone()))?
+        };
         return Ok((
             EpochInfoView {
                 epoch_id: epoch_id.0,
                 height: block.header().height(),
                 first_block: Some((block.header().hash().clone(), block.header().timestamp())),
-                validators: validators.to_vec(),
+                block_producers: validators.to_vec(),
                 chunk_only_producers,
+                validator_info: Some(validator_info),
                 protocol_version: self
                     .client
                     .runtime_adapter
@@ -192,8 +204,9 @@ impl ClientActor {
             // Expected height of the next epoch.
             height: epoch_start_height + self.client.config.epoch_length,
             first_block: None,
-            validators,
+            block_producers: validators,
             chunk_only_producers,
+            validator_info: None,
             protocol_version: self
                 .client
                 .runtime_adapter
@@ -243,8 +256,9 @@ impl ClientActor {
         }
         let head = self.client.chain.head()?;
         let mut current_block = head.last_block_hash;
-        for _ in 0..DEBUG_EPOCHS_TO_FETCH {
-            if let Ok((epoch_view, block_previous_epoch)) = self.get_epoch_info_view(current_block)
+        for i in 0..DEBUG_EPOCHS_TO_FETCH {
+            if let Ok((epoch_view, block_previous_epoch)) =
+                self.get_epoch_info_view(current_block, i == 0)
             {
                 current_block = block_previous_epoch;
                 epochs_info.push(epoch_view);
