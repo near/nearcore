@@ -121,6 +121,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
+        client_config: &ClientConfig,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -245,6 +246,7 @@ impl InfoHelper {
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
             },
+            blob: serde_json::to_string(&extra_telemetry(client_config)).unwrap(),
         };
         // Sign telemetry if there is a signer present.
         let content = if let Some(vs) = self.validator_signer.as_ref() {
@@ -254,6 +256,15 @@ impl InfoHelper {
         };
         telemetry(&self.telemetry_actor, content);
     }
+}
+
+fn extra_telemetry(client_config: &ClientConfig) -> serde_json::Value {
+    serde_json::json!({
+        "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_secs_f64(),
+        "min_block_production_delay":  client_config.min_block_production_delay.as_secs_f64(),
+        "max_block_production_delay": client_config.max_block_production_delay.as_secs_f64(),
+        "max_block_wait_delay": client_config.max_block_wait_delay.as_secs_f64(),
+    })
 }
 
 pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {

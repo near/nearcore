@@ -37,4 +37,5 @@ pub struct TelemetryInfo {
     pub agent: TelemetryAgentInfo,
     pub system: TelemetrySystemInfo,
     pub chain: TelemetryChainInfo,
+    pub blob: String,
 }
