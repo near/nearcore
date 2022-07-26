@@ -44,10 +44,10 @@ pub struct PartialStorage {
     pub nodes: PartialState,
 }
 
-#[derive(Clone, Hash, Debug, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub(crate) struct StorageHandle(usize);
 
-#[derive(Clone, Hash, Debug, Copy)]
+#[derive(Clone, Debug, Copy)]
 pub(crate) struct StorageValueHandle(usize);
 
 pub struct TrieCosts {
@@ -58,7 +58,7 @@ pub struct TrieCosts {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Debug)]
 enum NodeHandle {
     InMemory(StorageHandle),
     Hash(CryptoHash),
@@ -73,13 +73,13 @@ impl NodeHandle {
     }
 }
 
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Debug)]
 enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(u32, CryptoHash),
 }
 
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Debug)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
     Empty,
