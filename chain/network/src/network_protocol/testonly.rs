@@ -235,7 +235,7 @@ pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<(EpochId, InMemorySigner)>,
+    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
 }
 
 impl Chain {
@@ -254,7 +254,9 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
-            tier1_accounts: (0..10).map(|_| (make_epoch_id(rng), make_signer(rng))).collect(),
+            tier1_accounts: (0..10)
+                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
+                .collect(),
             chunks: chunks.chunks,
         }
     }
@@ -270,7 +272,9 @@ impl Chain {
     pub fn get_tier1_accounts(&self) -> AccountKeys {
         self.tier1_accounts
             .iter()
-            .map(|(epoch_id, v)| ((epoch_id.clone(), v.account_id.clone()), v.public_key.clone()))
+            .map(|(epoch_id, v)| {
+                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
+            })
             .collect()
     }
 
@@ -309,7 +313,7 @@ impl Chain {
         self.tier1_accounts
             .iter()
             .map(|(epoch_id, v)| {
-                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.account_id.clone())
+                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
                     .sign(v)
                     .unwrap()
             })
@@ -388,9 +392,9 @@ pub fn make_account_data(
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
-    let signer = make_signer(rng);
+    let signer = make_validator_signer(rng);
     let epoch_id = make_epoch_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.account_id.clone())
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
         .sign(&signer)
         .unwrap()
 }
