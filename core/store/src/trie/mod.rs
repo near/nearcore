@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+#[cfg(test)]
 use std::fmt;
 use std::io::{Cursor, Read};
 
@@ -137,6 +138,7 @@ impl TrieNode {
         }
     }
 
+    #[cfg(test)]
     fn print(
         &self,
         f: &mut dyn fmt::Write,
@@ -198,7 +200,7 @@ impl TrieNode {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
         self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");
