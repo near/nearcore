@@ -9,7 +9,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::u128_dec_format;
+use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 
 use crate::receipt::Receipt;
@@ -48,7 +48,7 @@ pub struct AccountWithPublicKey {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
 }
 
@@ -445,6 +445,7 @@ impl StateRootNode {
     Eq,
     PartialEq,
     PartialOrd,
+    Ord,
     DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,
@@ -871,9 +872,9 @@ pub enum ValidatorKickoutReason {
     Unstaked,
     /// Validator stake is now below threshold
     NotEnoughStake {
-        #[serde(with = "u128_dec_format", rename = "stake_u128")]
+        #[serde(with = "dec_format", rename = "stake_u128")]
         stake: Balance,
-        #[serde(with = "u128_dec_format", rename = "threshold_u128")]
+        #[serde(with = "dec_format", rename = "threshold_u128")]
         threshold: Balance,
     },
     /// Enough stake but is not chosen because of seat limits.
