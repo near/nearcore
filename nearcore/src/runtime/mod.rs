@@ -542,7 +542,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            cache: Some(StoreCompiledContractCache::new(&self.store)),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -634,7 +634,7 @@ impl NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
-            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+            Some(StoreCompiledContractCache::new(&self.store));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -1956,7 +1956,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            cache: Some(StoreCompiledContractCache::new(&self.tries.get_store())),
         };
         self.trie_viewer.call_function(
             state_update,

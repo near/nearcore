@@ -74,7 +74,7 @@ fn cache_error(
 ) -> Result<(), CacheError> {
     let record = CacheRecord::CompileModuleError(error.clone());
     let record = record.try_to_vec().unwrap();
-    cache.put(&key.0, &record).map_err(|_io_err| CacheError::ReadError)?;
+    cache.put(key, record).map_err(|_io_err| CacheError::ReadError)?;
     Ok(())
 }
 
@@ -91,7 +91,7 @@ pub fn into_vm_result<T>(
 
 #[derive(Default)]
 pub struct MockCompiledContractCache {
-    store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
+    store: Arc<Mutex<HashMap<CryptoHash, Vec<u8>>>>,
 }
 
 impl MockCompiledContractCache {
@@ -101,14 +101,13 @@ impl MockCompiledContractCache {
 }
 
 impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
-        self.store.lock().unwrap().insert(key.to_vec(), value.to_vec());
+    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> std::io::Result<()> {
+        self.store.lock().unwrap().insert(key.clone(), value);
         Ok(())
     }
 
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
-        let res = self.store.lock().unwrap().get(key).cloned();
-        Ok(res)
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<Vec<u8>>> {
+        Ok(self.store.lock().unwrap().get(key).cloned())
     }
 }
 
@@ -185,7 +184,7 @@ pub mod wasmer0_cache {
             .and_then(|it| it.serialize())
             .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
-        cache.put(key.as_ref(), &serialized).map_err(|_io_err| CacheError::WriteError)?;
+        cache.put(key, serialized).map_err(|_io_err| CacheError::WriteError)?;
         Ok(Ok(module))
     }
 
@@ -222,13 +221,10 @@ pub mod wasmer0_cache {
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         match cache {
             None => Ok(compile_module(wasm_code, config)),
-            Some(cache) => {
-                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
-                match serialized {
-                    Some(serialized) => deserialize_wasmer(serialized.as_slice()),
-                    None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
-                }
-            }
+            Some(cache) => match cache.get(&key).map_err(|_io_err| CacheError::ReadError)? {
+                Some(serialized) => deserialize_wasmer(&serialized[..]),
+                None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
+            },
         }
     }
 
@@ -286,7 +282,7 @@ pub mod wasmer2_cache {
         let code =
             executable.serialize().map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
         let serialized = CacheRecord::Code(code).try_to_vec().unwrap();
-        cache.put(key.as_ref(), &serialized).map_err(|_io_err| CacheError::WriteError)?;
+        cache.put(key, serialized).map_err(|_io_err| CacheError::WriteError)?;
         match vm.engine.load_universal_executable(&executable) {
             Ok(artifact) => Ok(Ok(Arc::new(artifact) as _)),
             Err(err) => {
@@ -340,13 +336,10 @@ pub mod wasmer2_cache {
                     .map(|v| Arc::new(v) as _)
                     .map_err(|err| panic!("could not load the executable: {}", err.to_string()))
             })),
-            Some(cache) => {
-                let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::ReadError)?;
-                match serialized {
-                    Some(serialized) => deserialize_wasmer2(serialized.as_slice(), config),
-                    None => compile_and_serialize_wasmer2(code.code(), &key, config, cache),
-                }
-            }
+            Some(cache) => match cache.get(&key).map_err(|_io_err| CacheError::ReadError)? {
+                Some(serialized) => deserialize_wasmer2(&serialized[..], config),
+                None => compile_and_serialize_wasmer2(code.code(), &key, config, cache),
+            },
         }
     }
 
@@ -379,7 +372,7 @@ pub fn precompile_contract_vm(
     };
     let key = get_contract_cache_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
-    match cache.get(&key.0).map_err(|_io_error| CacheError::ReadError)? {
+    match cache.get(&key).map_err(|_io_error| CacheError::ReadError)? {
         // If so - do not override.
         Some(_) => return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
         None => {}

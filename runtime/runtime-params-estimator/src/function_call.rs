@@ -8,7 +8,6 @@ use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
 use std::fmt::Write;
-use std::sync::Arc;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
 /// total contract code. The contract size is increased by adding more methods
@@ -71,7 +70,7 @@ fn compute_function_call_cost(
     contract: &ContractCode,
 ) -> GasCost {
     let store = near_store::test_utils::create_test_store();
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
+    let cache_store = StoreCompiledContractCache::new(&store);
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);

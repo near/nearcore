@@ -624,7 +624,13 @@ pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &V
 }
 
 pub struct StoreCompiledContractCache {
-    pub store: Store,
+    db: Arc<dyn Database>,
+}
+
+impl StoreCompiledContractCache {
+    pub fn new(store: &Store) -> Arc<Self> {
+        Arc::new(Self { db: store.storage.clone() })
+    }
 }
 
 /// Cache for compiled contracts code using Store for keeping data.
@@ -632,14 +638,14 @@ pub struct StoreCompiledContractCache {
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &[u8], value: &[u8]) -> io::Result<()> {
-        let mut store_update = self.store.store_update();
-        store_update.set(DBCol::CachedContractCode, key, value);
-        store_update.commit()
+    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
+        let mut update = crate::db::DBTransaction::new();
+        update.insert(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        self.db.write(update)
     }
 
-    fn get(&self, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.store.get(DBCol::CachedContractCode, key)
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
+        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
     }
 }
 

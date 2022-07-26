@@ -4409,10 +4409,8 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<Arc<StoreCompiledContractCache>> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
@@ -4426,7 +4424,7 @@ mod contract_precompilation_tests {
         let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
-                .get(&key.0)
+                .get(&key)
                 .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
                 .unwrap_or_else(|| {
                     panic!("Compilation result should be non-empty for client {}", i)
@@ -4524,10 +4522,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<Arc<StoreCompiledContractCache>> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
@@ -4549,12 +4545,12 @@ mod contract_precompilation_tests {
         );
 
         // Check that both deployed contracts are presented in cache for client 0.
-        assert!(caches[0].get(&tiny_contract_key.0).unwrap().is_some());
-        assert!(caches[0].get(&test_contract_key.0).unwrap().is_some());
+        assert!(caches[0].get(&tiny_contract_key).unwrap().is_some());
+        assert!(caches[0].get(&test_contract_key).unwrap().is_some());
 
         // Check that only last contract is presented in cache for client 1.
-        assert!(caches[1].get(&tiny_contract_key.0).unwrap().is_none());
-        assert!(caches[1].get(&test_contract_key.0).unwrap().is_some());
+        assert!(caches[1].get(&tiny_contract_key).unwrap().is_none());
+        assert!(caches[1].get(&test_contract_key).unwrap().is_some());
     }
 
     #[test]
@@ -4610,10 +4606,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<Arc<StoreCompiledContractCache>> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
 
         let epoch_id = env.clients[0]
             .chain
@@ -4631,10 +4625,10 @@ mod contract_precompilation_tests {
         );
 
         // Check that contract is cached for client 0 despite account deletion.
-        assert!(caches[0].get(&contract_key.0).unwrap().is_some());
+        assert!(caches[0].get(&contract_key).unwrap().is_some());
 
         // Check that contract is not cached for client 1 because of late state sync.
-        assert!(caches[1].get(&contract_key.0).unwrap().is_none());
+        assert!(caches[1].get(&contract_key).unwrap().is_none());
     }
 }
 
