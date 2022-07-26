@@ -2884,6 +2884,7 @@ dependencies = [
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-chunks",
  "near-client-primitives",
  "near-crypto",

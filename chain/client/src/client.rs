@@ -44,7 +44,6 @@ use near_primitives::views::{BlockByChunksView, ChunkInfoView};
 
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
-use anyhow::Context as _;
 use itertools::Itertools;
 use near_chain::chain::ChainAccess;
 use near_chain::types::ValidatorInfoIdentifier;
@@ -2154,14 +2153,14 @@ impl Client {
 }
 
 impl Client {
-    fn get_tier1_accounts(&mut self, tip: &Tip) -> anyhow::Result<Arc<AccountKeys>> {
+    fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
         if let Some(it) = self.tier1_accounts.get(&tip.epoch_id) {
             return Ok(it.clone());
         }
         let info = self
             .runtime_adapter
             .get_validator_info(ValidatorInfoIdentifier::EpochId(tip.epoch_id.clone()))
-            .context("runtime_adapter.get_validator_info()")?;
+            .map_err(|e| Error::ChainWithCtx("runtime.get_validator_info()", e))?;
         let mut accounts = BTreeMap::new();
         accounts.extend(
             info.current_validators
@@ -2178,8 +2177,8 @@ impl Client {
         Ok(accounts)
     }
 
-    fn send_network_chain_info(&mut self) -> anyhow::Result<()> {
-        let tip = self.chain.head().context("Cannot retrieve chain head")?;
+    fn send_network_chain_info(&mut self) -> Result<(), Error> {
+        let tip = self.chain.head().map_err(|e| Error::ChainWithCtx("chain.head()", e))?;
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
         // https://github.com/near/nearcore/issues/4930
@@ -2189,7 +2188,7 @@ impl Client {
             let num_shards = self
                 .runtime_adapter
                 .num_shards(&tip.epoch_id)
-                .context("Cannot retrieve num shards")?;
+                .map_err(|e| Error::ChainWithCtx("runtime_adapter.num_shards()", e))?;
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
