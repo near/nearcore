@@ -248,12 +248,9 @@ impl Trie {
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
-        match RawTrieNodeWithSize::decode(bytes) {
-            Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
-            Err(_) => {
-                Err(StorageError::StorageInconsistentState("Failed to decode node".to_string()))
-            }
-        }
+        RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
+            StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
+        })
     }
 }
 

@@ -98,7 +98,7 @@ pub struct TrieNodeWithSize {
 
 impl TrieNodeWithSize {
     fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
-        TrieNodeWithSize { node: TrieNode::new(rc_node.node), memory_usage: rc_node.memory_usage }
+        TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
     }
 
     fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
@@ -610,7 +610,7 @@ impl Trie {
         let data = self.storage.retrieve_raw_bytes(root)?;
         match RawTrieNodeWithSize::decode(&data) {
             Ok(value) => {
-                let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
+                let memory_usage = value.memory_usage;
                 Ok(StateRootNode { data: data.to_vec(), memory_usage })
             }
             Err(_) => Err(StorageError::StorageInconsistentState(format!(
