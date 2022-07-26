@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::types::{StatusError, SyncStatus};
 use actix::Message;
 use chrono::DateTime;
+use near_primitives::views::EpochValidatorInfo;
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -28,8 +29,9 @@ pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
-    pub validators: Vec<ValidatorInfo>,
+    pub block_producers: Vec<ValidatorInfo>,
     pub chunk_only_producers: Vec<String>,
+    pub validator_info: Option<EpochValidatorInfo>,
     pub protocol_version: u32,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
