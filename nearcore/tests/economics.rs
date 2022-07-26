@@ -96,7 +96,7 @@ fn test_burn_mint() {
     // We burn half of the cost when tx executed and the other half in the next block for the receipt processing.
     let half_transfer_cost = fee_helper.transfer_cost() / 2;
     let epoch_total_reward = {
-        let block0 = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let block0 = env.clients[0].chain.genesis_block().clone();
         let block2 = env.clients[0].chain.get_block_by_height(2).unwrap();
         let duration = block2.header().raw_timestamp() - block0.header().raw_timestamp();
         (U256::from(initial_total_supply) * U256::from(duration)

@@ -448,11 +448,7 @@ mod tests {
         assert!(sv.validate_col(DBCol::Block).is_ok());
         // Use `set_raw` to ruthlessly override block data with some garbage,
         // simulating IO error.
-        store_update.set_raw_bytes(
-            DBCol::Block,
-            chain.get_block_by_height(0).unwrap().hash().as_ref(),
-            &vec![123],
-        );
+        store_update.set_raw_bytes(DBCol::Block, chain.genesis_block().hash().as_ref(), &vec![123]);
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
@@ -476,7 +472,7 @@ mod tests {
     #[test]
     fn test_db_not_found() {
         let (chain, mut sv) = init();
-        let block = chain.get_block_by_height(0).unwrap();
+        let block = chain.genesis_block().clone();
         assert!(validate::block_header_exists(&mut sv, block.hash(), &block).is_ok());
         match validate::block_header_exists(&mut sv, &CryptoHash::default(), &block) {
             Err(StoreValidatorError::DBNotFound { .. }) => {}

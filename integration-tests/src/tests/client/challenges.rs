@@ -40,7 +40,7 @@ use std::sync::Arc;
 #[test]
 fn test_block_with_challenges() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis = env.clients[0].chain.genesis_block().clone();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
@@ -96,7 +96,7 @@ fn test_invalid_chunk_state() {
 fn test_verify_block_double_sign_challenge() {
     let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
-    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis = env.clients[0].chain.genesis_block().clone();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
 
     env.process_block(0, b1.clone(), Provenance::NONE);

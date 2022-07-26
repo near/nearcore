@@ -173,7 +173,7 @@ fn prepare_env_with_congestion(
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
     // Deploy contract to test0.
@@ -1048,7 +1048,7 @@ fn test_time_attack() {
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let genesis = client.chain.genesis_block().clone();
     let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
@@ -1081,7 +1081,7 @@ fn test_invalid_approvals() {
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let genesis = client.chain.genesis_block().clone();
     let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
@@ -1130,7 +1130,7 @@ fn test_invalid_gas_price() {
     );
     let signer =
         InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let genesis = client.chain.genesis_block().clone();
     let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
     b1.mut_header().resign(&signer);
@@ -1370,7 +1370,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
     let mut blocks = vec![];
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     blocks.push(genesis_block);
     for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1618,7 +1618,7 @@ fn test_tx_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
     let mut env = TestEnv::builder(chain_genesis).clients_count(50).validator_seats(50).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_hash = *genesis_block.hash();
     // forward to 2 chunk producers
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false);
@@ -1630,7 +1630,7 @@ fn test_tx_forwarding_no_double_forwarding() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 100;
     let mut env = TestEnv::builder(chain_genesis).clients_count(50).validator_seats(50).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_hash = *genesis_block.hash();
     env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false);
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
@@ -1790,7 +1790,7 @@ fn test_gas_price_change() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::send_money(
@@ -1837,7 +1837,7 @@ fn test_gas_price_overflow() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     for i in 1..100 {
@@ -1900,7 +1900,7 @@ fn test_incorrect_validator_key_produce_block() {
 
 fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let mut blocks = vec![genesis_block.clone()];
     let mut cur_height = genesis_block.header().height() + 1;
     while cur_height < n {
@@ -1963,7 +1963,7 @@ fn test_block_merkle_proof() {
 #[test]
 fn test_block_merkle_proof_same_hash() {
     let env = TestEnv::builder(ChainGenesis::test()).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let proof =
         env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
     assert!(proof.is_empty());
@@ -1978,7 +1978,7 @@ fn test_data_reset_before_state_sync() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_hash = *genesis_block.hash();
     let tx = SignedTransaction::create_account(
         1,
@@ -2102,7 +2102,7 @@ fn test_validate_chunk_extra() {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let genesis_height = genesis_block.header().height();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -2253,7 +2253,7 @@ fn test_catchup_gas_price_change() {
         .clients_count(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let mut blocks = vec![];
     for i in 1..3 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -2352,7 +2352,7 @@ fn test_block_execution_outcomes() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
     for i in 0..3 {
@@ -2439,7 +2439,7 @@ fn test_refund_receipts_processing() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
     // send transactions to a non-existing account to generate refund
@@ -2862,7 +2862,7 @@ fn test_query_final_state() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -3050,7 +3050,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -3163,7 +3163,7 @@ fn test_node_shutdown_with_old_protocol_version() {
 #[test]
 fn test_block_ordinal() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
     let mut ordinal = 1;
 
@@ -3281,7 +3281,7 @@ fn test_validator_stake_host_function() {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.clients[0].chain.genesis_block().clone();
     let block_height = deploy_test_contract(
         &mut env,
         "test0".parse().unwrap(),
@@ -3489,7 +3489,7 @@ mod access_key_nonce_range_tests {
         let mut env = TestEnv::builder(ChainGenesis::test())
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let genesis_block = env.clients[0].chain.genesis_block().clone();
 
         let signer0 =
             InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -3553,7 +3553,7 @@ mod access_key_nonce_range_tests {
         let mut env = TestEnv::builder(ChainGenesis::test())
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let genesis_block = env.clients[0].chain.genesis_block().clone();
 
         let signer1 =
             InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -3663,7 +3663,7 @@ mod access_key_nonce_range_tests {
         let mut env = TestEnv::builder(ChainGenesis::test())
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let genesis_block = env.clients[0].chain.genesis_block().clone();
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let tx = SignedTransaction::send_money(
             1,
@@ -3706,7 +3706,7 @@ mod access_key_nonce_range_tests {
         let mut env = TestEnv::builder(ChainGenesis::test())
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let genesis_block = env.clients[0].chain.genesis_block().clone();
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
         let tx = SignedTransaction::send_money(

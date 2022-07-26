@@ -158,7 +158,7 @@ fn build_chain_with_skips_and_forks() {
 fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
-    let genesis = chain.get_block_by_height(0).unwrap();
+    let genesis = chain.genesis_block().clone();
     let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
     let b_3 = Block::empty_with_height(&b_2, 3, &*signer);

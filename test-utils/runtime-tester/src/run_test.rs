@@ -68,7 +68,7 @@ impl Scenario {
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
-        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let mut last_block = env.clients[0].chain.genesis_block().clone();
 
         let mut runtime_stats = RuntimeStats::default();
 
