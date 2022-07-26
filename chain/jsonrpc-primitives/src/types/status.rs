@@ -6,6 +6,7 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
+#[cfg(feature = "debug_types")]
 #[derive(Debug, Serialize)]
 pub struct RpcDebugStatusResponse {
     pub status_response: near_client_primitives::debug::DebugStatusResponse,
