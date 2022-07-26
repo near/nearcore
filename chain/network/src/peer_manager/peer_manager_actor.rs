@@ -388,13 +388,10 @@ impl PeerManagerActor {
             self.routing_table_view.add_account(account.clone());
         }
 
-        Self::broadcast_message(
-            &self.connected_peers,
-            SendMessage {
-                message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(accounts)),
-                context: Span::current().context(),
-            },
-        )
+        self.broadcast_message(SendMessage {
+            message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(accounts)),
+            context: Span::current().context(),
+        })
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -510,15 +507,12 @@ impl PeerManagerActor {
                     match response {
                         Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
                             // Broadcast new edges to all other peers.
-                            Self::broadcast_message(
-                                &act.connected_peers,
-                                SendMessage {
-                                    message: PeerMessage::SyncRoutingTable(
-                                        RoutingTableUpdate::from_edges(filtered_edges),
-                                    ),
-                                    context: Span::current().context(),
-                                },
-                            )
+                            act.broadcast_message(SendMessage {
+                                message: PeerMessage::SyncRoutingTable(
+                                    RoutingTableUpdate::from_edges(filtered_edges),
+                                ),
+                                context: Span::current().context(),
+                            })
                         }
                         _ => error!(target: "network", "expected AddVerifiedEdgesResponse"),
                     }
@@ -638,15 +632,12 @@ impl PeerManagerActor {
                 if peer_type == PeerType::Outbound {
                     // Only broadcast new message from the outbound endpoint.
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    Self::broadcast_message(
-                        &act.connected_peers,
-                        SendMessage {
-                            message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                                vec![new_edge],
-                            )),
-                            context: Span::current().context(),
-                        },
-                    );
+                    act.broadcast_message(SendMessage {
+                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                            vec![new_edge],
+                        )),
+                        context: Span::current().context(),
+                    });
                 }
             },
         );
@@ -673,15 +664,12 @@ impl PeerManagerActor {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                Self::broadcast_message(
-                    &self.connected_peers,
-                    SendMessage {
-                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                            vec![edge_update],
-                        )),
-                        context: Span::current().context(),
-                    },
-                );
+                self.broadcast_message(SendMessage {
+                    message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
+                        edge_update,
+                    ])),
+                    context: Span::current().context(),
+                });
             }
         }
     }
@@ -913,15 +901,12 @@ impl PeerManagerActor {
                 if !act.connected_peers.contains_key(other) {
                     // Peer is still not connected after waiting a timeout.
                     let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                    Self::broadcast_message(
-                        &act.connected_peers,
-                        SendMessage {
-                            message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                                vec![new_edge],
-                            )),
-                            context: Span::current().context(),
-                        },
-                    );
+                    act.broadcast_message(SendMessage {
+                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                            vec![new_edge],
+                        )),
+                        context: Span::current().context(),
+                    });
                 }
             },
         );
@@ -946,8 +931,7 @@ impl PeerManagerActor {
             }
         }
 
-        Self::send_message(
-            &self.connected_peers,
+        self.send_message(
             other.clone(),
             PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
                 &self.my_peer_id,
@@ -1216,7 +1200,7 @@ impl PeerManagerActor {
     }
 
     /// Broadcast message to all active peers.
-    fn broadcast_message(connected_peers: &HashMap<PeerId, ConnectedPeer>, msg: SendMessage) {
+    fn broadcast_message(&self, msg: SendMessage) {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.message.msg_variant()]).inc();
         // TODO(MarX, #1363): Implement smart broadcasting. (MST)
 
@@ -1224,7 +1208,7 @@ impl PeerManagerActor {
         // without cloning.
         let msg = Arc::new(msg);
         let mut requests: futures::stream::FuturesUnordered<_> =
-            connected_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
+            self.connected_peers.values().map(|peer| peer.addr.send(Arc::clone(&msg))).collect();
 
         actix::spawn(async move {
             while let Some(response) = requests.next().await {
@@ -1237,12 +1221,8 @@ impl PeerManagerActor {
 
     /// Send message to peer that belong to our active set
     /// Return whether the message is sent or not.
-    fn send_message(
-        connected_peers: &HashMap<PeerId, ConnectedPeer>,
-        peer_id: PeerId,
-        message: PeerMessage,
-    ) -> bool {
-        if let Some(connected_peer) = connected_peers.get(&peer_id) {
+    fn send_message(&self, peer_id: PeerId, message: PeerMessage) -> bool {
+        if let Some(connected_peer) = self.connected_peers.get(&peer_id) {
             let msg_kind = message.msg_variant().to_string();
             trace!(target: "network", ?msg_kind, "Send message");
             connected_peer
@@ -1252,7 +1232,7 @@ impl PeerManagerActor {
         } else {
             debug!(target: "network",
                    to = ?peer_id,
-                   num_connected_peers = connected_peers.len(),
+                   num_connected_peers = self.connected_peers.len(),
                    ?message,
                    "Failed sending message"
             );
@@ -1299,7 +1279,7 @@ impl PeerManagerActor {
                     );
                 }
 
-                Self::send_message(&self.connected_peers, peer_id, PeerMessage::Routed(msg))
+                self.send_message(peer_id, PeerMessage::Routed(msg))
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -1455,13 +1435,10 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                Self::broadcast_message(
-                    &self.connected_peers,
-                    SendMessage {
-                        message: PeerMessage::Block(block),
-                        context: Span::current().context(),
-                    },
-                );
+                self.broadcast_message(SendMessage {
+                    message: PeerMessage::Block(block),
+                    context: Span::current().context(),
+                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::Approval { approval_message } => {
@@ -1472,22 +1449,14 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::BlockRequest(hash),
-                ) {
+                if self.send_message(peer_id, PeerMessage::BlockRequest(hash)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::BlockHeadersRequest(hashes),
-                ) {
+                if self.send_message(peer_id, PeerMessage::BlockHeadersRequest(hashes)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1530,22 +1499,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::EpochSyncRequest(epoch_id),
-                ) {
+                if self.send_message(peer_id, PeerMessage::EpochSyncRequest(epoch_id)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
             NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
-                if Self::send_message(
-                    &self.connected_peers,
-                    peer_id,
-                    PeerMessage::EpochSyncFinalizationRequest(epoch_id),
-                ) {
+                if self.send_message(peer_id, PeerMessage::EpochSyncFinalizationRequest(epoch_id)) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1684,13 +1645,10 @@ impl PeerManagerActor {
             }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
-                Self::broadcast_message(
-                    &self.connected_peers,
-                    SendMessage {
-                        message: PeerMessage::Challenge(challenge),
-                        context: Span::current().context(),
-                    },
-                );
+                self.broadcast_message(SendMessage {
+                    message: PeerMessage::Challenge(challenge),
+                    context: Span::current().context(),
+                });
                 NetworkResponses::NoResponse
             }
         }
