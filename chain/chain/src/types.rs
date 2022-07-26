@@ -8,7 +8,7 @@ use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
-use crate::DoomslugThresholdMode;
+use crate::{metrics, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -615,6 +615,9 @@ pub trait RuntimeAdapter: Send + Sync {
             "apply_transactions",
             shard_id)
         .entered();
+        let _timer = metrics::APPLYING_CHUNKS_TIME
+            .with_label_values(&[&format!("{}", shard_id)])
+            .start_timer();
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
