@@ -274,7 +274,7 @@ impl InfoHelper {
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
             },
-            extra_info: extra_telemetry_info(client_config),
+            extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
         // Sign telemetry if there is a signer present.
         if let Some(vs) = self.validator_signer.as_ref() {

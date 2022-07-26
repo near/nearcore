@@ -38,5 +38,5 @@ pub struct TelemetryInfo {
     pub system: TelemetrySystemInfo,
     pub chain: TelemetryChainInfo,
     // Extra telemetry information that will be ignored by the explorer frontend.
-    pub extra_info: serde_json::Value,
+    pub extra_info: String,
 }
