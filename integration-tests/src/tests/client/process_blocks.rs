@@ -28,7 +28,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
+    NetworkRequests, NetworkResponses,
 };
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
@@ -3473,7 +3474,6 @@ mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
     use near_client::test_utils::create_chunk_with_transactions;
-    use near_network::types::PeerManagerAdapter;
     use near_primitives::account::AccessKey;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;

@@ -8,7 +8,7 @@ use actix_web;
 use anyhow::Context;
 use near_chain::ChainGenesis;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::test_utils::NetworkRecipient;
+use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
@@ -293,7 +293,7 @@ pub fn start_with_config_and_synchronization(
             .unwrap()
         }
     });
-    network_adapter.set_recipient(network_actor.clone().recipient());
+    network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
