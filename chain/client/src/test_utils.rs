@@ -71,6 +71,18 @@ pub struct PeerManagerMock {
     >,
 }
 
+impl PeerManagerMock {
+    fn new(
+        f: impl 'static
+            + FnMut(
+                PeerManagerMessageRequest,
+                &mut actix::Context<Self>,
+            ) -> PeerManagerMessageResponse,
+    ) -> Self {
+        Self { handle: Box::new(f) }
+    }
+}
+
 impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
@@ -378,10 +390,9 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     });
     let client_addr1 = client_addr.clone();
 
-    let network_actor = PeerManagerMock {
-        handle: Box::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone())),
-    }
-    .start();
+    let network_actor =
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
+            .start();
 
     network_adapter.set_recipient(network_actor);
 
@@ -606,7 +617,7 @@ pub fn setup_mock_all_validators(
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
-            let pm = PeerManagerMock{handle:Box::new(move |msg, _ctx| {
+            let pm = PeerManagerMock::new(move |msg, _ctx| {
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();
@@ -1010,7 +1021,7 @@ pub fn setup_mock_all_validators(
                     };
                 }
                 resp
-            })}.start();
+            }).start();
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm);
             let (block, client, view_client_addr) = setup(
