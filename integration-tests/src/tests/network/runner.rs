@@ -9,7 +9,7 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
 use near_network::test_utils::{
-    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
+    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
@@ -61,9 +61,7 @@ fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
-        let network_adapter = NetworkRecipient::default();
-        network_adapter.set_recipient(ctx.address().recipient());
-        let network_adapter = Arc::new(network_adapter);
+        let network_adapter = Arc::new(ctx.address());
         let adv = near_client::adversarial::Controls::default();
 
         let client_actor = start_client(
