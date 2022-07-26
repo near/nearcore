@@ -26,7 +26,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    serialize::{u128_dec_format, u128_dec_format_compatible},
+    serialize::dec_format,
     state_record::StateRecord,
     types::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
@@ -116,9 +116,9 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
@@ -147,7 +147,7 @@ pub struct GenesisConfig {
     #[default(Rational32::from_integer(0))]
     pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -155,7 +155,7 @@ pub struct GenesisConfig {
     #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     #[serde(default = "default_minimum_stake_divisor")]
@@ -597,10 +597,10 @@ pub struct ProtocolConfigView {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -625,7 +625,7 @@ pub struct ProtocolConfigView {
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,

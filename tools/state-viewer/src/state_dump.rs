@@ -8,12 +8,12 @@ use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
-use near_store::TrieIterator;
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
 use redis::Commands;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -92,6 +92,7 @@ pub fn state_dump(
                 state_roots,
                 last_block_header,
                 &validators,
+                &genesis_config.protocol_treasury_account,
                 &mut |sr| seq.serialize_element(&sr).unwrap(),
                 select_account_ids,
             );
@@ -111,6 +112,7 @@ pub fn state_dump(
                 state_roots,
                 last_block_header,
                 &validators,
+                &genesis_config.protocol_treasury_account,
                 &mut |sr| records.push(sr),
                 select_account_ids,
             );
@@ -138,7 +140,7 @@ pub fn state_dump_redis(
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        let trie = trie.iter(&state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
@@ -195,15 +197,13 @@ pub fn state_dump_redis(
 
 fn should_include_record(
     record: &StateRecord,
-    validators: &HashMap<AccountId, (PublicKey, Balance)>,
-    select_account_ids: Option<&Vec<AccountId>>,
+    account_allowlist: &Option<HashSet<&AccountId>>,
 ) -> bool {
-    match select_account_ids {
+    match account_allowlist {
         None => true,
-        Some(specified_ids) => {
+        Some(allowlist) => {
             let current_account_id = state_record_to_account_id(record);
-            specified_ids.contains(current_account_id)
-                || validators.contains_key(current_account_id)
+            allowlist.contains(current_account_id)
         }
     }
 }
@@ -214,18 +214,28 @@ fn iterate_over_records(
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
+    protocol_treasury_account: &AccountId,
     mut callback: impl FnMut(StateRecord),
     select_account_ids: Option<&Vec<AccountId>>,
 ) -> Balance {
+    let account_allowlist = match select_account_ids {
+        None => None,
+        Some(select_account_id_list) => {
+            let mut result = validators.keys().collect::<HashSet<&AccountId>>();
+            result.extend(select_account_id_list);
+            result.insert(protocol_treasury_account);
+            Some(result)
+        }
+    };
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, state_root).unwrap();
+        let trie = trie.iter(state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
-                if !should_include_record(&sr, validators, select_account_ids) {
+                if !should_include_record(&sr, &account_allowlist) {
                     continue;
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
@@ -433,7 +443,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -452,6 +462,7 @@ mod test {
         let mut expected_accounts: HashSet<AccountId> =
             new_genesis.config.validators.iter().map(|v| v.account_id.clone()).collect();
         expected_accounts.extend(select_account_ids.clone());
+        expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
         for record in new_genesis.records.0.iter() {
             if let StateRecord::Account { account_id, .. } = record {

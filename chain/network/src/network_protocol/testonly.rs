@@ -87,7 +87,8 @@ pub fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
 
 pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
     let account_id = make_account_id(rng);
-    InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, &account_id)
+    let seed = rng.gen::<u64>().to_string();
+    InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
 }
 
 pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
@@ -212,10 +213,10 @@ impl ChunkSet {
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(
-            vec![StateRoot::default()], // state_roots
-            4,                          // num_shards
-            1000,                       // initial_gas_limit
-            0,                          // genesis_height
+            vec![StateRoot::new()], // state_roots
+            4,                      // num_shards
+            1000,                   // initial_gas_limit
+            0,                      // genesis_height
             PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
@@ -226,6 +227,7 @@ impl ChunkSet {
 pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
     EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
 }
+
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
@@ -313,7 +315,8 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
-    clock: &time::Clock,
+    timestamp: time::Utc,
+    epoch_id: EpochId,
     account_id: AccountId,
 ) -> AccountData {
     AccountData {
@@ -334,12 +337,25 @@ pub fn make_account_data(
             },
         ],
         account_id,
-        epoch_id: make_epoch_id(rng),
-        timestamp: clock.now_utc(),
+        epoch_id,
+        timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_signer(rng);
-    make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
+    let epoch_id = make_epoch_id(rng);
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.account_id.clone())
+        .sign(&signer)
+        .unwrap()
+}
+
+// Accessors for creating malformed SignedAccountData
+impl SignedAccountData {
+    pub(crate) fn payload_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.payload.payload
+    }
+    pub(crate) fn signature_mut(&mut self) -> &mut near_crypto::Signature {
+        &mut self.payload.signature
+    }
 }
