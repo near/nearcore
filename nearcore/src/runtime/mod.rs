@@ -351,7 +351,6 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let genesis_hash = genesis.json_hash();
         let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
         if let Some(_hash) = stored_hash {
             // TODO: re-enable this check (#4447)
@@ -360,6 +359,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let genesis_hash = genesis.json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
