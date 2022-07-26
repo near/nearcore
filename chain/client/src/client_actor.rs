@@ -700,8 +700,8 @@ impl Handler<Status> for ClientActor {
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
-        let validator_account_id =
-            self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
+        let validator_and_key =
+            self.client.validator_signer.as_ref().map(|vs| (vs.validator_id(), vs.public_key()));
 
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
@@ -762,7 +762,8 @@ impl Handler<Status> for ClientActor {
                 epoch_id: Some(head.epoch_id),
                 epoch_start_height,
             },
-            validator_account_id,
+            validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
+            node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
             detailed_debug_status,
         })
     }

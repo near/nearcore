@@ -24,11 +24,12 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, EpochId, StateRoot};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
+use near_store::Trie;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::NightshadeRuntime;
 use std::path::Path;
@@ -80,8 +81,8 @@ fn test_invalid_chunk_state() {
         );
         let store = env.clients[0].chain.mut_store();
         let mut store_update = store.store_update();
-        assert_ne!(chunk_extra.state_root(), &CryptoHash::default());
-        *chunk_extra.state_root_mut() = CryptoHash::default();
+        assert_ne!(chunk_extra.state_root(), &Trie::EMPTY_ROOT);
+        *chunk_extra.state_root_mut() = Trie::EMPTY_ROOT;
         store_update.save_chunk_extra(&block_hash, &ShardUId::single_shard(), chunk_extra);
         store_update.commit().unwrap();
     }
@@ -361,7 +362,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
         *last_block.hash(),
-        StateRoot::default(),
+        Trie::EMPTY_ROOT,
         CryptoHash::default(),
         last_block.header().height() + 1,
         0,
