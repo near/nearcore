@@ -22,7 +22,9 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-client-primitives = { path = "../client-primitives" }
+near-client-primitives = { path = "../client-primitives", optional = true }
 
 [features]
+full = ["debug_types"]
+debug_types = ["near-client-primitives"]
 test_features = []
