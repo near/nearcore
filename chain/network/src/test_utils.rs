@@ -1,9 +1,9 @@
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
+    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
@@ -12,7 +12,7 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
@@ -276,7 +276,7 @@ pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl PeerManagerAdapter for MockPeerManagerAdapter {
+impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(
         &self,
         msg: PeerManagerMessageRequest,
@@ -357,32 +357,6 @@ pub mod test_features {
         .start();
         PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
             .unwrap()
-    }
-}
-
-#[derive(Default)]
-pub struct NetworkRecipient {
-    peer_manager_recipient: OnceCell<Recipient<PeerManagerMessageRequest>>,
-}
-
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        self.peer_manager_recipient
-            .set(peer_manager_recipient)
-            .expect("can't `set_recipient` twice");
-    }
-}
-
-impl PeerManagerAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient.wait().send(msg).boxed()
-    }
-
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self.peer_manager_recipient.wait().do_send(msg);
     }
 }
 

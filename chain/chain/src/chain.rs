@@ -638,6 +638,8 @@ impl Chain {
               block_head.height, block_head.last_block_hash,
               header_head.height, header_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
+        let block_header = store.get_block_header(&block_head.last_block_hash)?;
+        metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
@@ -1861,6 +1863,7 @@ impl Chain {
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
         let state_patch = self.pending_state_patch.take();
+        let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
             me,
             &block,
@@ -1870,8 +1873,12 @@ impl Chain {
             state_patch,
         );
         let preprocess_res = match preprocess_res {
-            Ok(preprocess_res) => preprocess_res,
+            Ok(preprocess_res) => {
+                preprocess_timer.observe_duration();
+                preprocess_res
+            }
             Err(e) => {
+                preprocess_timer.stop_and_discard();
                 match &e {
                     Error::Orphan => {
                         let tail_height = self.store.tail()?;
@@ -2008,6 +2015,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<AcceptedBlock, Error> {
+        let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
             self.blocks_in_processing.remove(&block_hash).expect(&format!(
                 "block {:?} finished applying chunks but not in blocks_in_processing pool",
@@ -2059,6 +2067,7 @@ impl Chain {
                 .saturating_duration_since(block_start_processing_time.clone())
                 .as_secs_f64(),
         );
+        timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
         self.check_orphans(
@@ -4855,6 +4864,7 @@ impl<'a> ChainUpdate<'a> {
 
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
+            metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {

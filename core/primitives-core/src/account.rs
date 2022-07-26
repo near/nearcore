@@ -5,7 +5,7 @@ use std::io;
 pub use near_account_id as id;
 
 use crate::hash::CryptoHash;
-use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
+use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
@@ -24,10 +24,10 @@ impl Default for AccountVersion {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -194,7 +194,7 @@ pub struct FunctionCallPermission {
     /// `None` means unlimited allowance.
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
-    #[serde(with = "option_u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid

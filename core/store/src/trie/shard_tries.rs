@@ -122,20 +122,24 @@ impl ShardTries {
         let mut shards = HashMap::new();
         for op in &transaction.ops {
             match op {
-                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::State => {
-                    let (shard_uid, hash) =
-                        TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
-                }
-                DBOp::Set { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::Delete { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::DeleteAll { col } if *col == DBCol::State => {
-                    // Delete is possible in reset_data_pre_state_sync
-                    for (_, cache) in caches.iter() {
-                        cache.clear();
+                DBOp::UpdateRefcount { col, key, value } => {
+                    if *col == DBCol::State {
+                        let (shard_uid, hash) =
+                            TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
+                        shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
                     }
                 }
-                _ => {}
+                DBOp::DeleteAll { col } => {
+                    if *col == DBCol::State {
+                        // Delete is possible in reset_data_pre_state_sync
+                        for (_, cache) in caches.iter() {
+                            cache.clear();
+                        }
+                    }
+                }
+                DBOp::Set { col, .. } | DBOp::Insert { col, .. } | DBOp::Delete { col, .. } => {
+                    assert_ne!(*col, DBCol::State);
+                }
             }
         }
         for (shard_uid, ops) in shards {
@@ -156,15 +160,11 @@ impl ShardTries {
     ) {
         store_update.set_shard_tries(self);
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
-            let rc = match std::num::NonZeroU32::new(*rc) {
-                None => continue,
-                Some(rc) => rc,
-            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), rc);
+            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
         }
     }
 
@@ -178,15 +178,11 @@ impl ShardTries {
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
-            let rc = match std::num::NonZeroU32::new(*rc) {
-                None => continue,
-                Some(rc) => rc,
-            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, rc);
+            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
         }
     }
 

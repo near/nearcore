@@ -3,7 +3,7 @@
 Epoch manager crate is responsible for code related to epochs and epoch switching.
 An epoch is a unit of time when the set of validators of the network remain constant.
 
-You can read more about the epoch here: https://docs.near.org/docs/concepts/epoch
+You can read more about the epoch here: https://docs.near.org/concepts/basics/epoch
 
 You can read more about Epoch finalization and Epoch changes here: https://github.com/near/NEPs/blob/master/specs/BlockchainLayer/EpochManager/EpochManager.md 
 
