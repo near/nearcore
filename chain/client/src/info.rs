@@ -455,6 +455,7 @@ pub fn get_validator_epoch_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
     use near_chain::test_utils::KeyValueRuntime;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_network::test_utils::peer_id_from_seed;
@@ -530,6 +531,10 @@ mod tests {
             0,
             false,
         );
-        assert_eq!(telemetry["extra_info"]["min_block_production_delay"], 1.23);
+        println!("Got telemetry info: {:?}", telemetry);
+        assert_matches!(
+            telemetry["extra_info"].as_str().unwrap().find("\"max_block_production_delay\":2.34,"),
+            Some(_)
+        );
     }
 }
