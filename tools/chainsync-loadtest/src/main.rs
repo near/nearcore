@@ -14,7 +14,7 @@ use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
 use near_chain_configs::Genesis;
-use near_network::test_utils::NetworkRecipient;
+use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::hash::CryptoHash;
@@ -40,8 +40,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
             client_actor.clone().recipient(),
         )
         .unwrap()
-    })
-    .recipient();
+    });
     network_adapter.set_recipient(network_actor);
     return Ok(network);
 }

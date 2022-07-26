@@ -58,7 +58,7 @@ obtaining this whole history is the following:
   [installation guide](https://cloud.google.com/sdk/docs/install) if needed.
 * It is recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
 * Install tools be able to compile `neard`:
-  * Install development packages: <https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node>
+  * Install development packages: <https://near-nodes.io/validator/compile-and-run-a-node>
   * Install Rust: <https://rustup.rs/>
   * Clone the git repository: `git clone http://github.com/near/nearcore`
   * `make neard`

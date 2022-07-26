@@ -70,7 +70,7 @@ fn total_receipts_cost(
     current_protocol_version: ProtocolVersion,
     receipts: &[Receipt],
 ) -> Result<Balance, IntegerOverflowError> {
-    receipts.iter().try_fold(0u128, |accumulator, receipt| {
+    receipts.iter().try_fold(0, |accumulator, receipt| {
         let cost = receipt_cost(transaction_costs, current_protocol_version, receipt)?;
         safe_add_balance(accumulator, cost)
     })
@@ -81,18 +81,16 @@ fn total_accounts_balance(
     state: &TrieUpdate,
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
-    accounts_ids
-        .iter()
-        .map(|account_id| {
-            get_account(state, account_id)?.map_or(Ok(0), |a| {
-                safe_add_balance(a.amount(), a.locked())
-                    .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
-            })
-        })
-        .collect::<Result<Vec<Balance>, RuntimeError>>()?
-        .into_iter()
-        .try_fold(0u128, safe_add_balance)
-        .map_err(|err| err.into())
+    accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
+        let (amount, locked) = match get_account(state, account_id)? {
+            None => return Ok(accumulator),
+            Some(account) => (account.amount(), account.locked()),
+        };
+        Ok(accumulator)
+            .and_then(|accumulator| safe_add_balance(accumulator, amount))
+            .and_then(|accumulator| safe_add_balance(accumulator, locked))
+            .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+    })
 }
 
 /// Calculates and returns total costs of all the postponed receipts.
@@ -102,15 +100,14 @@ fn total_postponed_receipts_cost(
     current_protocol_version: ProtocolVersion,
     receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
-    Ok(receipt_ids
-        .iter()
-        .map(|(account_id, receipt_id)| {
-            Ok(get_postponed_receipt(state, account_id, *receipt_id)?
-                .map_or(Ok(0), |r| receipt_cost(transaction_costs, current_protocol_version, &r))?)
-        })
-        .collect::<Result<Vec<Balance>, RuntimeError>>()?
-        .into_iter()
-        .try_fold(0u128, safe_add_balance)?)
+    receipt_ids.iter().try_fold(0, |total, item| {
+        let (account_id, receipt_id) = item;
+        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+            None => return Ok(total),
+            Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
+        };
+        safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+    })
 }
 
 pub(crate) fn check_balance(

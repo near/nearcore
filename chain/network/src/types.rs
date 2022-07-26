@@ -4,6 +4,7 @@ pub use crate::network_protocol::{
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
@@ -21,7 +22,9 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
+use once_cell::sync::OnceCell;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Peer stats query.
 #[derive(actix::Message)]
@@ -345,15 +348,52 @@ pub enum NetworkClientResponses {
     Ban { ban_reason: ReasonForBan },
 }
 
-/// Adapter to break dependency of sub-components on the network requests.
-/// For tests use `MockNetworkAdapter` that accumulates the requests to network.
-pub trait PeerManagerAdapter: Sync + Send {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, actix::MailboxError>>;
+pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
+    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>>;
+    fn do_send(&self, msg: M);
+}
 
-    fn do_send(&self, msg: PeerManagerMessageRequest);
+impl<A, M> MsgRecipient<M> for actix::Addr<A>
+where
+    M: actix::Message + Send + 'static,
+    M::Result: Send,
+    A: actix::Actor + actix::Handler<M>,
+    A::Context: actix::dev::ToEnvelope<A, M>,
+{
+    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>> {
+        actix::Addr::send(self, msg).boxed()
+    }
+    fn do_send(&self, msg: M) {
+        actix::Addr::do_send(self, msg)
+    }
+}
+
+pub trait PeerManagerAdapter: MsgRecipient<PeerManagerMessageRequest> {}
+impl<A: MsgRecipient<PeerManagerMessageRequest>> PeerManagerAdapter for A {}
+
+pub struct NetworkRecipient<T> {
+    recipient: OnceCell<Arc<T>>,
+}
+
+impl<T> Default for NetworkRecipient<T> {
+    fn default() -> Self {
+        Self { recipient: OnceCell::default() }
+    }
+}
+
+impl<T> NetworkRecipient<T> {
+    pub fn set_recipient(&self, t: T) {
+        self.recipient.set(Arc::new(t)).ok().expect("cannot set recipient twice");
+    }
+}
+
+impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient<T> {
+    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>> {
+        self.recipient.wait().send(msg)
+    }
+    fn do_send(&self, msg: M) {
+        self.recipient.wait().do_send(msg);
+    }
 }
 
 #[cfg(test)]
