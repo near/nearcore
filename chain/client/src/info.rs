@@ -226,6 +226,7 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
+        // In production `telemetry_actor` should always be available.
         if let Some(telemetry_actor) = &self.telemetry_actor {
             telemetry(
                 telemetry_actor,
