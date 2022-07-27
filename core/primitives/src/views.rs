@@ -87,7 +87,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Arc<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn CompiledContractCache>>,
 }
 
 impl From<&Account> for AccountView {
