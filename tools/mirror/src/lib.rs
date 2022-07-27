@@ -104,6 +104,7 @@ pub struct TxMirror {
     target_client: Addr<ClientActor>,
     db: DB,
     target_genesis_height: BlockHeight,
+    target_min_block_production_delay: Duration,
     tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     next_source_height: Option<BlockHeight>,
@@ -217,6 +218,9 @@ impl TxMirror {
             target_stream,
             db,
             target_genesis_height: target_config.genesis.config.genesis_height,
+            target_min_block_production_delay: target_config
+                .client_config
+                .min_block_production_delay,
             tracked_shards: target_config.config.tracked_shards.clone(),
             secret,
             next_source_height: None,
@@ -708,7 +712,8 @@ impl TxMirror {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let mut tracker = crate::chain_tracker::TxTracker::new();
+        let mut tracker =
+            crate::chain_tracker::TxTracker::new(self.target_min_block_production_delay);
         self.wait_source_ready().await;
         let (target_height, target_head) = self.wait_target_synced().await;
 

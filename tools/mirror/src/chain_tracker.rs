@@ -47,11 +47,15 @@ pub(crate) struct TxTracker {
     num_txs_awaiting_nonce: usize,
     height_queued: Option<BlockHeight>,
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
+    // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
+    min_block_production_delay: Duration,
+    // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
+    recent_block_timestamps: VecDeque<u64>,
 }
 
 impl TxTracker {
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub(crate) fn new(min_block_production_delay: Duration) -> Self {
+        Self { min_block_production_delay, ..Default::default() }
     }
 
     pub(crate) fn height_queued(&self) -> Option<BlockHeight> {
@@ -161,7 +165,15 @@ impl TxTracker {
         };
     }
 
+    fn record_block_timestamp(&mut self, msg: &StreamerMessage) {
+        self.recent_block_timestamps.push_back(msg.block.header.timestamp_nanosec);
+        if self.recent_block_timestamps.len() > 10 {
+            self.recent_block_timestamps.pop_front();
+        }
+    }
+
     pub(crate) fn on_target_block(&mut self, msg: &StreamerMessage) {
+        self.record_block_timestamp(msg);
         for s in msg.shards.iter() {
             if let Some(c) = &s.chunk {
                 for tx in c.transactions.iter() {
@@ -214,6 +226,57 @@ impl TxTracker {
         }
     }
 
+    // among the last 10 blocks, what's the second longest time between their timestamps?
+    // probably there's a better heuristic to use than that but this will do for now.
+    fn second_longest_recent_block_delay(&self) -> Option<Duration> {
+        if self.recent_block_timestamps.len() < 5 {
+            return None;
+        }
+        let mut last = *self.recent_block_timestamps.front().unwrap();
+        let mut longest = None;
+        let mut second_longest = None;
+
+        for timestamp in self.recent_block_timestamps.iter().skip(1) {
+            let delay = timestamp - last;
+
+            match longest {
+                Some(l) => match second_longest {
+                    Some(s) => {
+                        if delay > l {
+                            second_longest = longest;
+                            longest = Some(delay);
+                        } else if delay > s {
+                            second_longest = Some(delay);
+                        }
+                    }
+                    None => {
+                        if delay > l {
+                            second_longest = longest;
+                            longest = Some(delay);
+                        } else {
+                            second_longest = Some(delay);
+                        }
+                    }
+                },
+                None => {
+                    longest = Some(delay);
+                }
+            }
+            last = *timestamp;
+        }
+        let delay = Duration::from_nanos(second_longest.unwrap());
+        if delay > 2 * self.min_block_production_delay {
+            tracing::warn!(
+                "Target chain blocks are taking longer than expected to be produced. Observing delays \
+                of {:?} and {:?} vs min_block_production_delay of {:?} ",
+                delay,
+                Duration::from_nanos(longest.unwrap()),
+                self.min_block_production_delay,
+            )
+        }
+        Some(delay)
+    }
+
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
     pub(crate) fn on_txs_sent(
         &mut self,
@@ -228,11 +291,13 @@ impl TxTracker {
         for tx in txs.iter() {
             self.on_tx_sent(tx, source_height, target_height);
         }
-        // TODO: maybe get the sleep time from the genesis config, or from the observed time between blocks instead of hardcoding 1 second
+
+        let block_delay =
+            self.second_longest_recent_block_delay().unwrap_or(self.min_block_production_delay);
         match &mut self.send_time {
-            Some(t) => t.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(1)),
+            Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
             None => {
-                self.send_time = Some(Box::pin(tokio::time::sleep(Duration::from_secs(1))));
+                self.send_time = Some(Box::pin(tokio::time::sleep(block_delay)));
             }
         }
     }
