@@ -226,7 +226,7 @@ mod caching_storage_tests {
             .map(|value| TrieRefcountChange {
                 trie_node_or_value_hash: hash(value),
                 trie_node_or_value: value.clone(),
-                rc: 1,
+                rc: std::num::NonZeroU32::new(1).unwrap(),
             })
             .collect();
         let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
