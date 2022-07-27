@@ -72,7 +72,7 @@
         }
 
         function humanStake(stake) {
-            let stake_in_near = parseInt(stake / 10^24);
+            let stake_in_near = parseInt(stake / 10**24);
             return stake_in_near.toLocaleString('en-US')
         }
 
@@ -94,7 +94,7 @@
             validator_info.current_validators.forEach(validator => {
                 let row = $('<tr>');
                 row.append($('<td>').append(validator.account_id));
-                row.append($('<td>').append((100 * validator.stake / total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(humanStake(stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
                 row.append($('<td>').append(validator.shards.join(",")));
                 row.append($('<td>').append(validator.num_expected_blocks - validator.num_produced_blocks));
                 row.append($('<td>').append(validator.num_expected_blocks));
@@ -121,7 +121,7 @@
             validator_info.current_proposals.forEach(proposal=> {
                 let row = $('<tr>');
                 row.append($('<td>').append(proposal.account_id));
-                row.append($('<td>').append(humanStake(proposal.stake) + "/" + proposal.stake/total_stake.toFixed(2) + "%"));
+                row.append($('<td>').append(humanStake(proposal.stake) + "/" + (100*proposal.stake/total_stake).toFixed(2) + "%"));
                 $('.js-tbody-curepoch-proposals').append(row);
             })
 
@@ -293,7 +293,7 @@
         <thead onclick="toggle_tbody('js-tbody-curepoch-curvalidators')">
         <tr>
             <th>Account id</th>
-            <th>Stake %</th>
+            <th>Stake / Stake %</th>
             <th>Shards</th>
             <th># Missed blocks</th>
             <th># Expected blocks</th>
