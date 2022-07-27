@@ -651,6 +651,8 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::hash::CryptoHash;
+
     use super::{DBCol, Store};
 
     #[test]
@@ -757,5 +759,19 @@ mod tests {
     #[test]
     fn testdb_iter_order() {
         test_iter_order_impl(crate::test_utils::create_test_store());
+    }
+
+    /// Check StoreCompiledContractCache implementation.
+    #[test]
+    fn test_store_compiled_contract_cache() {
+        use std::str::FromStr;
+        use near_primitives::types::CompiledContractCache;
+
+        let store = crate::test_utils::create_test_store();
+        let cache = super::StoreCompiledContractCache::new(&store);
+        let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
+        assert_eq!(None, cache.get(&key).unwrap());
+        assert_eq!((), cache.put(&key, b"foo".to_vec()).unwrap());
+        assert_eq!(Some(&b"foo"[..]), cache.get(&key).unwrap().as_deref());
     }
 }
