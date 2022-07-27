@@ -50,8 +50,8 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 [as-sdk]: https://github.com/near/near-sdk-as
 [examples-url]: https://near.dev
 [docs-url]: https://docs.near.org
-[tutorials-url]: https://docs.near.org/docs/tutorials/overview
-[api-docs-url]: https://docs.near.org/docs/api/overview
+[tutorials-url]: https://docs.near.org/tutorials/welcome
+[api-docs-url]: https://docs.near.org/api/rpc/introduction
 
 ## Join the Network
 

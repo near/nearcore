@@ -28,7 +28,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
+    NetworkRequests, NetworkResponses,
 };
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
@@ -3473,7 +3474,6 @@ mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
     use near_client::test_utils::create_chunk_with_transactions;
-    use near_network::types::PeerManagerAdapter;
     use near_primitives::account::AccessKey;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;
@@ -4409,10 +4409,8 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let mut caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(|s| StoreCompiledContractCache { store: s.clone() }).collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
@@ -4459,7 +4457,7 @@ mod contract_precompilation_tests {
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
-            cache: Some(caches[1].clone()),
+            cache: Some(Box::new(caches.swap_remove(1))),
         };
         viewer
             .call_function(
@@ -4524,10 +4522,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(|s| StoreCompiledContractCache { store: s.clone() }).collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
@@ -4610,10 +4606,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(|s| StoreCompiledContractCache { store: s.clone() }).collect();
 
         let epoch_id = env.clients[0]
             .chain
