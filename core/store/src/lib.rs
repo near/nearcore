@@ -764,8 +764,8 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use std::str::FromStr;
         use near_primitives::types::CompiledContractCache;
+        use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
         let cache = super::StoreCompiledContractCache::new(&store);
