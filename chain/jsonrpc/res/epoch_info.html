@@ -118,6 +118,14 @@
                 $('.js-tbody-curepoch-curvalidators').append(row)
             })
 
+            validator_info.next_validators.forEach(validator => {
+                let row = $('<tr>');
+                row.append($('<td>').append(validator.account_id));
+                row.append($('<td>').append(humanStake(validator.stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(validator.shards.join(",")));
+                $('.js-tbody-curepoch-nextvalidators').append(row)
+            })
+
             validator_info.current_proposals.forEach(proposal=> {
                 let row = $('<tr>');
                 row.append($('<td>').append(proposal.account_id));
@@ -285,6 +293,8 @@
         </tbody>
     </table>
 
+    <div> Click table headers to toggle.</div>
+
     <h2> <span class="js-thead-curepoch"></span></h2>
     <h3> <span class="js-tbody-curepoch"></span></h3>
     <h3>Validators</h3>
@@ -304,6 +314,19 @@
         </tr>
         </thead>
         <tbody class ="js-tbody-curepoch-curvalidators">
+        </tbody>
+    </table>
+
+    <h3>Validators for next epoch</h3>
+    <table>
+        <thead onclick="toggle_tbody('js-tbody-curepoch-nextvalidators')">
+        <tr>
+            <th>AccountId</th>
+            <th>Stake/Stake Percentage</th>
+            <th>Shards</th>
+        </tr>
+        </thead>
+        <tbody class = "js-tbody-curepoch-nextvalidators">
         </tbody>
     </table>
 
