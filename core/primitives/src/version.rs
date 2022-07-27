@@ -197,7 +197,7 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
     schedule
         .insert(54, Some(ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap()));
     schedule
-        .insert(55, Some(ProtocolUpgradeVotingSchedule::from_str("2022-07-04 15:00:00").unwrap()));
+        .insert(55, Some(ProtocolUpgradeVotingSchedule::from_str("2022-08-01 15:00:00").unwrap()));
     schedule
 });
 
