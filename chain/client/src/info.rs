@@ -50,6 +50,7 @@ pub struct InfoHelper {
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
+    // The field can be None for testing. This allows avoiding running actix in tests.
     telemetry_actor: Option<Addr<TelemetryActor>>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
