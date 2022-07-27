@@ -8,6 +8,7 @@ use near_primitives::types::{AccountId, NumShards};
 /// by fiat.
 ///
 /// Conventional short name for `ValidatorSchedule` is `vs`.
+#[derive(Clone)]
 pub struct ValidatorSchedule {
     pub(super) block_producers: Vec<Vec<AccountId>>,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
