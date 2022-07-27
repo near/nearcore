@@ -5,7 +5,8 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::PeerManagerActor;
 use actix::Actor;
-use near_network_primitives::types::{NetworkConfig, SetChainInfo};
+use near_network_primitives::config;
+use near_network_primitives::types::{SetChainInfo};
 use near_store::test_utils::create_test_store;
 use std::sync::Arc;
 
@@ -16,12 +17,12 @@ pub enum Event {
 }
 
 pub struct ActorHandler {
-    pub cfg: NetworkConfig,
+    pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     pub actix: ActixSystem<PeerManagerActor>,
 }
 
-pub async fn start(chain: Arc<data::Chain>, cfg: NetworkConfig) -> ActorHandler {
+pub async fn start(chain: Arc<data::Chain>, cfg: config::NetworkConfig) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();

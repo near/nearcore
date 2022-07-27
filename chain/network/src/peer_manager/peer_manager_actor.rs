@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use crate::network_protocol::{Encoding,AccountData,SyncAccountsData,PeerAddr};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
@@ -26,9 +27,10 @@ use actix::{
 use anyhow::bail;
 use futures::future;
 use near_network_primitives::time;
+use near_network_primitives::config;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, ChainInfo, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping,
     Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
     SetChainInfo, StateResponseInfo,
@@ -127,7 +129,7 @@ impl TryFrom<&PeerInfo> for WhitelistNode {
 
 pub(crate) struct NetworkState {
     /// PeerManager config.
-    pub config: Arc<NetworkConfig>,
+    pub config: Arc<config::NetworkConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     /// Address of the client actor.
@@ -194,7 +196,7 @@ pub struct PeerManagerActor {
     /// Networking configuration.
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
-    config: Arc<NetworkConfig>,
+    config: Arc<config::NetworkConfig>,
     /// Maximal allowed number of peer connections.
     /// It is initialized with config.max_num_peers and is mutable
     /// only so that it can be changed in tests.
@@ -328,7 +330,7 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     pub fn new(
         store: near_store::Store,
-        config: NetworkConfig,
+        config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
@@ -2130,11 +2132,72 @@ impl PeerManagerActor {
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
-        if self.state.accounts_data.set_keys(info.0.tier1_accounts.clone()) {
-            // TODO(gprusak): the set of tier1 accounts has changed.
-            // We might miss some data, so start a full sync with connected peers.
-        }
-        *self.state.chain_info.write() = info.0;
+        let now = self.clock.now_utc();
+        let info = info.0;
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            *state.chain_info.write() = info.clone();
+            // If the key set didn't change, early exit.
+            if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
+                return;
+            }
+            // If the set of keys has changed, and the node is a validator,
+            // we should try to sign data and broadcast it. However, this is
+            // also a trigger for a full sync, so a dedicated broadcast is
+            // not required.
+            //
+            // TODO(gprusak): For dynamic self-IP-discovery, add a STUN daemon which
+            // will add new AccountData and trigger an incremental broadcast.
+            if let Some(vc) = &state.config.validator {
+                let my_account_id = vc.signer.validator_id();
+                let my_public_key = vc.signer.public_key();
+                // TODO(gprusak): STUN servers should be queried periocally by a daemon
+                // so that the my_peers list is always resolved.
+                // Note that currently we will broadcast an empty list.
+                // It won't help us to connect the the validator BUT it
+                // will indicate that a validator is misconfigured, which
+                // is could be useful for debugging. Consider keeping this
+                // behavior for situations when the IPs are not known.
+                let my_peers = match &vc.endpoints {
+                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![], 
+                    config::ValidatorEndpoints::PublicAddrs(addrs) => addrs.iter().cloned().map(|addr|PeerAddr{addr,peer_id:None}).collect(),
+                };
+                let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
+                    if account_id != my_account_id{
+                        return None;
+                    }
+                    if key != &my_public_key {
+                        warn!(target: "network", "node's account_id found in TIER1 accounts, but the public keys do not match");
+                        return None;
+                    }
+                    Some(AccountData {
+                        epoch_id: epoch_id.clone(),
+                        account_id: my_account_id.clone(),
+                        timestamp: now,
+                        peers: my_peers.clone(),
+                    }.sign(vc.signer.as_ref()).unwrap())
+                }).collect();
+                // Insert node's own AccountData should never fail.
+                // We ignore the new data, because we trigger inserting
+                if let (_,Some(err)) = state.accounts_data.clone().insert(my_data).await {
+                    panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
+                }
+            }
+            // The set of tier1 accounts has changed.
+            // We might miss some data, so we start a full sync with the connected peers.
+            // TODO(gprusak): add a daemon which does a periodic full sync in case some messages
+            // are lost (at a frequency which makes the additional network load negligible).
+            state.clone().broadcast_message(
+                SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: false,
+                        requesting_full_sync: true,
+                        accounts_data: state.accounts_data.dump(),
+                    }),
+                    context: Span::current().context(),
+                }
+            ).await;
+        });
     }
 }
 

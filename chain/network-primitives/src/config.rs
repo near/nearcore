@@ -274,29 +274,30 @@ pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_
 
 #[cfg(test)]
 mod test {
-    use crate::types::{NetworkConfig, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE};
+    use crate::config;
+    use crate::types::{UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE};
 
     #[test]
     fn test_network_config() {
-        let nc = NetworkConfig::from_seed("123", 213);
+        let nc = config::NetworkConfig::from_seed("123", 213);
         assert!(nc.verify().is_ok());
 
-        let mut nc = NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         let res = nc.verify();
         assert!(res.is_err(), "{:?}", res);
 
-        let mut nc = NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.ideal_connections_hi = nc.max_num_peers;
         let res = nc.verify();
         assert!(res.is_err(), "{:?}", res);
 
-        let mut nc = NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.safe_set_size = nc.minimum_outbound_peers;
         let res = nc.verify();
         assert!(res.is_err(), "{:?}", res);
 
-        let mut nc = NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         let res = nc.verify();
         assert!(res.is_err(), "{:?}", res);

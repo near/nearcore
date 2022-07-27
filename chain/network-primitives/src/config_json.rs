@@ -109,6 +109,12 @@ pub struct Config {
     /// This list will be signed and broadcasted to the whole network, so that everyone
     /// knows how to reach the validator.
     ///
+    /// Example:
+    ///   ["31.192.22.209:24567"]
+    ///
+    /// TODO(gprusak): add support for also restricting the peer_id (i.e. a public key of the node), in
+    ///   the same format as the whitelist field (i.e. "<public key>@<IP>:<port>").
+    ///
     /// Recommended setup (requires static IP):
     /// In the simplest case this list should contains just 1 public address of this validator.
     /// In case the validator doesn't have a public IP (i.e. it is hidden in a private network),
@@ -125,8 +131,7 @@ pub struct Config {
     /// If the list is empty and STUN servers' response is ambiguous, the peers which connect to
     /// this validator node will natually observe the address of the validator and broadcast it.
     /// This setup is not reliable in presence of byzantine peers.
-    /// TODO: unskip, once the functionality is implemented.
-    #[serde(skip)]
+    #[serde(default)]
     pub public_addrs: Vec<String>,
     /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
     /// Used only if this node is a validator and public_ips is empty (see description of

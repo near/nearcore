@@ -37,8 +37,6 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
-pub use crate::config::{NetworkConfig, ValidatorConfig, ValidatorEndpoints};
-pub use crate::config_json::Config as ConfigJSON;
 pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
 
 /// Number of hops a message is allowed to travel before being dropped.

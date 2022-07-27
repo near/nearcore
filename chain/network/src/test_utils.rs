@@ -310,8 +310,9 @@ pub mod test_features {
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
+    use near_network_primitives::config;
     use near_network_primitives::types::{
-        NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+        NetworkViewClientMessages, NetworkViewClientResponses,
     };
     use near_primitives::block::GenesisId;
     use near_store::Store;
@@ -326,7 +327,7 @@ pub mod test_features {
     // Make peer manager for unit tests
     pub fn make_peer_manager(
         store: Store,
-        mut config: NetworkConfig,
+        mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
     ) -> PeerManagerActor {

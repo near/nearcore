@@ -3,7 +3,7 @@ use super::*;
 use crate::types::{Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
-use near_network_primitives::types::NetworkConfig;
+use near_network_primitives::config;
 use near_network_primitives::types::{
     AccountKeys, AccountOrPeerIdOrHash, ChainInfo, Edge, PartialEdgeInfo, PeerInfo,
     RawRoutedMessage, RoutedMessageBody,
@@ -299,10 +299,10 @@ impl Chain {
         self.blocks.iter().map(|b| b.header().clone()).collect()
     }
 
-    pub fn make_config(&self, port: u16) -> NetworkConfig {
+    pub fn make_config(&self, port: u16) -> config::NetworkConfig {
         // TODO(gprusak): make config generation rng-based,
         // rather than using a seed.
-        NetworkConfig::from_seed("test1", port)
+        config::NetworkConfig::from_seed("test1", port)
     }
 
     pub fn make_tier1_data<R: Rng>(
