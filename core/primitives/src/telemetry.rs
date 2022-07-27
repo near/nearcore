@@ -37,4 +37,6 @@ pub struct TelemetryInfo {
     pub agent: TelemetryAgentInfo,
     pub system: TelemetrySystemInfo,
     pub chain: TelemetryChainInfo,
+    // Extra telemetry information that will be ignored by the explorer frontend.
+    pub extra_info: String,
 }

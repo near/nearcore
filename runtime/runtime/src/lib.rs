@@ -1584,7 +1584,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(StoreCompiledContractCache::new(&tries.get_store())),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),

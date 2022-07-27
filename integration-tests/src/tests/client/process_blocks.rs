@@ -4409,7 +4409,7 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let caches: Vec<Arc<StoreCompiledContractCache>> =
+        let mut caches: Vec<StoreCompiledContractCache> =
             stores.iter().map(StoreCompiledContractCache::new).collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
@@ -4457,7 +4457,7 @@ mod contract_precompilation_tests {
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
-            cache: Some(caches[1].clone()),
+            cache: Some(Box::new(caches.swap_remove(1))),
         };
         viewer
             .call_function(
@@ -4522,7 +4522,7 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> =
+        let caches: Vec<StoreCompiledContractCache> =
             stores.iter().map(StoreCompiledContractCache::new).collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
@@ -4606,7 +4606,7 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> =
+        let caches: Vec<StoreCompiledContractCache> =
             stores.iter().map(StoreCompiledContractCache::new).collect();
 
         let epoch_id = env.clients[0]

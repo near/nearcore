@@ -71,7 +71,7 @@ fn compute_function_call_cost(
 ) -> GasCost {
     let store = near_store::test_utils::create_test_store();
     let cache_store = StoreCompiledContractCache::new(&store);
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();

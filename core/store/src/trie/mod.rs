@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
 use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -93,7 +92,7 @@ enum TrieNode {
 #[derive(Clone, Debug)]
 pub struct TrieNodeWithSize {
     node: TrieNode,
-    pub memory_usage: u64,
+    memory_usage: u64,
 }
 
 impl TrieNodeWithSize {
@@ -136,12 +135,13 @@ impl TrieNode {
         }
     }
 
+    #[cfg(test)]
     fn print(
         &self,
-        f: &mut dyn fmt::Write,
+        f: &mut dyn std::fmt::Write,
         memory: &NodesStorage,
         spaces: &mut String,
-    ) -> fmt::Result {
+    ) -> std::fmt::Result {
         match self {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
@@ -197,7 +197,7 @@ impl TrieNode {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
         self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");

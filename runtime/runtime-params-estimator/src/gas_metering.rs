@@ -129,7 +129,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
 
     let store = near_store::test_utils::create_test_store();
     let cache_store = StoreCompiledContractCache::new(&store);
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();

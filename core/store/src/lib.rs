@@ -628,8 +628,8 @@ pub struct StoreCompiledContractCache {
 }
 
 impl StoreCompiledContractCache {
-    pub fn new(store: &Store) -> Arc<Self> {
-        Arc::new(Self { db: store.storage.clone() })
+    pub fn new(store: &Store) -> Self {
+        Self { db: store.storage.clone() }
     }
 }
 
