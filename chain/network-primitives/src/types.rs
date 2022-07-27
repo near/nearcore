@@ -1,14 +1,14 @@
+//! Contains files used for a few different purposes:
+//! - Changes related to network config - TODO - move to another file
+//! - actix messages - used for communicating with `PeerManagerActor` - TODO move to another file
+//! - internal types used by `peer-store` only - TODO move to `peer_store.rs`
+//! - some types used for different purposes that don't meet any of the criteria above
+//! - unused code - TODO remove?
+//! - Some types types that are neither of the above
+//!
+//! NOTE:
+//! - We also export publicly types from `crate::network_protocol`
 use crate::time;
-/// Contains files used for a few different purposes:
-/// - Changes related to network config - TODO - move to another file
-/// - actix messages - used for communicating with `PeerManagerActor` - TODO move to another file
-/// - internal types used by `peer-store` only - TODO move to `peer_store.rs`
-/// - some types used for different purposes that don't meet any of the criteria above
-/// - unused code - TODO remove?
-/// - Some types types that are neither of the above
-///
-/// NOTE:
-/// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -21,7 +21,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
@@ -321,7 +321,9 @@ pub enum NetworkViewClientMessages {
 }
 
 /// Set of account keys.
-pub type AccountKeys = BTreeMap<(EpochId, AccountId), PublicKey>;
+/// This is information which chain pushes to network to implement tier1.
+/// See ChainInfo.
+pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
 
 /// Network-relevant data about the chain.
 // TODO(gprusak): it is more like node info, or sth.

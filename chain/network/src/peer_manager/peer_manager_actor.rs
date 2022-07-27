@@ -24,6 +24,7 @@ use actix::{
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use anyhow::bail;
+use futures::future;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, ChainInfo, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
@@ -48,6 +49,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -145,7 +147,7 @@ impl TryFrom<&PeerInfo> for WhitelistNode {
     }
 }
 
-pub(crate) struct PeerManagerState {
+pub(crate) struct NetworkState {
     /// PeerManager config.
     pub config: Arc<NetworkConfig>,
     /// GenesisId of the chain.
@@ -163,22 +165,25 @@ pub(crate) struct PeerManagerState {
     pub connected_peers: RwLock<HashMap<PeerId, ConnectedPeer>>,
 }
 
-impl PeerManagerState {
+impl NetworkState {
     /// Broadcast message to all active peers.
-    pub async fn broadcast_message(self: Arc<Self>, msg: SendMessage) {
+    pub fn broadcast_message(self: &Self, msg: SendMessage) -> impl Future<Output = ()> {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.message.msg_variant()]).inc();
         // Snapshot list of peers.
         let peer_addrs: Vec<_> =
             self.connected_peers.read().values().map(|p| p.addr.clone()).collect();
-        // Change message to reference counted to allow sharing with all actors
-        // without cloning.
-        let msg = Arc::new(msg);
-        // Send the message to each peer synchronously.
-        // TODO(gprusak): should it be asynchronous instead? The previous semantics was unclear.
-        for addr in peer_addrs {
-            addr.send(msg.clone())
-                .await
-                .expect("Failed sending broadcast message(broadcast_message)");
+        async move {
+            // Change message to reference counted to allow sharing with all actors
+            // without cloning.
+            let msg = Arc::new(msg);
+            // Send the message to each peer asynchronously.
+            let handles = peer_addrs.into_iter().map(|addr| addr.send(msg.clone()));
+            for res in future::join_all(handles).await {
+                // Sending may fail in case a peer connection is closed in the meantime.
+                if let Err(err) = res {
+                    warn!("failed sending a broadcast message to a peer: {err}");
+                }
+            }
         }
     }
 
@@ -210,7 +215,7 @@ pub struct PeerManagerActor {
     clock: time::Clock,
     /// Networking configuration.
     /// TODO(gprusak): this field is duplicated with
-    /// PeerManagerState.config. Remove it from here.
+    /// NetworkState.config. Remove it from here.
     config: Arc<NetworkConfig>,
     /// Maximal allowed number of peer connections.
     /// It is initialized with config.max_num_peers and is mutable
@@ -255,7 +260,7 @@ pub struct PeerManagerActor {
     /// test-only.
     event_sink: Sink<Event>,
 
-    pub(crate) state: Arc<PeerManagerState>,
+    pub(crate) state: Arc<NetworkState>,
 }
 
 // test-only
@@ -396,7 +401,7 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             whitelist_nodes,
             event_sink: Sink::void(),
-            state: Arc::new(PeerManagerState {
+            state: Arc::new(NetworkState {
                 config: config.clone(),
                 genesis_id,
                 client_addr,

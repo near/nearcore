@@ -2,7 +2,7 @@ use crate::accounts_data;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::peer_manager_actor::PeerManagerState;
+use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
@@ -131,7 +131,7 @@ pub(crate) struct PeerActor {
     /// a given encoding right away.
     force_encoding: Option<Encoding>,
 
-    peer_manager_state: Arc<PeerManagerState>,
+    peer_manager_state: Arc<NetworkState>,
     /// test-only.
     event_sink: Sink<Event>,
 }
@@ -168,7 +168,7 @@ impl PeerActor {
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
         force_encoding: Option<Encoding>,
-        peer_manager_state: Arc<PeerManagerState>,
+        peer_manager_state: Arc<NetworkState>,
         event_sink: Sink<Event>,
     ) -> Self {
         let now = clock.now();

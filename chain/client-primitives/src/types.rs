@@ -32,8 +32,6 @@ use serde::Serialize;
 pub enum Error {
     #[error("Chain: {0}")]
     Chain(#[from] near_chain_primitives::Error),
-    #[error("{0}: {1}")]
-    ChainWithCtx(&'static str, #[source] near_chain_primitives::Error),
     #[error("Chunk: {0}")]
     Chunk(#[from] near_chunks_primitives::Error),
     #[error("Block Producer: {0}")]

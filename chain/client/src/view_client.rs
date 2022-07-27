@@ -9,6 +9,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+
 use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
