@@ -94,7 +94,7 @@
             validator_info.current_validators.forEach(validator => {
                 let row = $('<tr>');
                 row.append($('<td>').append(validator.account_id));
-                row.append($('<td>').append(humanStake(stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(humanStake(validator.stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
                 row.append($('<td>').append(validator.shards.join(",")));
                 row.append($('<td>').append(validator.num_expected_blocks - validator.num_produced_blocks));
                 row.append($('<td>').append(validator.num_expected_blocks));
