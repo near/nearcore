@@ -1,7 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-#[cfg(test)]
-use std::fmt;
 use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -140,10 +138,10 @@ impl TrieNode {
     #[cfg(test)]
     fn print(
         &self,
-        f: &mut dyn fmt::Write,
+        f: &mut dyn std::fmt::Write,
         memory: &NodesStorage,
         spaces: &mut String,
-    ) -> fmt::Result {
+    ) -> std::fmt::Result {
         match self {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
