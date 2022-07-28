@@ -20,8 +20,8 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -198,13 +198,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// General query
-    Query {
-        query_id: String,
-        account_id: AccountId,
-        block_reference: BlockReference,
-        request: QueryRequest,
-    },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
     /// A challenge to invalidate a block.
