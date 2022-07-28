@@ -137,8 +137,6 @@ pub(crate) struct Cache {
     inner: RwLock<CacheInner>,
 }
 
-// TODO(gprusak): Cache will be used in the next PR.
-#[allow(dead_code)]
 impl Cache {
     pub fn new() -> Self {
         Self {

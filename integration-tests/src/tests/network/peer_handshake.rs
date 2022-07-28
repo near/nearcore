@@ -8,6 +8,7 @@ use actix::actors::mocker::Mocker;
 use actix::System;
 use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
+use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
@@ -18,9 +19,7 @@ use near_network::test_utils::{
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::{
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-};
+use near_network_primitives::types::{NetworkConfig, NetworkViewClientResponses};
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
 
@@ -42,24 +41,19 @@ fn make_peer_manager(
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))
     .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
-        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
-        match msg {
-            NetworkViewClientMessages::GetChainInfo => {
-                Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                    genesis_id: Default::default(),
-                    height: 1,
-                    tracked_shards: vec![],
-                    archival: false,
-                }))
-            }
-            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
-        }
+    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
+        Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
 
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        GenesisId::default(),
+    )
+    .unwrap()
 }
 
 #[test]

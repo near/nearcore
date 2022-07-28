@@ -46,10 +46,12 @@ use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
 use near_chain::chain::ChainAccess;
+use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+    AccountKeys, ChainInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
+    SetChainInfo,
 };
 use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
@@ -121,6 +123,10 @@ pub struct Client {
     /// used only for debug purposes.
     pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
     pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
+
+    /// Cached precomputed set of TIER1 accounts.
+    /// See send_network_chain_info().
+    tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
 }
 
 // Debug information about the upcoming block.
@@ -243,6 +249,7 @@ impl Client {
             last_time_head_progress_made: Clock::instant(),
             block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            tier1_accounts_cache: None,
         })
     }
 
@@ -1232,6 +1239,11 @@ impl Client {
                     panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
                 }
             }
+            // send_network_chain_info should be called whenever the chain head changes.
+            // See send_network_chain_info() for more details.
+            if let Err(err) = self.send_network_chain_info() {
+                error!(target:"client","Failed to update network chain info: {err}");
+            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
@@ -2138,5 +2150,82 @@ impl Client {
             num_of_orphans: self.chain.orphans().len(),
             next_blocks_by_chunks,
         }
+    }
+}
+
+impl Client {
+    /// Each epoch defines a set of important accounts: block producers, chunk producers,
+    /// approvers. Low-latency reliable communication between those accounts is critical,
+    /// so that the blocks can be produced on time. This function computes the set of
+    /// important accounts (aka TIER1 accounts) so that it can be fed to PeerManager, which
+    /// will take care of the traffic prioritization.
+    ///
+    /// It returns both TIER1 accounts for both current epoch (according to the `tip`)
+    /// and the next epoch, so that the PeerManager can establish the priority connections
+    /// in advance (before the epoch starts and they are actually needed).
+    ///
+    /// The result of the last call to get_tier1_accounts() is cached, so that it is not recomputed
+    /// if the current epoch didn't change since the last call. In particular SetChainInfo is send
+    /// after every block is processed (order of seconds), while the epoch changes way less
+    /// frequently (order of hours).
+    fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
+        match &self.tier1_accounts_cache {
+            Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
+            _ => {}
+        }
+        let info = self
+            .runtime_adapter
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(tip.epoch_id.clone()))?;
+        let mut accounts = HashMap::new();
+        accounts.extend(
+            info.current_validators
+                .into_iter()
+                .map(|v| ((tip.epoch_id.clone(), v.account_id), v.public_key)),
+        );
+        accounts.extend(
+            info.next_validators
+                .into_iter()
+                .map(|v| ((tip.next_epoch_id.clone(), v.account_id), v.public_key)),
+        );
+        let accounts = Arc::new(accounts);
+        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
+        Ok(accounts)
+    }
+
+    /// send_network_chain_info sends ChainInfo to PeerManagerActor.
+    /// ChainInfo contains chain information relevant to p2p networking.
+    /// It is expected to be called every time the head of the chain changes (or more often).
+    /// Subsequent calls will probably re-send to PeerManagerActor a lot of redundant
+    /// information (for example epoch-related data changes way less often than chain head
+    /// changes), but that's fine - we avoid recomputing rarely changing data in ChainInfo by caching it.
+    /// The condition to call this function is simple - every time chain head changes -
+    /// which hopefully will make it hard to forget to call it. And even if there is some
+    /// corner case not covered - since blocks are sent frequently (every few seconds),
+    /// the POV of Client and PeerManagerActor will be desynchronized only for a short time.
+    ///
+    /// TODO(gprusak): consider making send_network_chain_info accept chain Tip as an argument
+    /// to underline that it is expected to be called whenever Tip changes. Currently
+    /// self.chain.head() is fallible for some reason, so calling it at the
+    /// send_network_chain_info() call site would be ugly (we just log the error).
+    /// In theory we should already have the tip at the call-site, eg from
+    /// check_And_update_doomslug_tip, but that would require a bigger refactor.
+    fn send_network_chain_info(&mut self) -> Result<(), Error> {
+        let tip = self.chain.head()?;
+        // convert config tracked shards
+        // runtime will track all shards if config tracked shards is not empty
+        // https://github.com/near/nearcore/issues/4930
+        let tracked_shards = if self.config.tracked_shards.is_empty() {
+            vec![]
+        } else {
+            let num_shards = self.runtime_adapter.num_shards(&tip.epoch_id)?;
+            (0..num_shards).collect()
+        };
+        let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        self.network_adapter.do_send(SetChainInfo(ChainInfo {
+            height: tip.height,
+            tracked_shards,
+            tier1_accounts,
+        }));
+        Ok(())
     }
 }

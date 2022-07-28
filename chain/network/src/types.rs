@@ -10,7 +10,7 @@ use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
     PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
-    StateResponseInfo,
+    SetChainInfo, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -409,8 +409,14 @@ where
     }
 }
 
-pub trait PeerManagerAdapter: MsgRecipient<PeerManagerMessageRequest> {}
-impl<A: MsgRecipient<PeerManagerMessageRequest>> PeerManagerAdapter for A {}
+pub trait PeerManagerAdapter:
+    MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>
+{
+}
+impl<A: MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>> PeerManagerAdapter
+    for A
+{
+}
 
 pub struct NetworkRecipient<T> {
     recipient: OnceCell<Arc<T>>,
