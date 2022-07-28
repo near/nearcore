@@ -28,10 +28,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
+    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
+use near_network::types::{
     FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -953,7 +955,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![FullPeerInfo {
+            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -962,7 +964,7 @@ fn client_sync_headers() {
                     archival: false,
                 },
                 partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            }],
+            })],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
