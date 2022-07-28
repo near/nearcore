@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::config::VMConfig;
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -1038,11 +1039,11 @@ fn test_time_attack() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1071,11 +1072,11 @@ fn test_invalid_approvals() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1120,11 +1121,11 @@ fn test_invalid_gas_price() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1278,11 +1279,12 @@ fn test_bad_chunk_mask() {
     let mut clients: Vec<Client> = validators
         .iter()
         .map(|account_id| {
+            let vs = ValidatorSchedule::new()
+                .num_shards(2)
+                .block_producers_per_epoch(vec![validators.clone()]);
             setup_client(
                 create_test_store(),
-                vec![validators.clone()],
-                1,
-                2,
+                vs,
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),

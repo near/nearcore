@@ -1,5 +1,6 @@
 use actix::System;
 use futures::{future, FutureExt};
+use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::merkle::PartialMerkleTree;
 use std::sync::Arc;
 use std::time::Duration;
@@ -186,10 +187,10 @@ fn test_execution_outcome_for_chunk() {
 #[test]
 fn test_state_request() {
     run_actix(async {
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
         let view_client = setup_only_view(
-            vec![vec!["test".parse().unwrap()]],
-            1,
-            1,
+            vs,
             10000000,
             "test".parse().unwrap(),
             true,

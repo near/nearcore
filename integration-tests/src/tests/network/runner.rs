@@ -1,7 +1,7 @@
 use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail, Context};
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
@@ -48,8 +48,8 @@ fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
