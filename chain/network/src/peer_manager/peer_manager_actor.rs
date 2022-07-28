@@ -1,7 +1,7 @@
 use crate::accounts_data;
-use crate::network_protocol::Encoding;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
+use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, StopMsg,
@@ -16,15 +16,14 @@ use crate::stats::metrics;
 use crate::store;
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerStatsResult,
-    QueryPeerStats, RoutingTableUpdate,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, QueryPeerStats,
+    RoutingTableUpdate,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use anyhow::bail;
-use arc_swap::ArcSwap;
 use futures::future;
 use near_network_primitives::time;
 use near_network_primitives::types::{
@@ -103,81 +102,6 @@ const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
-
-/// Contains information relevant to a connected peer.
-#[derive(Clone)]
-pub(crate) struct ConnectedPeer {
-    addr: Addr<PeerActor>,
-    full_peer_info: FullPeerInfo,
-    /// Number of bytes we've received from the peer.
-    received_bytes_per_sec: u64,
-    /// Number of bytes we've sent to the peer.
-    sent_bytes_per_sec: u64,
-    /// Last time requested peers.
-    last_time_peer_requested: time::Instant,
-    /// Last time we received a message from this peer.
-    last_time_received_message: time::Instant,
-    /// Time where the connection was established.
-    connection_established_time: time::Instant,
-    /// Who started connection. Inbound (other) or Outbound (us).
-    peer_type: PeerType,
-    /// A helper data structure for limiting reading, reporting stats.
-    throttle_controller: ThrottleController,
-    /// Encoding used for communication.
-    encoding: Option<Encoding>,
-}
-
-#[derive(Default)]
-pub(crate) struct ConnectedPeers(ArcSwap<im::HashMap<PeerId, ConnectedPeer>>);
-
-impl ConnectedPeers {
-    fn read(&self) -> Arc<im::HashMap<PeerId, ConnectedPeer>> {
-        self.0.load_full()
-    }
-
-    fn update(&self, mut f: impl FnMut(&mut im::HashMap<PeerId, ConnectedPeer>)) {
-        self.0.rcu(|peers| {
-            let mut peers: im::HashMap<PeerId, ConnectedPeer> = (**peers).clone();
-            f(&mut peers);
-            Arc::new(peers)
-        });
-    }
-
-    fn insert(&self, peer: ConnectedPeer) {
-        self.update(|peers| {
-            peers.insert(peer.full_peer_info.peer_info.id.clone(), peer.clone());
-        });
-    }
-
-    fn remove(&self, peer_id: &PeerId) {
-        self.update(|peers| {
-            peers.remove(peer_id);
-        });
-    }
-
-    fn set_last_time_peer_requested(&self, peer_id: &PeerId, t: time::Instant) {
-        self.update(|peers| {
-            peers.get_mut(peer_id).map(|p| p.last_time_peer_requested = t);
-        });
-    }
-
-    fn set_last_time_received_message(&self, peer_id: &PeerId, t: time::Instant) {
-        self.update(|peers| {
-            peers.get_mut(peer_id).map(|p| p.last_time_received_message = t);
-        });
-    }
-
-    fn set_peer_stats(&self, peer_id: &PeerId, stats: PeerStatsResult) {
-        self.update(|peers| {
-            peers.get_mut(peer_id).map(|p| {
-                p.full_peer_info.chain_info = stats.chain_info.clone();
-                p.sent_bytes_per_sec = stats.sent_bytes_per_sec;
-                p.received_bytes_per_sec = stats.received_bytes_per_sec;
-                p.encoding = stats.encoding;
-            });
-        });
-    }
-}
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
@@ -2028,6 +1952,7 @@ impl PeerManagerActor {
                 }
                 PeerToManagerMsgResp::Empty
             }
+            // TODO(gprusak): move this directly to peer logic.
             PeerToManagerMsg::ReceivedMessage(peer_id, last_time_received_message) => {
                 self.state
                     .connected_peers
