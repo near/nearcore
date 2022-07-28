@@ -3445,6 +3445,7 @@ dependencies = [
  "near-metrics",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-primitives",
  "once_cell",
  "openssl",
  "serde",
