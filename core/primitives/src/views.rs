@@ -332,7 +332,7 @@ pub struct PeerInfoView {
     pub sent_bytes_per_sec: u64,
     pub last_time_peer_requested_millis: u64,
     pub last_time_received_message_millis: u64,
-    pub connection_established_time: u64,
+    pub connection_established_time_millis: u64,
     pub is_outbound_peer: bool,
 }
 

@@ -256,7 +256,7 @@ impl From<&ConnectedPeerInfo> for PeerInfoView {
                 .last_time_received_message
                 .elapsed()
                 .whole_milliseconds() as u64,
-            connection_established_time: connected_peer_info
+            connection_established_time_millis: connected_peer_info
                 .connection_established_time
                 .elapsed()
                 .whole_milliseconds() as u64,
