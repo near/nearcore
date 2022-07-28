@@ -292,8 +292,9 @@ impl TxTracker {
             self.on_tx_sent(tx, source_height, target_height);
         }
 
-        let block_delay =
-            self.second_longest_recent_block_delay().unwrap_or(self.min_block_production_delay);
+        let block_delay = self
+            .second_longest_recent_block_delay()
+            .unwrap_or(self.min_block_production_delay + Duration::from_millis(100));
         match &mut self.send_time {
             Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
             None => {
