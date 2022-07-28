@@ -77,6 +77,25 @@
             return `${seconds}s`
         }
 
+        function convertBps(bytes_per_second) {
+            if (bytes_per_second == null) {
+                return '-'
+            }
+            if (bytes_per_second < 3000) {
+                return `${bytes_per_second} bps`
+            } []
+            let kilobytes_per_second = bytes_per_second / 1024;
+            if (kilobytes_per_second < 3000) {
+                return `${kilobytes_per_second.toFixed(1)} Kbps`
+            }
+            let megabytes_per_second = kilobytes_per_second / 1024;
+            return `${megabytes_per_second.toFixed(1)} Mbps`
+        }
+
+        function computeTraffic(bytes_received, bytes_sent) {
+            return "⬇ " + convertBps(bytes_received) + "<br>⬆ " + convertBps(bytes_sent);
+        }
+
         function add_debug_port_link(peer_addr) {
             return $('<a>', {
                 href: "http://" + peer_addr.replace(/:.*/, ":3030/debug"),
@@ -232,6 +251,7 @@
                                 .append($('<td>').append(JSON.stringify(peer.archival)))
                                 .append($('<td>').append(((peer.is_outbound_peer) ? 'OUT' : 'IN')))
                                 .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
+                                .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
                                 .append($('<td>').append(routedValidator.join(",")))
                             )
                         });
@@ -322,6 +342,7 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
                 <th>Archival</th>
                 <th>Connection type</th>
                 <th>First connection</th>
+                <th>Traffic (last minute)</th>
                 <th>Route to validators</th>
             </tr>
         </thead>
