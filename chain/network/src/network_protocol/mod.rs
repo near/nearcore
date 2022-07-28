@@ -303,9 +303,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.msg.body,
-                RoutedMessageBody::QueryRequest { .. }
-                    | RoutedMessageBody::QueryResponse { .. }
-                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
                     | RoutedMessageBody::TxStatusRequest(_, _)
