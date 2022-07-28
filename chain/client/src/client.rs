@@ -48,10 +48,9 @@ use itertools::Itertools;
 use near_chain::chain::ChainAccess;
 use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
-use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network_primitives::types::{
-    AccountKeys, ChainInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
-    SetChainInfo,
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg,
 };
 use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;

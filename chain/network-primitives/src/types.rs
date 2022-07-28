@@ -11,7 +11,6 @@
 use crate::time;
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
 use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -21,11 +20,9 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpStream;
 
 /// Exported types, which are part of network protocol.
@@ -317,31 +314,6 @@ pub enum NetworkViewClientMessages {
     /// newer announcements.
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
-
-/// Set of account keys.
-/// This is information which chain pushes to network to implement tier1.
-/// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
-
-/// Network-relevant data about the chain.
-// TODO(gprusak): it is more like node info, or sth.
-#[derive(Debug, Clone, Default)]
-pub struct ChainInfo {
-    pub tracked_shards: Vec<ShardId>,
-    pub height: BlockHeight,
-    // Public keys of accounts participating in the BFT consensus
-    // (both accounts from current and next epoch are important, that's why
-    // the map is indexed by (EpochId,AccountId) pair).
-    // It currently includes "block producers", "chunk producers" and "approvers".
-    // They are collectively known as "validators".
-    // Peers acting on behalf of these accounts have a higher
-    // priority on the NEAR network than other peers.
-    pub tier1_accounts: Arc<AccountKeys>,
-}
-
-#[derive(Debug, actix::Message)]
-#[rtype(result = "()")]
-pub struct SetChainInfo(pub ChainInfo);
 
 #[derive(Debug, actix::MessageResponse)]
 pub enum NetworkViewClientResponses {

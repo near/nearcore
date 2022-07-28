@@ -1,12 +1,11 @@
 use super::*;
 
-use crate::types::{Handshake, RoutingTableUpdate};
+use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_network_primitives::time;
 use near_network_primitives::config;
+use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountKeys, AccountOrPeerIdOrHash, ChainInfo, Edge, PartialEdgeInfo, PeerInfo,
-    RawRoutedMessage, RoutedMessageBody,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -299,10 +298,16 @@ impl Chain {
         self.blocks.iter().map(|b| b.header().clone()).collect()
     }
 
-    pub fn make_config(&self, port: u16) -> config::NetworkConfig {
+    pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
         // TODO(gprusak): make config generation rng-based,
         // rather than using a seed.
-        config::NetworkConfig::from_seed("test1", port)
+        let port = crate::test_utils::open_port();
+        let seed = &rng.gen::<u64>().to_string();
+        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        // Currently, in unit tests PeerManagerActor is not allowed to try to establish
+        // connections on its own.
+        cfg.outbound_disabled = true;
+        cfg
     }
 
     pub fn make_tier1_data<R: Rng>(

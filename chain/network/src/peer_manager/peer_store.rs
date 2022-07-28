@@ -1,7 +1,7 @@
 use crate::store;
 use anyhow::bail;
-use near_network_primitives::time;
 use near_network_primitives::config;
+use near_network_primitives::time;
 use near_network_primitives::types::{
     Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
 };

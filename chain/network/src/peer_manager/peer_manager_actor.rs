@@ -1,5 +1,5 @@
 use crate::accounts_data;
-use crate::network_protocol::{Encoding,AccountData,SyncAccountsData,PeerAddr};
+use crate::network_protocol::{AccountData, PeerAddr, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
@@ -16,9 +16,9 @@ use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage,
-    QueryPeerStats, RoutingTableUpdate,
+    ChainInfo, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerMessage, QueryPeerStats, RoutingTableUpdate, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -26,14 +26,14 @@ use actix::{
 };
 use anyhow::bail;
 use futures::future;
-use near_network_primitives::time;
 use near_network_primitives::config;
+use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, ChainInfo, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping,
-    Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
-    SetChainInfo, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
+    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping, Pong,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
+    StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
@@ -249,9 +249,11 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
+    PeerRegistered(PeerInfo),
     Peer(PeerEvent),
     Ping(Ping),
     Pong(Pong),
+    SetChainInfo,
 }
 
 impl Actor for PeerManagerActor {
@@ -629,6 +631,7 @@ impl PeerManagerActor {
             partial_edge_info.signature,
             full_peer_info.partial_edge_info.signature.clone(),
         );
+        let peer_info = full_peer_info.peer_info.clone();
 
         self.state.connected_peers.insert(ConnectedPeer {
             addr: addr.clone(),
@@ -642,8 +645,8 @@ impl PeerManagerActor {
             throttle_controller: throttle_controller.clone(),
             encoding: None,
         });
-
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+        self.event_sink.push(Event::PeerRegistered(peer_info));
 
         let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
         near_performance_metrics::actix::run_later(
@@ -1439,6 +1442,7 @@ impl PeerManagerActor {
                         .map(|it| it.clone()),
                 })
                 .collect(),
+            tier1_accounts: self.state.accounts_data.dump().iter().map(|d| (**d).clone()).collect(),
             peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
@@ -2129,12 +2133,25 @@ impl PeerManagerActor {
     }
 }
 
+/// Fetches NetworkInfo, which contains a bunch of stats about the
+/// P2P network state. Currently used only in tests.
+/// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
+/// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
+/// in the ClientActor.
+impl Handler<GetNetworkInfo> for PeerManagerActor {
+    type Result = NetworkInfo;
+    fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+        self.get_network_info()
+    }
+}
+
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
         let now = self.clock.now_utc();
         let info = info.0;
         let state = self.state.clone();
+        let event_sink = self.event_sink.clone();
         tokio::spawn(async move {
             *state.chain_info.write() = info.clone();
             // If the key set didn't change, early exit.
@@ -2159,8 +2176,10 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 // is could be useful for debugging. Consider keeping this
                 // behavior for situations when the IPs are not known.
                 let my_peers = match &vc.endpoints {
-                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![], 
-                    config::ValidatorEndpoints::PublicAddrs(addrs) => addrs.iter().cloned().map(|addr|PeerAddr{addr,peer_id:None}).collect(),
+                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
+                    config::ValidatorEndpoints::PublicAddrs(addrs) => {
+                        addrs.iter().cloned().map(|addr| PeerAddr { addr, peer_id: None }).collect()
+                    }
                 };
                 let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
                     if account_id != my_account_id{
@@ -2179,7 +2198,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 }).collect();
                 // Insert node's own AccountData should never fail.
                 // We ignore the new data, because we trigger inserting
-                if let (_,Some(err)) = state.accounts_data.clone().insert(my_data).await {
+                if let (_, Some(err)) = state.accounts_data.clone().insert(my_data).await {
                     panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
                 }
             }
@@ -2187,16 +2206,18 @@ impl Handler<SetChainInfo> for PeerManagerActor {
             // We might miss some data, so we start a full sync with the connected peers.
             // TODO(gprusak): add a daemon which does a periodic full sync in case some messages
             // are lost (at a frequency which makes the additional network load negligible).
-            state.clone().broadcast_message(
-                SendMessage {
+            state
+                .clone()
+                .broadcast_message(SendMessage {
                     message: PeerMessage::SyncAccountsData(SyncAccountsData {
                         incremental: false,
                         requesting_full_sync: true,
                         accounts_data: state.accounts_data.dump(),
                     }),
                     context: Span::current().context(),
-                }
-            ).await;
+                })
+                .await;
+            event_sink.push(Event::SetChainInfo);
         });
     }
 }

@@ -1,13 +1,13 @@
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{PeerInfo, ReasonForBan, SetChainInfo};
+use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -311,9 +311,7 @@ pub mod test_features {
     use actix::actors::mocker::Mocker;
     use actix::Actor;
     use near_network_primitives::config;
-    use near_network_primitives::types::{
-        NetworkViewClientMessages, NetworkViewClientResponses,
-    };
+    use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};

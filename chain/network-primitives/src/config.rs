@@ -275,7 +275,7 @@ pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_
 #[cfg(test)]
 mod test {
     use crate::config;
-    use crate::types::{UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE};
+    use crate::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
 
     #[test]
     fn test_network_config() {

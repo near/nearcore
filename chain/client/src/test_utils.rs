@@ -51,11 +51,13 @@ use near_telemetry::TelemetryActor;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_client_primitives::types::Error;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
-    PeerType, SetChainInfo,
+    PeerType,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -655,6 +657,7 @@ pub fn setup_mock_all_validators(
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
                             peer_counter: 0,
+                            tier1_accounts: vec![],
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }

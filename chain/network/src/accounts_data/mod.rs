@@ -26,7 +26,7 @@
 //!       lot of peers
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
-use near_network_primitives::types::AccountKeys;
+use crate::types::AccountKeys;
 use near_o11y::log_assert;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
