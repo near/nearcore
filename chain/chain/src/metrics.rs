@@ -63,6 +63,13 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 pub static HEADER_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
 });
+pub static STARTED_AT_TIMESTAMP: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_started_at_timestamp",
+        "Unix timestamp in seconds of the moment the client was started",
+    )
+    .unwrap()
+});
 pub static TAIL_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_tail_height", "Height of tail").unwrap());
 pub static CHUNK_TAIL_HEIGHT: Lazy<IntGauge> =

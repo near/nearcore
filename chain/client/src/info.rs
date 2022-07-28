@@ -54,6 +54,8 @@ pub struct InfoHelper {
     telemetry_actor: Option<Addr<TelemetryActor>>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
+    /// Timestamp of starting the client.
+    pub started_at: i64,
 }
 
 impl InfoHelper {
@@ -75,6 +77,7 @@ impl InfoHelper {
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
+            started_at: Clock::utc().timestamp(),
         }
     }
 
@@ -266,6 +269,7 @@ impl InfoHelper {
                 bandwidth_upload: network_info.sent_bytes_per_sec,
                 cpu_usage,
                 memory_usage,
+                started_at_unix_sec: self.started_at,
             },
             chain: TelemetryChainInfo {
                 node_id: node_id.to_string(),
