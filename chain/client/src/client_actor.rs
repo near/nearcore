@@ -158,7 +158,7 @@ impl ClientActor {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper = InfoHelper::new(telemetry_actor, &config, validator_signer.clone());
+        let info_helper = InfoHelper::new(Some(telemetry_actor), &config, validator_signer.clone());
         let client = Client::new(
             config,
             chain_genesis,
@@ -1791,6 +1791,7 @@ impl ClientActor {
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
+            &self.client.config,
         );
         debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
     }
