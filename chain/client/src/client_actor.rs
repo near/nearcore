@@ -158,7 +158,7 @@ impl ClientActor {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper = InfoHelper::new(telemetry_actor, &config, validator_signer.clone());
+        let info_helper = InfoHelper::new(Some(telemetry_actor), &config, validator_signer.clone());
         let client = Client::new(
             config,
             chain_genesis,
@@ -784,7 +784,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| fpi.peer_info.clone())
+                .map(|fpi| fpi.full_peer_info.peer_info.clone())
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
@@ -1791,6 +1791,7 @@ impl ClientActor {
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
+            &self.client.config,
         );
         debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
     }
