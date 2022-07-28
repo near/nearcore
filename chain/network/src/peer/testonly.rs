@@ -4,7 +4,7 @@ use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
-use crate::peer_manager::peer_manager_actor::PeerManagerState;
+use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::testonly::actix::ActixSystem;
@@ -235,7 +235,7 @@ impl PeerHandle {
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(PeerManagerState {
+                    Arc::new(NetworkState {
                         config: Arc::new(cfg.chain.make_config(my_addr.port())),
                         genesis_id: cfg.chain.genesis_id.clone(),
                         client_addr: fc.clone().recipient(),
