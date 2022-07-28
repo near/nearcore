@@ -14,9 +14,9 @@ use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
 use crate::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, QueryPeerStats,
-    RoutingTableUpdate,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage,
+    QueryPeerStats, RoutingTableUpdate,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -1379,7 +1379,15 @@ impl PeerManagerActor {
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         NetworkInfo {
             connected_peers: (self.connected_peers.values())
-                .map(|cp| cp.full_peer_info.clone())
+                .map(|cp| ConnectedPeerInfo {
+                    full_peer_info: cp.full_peer_info.clone(),
+                    received_bytes_per_sec: cp.received_bytes_per_sec,
+                    sent_bytes_per_sec: cp.sent_bytes_per_sec,
+                    last_time_peer_requested: cp.last_time_peer_requested,
+                    last_time_received_message: cp.last_time_received_message,
+                    connection_established_time: cp.connection_established_time,
+                    peer_type: cp.peer_type,
+                })
                 .collect(),
             num_connected_peers: self.connected_peers.len(),
             peer_max_count: self.config.max_num_peers,

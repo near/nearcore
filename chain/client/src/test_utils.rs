@@ -1,11 +1,3 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::mem::swap;
-use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-use tracing::info;
-
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
@@ -13,6 +5,13 @@ use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::mem::swap;
+use std::ops::DerefMut;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use tracing::info;
 
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -24,8 +23,8 @@ use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
+    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
@@ -55,6 +54,7 @@ use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMes
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+    PeerType,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -635,7 +635,8 @@ pub fn setup_mock_all_validators(
                             .iter()
                             .take(connectors1.len())
                             .enumerate()
-                            .map(|(i, peer_info)| FullPeerInfo {
+                            .map(|(i, peer_info)| ConnectedPeerInfo {
+                                full_peer_info: FullPeerInfo {
                                 peer_info: peer_info.clone(),
                                 chain_info: PeerChainInfoV2 {
                                     genesis_id: GenesisId {
@@ -647,9 +648,15 @@ pub fn setup_mock_all_validators(
                                     archival: true,
                                 },
                                 partial_edge_info: PartialEdgeInfo::default(),
-                            })
+                            },
+                                received_bytes_per_sec: 0,
+                                sent_bytes_per_sec: 0,
+                                last_time_peer_requested: near_network_primitives::time::Instant::now(),
+                                last_time_received_message: near_network_primitives::time::Instant::now(),
+                                connection_established_time: near_network_primitives::time::Instant::now(),
+                                peer_type: PeerType::Outbound, })
                             .collect();
-                        let peers2 = peers.clone();
+                        let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
                             num_connected_peers: key_pairs1.len(),
