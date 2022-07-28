@@ -19,7 +19,7 @@ pub struct TelemetrySystemInfo {
     pub bandwidth_upload: u64,
     pub cpu_usage: f32,
     pub memory_usage: u64,
-    pub started_at_unix_sec: i64,
+    pub boot_time_seconds: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
