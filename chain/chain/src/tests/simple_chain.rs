@@ -18,7 +18,7 @@ fn build_chain() {
     let mock_clock_guard = MockClockGuard::default();
 
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0,0));  // Client startup timestamp.
+    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, signer) = setup();
