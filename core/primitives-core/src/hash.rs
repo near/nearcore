@@ -6,7 +6,7 @@ use sha2::Digest;
 
 use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base};
+use crate::serialize::from_base;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
@@ -31,6 +31,23 @@ impl CryptoHash {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Converts hash into base58-encoded string and passes it to given visitor.
+    ///
+    /// The conversion is performed without any memory allocation.  The visitor
+    /// is given a reference to a string stored on stack.  Returns whatever the
+    /// visitor returns.
+    fn to_base58_impl<Out>(&self, visitor: impl FnOnce(&str) -> Out) -> Out {
+        // base58-encoded string is at most 1.4 times longer than the binary
+        // sequence.  We’re serialising 32 bytes so ⌈32 * 1.4⌉ = 45 should be
+        // enough.
+        let mut buffer = [0u8; 45];
+        let len = bs58::encode(self).into(&mut buffer[..]).unwrap();
+        // SAFETY: buffer[0..len] is all ASCII characters from the base58
+        // alphabet.
+        let value = unsafe { std::str::from_utf8_unchecked(&buffer[..len]) };
+        visitor(value)
     }
 }
 
@@ -58,7 +75,7 @@ impl Serialize for CryptoHash {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&to_base(&self.0))
+        self.to_base58_impl(|encoded| serializer.serialize_str(encoded))
     }
 }
 
@@ -115,14 +132,14 @@ impl From<CryptoHash> for [u8; 32] {
 }
 
 impl fmt::Debug for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", pretty_hash(&self.to_string()))
+    fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_base58_impl(|encoded| write!(fmtr, "{}", pretty_hash(encoded)))
     }
 }
 
 impl fmt::Display for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&to_base(&self.0), f)
+    fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_base58_impl(|encoded| fmtr.write_str(encoded))
     }
 }
 
