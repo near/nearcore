@@ -9,7 +9,7 @@ use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
     PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, ReasonForBan,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
     SetChainInfo, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
@@ -20,8 +20,8 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference, EpochId, ShardId};
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, QueryRequest};
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -198,13 +198,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// General query
-    Query {
-        query_id: String,
-        account_id: AccountId,
-        block_reference: BlockReference,
-        request: QueryRequest,
-    },
     /// Request for receipt execution outcome
     ReceiptOutComeRequest(AccountId, CryptoHash),
     /// A challenge to invalidate a block.
@@ -219,8 +212,23 @@ pub struct FullPeerInfo {
     pub partial_edge_info: PartialEdgeInfo,
 }
 
-impl From<&FullPeerInfo> for PeerInfoView {
+impl From<&FullPeerInfo> for ConnectedPeerInfo {
     fn from(full_peer_info: &FullPeerInfo) -> Self {
+        ConnectedPeerInfo {
+            full_peer_info: full_peer_info.clone(),
+            received_bytes_per_sec: 0,
+            sent_bytes_per_sec: 0,
+            last_time_peer_requested: near_network_primitives::time::Instant::now(),
+            last_time_received_message: near_network_primitives::time::Instant::now(),
+            connection_established_time: near_network_primitives::time::Instant::now(),
+            peer_type: PeerType::Outbound,
+        }
+    }
+}
+
+impl From<&ConnectedPeerInfo> for PeerInfoView {
+    fn from(connected_peer_info: &ConnectedPeerInfo) -> Self {
+        let full_peer_info = &connected_peer_info.full_peer_info;
         PeerInfoView {
             addr: match full_peer_info.peer_info.addr {
                 Some(socket_addr) => socket_addr.to_string(),
@@ -231,13 +239,46 @@ impl From<&FullPeerInfo> for PeerInfoView {
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
             peer_id: full_peer_info.peer_info.id.public_key().clone(),
+            received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
+            sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
+            last_time_peer_requested_millis: connected_peer_info
+                .last_time_peer_requested
+                .elapsed()
+                .whole_milliseconds() as u64,
+            last_time_received_message_millis: connected_peer_info
+                .last_time_received_message
+                .elapsed()
+                .whole_milliseconds() as u64,
+            connection_established_time_millis: connected_peer_info
+                .connection_established_time
+                .elapsed()
+                .whole_milliseconds() as u64,
+            is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
         }
     }
 }
 
+// Information about the connected peer that is shared with the rest of the system.
+#[derive(Debug, Clone)]
+pub struct ConnectedPeerInfo {
+    pub full_peer_info: FullPeerInfo,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Last time requested peers.
+    pub last_time_peer_requested: time::Instant,
+    /// Last time we received a message from this peer.
+    pub last_time_received_message: time::Instant,
+    /// Time where the connection was established.
+    pub connection_established_time: time::Instant,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    pub peer_type: PeerType,
+}
+
 #[derive(Debug, Clone, actix::MessageResponse)]
 pub struct NetworkInfo {
-    pub connected_peers: Vec<FullPeerInfo>,
+    pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
     pub highest_height_peers: Vec<FullPeerInfo>,

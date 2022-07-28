@@ -19,7 +19,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -349,8 +349,6 @@ pub struct SetChainInfo(pub ChainInfo);
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Response to general queries
-    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
     ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.

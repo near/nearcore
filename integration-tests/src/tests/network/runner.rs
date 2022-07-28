@@ -1,7 +1,7 @@
 use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail, Context};
-use near_chain::test_utils::KeyValueRuntime;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
@@ -49,9 +49,8 @@ fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
-
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -271,7 +270,7 @@ impl StateMachine {
                     }
                     let res = pm.send(GetInfo{}).await?;
                     for peer in &res.connected_peers {
-                        if peer.peer_info.id==peer_id {
+                        if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
                         }
                     }
@@ -676,8 +675,11 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
         Box::pin(async move {
             let pm = &info.get_node(node_id)?.addr;
             let network_info = pm.send(GetInfo {}).await?;
-            let got: HashSet<_> =
-                network_info.connected_peers.into_iter().map(|i| i.peer_info.id).collect();
+            let got: HashSet<_> = network_info
+                .connected_peers
+                .into_iter()
+                .map(|i| i.full_peer_info.peer_info.id)
+                .collect();
             let want: HashSet<_> =
                 peers.iter().map(|i| info.runner.test_config[*i].peer_id()).collect();
             if got != want {

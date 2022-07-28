@@ -15,9 +15,9 @@ use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
 use crate::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, QueryPeerStats,
-    RoutingTableUpdate,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage,
+    QueryPeerStats, RoutingTableUpdate,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -1404,8 +1404,17 @@ impl PeerManagerActor {
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let connected_peers = self.state.connected_peers.read();
         NetworkInfo {
-            connected_peers: (connected_peers.values())
-                .map(|cp| cp.full_peer_info.clone())
+            connected_peers: connected_peers
+                .values()
+                .map(|cp| ConnectedPeerInfo {
+                    full_peer_info: cp.full_peer_info.clone(),
+                    received_bytes_per_sec: cp.received_bytes_per_sec,
+                    sent_bytes_per_sec: cp.sent_bytes_per_sec,
+                    last_time_peer_requested: cp.last_time_peer_requested,
+                    last_time_received_message: cp.last_time_received_message,
+                    connection_established_time: cp.connection_established_time,
+                    peer_type: cp.peer_type,
+                })
                 .collect(),
             num_connected_peers: connected_peers.len(),
             peer_max_count: self.max_num_peers,
@@ -1646,16 +1655,6 @@ impl PeerManagerActor {
                 if self.send_message_to_account(
                     &account_id,
                     RoutedMessageBody::TxStatusRequest(signer_account_id, tx_hash),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            NetworkRequests::Query { query_id, account_id, block_reference, request } => {
-                if self.send_message_to_account(
-                    &account_id,
-                    RoutedMessageBody::QueryRequest { query_id, block_reference, request },
                 ) {
                     NetworkResponses::NoResponse
                 } else {

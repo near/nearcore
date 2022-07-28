@@ -384,13 +384,6 @@ impl PeerActor {
                             .peer_manager_addr
                             .do_send(PeerToManagerMsg::RouteBack(body, msg_hash.unwrap()));
                     }
-                    Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
-                        let body =
-                            Box::new(RoutedMessageBody::QueryResponse { query_id, response });
-                        let _ = act
-                            .peer_manager_addr
-                            .do_send(PeerToManagerMsg::RouteBack(body, msg_hash.unwrap()));
-                    }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = match *state_response {
                             StateResponseInfo::V1(state_response) => {
@@ -507,8 +500,8 @@ impl PeerActor {
                     | RoutedMessageBody::Pong(_)
                     | RoutedMessageBody::TxStatusRequest(_, _)
                     | RoutedMessageBody::TxStatusResponse(_)
-                    | RoutedMessageBody::QueryRequest { .. }
-                    | RoutedMessageBody::QueryResponse { .. }
+                    | RoutedMessageBody::_UnusedQueryRequest { .. }
+                    | RoutedMessageBody::_UnusedQueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
