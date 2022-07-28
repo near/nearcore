@@ -16,14 +16,15 @@ use crate::stats::metrics;
 use crate::store;
 use crate::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, QueryPeerStats,
-    RoutingTableUpdate,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage, PeerStatsResult,
+    QueryPeerStats, RoutingTableUpdate,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use anyhow::bail;
+use arc_swap::ArcSwap;
 use futures::future;
 use near_network_primitives::time;
 use near_network_primitives::types::{
@@ -104,6 +105,7 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Contains information relevant to a connected peer.
+#[derive(Clone)]
 pub(crate) struct ConnectedPeer {
     addr: Addr<PeerActor>,
     full_peer_info: FullPeerInfo,
@@ -123,6 +125,58 @@ pub(crate) struct ConnectedPeer {
     throttle_controller: ThrottleController,
     /// Encoding used for communication.
     encoding: Option<Encoding>,
+}
+
+#[derive(Default)]
+pub(crate) struct ConnectedPeers(ArcSwap<im::HashMap<PeerId, ConnectedPeer>>);
+
+impl ConnectedPeers {
+    fn read(&self) -> Arc<im::HashMap<PeerId, ConnectedPeer>> {
+        self.0.load_full()
+    }
+
+    fn update(&self, mut f: impl FnMut(&mut im::HashMap<PeerId, ConnectedPeer>)) {
+        self.0.rcu(|peers| {
+            let mut peers: im::HashMap<PeerId, ConnectedPeer> = (**peers).clone();
+            f(&mut peers);
+            Arc::new(peers)
+        });
+    }
+
+    fn insert(&self, peer: ConnectedPeer) {
+        self.update(|peers| {
+            peers.insert(peer.full_peer_info.peer_info.id.clone(), peer.clone());
+        });
+    }
+
+    fn remove(&self, peer_id: &PeerId) {
+        self.update(|peers| {
+            peers.remove(peer_id);
+        });
+    }
+
+    fn set_last_time_peer_requested(&self, peer_id: &PeerId, t: time::Instant) {
+        self.update(|peers| {
+            peers.get_mut(peer_id).map(|p| p.last_time_peer_requested = t);
+        });
+    }
+
+    fn set_last_time_received_message(&self, peer_id: &PeerId, t: time::Instant) {
+        self.update(|peers| {
+            peers.get_mut(peer_id).map(|p| p.last_time_received_message = t);
+        });
+    }
+
+    fn set_peer_stats(&self, peer_id: &PeerId, stats: PeerStatsResult) {
+        self.update(|peers| {
+            peers.get_mut(peer_id).map(|p| {
+                p.full_peer_info.chain_info = stats.chain_info.clone();
+                p.sent_bytes_per_sec = stats.sent_bytes_per_sec;
+                p.received_bytes_per_sec = stats.received_bytes_per_sec;
+                p.encoding = stats.encoding;
+            });
+        });
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -162,7 +216,7 @@ pub(crate) struct NetworkState {
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
-    pub connected_peers: RwLock<HashMap<PeerId, ConnectedPeer>>,
+    pub connected_peers: ConnectedPeers,
 }
 
 impl NetworkState {
@@ -407,7 +461,7 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 chain_info: RwLock::new(ChainInfo::default()),
-                connected_peers: RwLock::new(HashMap::default()),
+                connected_peers: ConnectedPeers::default(),
                 accounts_data: Arc::new(accounts_data::Cache::new()),
             }),
         })
@@ -496,10 +550,16 @@ impl PeerManagerActor {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         let mut max_max_record_num_messages_in_progress: usize = 0;
-        for (peer_id, connected_peer) in self.state.connected_peers.write().iter_mut() {
-            let bandwidth_used = connected_peer.throttle_controller.consume_bandwidth_used();
-            let msg_received_count = connected_peer.throttle_controller.consume_msg_seen();
-            let max_record = connected_peer.throttle_controller.consume_max_messages_in_progress();
+        for (peer_id, connected_peer) in &*self.state.connected_peers.read() {
+            // consume methods of the throttle_controller require &mut self,
+            // but in fact they modify internal Arc<Atomic...> values,
+            // so if we clone the throttle_controller we can call them. This doesn't make
+            // much sense.
+            // TODO(gprusak): make it more reasonable.
+            let mut throttle_controller = connected_peer.throttle_controller.clone();
+            let bandwidth_used = throttle_controller.consume_bandwidth_used();
+            let msg_received_count = throttle_controller.consume_msg_seen();
+            let max_record = throttle_controller.consume_max_messages_in_progress();
 
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
@@ -644,21 +704,18 @@ impl PeerManagerActor {
             full_peer_info.partial_edge_info.signature.clone(),
         );
 
-        self.state.connected_peers.write().insert(
-            target_peer_id.clone(),
-            ConnectedPeer {
-                addr: addr.clone(),
-                full_peer_info,
-                sent_bytes_per_sec: 0,
-                received_bytes_per_sec: 0,
-                last_time_peer_requested: self.clock.now(),
-                last_time_received_message: self.clock.now(),
-                connection_established_time: self.clock.now(),
-                peer_type,
-                throttle_controller: throttle_controller.clone(),
-                encoding: None,
-            },
-        );
+        self.state.connected_peers.insert(ConnectedPeer {
+            addr: addr.clone(),
+            full_peer_info,
+            sent_bytes_per_sec: 0,
+            received_bytes_per_sec: 0,
+            last_time_peer_requested: self.clock.now(),
+            last_time_received_message: self.clock.now(),
+            connection_established_time: self.clock.now(),
+            peer_type,
+            throttle_controller: throttle_controller.clone(),
+            encoding: None,
+        });
 
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
 
@@ -705,11 +762,9 @@ impl PeerManagerActor {
                     message: PeerMessage::PeersRequest,
                     context: Span::current().context(),
                 });
-                if let Some(connected_peer) =
-                    act.state.connected_peers.write().get_mut(&target_peer_id)
-                {
-                    connected_peer.last_time_peer_requested = act.clock.now();
-                }
+                act.state
+                    .connected_peers
+                    .set_last_time_peer_requested(&target_peer_id, act.clock.now());
 
                 if peer_type == PeerType::Outbound {
                     // Only broadcast new message from the outbound endpoint.
@@ -730,7 +785,7 @@ impl PeerManagerActor {
     /// If peer_type is None, remove anyway disregarding who started the connection.
     fn remove_connected_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
         let state = self.state.clone();
-        let mut connected_peers = state.connected_peers.write();
+        let connected_peers = state.connected_peers.read();
         if let Some(peer_type) = peer_type {
             if let Some(peer) = connected_peers.get(peer_id) {
                 if peer.peer_type != peer_type {
@@ -742,7 +797,7 @@ impl PeerManagerActor {
 
         // If the last edge we have with this peer represent a connection addition, create the edge
         // update that represents the connection removal.
-        connected_peers.remove(peer_id);
+        self.state.connected_peers.remove(peer_id);
 
         if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
@@ -962,10 +1017,10 @@ impl PeerManagerActor {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg =
             SendMessage { message: PeerMessage::PeersRequest, context: Span::current().context() };
-        for connected_peer in self.state.connected_peers.write().values_mut() {
+        for (peer_id, connected_peer) in &*self.state.connected_peers.read() {
             let now = self.clock.now();
             if now - connected_peer.last_time_peer_requested > REQUEST_PEERS_INTERVAL {
-                connected_peer.last_time_peer_requested = now;
+                self.state.connected_peers.set_last_time_peer_requested(peer_id, now);
                 requests.push(connected_peer.addr.send(msg.clone()));
             }
         }
@@ -1080,11 +1135,8 @@ impl PeerManagerActor {
                                 // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
                                 //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
                                 // }
-                            } else if let Some(connected_peer) = act.state.connected_peers.write().get_mut(&peer_id1) {
-                                connected_peer.full_peer_info.chain_info = res.chain_info;
-                                connected_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
-                                connected_peer.received_bytes_per_sec = res.received_bytes_per_sec;
-                                connected_peer.encoding = res.encoding;
+                            } else {
+                                act.state.connected_peers.set_peer_stats(&peer_id1,res);
                             }
                         }
                         Err(err) => {
@@ -1977,9 +2029,9 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::ReceivedMessage(peer_id, last_time_received_message) => {
-                if let Some(connected_peer) = self.state.connected_peers.write().get_mut(&peer_id) {
-                    connected_peer.last_time_received_message = last_time_received_message;
-                }
+                self.state
+                    .connected_peers
+                    .set_last_time_received_message(&peer_id, last_time_received_message);
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::InboundTcpConnect(msg) => {
