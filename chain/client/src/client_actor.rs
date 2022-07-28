@@ -784,7 +784,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| fpi.peer_info.clone())
+                .map(|fpi| fpi.full_peer_info.peer_info.clone())
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
