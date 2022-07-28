@@ -328,6 +328,12 @@ pub struct PeerInfoView {
     pub tracked_shards: Vec<ShardId>,
     pub archival: bool,
     pub peer_id: PublicKey,
+    pub received_bytes_per_sec: u64,
+    pub sent_bytes_per_sec: u64,
+    pub last_time_peer_requested_millis: u64,
+    pub last_time_received_message_millis: u64,
+    pub connection_established_time: u64,
+    pub is_outbound_peer: bool,
 }
 
 /// Information about a Producer: its account name, peer_id and a list of connected peers that

@@ -31,7 +31,7 @@ use near_network::types::{
     FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ConnectedPeerInfo};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -953,7 +953,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![FullPeerInfo {
+            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -962,7 +962,7 @@ fn client_sync_headers() {
                     archival: false,
                 },
                 partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            }],
+            })],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
