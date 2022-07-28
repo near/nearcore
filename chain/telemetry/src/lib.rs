@@ -12,11 +12,17 @@ use std::time::Duration;
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
     pub reporting_interval: near_primitives::time::Duration,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self { endpoints: vec![], reporting_interval: Duration::from_secs(10) }
+    }
 }
 
 /// Event to send over telemetry.
