@@ -106,6 +106,17 @@ fn test_view_call_with_args() {
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
 
+// helper function to avoid having to deal with large proof structs.
+fn make_children<'a>(
+    items: impl IntoIterator<Item = (usize, &'a str)>,
+) -> [Option<CryptoHash>; 16] {
+    let mut result = [None; 16];
+    for (idx, hash) in items {
+        result[idx] = Some(CryptoHash::from_str(hash).unwrap());
+    }
+    result
+}
+
 #[test]
 fn test_view_state() {
     // in order to ensure determinism under all conditions (compiler, build output, etc)
@@ -168,33 +179,11 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        Some(
-                            CryptoHash::from_str("DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L")
-                                .unwrap()
-                        ),
-                        None,
-                        Some(
-                            CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("FLxcnKrm7fPnZNdeVvybWtnQGBmyoUuXjhXmhq3NgNPa")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![
+                        (0, "DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L"),
+                        (2, "CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N"),
+                        (9, "FLxcnKrm7fPnZNdeVvybWtnQGBmyoUuXjhXmhq3NgNPa"),
+                    ]),
                     value: None,
                     memory_usage: 2558,
                     index: 9
@@ -203,30 +192,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        Some(
-                            CryptoHash::from_str("DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L")
-                                .unwrap()
-                        ),
-                        None,
-                        Some(
-                            CryptoHash::from_str("CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![
+                        (0, "DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L"),
+                        (2, "CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N"),
+                    ]),
                     value: None,
                     memory_usage: 2558,
                     index: 9
@@ -246,30 +215,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("HQRiU7i61GFKWtorr8RzY1QyQVJqX5hrytYqwhiyHZHd")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![
+                        (5, "GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR"),
+                        (9, "HQRiU7i61GFKWtorr8RzY1QyQVJqX5hrytYqwhiyHZHd"),
+                    ]),
                     value: None,
                     memory_usage: 724,
                     index: 9
@@ -278,27 +227,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![(
+                        5,
+                        "GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR"
+                    )]),
                     value: None,
                     memory_usage: 724,
                     index: 9
@@ -318,30 +250,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("5H3fJHA6jCZKnbFnkFDcuPDRbPdmiSgC4mR4jX4D5XD3")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
-                                .unwrap()
-                        ),
-                        None
-                    ],
+                    children: make_children(vec![
+                        (3, "5H3fJHA6jCZKnbFnkFDcuPDRbPdmiSgC4mR4jX4D5XD3"),
+                        (14, "EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
+                    ]),
                     value: None,
                     memory_usage: 507,
                     index: 3
@@ -350,27 +262,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
-                                .unwrap()
-                        ),
-                        None
-                    ],
+                    children: make_children(vec![(
+                        14,
+                        "EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP"
+                    )]),
                     value: None,
                     memory_usage: 507,
                     index: 3
@@ -390,30 +285,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        Some(
-                            CryptoHash::from_str("6kH6uEShmyoX7iGisy8nZxoYVNw6w8McqqDgXHct7J6X")
-                                .unwrap()
-                        ),
-                        None,
-                        Some(
-                            CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![
+                        (1, "6kH6uEShmyoX7iGisy8nZxoYVNw6w8McqqDgXHct7J6X"),
+                        (3, "7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
+                    ]),
                     value: None,
                     memory_usage: 268,
                     index: 1
@@ -422,27 +297,10 @@ fn test_view_state() {
             ),
             TrieProofItem::Branch(
                 TrieProofBranch {
-                    children: [
-                        None,
-                        None,
-                        None,
-                        Some(
-                            CryptoHash::from_str("7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
-                                .unwrap()
-                        ),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None
-                    ],
+                    children: make_children(vec![(
+                        3,
+                        "7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM"
+                    )]),
                     value: None,
                     memory_usage: 268,
                     index: 1
