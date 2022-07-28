@@ -248,9 +248,18 @@ impl From<&ConnectedPeerInfo> for PeerInfoView {
             peer_id: full_peer_info.peer_info.id.public_key().clone(),
             received_bytes_per_sec: connected_peer_info.received_bytes_per_sec,
             sent_bytes_per_sec: connected_peer_info.sent_bytes_per_sec,
-            last_time_peer_requested_millis: connected_peer_info.last_time_peer_requested.elapsed().whole_milliseconds() as u64,
-            last_time_received_message_millis: connected_peer_info.last_time_received_message.elapsed().whole_milliseconds() as u64,
-            connection_established_time: connected_peer_info.connection_established_time.elapsed().whole_milliseconds() as u64,
+            last_time_peer_requested_millis: connected_peer_info
+                .last_time_peer_requested
+                .elapsed()
+                .whole_milliseconds() as u64,
+            last_time_received_message_millis: connected_peer_info
+                .last_time_received_message
+                .elapsed()
+                .whole_milliseconds() as u64,
+            connection_established_time: connected_peer_info
+                .connection_established_time
+                .elapsed()
+                .whole_milliseconds() as u64,
             is_outbound_peer: connected_peer_info.peer_type == PeerType::Outbound,
         }
     }

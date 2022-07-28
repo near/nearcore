@@ -138,9 +138,9 @@ impl Network {
                 for peer in peers {
                     // TODO: rate limit per peer.
                     self_.rate_limiter.allow(&ctx).await?;
-                    self_
-                        .network_adapter
-                        .do_send(PeerManagerMessageRequest::NetworkRequests(new_req(peer.full_peer_info.clone())));
+                    self_.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        new_req(peer.full_peer_info.clone()),
+                    ));
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
                     ctx.wait(self_.request_timeout).await?;
                 }

@@ -28,10 +28,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
+    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
+use near_network::types::{
     FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ConnectedPeerInfo};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
