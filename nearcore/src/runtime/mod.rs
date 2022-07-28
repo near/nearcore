@@ -351,7 +351,6 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let genesis_hash = genesis.json_hash();
         let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
         if let Some(_hash) = stored_hash {
             // TODO: re-enable this check (#4447)
@@ -360,6 +359,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let genesis_hash = genesis.json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
@@ -542,7 +542,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Box::new(StoreCompiledContractCache { store: self.store.clone() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -634,7 +634,7 @@ impl NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
-            Some(Box::new(StoreCompiledContractCache { store: self.store.clone() }));
+            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -1956,7 +1956,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
         };
         self.trie_viewer.call_function(
             state_update,

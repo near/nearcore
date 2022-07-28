@@ -890,8 +890,8 @@ pub enum TransactionOrReceiptId {
 
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;
+    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> Result<(), std::io::Error>;
+    fn get(&self, key: &CryptoHash) -> Result<Option<Vec<u8>>, std::io::Error>;
 }
 
 /// Provides information about current epoch validators.
