@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use actix::{Addr, System};
+use near_chain::test_utils::ValidatorSchedule;
 use rand::{thread_rng, Rng};
 
 use crate::test_utils::setup_mock_all_validators;
@@ -50,7 +51,11 @@ fn test_consensus_with_epoch_switches() {
         .iter()
         .map(|l| l.iter().map(|account_id| account_id.parse().unwrap()).collect())
         .collect();
+        let vs =
+            ValidatorSchedule::new().num_shards(8).block_producers_per_epoch(validators.clone());
         let key_pairs = (0..24).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+        let archive = vec![true; vs.all_block_producers().count()];
+        let epoch_sync_enabled = vec![false; vs.all_block_producers().count()];
 
         let block_to_prev_block = Arc::new(RwLock::new(HashMap::new()));
         let block_to_height = Arc::new(RwLock::new(HashMap::new()));
@@ -65,17 +70,16 @@ fn test_consensus_with_epoch_switches() {
         let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs.clone(),
-            1,
             true,
             1000,
             false,
             false,
             4,
             true,
-            vec![true; validators.iter().map(|x| x.len()).sum()],
-            vec![false; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
