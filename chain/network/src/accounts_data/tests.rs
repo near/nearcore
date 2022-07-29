@@ -5,6 +5,7 @@ use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use near_network_primitives::time;
 use near_network_primitives::types::AccountKeys;
 use near_primitives::types::EpochId;
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner as _};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
@@ -23,7 +24,7 @@ async fn must_complete_should_panic() {
 
 struct Signer {
     epoch_id: EpochId,
-    signer: near_crypto::InMemorySigner,
+    signer: InMemoryValidatorSigner,
 }
 
 impl Signer {
@@ -32,7 +33,7 @@ impl Signer {
             rng,
             timestamp,
             self.epoch_id.clone(),
-            self.signer.account_id.clone(),
+            self.signer.validator_id().clone(),
         )
         .sign(&self.signer)
         .unwrap()
@@ -50,7 +51,10 @@ fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
 
 fn make_signers(rng: &mut Rng, n: usize) -> Vec<Signer> {
     (0..n)
-        .map(|_| Signer { epoch_id: data::make_epoch_id(rng), signer: data::make_signer(rng) })
+        .map(|_| Signer {
+            epoch_id: data::make_epoch_id(rng),
+            signer: data::make_validator_signer(rng),
+        })
         .collect()
 }
 
@@ -59,7 +63,10 @@ fn make_account_keys(signers: &[Signer]) -> Arc<AccountKeys> {
         signers
             .iter()
             .map(|s| {
-                ((s.epoch_id.clone(), s.signer.account_id.clone()), s.signer.public_key.clone())
+                (
+                    (s.epoch_id.clone(), s.signer.validator_id().clone()),
+                    s.signer.public_key().clone(),
+                )
             })
             .collect(),
     )
