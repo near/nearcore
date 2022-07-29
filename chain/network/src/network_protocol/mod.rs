@@ -35,8 +35,8 @@ use thiserror::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
-    addr: std::net::SocketAddr,
-    peer_id: Option<PeerId>,
+    pub addr: std::net::SocketAddr,
+    pub peer_id: Option<PeerId>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]

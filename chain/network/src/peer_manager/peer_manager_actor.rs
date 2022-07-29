@@ -186,6 +186,14 @@ impl NetworkState {
         addr.do_send(SendMessage { message, context: Span::current().context() });
         true
     }
+
+    pub fn is_tier1_account(&self, account_id: &AccountId) -> bool {
+        self.accounts_data.is_tier1(account_id)
+    }
+
+    pub fn get_peers_for_tier1_account(&self, account_id: &AccountId) -> Vec<PeerId> {
+        self.accounts_data.get_peers(account_id)
+    }
 }
 
 /// Actor that manages peers connections.
@@ -898,6 +906,13 @@ impl PeerManagerActor {
     /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
     /// been reached. This predicate should be evaluated AFTER the Handshake.
     fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+        //TODO: semantically, this is different, split into a separate fn
+        if let Some(account_id) = &peer_info.account_id {
+            if self.state.is_tier1_account(account_id) {
+                return true;
+            }
+        }
+
         self.whitelist_nodes
             .iter()
             .filter(|wn| wn.id == peer_info.id)
@@ -1333,6 +1348,18 @@ impl PeerManagerActor {
     /// Send message to specific account.
     /// Return whether the message is sent or not.
     fn send_message_to_account(&mut self, account_id: &AccountId, msg: RoutedMessageBody) -> bool {
+        // Fast path: for tier1 accounts we expect to have a direct connection.
+        for peer in self.state.get_peers_for_tier1_account(account_id) {
+            let msg = RawRoutedMessage {
+                target: AccountOrPeerIdOrHash::PeerId(peer.clone()),
+                body: msg.clone(),
+            };
+            let msg = self.sign_routed_message(msg, self.my_peer_id.clone());
+            if self.state.send_message(peer, PeerMessage::Routed(msg)) {
+                return true;
+            }
+        }
+
         let target = match self.routing_table_view.account_owner(account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {

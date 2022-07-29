@@ -28,6 +28,7 @@ use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use near_network_primitives::types::AccountKeys;
 use near_o11y::log_assert;
+use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -115,6 +116,16 @@ struct CacheInner {
 }
 
 impl CacheInner {
+    fn account_data(&self, account_id: &AccountId) -> Option<&SignedAccountData> {
+        // DO NOT MERGE: very slow
+        for ((_epoch, id), data) in &self.data {
+            if id == account_id {
+                return Some(data);
+            }
+        }
+        None
+    }
+
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)
@@ -145,6 +156,19 @@ impl Cache {
                 data: HashMap::new(),
             }),
         }
+    }
+
+    pub fn is_tier1(&self, account_id: &AccountId) -> bool {
+        self.inner.read().account_data(account_id).is_some()
+    }
+
+    pub fn get_peers(&self, account_id: &AccountId) -> Vec<PeerId> {
+        let inner = self.inner.read();
+        let data = match inner.account_data(account_id) {
+            Some(it) => it,
+            None => return Vec::new(),
+        };
+        data.peers.iter().flat_map(|it| it.peer_id.clone()).collect()
     }
 
     /// Updates the set of important accounts and their public keys.
