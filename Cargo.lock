@@ -2805,6 +2805,7 @@ name = "near-chain"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "assert_matches",
  "borsh",
  "chrono",

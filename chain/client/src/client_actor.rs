@@ -14,7 +14,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::ValidatorInfoIdentifier;
@@ -727,18 +727,12 @@ impl Handler<Status> for ClientActor {
                 ),
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
-                orphans: self.client.chain.orphans().list_orphans_by_height(),
-                blocks_with_missing_chunks: self
-                    .client
-                    .chain
-                    .blocks_with_missing_chunks
-                    .list_blocks_by_height(),
                 block_production_delay_millis: self
                     .client
                     .config
                     .min_block_production_delay
                     .as_millis() as u64,
-                chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
+                chain_processing_info: self.client.chain.get_chain_processing_info(),
             })
         } else {
             None
@@ -1793,7 +1787,7 @@ impl ClientActor {
             statistics,
             &self.client.config,
         );
-        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
+        debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
     }
 }
 

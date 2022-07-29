@@ -44,7 +44,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -313,19 +313,6 @@ impl OrphanBlockPool {
         res
     }
 
-    pub fn list_orphans_by_height(&self) -> Vec<BlockStatusView> {
-        let mut rtn = Vec::new();
-        for (height, orphans) in &self.height_idx {
-            rtn.push(
-                orphans
-                    .iter()
-                    .map(|orphan| BlockStatusView::new(&height, &orphan))
-                    .collect::<Vec<_>>(),
-            );
-        }
-        rtn.into_iter().flatten().collect()
-    }
-
     /// Returns true if the block has not been requested yet and the number of orphans
     /// for which we have requested missing chunks have not exceeded MAX_ORPHAN_MISSING_CHUNKS
     fn can_request_missing_chunks_for_orphan(&self, block_hash: &CryptoHash) -> bool {
@@ -343,7 +330,6 @@ pub struct BlockMissingChunks {
     /// previous block hash
     pub prev_hash: CryptoHash,
     pub missing_chunks: Vec<ShardChunkHeader>,
-    pub block_hash: CryptoHash,
 }
 
 /// Contains information needed to request chunks for orphans
@@ -356,8 +342,6 @@ pub struct OrphanMissingChunks {
     /// this is used as an argument for `request_chunks_for_orphan`
     /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is used for
     pub ancestor_hash: CryptoHash,
-    // Block hash that was requesting this chunk.
-    pub requestor_block_hash: CryptoHash,
 }
 
 /// Provides view on the current chain state
@@ -1929,7 +1913,6 @@ impl Chain {
                         block_processing_artifact.blocks_missing_chunks.push(BlockMissingChunks {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks: missing_chunks.clone(),
-                            block_hash,
                         });
                         let time = Clock::instant();
                         self.blocks_delay_tracker.mark_block_has_missing_chunks(block.hash(), time);
@@ -2075,6 +2058,8 @@ impl Chain {
                 .saturating_duration_since(block_start_processing_time.clone())
                 .as_secs_f64(),
         );
+        self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
+
         timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
@@ -2087,7 +2072,7 @@ impl Chain {
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
         // Block status is needed in Client::on_block_accepted to decide to how to update the tx pool.
-        let block_status = self.determine_status(new_head.clone(), prev_head);
+        let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
 
@@ -2321,7 +2306,6 @@ impl Chain {
                                         missing_chunks,
                                         epoch_id,
                                         ancestor_hash: block_hash,
-                                        requestor_block_hash: *orphan.header().hash(),
                                     })
                                 }
                                 _ => None,
@@ -4130,6 +4114,11 @@ impl Chain {
         self.blocks_with_missing_chunks.len()
     }
 
+    #[inline]
+    pub fn blocks_in_processing_len(&self) -> usize {
+        self.blocks_in_processing.len()
+    }
+
     /// Returns number of evicted orphans.
     #[inline]
     pub fn orphans_evicted_len(&self) -> usize {
@@ -4146,6 +4135,12 @@ impl Chain {
     #[inline]
     pub fn is_chunk_orphan(&self, hash: &CryptoHash) -> bool {
         self.blocks_with_missing_chunks.contains(hash)
+    }
+
+    /// Check if hash is for a block that is being processed
+    #[inline]
+    pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
+        self.blocks_in_processing.contains(hash)
     }
 
     /// Check if can sync with sync_hash
