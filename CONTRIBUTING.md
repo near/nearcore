@@ -51,7 +51,7 @@ If your PR introduces a new protocol feature, please document it in [CHANGELOG.m
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within one business day.  Please see [code review process](code review process) for how we conduct code reviews.
+2. Once the CI passes, you should expect the first feedback to appear within one business day.  Please see the [code review process](#code-review-process) section for how we conduct code reviews.
 3. When all the comments have been addressed and all the reviewers are satisfied, they will approve your PR.  You can now add the `S-automerge` label on it to instruct Github to merge the PR.
 
 ## Proposing new ideas and features
