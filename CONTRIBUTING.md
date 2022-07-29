@@ -51,11 +51,7 @@ If your PR introduces a new protocol feature, please document it in [CHANGELOG.m
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within one business day.
-   One code owner (chosen in a round robin order for the codeowner list) will first review your pull request.
-   They may re-assign the pull request to another person if they feel that they don't have sufficient expertise to review the pull request.
-   The reviewers will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
-   If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
+2. Once the CI passes, you should expect the first feedback to appear within one business day.  Please see [code review process](code review process) for how we conduct code reviews.
 3. When all the comments have been addressed and all the reviewers are satisfied, they will approve your PR.  You can now add the `S-automerge` label on it to instruct Github to merge the PR.
 
 ## Proposing new ideas and features
@@ -63,6 +59,18 @@ If your PR introduces a new protocol feature, please document it in [CHANGELOG.m
 If you want to propose an idea or a feature and work on it, create a new issue in the `nearcore` repository. We presently do not have an issue template.
 
 You should expect someone to comment on the issue within 48 hours after it is created. If the proposal in the issue is accepted, you should then follow the process for `Working on current tasks` above.
+
+# Code review process
+
+We have two groups of code reviewers:  Super owners and normal owners.  When a PR is created:
+
+- a super owner will be automatically assigned to review.
+- they might choose to review themself or delegate to someone else who belongs either to the super owners or the normal owners group.
+- the delegate will perform the review and as needed engage other reviewers as well.  They will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
+
+The author is also free to directly request reviews from specific persons [through the github ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).  In this case, a super owner will still be asked to review the PR and their job will be to check if the already reviewer is sufficient or additional reviewers are needed.
+
+If you are interested in becoming a code reviewer, please get in touch with us on zulip.
 
 # Build Process
 
