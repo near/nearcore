@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use near_primitives::types::{AccountId, NumShards};
 
 /// Validator schedule describes how block and chunk producers are selected by
@@ -11,7 +13,6 @@ use near_primitives::types::{AccountId, NumShards};
 #[derive(Clone)]
 pub struct ValidatorSchedule {
     pub(super) block_producers: Vec<Vec<AccountId>>,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub(super) chunk_only_producers: Vec<Vec<Vec<AccountId>>>,
     pub(super) validator_groups: u64,
     pub(super) num_shards: NumShards,
@@ -21,7 +22,6 @@ impl ValidatorSchedule {
     pub fn new() -> Self {
         Self {
             block_producers: Vec::new(),
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
             chunk_only_producers: Vec::new(),
             validator_groups: 1,
             num_shards: 1,
@@ -32,6 +32,7 @@ impl ValidatorSchedule {
     /// Conceptually, this "loops around" when `epoch_id >= block_producers.len()`
     pub fn block_producers_per_epoch(mut self, block_producers: Vec<Vec<AccountId>>) -> Self {
         self.block_producers = block_producers;
+        self.sanity_check();
         self
     }
 
@@ -47,6 +48,7 @@ impl ValidatorSchedule {
         chunk_only_producers: Vec<Vec<Vec<AccountId>>>,
     ) -> Self {
         self.chunk_only_producers = chunk_only_producers;
+        self.sanity_check();
         self
     }
 
@@ -65,5 +67,27 @@ impl ValidatorSchedule {
 
     pub fn all_block_producers(&self) -> impl Iterator<Item = &AccountId> {
         self.block_producers.iter().flatten()
+    }
+
+    pub fn all_validators(&self) -> impl Iterator<Item = &AccountId> {
+        self.all_block_producers().chain(self.chunk_only_producers.iter().flatten().flatten())
+    }
+
+    fn sanity_check(&self) {
+        let mut block_producers = HashSet::new();
+        for bp in self.block_producers.iter().flatten() {
+            if !block_producers.insert(bp) {
+                panic!("block producer {bp} is specified twice")
+            }
+        }
+        let mut chunk_only_producers = HashSet::new();
+        for cop in self.chunk_only_producers.iter().flatten().flatten() {
+            if !chunk_only_producers.insert(cop) {
+                panic!("chunk only producer {cop} is specified twice")
+            }
+        }
+        if let Some(v) = block_producers.intersection(&chunk_only_producers).next() {
+            panic!("{v} is both a block and a chunk only producer")
+        }
     }
 }
