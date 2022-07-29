@@ -387,6 +387,7 @@ pub struct ChainProcessingInfo {
     pub num_blocks_in_processing: usize,
     pub num_orphans: usize,
     pub num_blocks_missing_chunks: usize,
+    /// contains processing info of recent blocks, ordered by height high to low
     pub blocks_info: Vec<BlockProcessingInfo>,
 }
 

@@ -10,7 +10,7 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem;
 use std::time::Instant;
 use tracing::error;
@@ -19,9 +19,9 @@ use crate::{metrics, Chain, ChainStoreAccess};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
-/// Provides monitoring information about the important timestamps throughout the lifetime of
-/// blocks and chunks. It keeps information of recent blocks (blocks with height > head height -
-/// BLOCK_DELAY_TRACKING_HORIZON).
+/// A centralized place that records monitoring information about the important timestamps throughout
+/// the lifetime of blocks and chunks. It keeps information of recent blocks and chunks
+/// (blocks with height > head height - BLOCK_DELAY_TRACKING_HORIZON).
 /// A block is added the first time when chain tries to process the block. Note that this means
 /// the block already passes a few checks in ClientActor and in Client before it enters the chain
 /// code. For example, client actor checks that the block must be within head_height + BLOCK_HORIZON (500),
@@ -34,8 +34,10 @@ pub struct BlocksDelayTracker {
     // Maps block height to block hash. Used for gc.
     // Theoretically, each block height should only have one block, if our work works correctly.
     blocks_height_map: BTreeMap<BlockHeight, Vec<CryptoHash>>, // Chunks that belong to the blocks in the tracker
+    // Chunk stats
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
-    //floating_chunks: HashMap<ChunkHash>,
+    // Chunks that we don't know which block it belongs to yet
+    floating_chunks: HashSet<ChunkHash>,
     head_height: BlockHeight,
 }
 
@@ -66,8 +68,6 @@ pub struct ChunkTrackingStats {
     pub requested_timestamp: Option<Instant>,
     /// Timestamp of when the node receives all information it needs for this chunk
     pub completed_timestamp: Option<Instant>,
-    /// Blocks that include this chunk, note that a chunk could be included by multiple blocks
-    pub blocks: Vec<CryptoHash>,
 }
 
 impl ChunkTrackingStats {
@@ -94,12 +94,12 @@ impl BlocksDelayTracker {
                 .iter()
                 .map(|chunk| {
                     if chunk.height_included() == height {
-                        let chunk_stats = self
-                            .chunks
-                            .entry(chunk.chunk_hash())
+                        let chunk_hash = chunk.chunk_hash();
+                        self.chunks
+                            .entry(chunk_hash.clone())
                             .or_insert(ChunkTrackingStats::default());
-                        chunk_stats.blocks.push(*block_hash);
-                        Some(chunk.chunk_hash())
+                        self.floating_chunks.remove(&chunk_hash);
+                        Some(chunk_hash)
                     } else {
                         None
                     }
@@ -156,16 +156,22 @@ impl BlocksDelayTracker {
 
     pub fn mark_chunk_completed(&mut self, chunk_hash: ChunkHash, timestamp: Instant) {
         self.chunks
-            .entry(chunk_hash)
-            .or_insert(ChunkTrackingStats::default())
+            .entry(chunk_hash.clone())
+            .or_insert_with(|| {
+                self.floating_chunks.insert(chunk_hash);
+                ChunkTrackingStats::default()
+            })
             .completed_timestamp
             .get_or_insert(timestamp);
     }
 
     pub fn mark_chunk_requested(&mut self, chunk_hash: ChunkHash, timestamp: Instant) {
         self.chunks
-            .entry(chunk_hash)
-            .or_insert(ChunkTrackingStats::default())
+            .entry(chunk_hash.clone())
+            .or_insert_with(|| {
+                self.floating_chunks.insert(chunk_hash);
+                ChunkTrackingStats::default()
+            })
             .requested_timestamp
             .get_or_insert(timestamp);
     }
@@ -326,6 +332,7 @@ impl Chain {
             .blocks_delay_tracker
             .blocks_height_map
             .iter()
+            .rev()
             .flat_map(|(height, hashes)| {
                 hashes
                     .iter()
