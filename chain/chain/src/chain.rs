@@ -483,14 +483,11 @@ impl Drop for Chain {
     }
 }
 impl Chain {
-    pub fn new_for_view_client(
+    pub fn make_genesis_block(
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-        save_trie_changes: bool,
-    ) -> Result<Chain, Error> {
-        let (store, state_roots) = runtime_adapter.genesis_state();
-        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
+    ) -> Result<Block, Error> {
+        let (_, state_roots) = runtime_adapter.genesis_state();
         let genesis_chunks = genesis_chunks(
             state_roots,
             runtime_adapter.num_shards(&EpochId::default())?,
@@ -498,7 +495,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
-        let genesis = Block::genesis(
+        Ok(Block::genesis(
             chain_genesis.protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
             chain_genesis.time,
@@ -511,7 +508,18 @@ impl Chain {
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
-        );
+        ))
+    }
+
+    pub fn new_for_view_client(
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        chain_genesis: &ChainGenesis,
+        doomslug_threshold_mode: DoomslugThresholdMode,
+        save_trie_changes: bool,
+    ) -> Result<Chain, Error> {
+        let (store, _) = runtime_adapter.genesis_state();
+        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
+        let genesis = Self::make_genesis_block(runtime_adapter.clone(), chain_genesis)?;
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,

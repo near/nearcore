@@ -1,5 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
+use crate::peer::peer_actor;
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
@@ -48,10 +49,20 @@ async fn test_peer_communication(
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
 
+    // TODO(gprusak): In proto encoding SyncAccountsData exchange is part of the handshake.
+    // As a workaround, in borsh encoding an empty RoutingTableUpdate is sent.
+    // Once borsh support is removed, the initial SyncAccountsData should be consumed in
+    // complete_handshake.
+    let filter = |ev| match ev {
+        Event::Peer(peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
+        Event::RoutingTable(_) => None,
+        ev => Some(ev),
+    };
+
     // RequestUpdateNonce
     let want = data::make_partial_edge(&mut rng);
     outbound.send(PeerMessage::RequestUpdateNonce(want.clone())).await;
-    let got = inbound.events.recv().await;
+    let got = inbound.events.recv_until(filter).await;
     assert_eq!(Event::RequestUpdateNonce(want), got);
 
     // ReponseUpdateNonce
@@ -65,7 +76,7 @@ async fn test_peer_communication(
     // This test is different from the rest, because we cannot skip sending the response back.
     let want = inbound.cfg.peers.clone();
     outbound.send(PeerMessage::PeersRequest).await;
-    assert_eq!(Event::PeersResponse(want), outbound.events.recv().await);
+    assert_eq!(Event::PeersResponse(want), outbound.events.recv_until(filter).await);
 
     // BlockRequest
     let want = chain.blocks[5].hash().clone();
@@ -204,7 +215,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
         sender_listen_port: Some(outbound.local_addr.port()),
-        sender_chain_info: outbound_cfg.chain.get_info(),
+        sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
@@ -238,7 +249,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     );
 
     // Send a correct Handshake, expect a matching Handshake response.
-    handshake.sender_chain_info = chain.get_info();
+    handshake.sender_chain_info = chain.get_peer_chain_info();
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
     let resp = outbound.read().await;
     assert_matches!(resp, PeerMessage::Handshake(_));

@@ -49,6 +49,19 @@ pub trait ValidatorSigner: Sync + Send {
         epoch_id: &EpochId,
     ) -> Signature;
 
+    /// Signs a proto-serialized AccountKeyPayload (see
+    /// chain/network/src/network_protocol/network.proto).
+    /// Making it typesafe would require moving the definition of
+    /// AccountKeyPayload proto to this crate to avoid a dependency cycle,
+    /// so for now we are just signing an already-serialized byte sequence.
+    /// We are serializing a proto rather than borsh here (as an experiment,
+    /// to allow the network protocol to evolve faster than on-chain stuff),
+    /// but we can always revert that decision, because these signatures are
+    /// used only for networking purposes and are not persisted on chain.
+    /// Moving to proto serialization for stuff stored on chain would be way
+    /// harder.
+    fn sign_account_key_payload(&self, proto_bytes: &[u8]) -> Signature;
+
     fn compute_vrf_with_proof(
         &self,
         data: &[u8],
@@ -108,6 +121,10 @@ impl ValidatorSigner for EmptyValidatorSigner {
         _peer_id: &PeerId,
         _epoch_id: &EpochId,
     ) -> Signature {
+        Signature::default()
+    }
+
+    fn sign_account_key_payload(&self, _proto_bytes: &[u8]) -> Signature {
         Signature::default()
     }
 
@@ -199,6 +216,10 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     ) -> Signature {
         let hash = AnnounceAccount::build_header_hash(account_id, peer_id, epoch_id);
         self.signer.sign(hash.as_ref())
+    }
+
+    fn sign_account_key_payload(&self, proto_bytes: &[u8]) -> Signature {
+        self.signer.sign(proto_bytes)
     }
 
     fn compute_vrf_with_proof(

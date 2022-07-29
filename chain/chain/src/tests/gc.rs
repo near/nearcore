@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::chain::Chain;
-use crate::test_utils::KeyValueRuntime;
+use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use crate::types::{ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
 
@@ -26,17 +26,10 @@ fn get_chain_with_epoch_length_and_num_shards(
 ) -> Chain {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::test();
-    let validators = vec![vec!["test1"]];
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        validators
-            .into_iter()
-            .map(|inner| inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect())
-            .collect(),
-        1,
-        num_shards,
-        epoch_length,
-    ));
+    let vs = ValidatorSchedule::new()
+        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
+        .num_shards(num_shards);
+    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
     Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true).unwrap()
 }
 

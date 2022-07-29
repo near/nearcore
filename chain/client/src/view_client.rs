@@ -1,6 +1,7 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
 use std::cmp::Ordering;
@@ -9,7 +10,6 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use tracing::{debug, error, info, trace, warn};
 
 use near_chain::types::ValidatorInfoIdentifier;
@@ -35,7 +35,7 @@ use near_network_primitives::types::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
-use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
@@ -45,8 +45,8 @@ use near_primitives::syncing::{
     ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    MaybeBlockId, ShardId, TransactionOrReceiptId,
+    AccountId, BlockId, BlockReference, EpochId, EpochReference, Finality, MaybeBlockId, ShardId,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -480,14 +480,6 @@ impl ViewClientActor {
                 &announce_account.signature,
             )
             .map_err(|e| e.into())
-    }
-
-    fn get_height(&self, head: &Tip) -> BlockHeight {
-        if let Some(height) = self.adv.sync_height() {
-            height
-        } else {
-            head.height
-        }
     }
 
     fn check_state_sync_request(&self) -> bool {
@@ -1129,55 +1121,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::NoResponse
                 }
             }
-            NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
-                Ok(head) => {
-                    match self.runtime_adapter.num_shards(&head.epoch_id) {
-                        Ok(num_shards) => {
-                            // convert config tracked shards
-                            // runtime will track all shards if config tracked shards is not empty
-                            // https://github.com/near/nearcore/issues/4930
-                            let tracked_shards = if self.config.tracked_shards.is_empty() {
-                                vec![]
-                            } else {
-                                (0..num_shards).collect()
-                            };
-                            NetworkViewClientResponses::ChainInfo {
-                                genesis_id: GenesisId {
-                                    chain_id: self.config.chain_id.clone(),
-                                    hash: *self.chain.genesis().hash(),
-                                },
-                                height: self.get_height(&head),
-                                tracked_shards,
-                                archival: self.config.archive,
-                            }
-                        }
-                        Err(err) => {
-                            error!(target: "view_client", "Cannot retrieve num shards: {}", err);
-                            NetworkViewClientResponses::ChainInfo {
-                                genesis_id: GenesisId {
-                                    chain_id: self.config.chain_id.clone(),
-                                    hash: *self.chain.genesis().hash(),
-                                },
-                                height: self.get_height(&head),
-                                tracked_shards: self.config.tracked_shards.clone(),
-                                archival: self.config.archive,
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    error!(target: "view_client", "Cannot retrieve chain head: {}", err);
-                    NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId {
-                            chain_id: self.config.chain_id.clone(),
-                            hash: *self.chain.genesis().hash(),
-                        },
-                        height: self.chain.genesis().height(),
-                        tracked_shards: self.config.tracked_shards.clone(),
-                        archival: self.config.archive,
-                    }
-                }
-            },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
                 if !self.check_state_sync_request() {
                     return NetworkViewClientResponses::NoResponse;
@@ -1319,12 +1262,26 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         Ok(true) => {
                             filtered_announce_accounts.push(announce_account);
                         }
+                        // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
+                        // according to BlockInfo for the current chain tip. It is unfair,
+                        // given that peers do not have perfectly synchronized heads:
+                        // - AFAIU each block can introduce a slashed account, so the announcement
+                        //   could be OK at the moment that peer has sent it out.
+                        // - the current epoch_id is not related to announce_account.epoch_id,
+                        //   so it carry a perfectly valid (outdated) information.
                         Ok(false) => {
                             return NetworkViewClientResponses::Ban {
                                 ban_reason: ReasonForBan::InvalidSignature,
                             };
                         }
-                        // Filter this account
+                        // Filter out this account. This covers both good reasons to ban the peer:
+                        // - signature didn't match the data and public_key.
+                        // - account is not a validator for the given epoch
+                        // and cases when we were just unable to validate the data (so we shouldn't
+                        // ban), for example when the node is not aware of the public key for the given
+                        // (account_id,epoch_id) pair.
+                        // We currently do NOT ban the peer for either.
+                        // TODO(gprusak): consider whether we should change that.
                         Err(e) => {
                             debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
                         }
