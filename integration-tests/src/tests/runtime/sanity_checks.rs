@@ -2,7 +2,7 @@ use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -61,12 +61,12 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
             TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
-    assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(tx_result.receipts_outcome.len(), 2);
 
     let tx_result =
         node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
-    assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(tx_result.receipts_outcome.len(), 1);
 
     node
@@ -125,7 +125,7 @@ fn test_cost_sanity() {
             0,
         )
         .unwrap();
-    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
     let receipts_status = get_receipts_status_with_clear_hash(&res.receipts_outcome);
@@ -176,7 +176,7 @@ fn test_cost_sanity_nondeterministic() {
         .user()
         .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
         .unwrap();
-    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
 
     let receipts_status = get_receipts_status_with_clear_hash(&res.receipts_outcome);
@@ -219,7 +219,7 @@ fn test_sanity_used_gas() {
 
     let num_return_values = 4;
     let returned_bytes = match res.status {
-        FinalExecutionStatus::SuccessValue(v) => from_base64(&v).unwrap(),
+        FinalExecutionStatus::SuccessValue(v) => v,
         _ => panic!("Unexpected status: {:?}", res.status),
     };
     assert_eq!(returned_bytes.len(), num_return_values * size_of::<u64>());
