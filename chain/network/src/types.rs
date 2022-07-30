@@ -1,6 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, ParsePeerMessageError, PeerMessage,
+    RoutingTableUpdate,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;

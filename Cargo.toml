@@ -47,6 +47,7 @@ members = [
     "tools/delay_detector",
     "tools/indexer/example",
     "tools/mock_node",
+    "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
