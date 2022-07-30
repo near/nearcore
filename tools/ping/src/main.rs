@@ -1,232 +1,145 @@
 use anyhow::Context;
 use clap::Parser;
-use near_network_primitives::types::PeerInfo;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
-use near_primitives::types::BlockHeight;
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use near_crypto::PublicKey;
+use std::io::BufRead;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
-use near_primitives::version::PROTOCOL_VERSION;
 
 #[derive(Parser)]
 struct Cli {
+    /// Path to near home directory with the same chain as the peers we're trying to connect to
     #[clap(long)]
-    chain_id: String,
+    home: PathBuf,
+    /// Path to a  list of public key@socket addr pairs to connect to
+    /// e.g.:
+    /// $ cat peers.txt
+    /// ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e,127.0.0.1:24568
+    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX,127.0.0.1:24567
     #[clap(long)]
-    /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
-    genesis_hash: Option<String>,
-    #[clap(long)]
-    /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
-    head_height: Option<u64>,
-    /// node public key and socket address in the format {pub key}@{socket addr}. e.g.:
-    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
-    #[clap(long)]
-    peer: String,
-    /// ttl to set on our Routed messages
-    #[clap(long, default_value = "100")]
-    ttl: u8,
-    /// milliseconds to wait between sending pings
-    #[clap(long, default_value = "1000")]
-    ping_frequency_millis: u64,
-    /// line-separated list of accounts to filter on.
-    /// We will only try to send pings to these accounts
-    #[clap(long)]
-    account_filter_file: Option<PathBuf>,
-    /// filename to append CSV data to
-    #[clap(long)]
-    latencies_csv_file: Option<PathBuf>,
-    /// Pushgateway address, e.g. http://127.0.0.1:9091
-    #[clap(long)]
-    metrics_gateway_address: Option<String>,
+    peers_file: PathBuf,
+    /// Number of ping messages to try to send
+    #[clap(long, default_value = "20")]
+    num_pings: usize,
 }
 
-fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
-    let mut acc_width = "account".len();
-    for (peer, _) in stats.iter() {
-        acc_width = std::cmp::max(acc_width, format!("{}", peer).len());
+fn stats_error(stats: &ping::PingStats) -> String {
+    match &stats.error {
+        Some(e) => format!("{:?}", e),
+        None => String::from("operation not completed"),
     }
-    // the ones that never responded should end up at the top with this sorting, which is a
-    // little weird, but we can fix it later.
-    stats.sort_by(|(_, left), (_, right)| left.average_latency.cmp(&right.average_latency));
+}
+
+fn display_stats(stats: &[(SocketAddr, ping::PingStats)]) {
+    let mut num_conns = 0;
+    let mut num_conns_attempted = 0;
+    let mut num_handshakes = 0;
+    let mut num_handshakes_attempted = 0;
+
+    for (_addr, stats) in stats.iter() {
+        num_conns_attempted += 1;
+        if stats.connect_latency.is_some() {
+            num_conns += 1;
+            num_handshakes_attempted += 1;
+        }
+        if stats.handshake_latency.is_some() {
+            num_handshakes += 1;
+        }
+    }
+
+    if num_conns == num_handshakes && num_conns_attempted == num_handshakes_attempted {
+        println!("{} / {} successful connections", num_conns, num_conns_attempted);
+    } else {
+        println!(
+            "{} / {} successful connections, {} / {} successful handshakes",
+            num_conns, num_conns_attempted, num_handshakes, num_handshakes_attempted
+        );
+    }
+
     println!(
-        "{:<acc_width$} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
-        "account",
+        "{:<18} | {:<16} | {:<17} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
+        "addr",
+        "connect latency",
+        "handshake latency",
         "num pings",
         "num pongs",
         "min ping latency",
         "max ping latency",
         "avg ping latency"
     );
-    for (peer, stats) in stats.iter() {
-        if stats.pings_sent == 0 {
-            continue;
+    for (addr, stats) in stats.iter() {
+        if stats.connect_latency.is_none() {
+            println!("{:<18} | Failed to connect: {:?}", addr, stats_error(stats));
+        } else if stats.handshake_latency.is_none() {
+            println!(
+                "{:<18} | {:<10?} | handshake failed: {:?}",
+                addr,
+                stats.connect_latency.unwrap(),
+                stats_error(stats)
+            );
+        } else {
+            println!(
+                "{:<18} | {:<16?} | {:<17?} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}",
+                addr,
+                stats.connect_latency.unwrap(),
+                stats.handshake_latency.unwrap(),
+                stats.pings_sent,
+                stats.pongs_received,
+                stats.min_latency,
+                stats.max_latency,
+                stats.average_latency
+            );
         }
-        println!(
-            "{:<acc_width$} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
-            peer,
-            stats.pings_sent,
-            stats.pongs_received,
-            stats.min_latency,
-            stats.max_latency,
-            stats.average_latency,
-            if peer_id == &peer.peer_id { " <-------------- direct pings" } else { "" }
-        );
     }
 }
 
-struct ChainInfo {
-    chain_id: &'static str,
-    genesis_hash: CryptoHash,
-    head_height: BlockHeight,
-}
-
-static CHAIN_INFO: &[ChainInfo] = &[
-    ChainInfo {
-        chain_id: "mainnet",
-        genesis_hash: CryptoHash([
-            198, 253, 249, 28, 142, 130, 248, 249, 23, 204, 25, 117, 233, 222, 28, 100, 190, 17,
-            137, 158, 50, 29, 253, 245, 254, 188, 251, 183, 49, 63, 20, 134,
-        ]),
-        head_height: 71112469,
-    },
-    ChainInfo {
-        chain_id: "testnet",
-        genesis_hash: CryptoHash([
-            215, 132, 218, 90, 158, 94, 102, 102, 133, 22, 193, 154, 128, 149, 68, 143, 197, 74,
-            34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,
-        ]),
-        head_height: 96446588,
-    },
-    ChainInfo {
-        chain_id: "shardnet",
-        genesis_hash: CryptoHash([
-            23, 22, 21, 53, 29, 32, 253, 218, 219, 182, 221, 220, 200, 18, 11, 102, 161, 16, 96,
-            127, 219, 141, 160, 109, 150, 121, 215, 174, 108, 67, 47, 110,
-        ]),
-        head_height: 1622527,
-    },
-];
-
-fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<AccountId>> {
-    let f = File::open(filename.as_ref())?;
-    let mut reader = BufReader::new(f);
+// tries to parse a list of public key@socket addr pairs
+// TODO: add an option to read the peers from the DB and just use those?
+fn parse_peers<P: AsRef<std::path::Path>>(
+    peers_file: P,
+) -> anyhow::Result<Vec<(PublicKey, SocketAddr)>> {
+    let f = std::fs::File::open(peers_file)?;
+    let mut reader = std::io::BufReader::new(f);
     let mut line = String::new();
+    let mut peers = Vec::new();
+
     let mut line_num = 1;
-    let mut filter = HashSet::new();
     loop {
         if reader.read_line(&mut line)? == 0 {
             break;
         }
-        let acc = line.trim().trim_matches('"');
-        if acc.len() == 0 {
+        if line.chars().all(|c| c.is_whitespace()) {
             continue;
         }
-        match AccountId::from_str(acc) {
-            Ok(a) => {
-                filter.insert(a);
-            }
-            Err(e) => {
-                tracing::warn!(target: "ping", "Could not parse account {} on line {}: {:?}", &line, line_num, e);
-            }
+        let toks = line.split("@").collect::<Vec<_>>();
+        if toks.len() != 2 {
+            anyhow::bail!("Invalid line {}:\n{}", line_num, &line);
         }
+        let public_key = PublicKey::from_str(toks[0].trim())
+            .with_context(|| format!("can't parse public key from {}", toks[0]))?;
+        let addr = SocketAddr::from_str(toks[1].trim())
+            .with_context(|| format!("can't parse socket addr from {}", toks[1]))?;
+        peers.push((public_key, addr));
+
         line.clear();
         line_num += 1;
     }
-    if filter.is_empty() {
-        tracing::warn!(target: "ping", "No accounts parsed from {:?}. Only sending direct pings.", filename.as_ref());
-    }
-    Ok(filter)
+    Ok(peers)
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
-    println!("Protocol version: {}", PROTOCOL_VERSION);
 
     let _subscriber = near_o11y::default_subscriber(
-        near_o11y::EnvFilterBuilder::new(std::env::var("RUST_LOG").unwrap_or("info".to_string()))
-            .finish()
-            .unwrap(),
+        near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
         &Default::default(),
     )
     .await
     .global();
 
-    let mut chain_info = None;
-    for info in CHAIN_INFO.iter() {
-        if &info.chain_id == &args.chain_id {
-            chain_info = Some(info);
-            break;
-        }
-    }
-
-    let genesis_hash = if let Some(h) = &args.genesis_hash {
-        match CryptoHash::from_str(&h) {
-            Ok(h) => h,
-            Err(e) => {
-                anyhow::bail!("Could not parse --genesis-hash {}: {:?}", &h, e)
-            }
-        }
-    } else {
-        match chain_info {
-            Some(chain_info) => chain_info.genesis_hash,
-            None => anyhow::bail!(
-                "--genesis-hash not given, and genesis hash for --chain-id {} not known",
-                &args.chain_id
-            ),
-        }
-    };
-    let head_height = if let Some(h) = &args.head_height {
-        *h
-    } else {
-        match chain_info {
-            Some(chain_info) => chain_info.head_height,
-            None => anyhow::bail!(
-                "--head-height not given, and genesis hash for --chain-id {} not known",
-                &args.chain_id
-            ),
-        }
-    };
-
-    let peer = match PeerInfo::from_str(&args.peer) {
-        Ok(p) => p,
-        Err(e) => anyhow::bail!("Could not parse --peer {}: {:?}", &args.peer, e),
-    };
-    if peer.addr.is_none() {
-        anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
-    }
-    let filter = if let Some(filename) = &args.account_filter_file {
-        Some(parse_account_filter(filename)?)
-    } else {
-        None
-    };
-    let csv = if let Some(filename) = &args.latencies_csv_file {
-        Some(
-            ping::csv::LatenciesCsv::open(filename)
-                .with_context(|| format!("Couldn't open latencies CSV file at {:?}", filename))?,
-        )
-    } else {
-        None
-    };
-    let mut stats = ping::ping_via_node(
-        &args.chain_id,
-        genesis_hash,
-        head_height,
-        peer.id.clone(),
-        peer.addr.clone().unwrap(),
-        args.ttl,
-        args.ping_frequency_millis,
-        filter,
-        csv,
-        args.metrics_gateway_address,
-    )
-    .await;
-    display_stats(&mut stats, &peer.id);
+    let peers = parse_peers(&args.peers_file)?;
+    let stats = ping::ping_nodes(&args.home, peers, args.num_pings).await?;
+    display_stats(&stats);
     Ok(())
 }

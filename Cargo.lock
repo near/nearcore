@@ -4240,21 +4240,17 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
- "chrono",
  "clap 3.1.18",
  "futures",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
- "once_cell",
- "prometheus",
  "tokio",
  "tracing",
 ]
@@ -4384,11 +4380,9 @@ dependencies = [
  "cfg-if 1.0.0",
  "fnv",
  "lazy_static",
- "libc",
  "memchr",
  "parking_lot 0.12.1",
  "protobuf 2.27.1",
- "reqwest",
  "thiserror",
 ]
 
