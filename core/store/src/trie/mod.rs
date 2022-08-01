@@ -11,10 +11,8 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_proof::{
-    TrieProofBranch, TrieProofExtension, TrieProofItem, TrieProofLeaf,
-};
 use near_primitives::types::{StateRoot, StateRootNode};
+use serde::Serialize;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -255,9 +253,9 @@ impl TrieNode {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize, BorshSerialize)]
 #[allow(clippy::large_enum_variant)]
-enum RawTrieNode {
+pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -780,28 +778,24 @@ impl Trie {
         &self,
         root: &CryptoHash,
         key: &[u8],
-    ) -> Result<(bool, Vec<TrieProofItem>), StorageError> {
+    ) -> Result<(bool, Vec<RawTrieNode>), StorageError> {
         let mut key = NibbleSlice::new(key);
         let mut hash = *root;
         if hash == Trie::empty_root() {
             return Ok((key.is_empty(), Vec::new()));
         }
 
-        let mut levels: Vec<TrieProofItem> = vec![];
+        let mut levels: Vec<RawTrieNode> = vec![];
         loop {
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
 
-            let memory_usage = node.memory_usage;
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     let found = NibbleSlice::from_encoded(&existing_key).0 == key;
-                    levels.push(TrieProofItem::Leaf(
-                        TrieProofLeaf { key: existing_key, value_length, value_hash, memory_usage }
-                            .into(),
-                    ));
+                    levels.push(RawTrieNode::Leaf(existing_key, value_length, value_hash));
                     return Ok((found, levels));
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
@@ -811,17 +805,13 @@ impl Trie {
                     key = key.mid(existing_key_nibble.len());
                     hash = child_hash;
 
-                    levels.push(TrieProofItem::Extension(
-                        TrieProofExtension { key: existing_key, child_hash, memory_usage }.into(),
-                    ));
+                    levels.push(RawTrieNode::Extension(existing_key, child_hash));
                     if !found {
                         return Ok((false, levels));
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
-                    levels.push(TrieProofItem::Branch(
-                        TrieProofBranch { children, value, memory_usage, index: 0 }.into(),
-                    ));
+                    levels.push(RawTrieNode::Branch(children, value));
 
                     if key.is_empty() {
                         return Ok((value.is_some(), levels));
@@ -868,9 +858,7 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
-    use hex_literal::hex;
     use rand::Rng;
-    use rustc_hex::ToHex;
 
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
@@ -887,11 +875,11 @@ mod tests {
         pub fn verify_proof(
             &self,
             key: &[u8],
-            levels: Vec<TrieProofItem>,
+            levels: Vec<RawTrieNode>,
             maybe_expected_value: Option<&[u8]>,
             mut expected_hash: CryptoHash,
         ) -> bool {
-            let hash_node = |node: &RawTrieNodeWithSize| {
+            let hash_node = |node: &RawTrieNode| {
                 let mut v = vec![];
                 node.encode_into(&mut v).unwrap();
                 CryptoHash::hash_bytes(&v)
@@ -901,23 +889,20 @@ mod tests {
             if levels.is_empty() && maybe_expected_value.is_some() {
                 return false;
             }
-            for (item_idx, level) in levels.into_iter().enumerate() {
-                match level {
-                    TrieProofItem::Leaf(inner) => {
-                        let TrieProofLeaf { key: node_key, value_length, value_hash, memory_usage } =
-                            *inner;
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Leaf(node_key, value_length, value_hash),
-                            memory_usage,
-                        };
+            for node in levels.iter() {
+                match node {
+                    RawTrieNode::Leaf(_, _, value_hash) => {
+                        // let node = RawTrieNodeWithSize {
+                        //     node: RawTrieNode::Leaf(node_key, value_length, value_hash),
+                        //     memory_usage,
+                        // };
                         hash = hash_node(&node);
                         if hash != expected_hash {
                             return false;
                         }
 
                         // To avoid unnecessary copy
-                        let node_key =
-                            node.node.get_key().expect("we've just wrapped the value; qed");
+                        let node_key = node.get_key().expect("we've just wrapped the value; qed");
                         let nib = &NibbleSlice::from_encoded(&node_key).0;
                         if &key != nib {
                             if maybe_expected_value.is_none() {
@@ -928,26 +913,24 @@ mod tests {
                         }
 
                         return if let Some(value) = maybe_expected_value {
-                            CryptoHash::hash_bytes(value) == value_hash
+                            CryptoHash::hash_bytes(value) == *value_hash
                         } else {
                             false
                         };
                     }
-                    TrieProofItem::Extension(inner) => {
-                        let TrieProofExtension { key: node_key, child_hash, memory_usage } = *inner;
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Extension(node_key, child_hash),
-                            memory_usage,
-                        };
+                    RawTrieNode::Extension(_, child_hash) => {
+                        // let node = RawTrieNodeWithSize {
+                        //     node: RawTrieNode::Extension(node_key, child_hash),
+                        //     memory_usage,
+                        // };
                         hash = hash_node(&node);
                         if hash != expected_hash {
                             return false;
                         }
-                        expected_hash = child_hash;
+                        expected_hash = *child_hash;
 
                         // To avoid unnecessary copy
-                        let node_key =
-                            node.node.get_key().expect("we've just wrapped the value; qed");
+                        let node_key = node.get_key().expect("we've just wrapped the value; qed");
                         let nib = NibbleSlice::from_encoded(&node_key).0;
                         if !key.starts_with(&nib) {
                             if maybe_expected_value.is_none() {
@@ -958,12 +941,11 @@ mod tests {
                         }
                         key = key.mid(nib.len());
                     }
-                    TrieProofItem::Branch(inner) => {
-                        let TrieProofBranch { mut children, value, memory_usage, index } = *inner;
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Branch(children, value),
-                            memory_usage,
-                        };
+                    RawTrieNode::Branch(children, value) => {
+                        // let node = RawTrieNodeWithSize {
+                        //     node: RawTrieNode::Branch(children, value),
+                        //     memory_usage,
+                        // };
                         hash = hash_node(&node);
                         if hash != expected_hash {
                             return false;
@@ -1414,14 +1396,13 @@ mod tests {
         );
 
         for (k, v) in changes {
-            let (found, mut proof) = trie.get_proof(&root, &k).unwrap();
+            let (found, proof) = trie.get_proof(&root, &k).unwrap();
             assert!(found);
             assert!(trie.verify_proof(&k, proof, v.as_deref(), root));
         }
 
-        // assert_eq!(Some(b"stallion".to_vec()), trie.get(&root, b"horse").unwrap());
-        // let proof = trie.get_proof(&root, b"horse").unwrap().unwrap();
-        // assert!(trie.verify_proof(proof.clone(), b"stallion", root));
-        // assert_eq!(trie.verify_proof(proof, b"stallion0", root), false);
+        let (not_found, proof) = trie.get_proof(&root, b"horse_not_existing").unwrap();
+        assert!(trie.verify_proof(b"horse_not_existing", proof, Some(b"stallion"), root));
+        assert!(!not_found);
     }
 }

@@ -4,7 +4,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
     account::{AccessKey, Account},
-    borsh::BorshDeserialize,
+    borsh::{BorshDeserialize, BorshSerialize},
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
@@ -160,8 +160,12 @@ impl TrieViewer {
         let trie = state_update.trie();
         let root = state_update.get_root();
 
-        let proof = trie.get_proof(&root, &query)?;
-        Ok(ViewStateResult { values, proof })
+        let (found, proof) = trie.get_proof(&root, &query)?;
+        let serialized_proof = proof
+            .iter()
+            .map(|level| to_base64(level.try_to_vec().expect("serialization error")))
+            .collect();
+        Ok(ViewStateResult { values, proof: (found, Some(serialized_proof)) })
     }
 
     pub fn call_function(
