@@ -80,7 +80,8 @@ impl Peer {
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
-        let n = self.stream.read_buf(&mut self.buf).await?;
+        let n = tokio::time::timeout(Duration::from_secs(2), self.stream.read_buf(&mut self.buf))
+            .await??;
         tracing::trace!(target: "ping", "Read {} bytes from {:?}", n, self.stream.peer_addr());
         if n == 0 {
             return Err(io::Error::new(
@@ -92,20 +93,30 @@ impl Peer {
     }
 
     // read at least 4 bytes, but probably the whole message in most cases
-    async fn read_msg_length(&mut self) -> io::Result<usize> {
+    async fn read_msg_length(&mut self) -> io::Result<(usize, Instant)> {
+        let mut first_byte_time = None;
         while self.buf.remaining() < 4 {
             self.do_read().await?;
+            if first_byte_time.is_none() {
+                first_byte_time = Some(Instant::now());
+            }
         }
         let len = u32::from_le_bytes(self.buf[..4].try_into().unwrap());
         self.buf.advance(4);
-        Ok(len as usize)
+        // If first_byte_time is None, there were already 4 bytes from last time,
+        // and they must have come before a partial frame.
+        // So the Instant::now() is not quite correct, since the time was really in the past,
+        // but this is prob not so important
+        Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
     }
 
     // Append any messages currently buffered in the stream
+    // returns whether we read `stop` = true
     async fn read_remaining_messages(
         &mut self,
         messages: &mut Vec<PeerMessage>,
-    ) -> anyhow::Result<()> {
+        stop: &AtomicBool,
+    ) -> anyhow::Result<bool> {
         // drain anything still available to be read without blocking
         loop {
             if let Err(e) = self.stream.try_read_buf(&mut self.buf) {
@@ -115,6 +126,9 @@ impl Peer {
                     }
                     _ => return Err(e.into()),
                 }
+            }
+            if stop.load(Ordering::Relaxed) {
+                return Ok(true);
             }
         }
         loop {
@@ -138,7 +152,7 @@ impl Peer {
             self.buf.advance(4);
             messages.push(self.extract_msg(len)?);
         }
-        Ok(())
+        Ok(false)
     }
 
     // Reads from the socket until there is at least one full PeerMessage available.
@@ -146,27 +160,35 @@ impl Peer {
     // and appends any extra messages to the returned Vec. Usually there is only one in there
 
     // The Instant returned is the time we first read any bytes
-    async fn recv_messages(&mut self) -> anyhow::Result<(Vec<PeerMessage>, Instant)> {
-        let msg_length;
-        let mut messages = Vec::new();
 
-        msg_length = self.read_msg_length().await?;
-        let first_byte_time = Instant::now();
+    // The bool returned is true if we should stop now
+    async fn recv_messages(
+        &mut self,
+        stop: &AtomicBool,
+    ) -> anyhow::Result<(Vec<PeerMessage>, Instant, bool)> {
+        if stop.load(Ordering::Relaxed) {
+            return Ok((Vec::new(), Instant::now(), true));
+        }
+        let mut messages = Vec::new();
+        let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
         while self.buf.remaining() < msg_length {
+            if stop.load(Ordering::Relaxed) {
+                return Ok((messages, first_byte_time, true));
+            }
             // TODO: measure time to last byte here
             self.do_read().await?;
         }
         messages.push(self.extract_msg(msg_length)?);
 
-        self.read_remaining_messages(&mut messages).await?;
+        let stopped = self.read_remaining_messages(&mut messages, stop).await?;
 
         // make sure we can probably read the next message in one syscall next time
         let max_len_after_next_read = self.buf.chunk_mut().len() + self.buf.remaining();
         if max_len_after_next_read < 512 {
             self.buf.reserve(512 - max_len_after_next_read);
         }
-        Ok((messages, first_byte_time))
+        Ok((messages, first_byte_time, stopped))
     }
 
     async fn do_ping(
@@ -174,7 +196,7 @@ impl Peer {
         stats: &mut PingStats,
         app_info: &AppInfo,
         nonce: usize,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let nonce = nonce as u64;
         let body = RoutedMessageBody::Ping(Ping { nonce, source: app_info.my_peer_id.clone() });
         let msg =
@@ -189,7 +211,8 @@ impl Peer {
         // We loop because maybe the peer sends us some other random message, and we're looking specifically
         // for the Pong(nonce) message
         while !pong_received {
-            let (messages, first_byte_time) = self.recv_messages().await?;
+            let (messages, first_byte_time, stop) =
+                self.recv_messages(&app_info.sigint_received).await?;
             for msg in messages {
                 match &msg {
                     PeerMessage::Routed(msg) => {
@@ -229,15 +252,18 @@ impl Peer {
                     _ => {}
                 }
             }
+            if stop {
+                return Ok(true);
+            }
         }
-        Ok(())
+        Ok(false)
     }
 
     async fn do_handshake(
         &mut self,
         stats: &mut PingStats,
         app_info: &AppInfo,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let handshake = PeerMessage::Handshake(Handshake::new(
             near_primitives::version::PROTOCOL_VERSION,
             app_info.my_peer_id.clone(),
@@ -252,18 +278,21 @@ impl Peer {
         self.write_message(&handshake).await?;
 
         let start = Instant::now();
-        let (messages, first_byte_time) = self.recv_messages().await?;
 
-        let first = messages.first().unwrap();
-        // TODO: maybe check the handshake for sanity
-        if !matches!(first, PeerMessage::Handshake(_)) {
-            return Err(anyhow::anyhow!(
-                "First message received from {:?} is not a handshake: {}",
-                self,
-                &first
-            ));
+        let (messages, first_byte_time, stop) =
+            self.recv_messages(&app_info.sigint_received).await?;
+
+        if let Some(first) = messages.first() {
+            // TODO: maybe check the handshake for sanity
+            if !matches!(first, PeerMessage::Handshake(_)) {
+                return Err(anyhow::anyhow!(
+                    "First message received from {:?} is not a handshake: {}",
+                    self,
+                    &first
+                ));
+            }
+            stats.handshake_latency = Some(first_byte_time - start);
         }
-        stats.handshake_latency = Some(first_byte_time - start);
         for msg in messages.iter().skip(1) {
             tracing::warn!(
                 target: "ping", "Received unexpected message from {:?} right after receiving the handshake: {:?}",
@@ -271,8 +300,7 @@ impl Peer {
                 msg,
             );
         }
-
-        Ok(())
+        Ok(stop)
     }
 }
 
@@ -291,7 +319,7 @@ async fn ping_node(
     num_pings: usize,
 ) -> PingStats {
     let mut stats = PingStats::default();
-    if app_info.sigint_received.load(Ordering::Acquire) {
+    if app_info.sigint_received.load(Ordering::Relaxed) {
         return stats;
     }
 
@@ -308,21 +336,23 @@ async fn ping_node(
         }
     };
 
-    if app_info.sigint_received.load(Ordering::Acquire) {
-        return stats;
-    }
-    if let Err(e) = peer.do_handshake(&mut stats, app_info).await {
-        stats.error = Some(e);
-        return stats;
+    match peer.do_handshake(&mut stats, app_info).await {
+        Ok(true) => return stats,
+        Ok(false) => {}
+        Err(e) => {
+            stats.error = Some(e);
+            return stats;
+        }
     }
 
     for nonce in 0..num_pings {
-        if app_info.sigint_received.load(Ordering::Acquire) {
-            return stats;
-        }
-        if let Err(e) = peer.do_ping(&mut stats, app_info, nonce).await {
-            stats.error = Some(e);
-            return stats;
+        match peer.do_ping(&mut stats, app_info, nonce).await {
+            Ok(true) => return stats,
+            Ok(false) => {}
+            Err(e) => {
+                stats.error = Some(e);
+                return stats;
+            }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
@@ -389,7 +419,7 @@ pub async fn ping_nodes<P: AsRef<Path>>(
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                app_info.sigint_received.store(true, Ordering::Release);
+                app_info.sigint_received.store(true, Ordering::Relaxed);
             }
             results = &mut pings => {
                 let mut ret = Vec::new();
