@@ -1403,14 +1403,14 @@ mod tests {
         for non_existing_key in non_existing_keys {
             let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
             assert!(trie.verify_proof(non_existing_key, proof, None, root));
-            assert!(!not_found);
+            assert!(!found);
         }
 
         for non_existing_key in non_existing_keys {
-            let (not_found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
             // duplicating this because RawTrieNodeWithSize does not implement Clone
             assert!(!trie.verify_proof(non_existing_key, proof, Some(b"0_value"), root));
-            assert!(!not_found);
+            assert!(!found);
         }
     }
 }
