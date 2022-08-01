@@ -1401,7 +1401,7 @@ mod tests {
             [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
 
         for non_existing_key in non_existing_keys {
-            let (not_found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
             assert!(trie.verify_proof(non_existing_key, proof, None, root));
             assert!(!not_found);
         }
