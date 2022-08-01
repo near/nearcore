@@ -78,7 +78,7 @@ impl Peer {
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
-        let n = tokio::time::timeout(Duration::from_secs(2), self.stream.read_buf(&mut self.buf))
+        let n = tokio::time::timeout(Duration::from_secs(5), self.stream.read_buf(&mut self.buf))
             .await??;
         tracing::trace!(target: "ping", "Read {} bytes from {:?}", n, self.stream.peer_addr());
         if n == 0 {
