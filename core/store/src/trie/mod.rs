@@ -601,10 +601,9 @@ impl Trie {
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         match self.retrieve_raw_node(root)? {
             None => Ok(StateRootNode::empty()),
-            Some((bytes, node)) => Ok(StateRootNode {
-                data: bytes.to_vec(),
-                memory_usage: node.memory_usage,
-            }),
+            Some((bytes, node)) => {
+                Ok(StateRootNode { data: bytes.to_vec(), memory_usage: node.memory_usage })
+            }
         }
     }
 
