@@ -67,8 +67,9 @@ impl Peer {
         self.stream.write_all(&buf).await
     }
 
-    // panics if there's not at least `len` bytes available
+    // panics if there's not at least `len` + 4 bytes available
     fn extract_msg(&mut self, len: usize) -> Result<PeerMessage, ParsePeerMessageError> {
+        self.buf.advance(4);
         let msg = PeerMessage::deserialize(Encoding::Proto, &self.buf[..len])?;
         self.buf.advance(len);
         tracing::debug!(target: "ping", "received PeerMessage::{} from {:?}", &msg, self);
@@ -98,7 +99,6 @@ impl Peer {
             }
         }
         let len = u32::from_le_bytes(self.buf[..4].try_into().unwrap());
-        self.buf.advance(4);
         // If first_byte_time is None, there were already 4 bytes from last time,
         // and they must have come before a partial frame.
         // So the Instant::now() is not quite correct, since the time was really in the past,
@@ -108,7 +108,7 @@ impl Peer {
 
     // Append any messages currently buffered in the stream
     // returns whether we read `stop` = true
-    async fn read_remaining_messages(
+    fn read_remaining_messages(
         &mut self,
         messages: &mut Vec<PeerMessage>,
         stop: &AtomicBool,
@@ -145,7 +145,6 @@ impl Peer {
                 );
                 break;
             }
-            self.buf.advance(4);
             messages.push(self.extract_msg(len)?);
         }
         Ok(false)
@@ -168,7 +167,7 @@ impl Peer {
         let mut messages = Vec::new();
         let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
-        while self.buf.remaining() < msg_length {
+        while self.buf.remaining() < msg_length + 4 {
             if stop.load(Ordering::Relaxed) {
                 return Ok((messages, first_byte_time, true));
             }
@@ -177,7 +176,7 @@ impl Peer {
         }
         messages.push(self.extract_msg(msg_length)?);
 
-        let stopped = self.read_remaining_messages(&mut messages, stop).await?;
+        let stopped = self.read_remaining_messages(&mut messages, stop)?;
 
         // make sure we can probably read the next message in one syscall next time
         let max_len_after_next_read = self.buf.chunk_mut().len() + self.buf.remaining();
