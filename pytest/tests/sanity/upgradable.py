@@ -78,7 +78,7 @@ def test_upgrade() -> None:
     node_root = utils.get_near_tempdir('upgradable', clean=True)
 
     # Setup local network.
-    cmd = (executables.stable.neard, f'--home={node_root}', 'testnet', '-v',
+    cmd = (executables.stable.neard, f'--home={node_root}', 'localnet', '-v',
            '4', '--prefix', 'test')
     logger.info(' '.join(str(arg) for arg in cmd))
     subprocess.check_call(cmd)
