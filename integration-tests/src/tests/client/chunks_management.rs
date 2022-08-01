@@ -1,3 +1,4 @@
+use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::time::Instant;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -50,37 +51,41 @@ fn chunks_produced_and_distributed_common(
         assert_eq!(*map.entry(*hash).or_insert(height), height);
     };
 
-    let validators = vec![
-        vec![
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-            "test4".parse().unwrap(),
-        ],
-        vec![
-            "test5".parse().unwrap(),
-            "test6".parse().unwrap(),
-            "test7".parse().unwrap(),
-            "test8".parse().unwrap(),
-        ],
-    ];
+    let vs = ValidatorSchedule::new()
+        .num_shards(4)
+        .block_producers_per_epoch(vec![
+            vec![
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+                "test4".parse().unwrap(),
+            ],
+            vec![
+                "test5".parse().unwrap(),
+                "test6".parse().unwrap(),
+                "test7".parse().unwrap(),
+                "test8".parse().unwrap(),
+            ],
+        ])
+        .validator_groups(validator_groups);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
     let mut partial_chunk_msgs = 0;
     let mut partial_chunk_request_msgs = 0;
 
     let (_, conn, _) = setup_mock_all_validators(
-        validators.clone(),
+        vs,
         key_pairs,
-        validator_groups,
         true,
         block_timeout,
         false,
         false,
         5,
         true,
-        vec![false; validators.iter().map(|x| x.len()).sum()],
-        vec![true; validators.iter().map(|x| x.len()).sum()],
+        archive,
+        epoch_sync_enabled,
         false,
         Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
             let msg = msg.as_network_requests_ref();
