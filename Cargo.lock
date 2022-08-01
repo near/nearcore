@@ -2066,6 +2066,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex-literal"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ebdb29d2ea9ed0083cd8cece49bbd968021bd99b0849edb4a9a7ee0fdf6a4e0"
+
+[[package]]
 name = "hex-literal-impl"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2924,7 +2930,7 @@ dependencies = [
  "deepsize",
  "derive_more",
  "ed25519-dalek",
- "hex-literal",
+ "hex-literal 0.2.2",
  "near-account-id",
  "once_cell",
  "parity-secp256k1",
@@ -3397,6 +3403,7 @@ dependencies = [
  "elastic-array",
  "enum-map",
  "fs2",
+ "hex-literal 0.3.4",
  "lru",
  "near-crypto",
  "near-metrics",
@@ -3407,6 +3414,7 @@ dependencies = [
  "rand 0.7.3",
  "rlimit",
  "rocksdb",
+ "rustc-hex",
  "serde",
  "serde_json",
  "strum",

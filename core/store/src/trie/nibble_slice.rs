@@ -96,7 +96,7 @@ impl<'a> NibbleSlice<'a> {
     /// Get the length (in nibbles, naturally) of this slice.
     #[inline]
     pub fn len(&self) -> usize {
-        self.data.len() * 2 - self.offset
+        (self.data.len() * 2).saturating_sub(self.offset)
     }
 
     /// Get the nibble at position `i`.
