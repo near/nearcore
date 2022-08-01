@@ -163,8 +163,12 @@ impl TrieViewer {
         let (found, proof) = trie.get_proof(&root, &query)?;
         let serialized_proof = proof
             .iter()
-            .map(|level| to_base64(level.try_to_vec().expect("serialization error")))
-            .collect();
+            .map(|level| {
+                level.try_to_vec().map(to_base64).map_err(|err| {
+                    errors::ViewStateError::InternalError { error_message: err.to_string() }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ViewStateResult { values, proof: (found, Some(serialized_proof)) })
     }
 
