@@ -10,13 +10,15 @@ use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
+
+pub type ControlFlow = std::ops::ControlFlow<()>;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -384,19 +386,15 @@ fn test_status_fail() {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeoutActor::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            10000,
-        )
-        .start();
+        wait_or_timeout(100, 10000, || async {
+            let res = client.health().await;
+            if res.is_err() {
+                ControlFlow::Break(());
+            }
+            ControlFlow::Continue(());
+        })
+        .await
+        .unwrap();
     });
 }
 
@@ -424,19 +422,15 @@ fn test_health_fail_no_blocks() {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
-        WaitOrTimeoutActor::new(
-            Box::new(move |_| {
-                actix::spawn(client.health().then(|res| {
-                    if res.is_err() {
-                        System::current().stop();
-                    }
-                    future::ready(())
-                }));
-            }),
-            300,
-            10000,
-        )
-        .start();
+        wait_or_timeout(300, 10000, || async {
+            let res = client.health().await;
+            if res.is_err() {
+                ControlFlow::Break(());
+            }
+            ControlFlow::Continue(());
+        })
+        .await
+        .unwrap();
     });
 }
 
