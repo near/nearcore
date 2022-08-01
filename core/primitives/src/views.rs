@@ -212,7 +212,7 @@ pub struct StateItem {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    // signals whether the proof is found, and the proof itself to verify the claim
+    // signals whether the value was found in the trie, and the proof itself to verify the claim
     pub proof: (bool, TrieProofPath),
 }
 
