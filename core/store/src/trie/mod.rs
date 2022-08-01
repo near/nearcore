@@ -12,7 +12,6 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{StateRoot, StateRootNode};
-use serde::Serialize;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
