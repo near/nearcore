@@ -34,7 +34,6 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
 };
-use crate::state_proof::TrieProofItem;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
@@ -198,7 +197,7 @@ impl From<AccessKeyView> for AccessKey {
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Option<Vec<TrieProofItem>>;
+pub type TrieProofPath = Option<Vec<String>>;
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -213,7 +212,8 @@ pub struct StateItem {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: TrieProofPath,
+    // signals whether the value was found in the trie, and the proof itself to verify the claim
+    pub proof: (bool, TrieProofPath),
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

@@ -1,11 +1,8 @@
-use std::str::FromStr;
-
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
-    state_proof::{TrieProofBranch, TrieProofExtension, TrieProofItem, TrieProofLeaf},
     views::{StateItem, ViewApplyState},
 };
 use near_primitives::{
@@ -106,17 +103,6 @@ fn test_view_call_with_args() {
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
 
-// helper function to avoid having to deal with large proof structs.
-fn make_children<'a>(
-    items: impl IntoIterator<Item = (usize, &'a str)>,
-) -> [Option<CryptoHash>; 16] {
-    let mut result = [None; 16];
-    for (idx, hash) in items {
-        result[idx] = Some(CryptoHash::from_str(hash).unwrap());
-    }
-    result
-}
-
 #[test]
 fn test_view_state() {
     // in order to ensure determinism under all conditions (compiler, build output, etc)
@@ -148,7 +134,15 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, None);
+    assert_eq!(result.proof, (false, Some(vec![
+        "AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==", 
+        "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAA=",
+        "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+        "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAANQCAAAAAAAA",
+        "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+        "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAPsBAAAAAAAA",
+        "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA"
+        ].into_iter().map(String::from).collect())));
     assert_eq!(
         result.values,
         [
@@ -163,164 +157,15 @@ fn test_view_state() {
         result.values,
         [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: None }]
     );
-    assert_eq!(
-        result.proof,
-        Some(vec![
-            TrieProofItem::Extension(
-                TrieProofExtension {
-                    key: vec![16],
-                    child_hash: CryptoHash::from_str(
-                        "95vrqhPKa8Uu9XSa1c5WTo5GqUvLmCSCEb2wtWbX5yDU"
-                    )
-                    .unwrap(),
-                    memory_usage: 2610
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![
-                        (0, "DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L"),
-                        (2, "CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N"),
-                        (9, "FLxcnKrm7fPnZNdeVvybWtnQGBmyoUuXjhXmhq3NgNPa"),
-                    ]),
-                    value: None,
-                    memory_usage: 2558,
-                    index: 9
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![
-                        (0, "DtPwSMuhUKhSsbib8dqe4e7pvMmgkJv14J5E2cxLw96L"),
-                        (2, "CHDm3ySyAKvcb6nctEaGfqjY7EGLz9tXJZ28XEXGDi6N"),
-                    ]),
-                    value: None,
-                    memory_usage: 2558,
-                    index: 9
-                }
-                .into()
-            ),
-            TrieProofItem::Extension(
-                TrieProofExtension {
-                    key: vec![22, 22, 198],
-                    child_hash: CryptoHash::from_str(
-                        "HCEH9UoyeZUv5UDgu9QpFTxWoFGPMrS4VAV2TZHzSLjw"
-                    )
-                    .unwrap(),
-                    memory_usage: 780
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![
-                        (5, "GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR"),
-                        (9, "HQRiU7i61GFKWtorr8RzY1QyQVJqX5hrytYqwhiyHZHd"),
-                    ]),
-                    value: None,
-                    memory_usage: 724,
-                    index: 9
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![(
-                        5,
-                        "GxqgVRkFxzLvar8iHeBADqu2PpRiH3fYVdPGzw7zUdzR"
-                    )]),
-                    value: None,
-                    memory_usage: 724,
-                    index: 9
-                }
-                .into()
-            ),
-            TrieProofItem::Extension(
-                TrieProofExtension {
-                    key: vec![22],
-                    child_hash: CryptoHash::from_str(
-                        "GqYVVbkA7nvAEuCsvKZdWQ7Ddc5e9bNsfVhTTusWyvup"
-                    )
-                    .unwrap(),
-                    memory_usage: 559
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![
-                        (3, "5H3fJHA6jCZKnbFnkFDcuPDRbPdmiSgC4mR4jX4D5XD3"),
-                        (14, "EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP")
-                    ]),
-                    value: None,
-                    memory_usage: 507,
-                    index: 3
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![(
-                        14,
-                        "EuTKawKwL1A9pgVPxV1EHpzFYYBxjy9DP55VkcWX4GQP"
-                    )]),
-                    value: None,
-                    memory_usage: 507,
-                    index: 3
-                }
-                .into()
-            ),
-            TrieProofItem::Extension(
-                TrieProofExtension {
-                    key: vec![22, 82, 230, 230, 86, 23, 34, 199, 70, 87, 55, 67],
-                    child_hash: CryptoHash::from_str(
-                        "EeJvs6otTUKtsbpfcgm59ePFGw7QMB5G37hAVAS6n341"
-                    )
-                    .unwrap(),
-                    memory_usage: 342
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![
-                        (1, "6kH6uEShmyoX7iGisy8nZxoYVNw6w8McqqDgXHct7J6X"),
-                        (3, "7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM")
-                    ]),
-                    value: None,
-                    memory_usage: 268,
-                    index: 1
-                }
-                .into()
-            ),
-            TrieProofItem::Branch(
-                TrieProofBranch {
-                    children: make_children(vec![(
-                        3,
-                        "7H2oXQXYxnuB3Kq6djTnS7rkTdsgmLhByL3JFHLsrFQM"
-                    )]),
-                    value: None,
-                    memory_usage: 268,
-                    index: 1
-                }
-                .into()
-            ),
-            TrieProofItem::Leaf(
-                TrieProofLeaf {
-                    key: vec![32, 50, 51],
-                    value_length: 3,
-                    value_hash: CryptoHash::from_str(
-                        "CCYa6DM7NuL4iPoSM4PvtYMRcHFydKhD5oRSXx3jfxCS"
-                    )
-                    .unwrap(),
-                    memory_usage: 109
-                }
-                .into()
-            )
-        ]),
-    );
+
+    assert_eq!(result.proof, (true, Some(vec![
+        "AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==",
+        "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAA=",
+        "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+        "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAANQCAAAAAAAA",
+        "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==", "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAPsBAAAAAAAA",
+        "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA", "AQABVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qQAAV1Bc8LWs2wIZEnud3rpJ9w2ZFRVW9BjoRgJuwiK6A7qAAAAAAAAAAAAAAAAAAwBAAAAAAAA",
+        "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA=="].into_iter().map(String::from).collect())));
 }
 
 #[test]

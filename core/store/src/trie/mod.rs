@@ -11,9 +11,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_proof::{
-    TrieProofBranch, TrieProofExtension, TrieProofItem, TrieProofLeaf,
-};
 use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
@@ -255,9 +252,9 @@ impl TrieNode {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, BorshSerialize)]
 #[allow(clippy::large_enum_variant)]
-enum RawTrieNode {
+pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -265,8 +262,8 @@ enum RawTrieNode {
 
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
-#[derive(Debug, Eq, PartialEq)]
-struct RawTrieNodeWithSize {
+#[derive(Debug, Eq, PartialEq, BorshSerialize)]
+pub struct RawTrieNodeWithSize {
     node: RawTrieNode,
     memory_usage: u64,
 }
@@ -380,6 +377,15 @@ impl RawTrieNode {
                 Ok(RawTrieNode::Extension(key, CryptoHash(child)))
             }
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get_key(&self) -> Option<&[u8]> {
+        match self {
+            RawTrieNode::Leaf(key, _, _) => Some(key),
+            RawTrieNode::Extension(key, _) => Some(key),
+            _ => None,
         }
     }
 }
@@ -762,8 +768,12 @@ impl Trie {
     }
 
     /// Given a root and a key, it returns a MerkleProof for that key.
+    /// Note that it can be a proof of membership, or a proof of non membership. This is encoded
+    /// in the boolean of the return type.
     ///
-    ///  Whenever a proof is not found, an empty vector is returned.
+    /// Hence, if [get_proof](#method.get_proof) returns (true, _), it means that the key-value are found in the trie
+    /// and a proof for that is presented. Similarly, if (false, _) is returned, it means that the key-value
+    /// pair does not belong to the trie and a proof for that is also returned.
     ///
     /// # Errors
     ///
@@ -772,77 +782,61 @@ impl Trie {
         &self,
         root: &CryptoHash,
         key: &[u8],
-    ) -> Result<Option<Vec<TrieProofItem>>, StorageError> {
+    ) -> Result<(bool, Vec<RawTrieNodeWithSize>), StorageError> {
         let mut key = NibbleSlice::new(key);
-
         let mut hash = *root;
         if hash == Trie::empty_root() {
-            return Ok(None);
+            return Ok((key.is_empty(), Vec::new()));
         }
 
-        let mut levels: Vec<TrieProofItem> = vec![];
+        let mut levels: Vec<RawTrieNodeWithSize> = vec![];
         loop {
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
                 StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
             })?;
 
-            let memory_usage = node.memory_usage;
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
-                    if NibbleSlice::from_encoded(&existing_key).0 != key {
-                        return Ok(None);
-                    }
-                    levels.push(TrieProofItem::Leaf(
-                        TrieProofLeaf { key: existing_key, value_length, value_hash, memory_usage }
-                            .into(),
-                    ));
-                    return Ok(Some(levels));
+                    let found = NibbleSlice::from_encoded(&existing_key).0 == key;
+                    levels.push(RawTrieNodeWithSize {
+                        node: RawTrieNode::Leaf(existing_key, value_length, value_hash),
+                        memory_usage: node.memory_usage,
+                    });
+                    return Ok((found, levels));
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
                     let existing_key_nibble = NibbleSlice::from_encoded(&existing_key).0;
-                    if !key.starts_with(&existing_key_nibble) {
-                        return Ok(None);
-                    }
-                    hash = child_hash;
-                    key = key.mid(existing_key_nibble.len());
+                    let found = key.starts_with(&existing_key_nibble);
 
-                    levels.push(TrieProofItem::Extension(
-                        TrieProofExtension { key: existing_key, child_hash, memory_usage }.into(),
-                    ));
+                    key = key.mid(existing_key_nibble.len());
+                    hash = child_hash;
+
+                    levels.push(RawTrieNodeWithSize {
+                        node: RawTrieNode::Extension(existing_key, child_hash),
+                        memory_usage: node.memory_usage,
+                    });
+                    if !found {
+                        return Ok((false, levels));
+                    }
                 }
                 RawTrieNode::Branch(children, value) => {
-                    let mut level = children.clone();
-                    let idx = key.at(0) as usize;
-                    levels.push(TrieProofItem::Branch(
-                        TrieProofBranch { children: level, value, memory_usage, index: idx as _ }
-                            .into(),
-                    ));
+                    levels.push(RawTrieNodeWithSize {
+                        node: RawTrieNode::Branch(children, value),
+                        memory_usage: node.memory_usage,
+                    });
 
                     if key.is_empty() {
-                        match value {
-                            Some(_) => return Ok(Some(levels)),
-                            None => return Ok(None),
-                        }
-                    } else {
-                        let child = children[idx];
-                        if child.is_none() {
-                            return Ok(None);
-                        }
-                        hash = child.unwrap();
-                        level[idx] = None;
-                        key = key.mid(1);
-
-                        levels.push(TrieProofItem::Branch(
-                            TrieProofBranch {
-                                children: level,
-                                value,
-                                memory_usage,
-                                index: idx as _,
-                            }
-                            .into(),
-                        ));
+                        return Ok((value.is_some(), levels));
                     }
+
+                    let idx = key.at(0) as usize;
+                    let child = children[idx];
+                    if child.is_none() {
+                        return Ok((false, levels));
+                    }
+                    hash = child.unwrap();
+                    key = key.mid(1);
                 }
             };
         }
@@ -893,52 +887,88 @@ mod tests {
     impl Trie {
         pub fn verify_proof(
             &self,
-            levels: Vec<TrieProofItem>,
-            value: &[u8],
-            expected_hash: CryptoHash,
+            key: &[u8],
+            levels: Vec<RawTrieNodeWithSize>,
+            // when verifying proofs of non-membership, this value shuold be None
+            maybe_expected_value: Option<&[u8]>,
+            mut expected_hash: CryptoHash,
         ) -> bool {
-            let hash_node = |node: RawTrieNodeWithSize| {
+            let hash_node = |node: &RawTrieNodeWithSize| {
                 let mut v = vec![];
                 node.encode_into(&mut v).unwrap();
                 CryptoHash::hash_bytes(&v)
             };
             let mut hash = Trie::empty_root();
-            for (item_idx, level) in levels.into_iter().rev().enumerate() {
-                match level {
-                    TrieProofItem::Leaf(inner) => {
-                        let TrieProofLeaf { key, value_length, value_hash, memory_usage } = *inner;
-                        // verify that the leaf always appears as the first element in the level
-                        assert!(item_idx == 0);
-                        if CryptoHash::hash_bytes(value) != value_hash {
+            let mut key = NibbleSlice::new(key);
+            if levels.is_empty() && maybe_expected_value.is_some() {
+                return false;
+            }
+            for node in levels.iter() {
+                match node {
+                    RawTrieNodeWithSize { node: RawTrieNode::Leaf(_, _, value_hash), .. } => {
+                        hash = hash_node(&node);
+                        if hash != expected_hash {
                             return false;
                         }
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Leaf(key, value_length, value_hash),
-                            memory_usage,
-                        };
 
-                        hash = hash_node(node);
-                    }
-                    TrieProofItem::Extension(inner) => {
-                        let TrieProofExtension { key, child_hash, memory_usage } = *inner;
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Extension(key, child_hash),
-                            memory_usage,
+                        let node_key =
+                            node.node.get_key().expect("we've just wrapped the value; qed");
+                        let nib = &NibbleSlice::from_encoded(&node_key).0;
+                        if &key != nib {
+                            return maybe_expected_value.is_none();
+                        }
+
+                        return if let Some(value) = maybe_expected_value {
+                            CryptoHash::hash_bytes(value) == *value_hash
+                        } else {
+                            false
                         };
-                        hash = hash_node(node);
                     }
-                    TrieProofItem::Branch(inner) => {
-                        let TrieProofBranch { mut children, value, memory_usage, index } = *inner;
-                        children[index as usize] = Some(hash);
-                        let node = RawTrieNodeWithSize {
-                            node: RawTrieNode::Branch(children, value),
-                            memory_usage,
-                        };
-                        hash = hash_node(node);
+                    RawTrieNodeWithSize { node: RawTrieNode::Extension(_, child_hash), .. } => {
+                        hash = hash_node(&node);
+                        if hash != expected_hash {
+                            return false;
+                        }
+                        expected_hash = *child_hash;
+
+                        // To avoid unnecessary copy
+                        let node_key =
+                            node.node.get_key().expect("we've just wrapped the value; qed");
+                        let nib = NibbleSlice::from_encoded(&node_key).0;
+                        if !key.starts_with(&nib) {
+                            return maybe_expected_value.is_none();
+                        }
+                        key = key.mid(nib.len());
+                    }
+                    RawTrieNodeWithSize { node: RawTrieNode::Branch(children, value), .. } => {
+                        hash = hash_node(&node);
+                        if hash != expected_hash {
+                            return false;
+                        }
+
+                        if key.is_empty() {
+                            // TODO: validate value size?
+                            let maybe_value = value.map(|x| x.1);
+                            let maybe_expected_value =
+                                maybe_expected_value.map(CryptoHash::hash_bytes);
+                            return match (maybe_expected_value, maybe_value) {
+                                (Some(expected_value), Some(value)) => expected_value == value,
+                                (None, Some(_)) => false,
+                                (Some(_), None) => false,
+                                (None, None) => true,
+                            };
+                        }
+                        let index = key.at(0);
+                        if let Some(child_hash) = &children[index as usize] {
+                            key = key.mid(1);
+                            expected_hash = *child_hash;
+                        } else {
+                            return maybe_expected_value.is_none();
+                        }
                     }
                 }
             }
-            hash == expected_hash
+            maybe_expected_value.is_none() && hash == expected_hash
         }
     }
 
@@ -1353,20 +1383,34 @@ mod tests {
         let tries = create_tries();
         let trie = tries.get_trie_for_shard(ShardUId::single_shard());
 
-        let root =
-            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::single_shard(), changes);
+        let root = test_populate_trie(
+            &tries,
+            &Trie::empty_root(),
+            ShardUId::single_shard(),
+            changes.clone(),
+        );
 
-        assert_eq!(Some(b"coin".to_vec()), trie.get(&root, b"doge").unwrap());
-        let proof = trie.get_proof(&root, b"doge").unwrap().unwrap();
-        assert!(trie.verify_proof(proof, b"coin", root));
+        for (k, v) in changes {
+            let (found, proof) = trie.get_proof(&root, &k).unwrap();
+            assert!(found);
+            dbg!(&k);
+            assert!(trie.verify_proof(&k, proof, v.as_deref(), root));
+        }
 
-        assert_eq!(Some(b"value".to_vec()), trie.get(&root, b"docu").unwrap());
-        let proof = trie.get_proof(&root, b"docu").unwrap().unwrap();
-        assert!(trie.verify_proof(proof, b"value", root));
+        let non_existing_keys =
+            [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
 
-        assert_eq!(Some(b"stallion".to_vec()), trie.get(&root, b"horse").unwrap());
-        let proof = trie.get_proof(&root, b"horse").unwrap().unwrap();
-        assert!(trie.verify_proof(proof.clone(), b"stallion", root));
-        assert_eq!(trie.verify_proof(proof, b"stallion0", root), false);
+        for non_existing_key in non_existing_keys {
+            let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            assert!(trie.verify_proof(non_existing_key, proof, None, root));
+            assert!(!not_found);
+        }
+
+        for non_existing_key in non_existing_keys {
+            let (not_found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            // duplicating this because RawTrieNodeWithSize does not implement Clone
+            assert!(!trie.verify_proof(non_existing_key, proof, Some(b"0_value"), root));
+            assert!(!not_found);
+        }
     }
 }
