@@ -3,7 +3,7 @@ use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_chain::types::ChainGenesis;
 use near_chain::Chain;
-use near_crypto::{KeyType, PublicKey, SecretKey};
+use near_crypto::{KeyType, SecretKey};
 use near_network::types::{Encoding, Handshake, ParsePeerMessageError, PeerMessage};
 use near_network_primitives::time::Utc;
 use near_network_primitives::types::{
@@ -32,8 +32,6 @@ pub struct PingStats {
     pub min_latency: Duration,
     pub max_latency: Duration,
     pub average_latency: Duration,
-    pub handshake_latency: Option<Duration>,
-    pub connect_latency: Option<Duration>,
     // If we're able to connect at least, then any error we encounter later
     // will be set here, so we can still report the stats up to that point
     pub error: Option<anyhow::Error>,
@@ -56,12 +54,12 @@ impl std::fmt::Debug for Peer {
 }
 
 impl Peer {
-    async fn connect(addr: SocketAddr, public_key: PublicKey) -> anyhow::Result<Self> {
+    async fn connect(addr: SocketAddr, peer_id: PeerId) -> anyhow::Result<Self> {
         let stream = tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(addr))
             .await
             .with_context(|| format!("Timed out connecting to {:?}", &addr))?
             .with_context(|| format!("Failed to connect to {:?}", &addr))?;
-        Ok(Self { stream, peer_id: PeerId::new(public_key), buf: BytesMut::with_capacity(1024) })
+        Ok(Self { stream, peer_id, buf: BytesMut::with_capacity(1024) })
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
@@ -259,11 +257,7 @@ impl Peer {
         Ok(false)
     }
 
-    async fn do_handshake(
-        &mut self,
-        stats: &mut PingStats,
-        app_info: &AppInfo,
-    ) -> anyhow::Result<bool> {
+    async fn do_handshake(&mut self, app_info: &AppInfo) -> anyhow::Result<bool> {
         let handshake = PeerMessage::Handshake(Handshake::new(
             near_primitives::version::PROTOCOL_VERSION,
             app_info.my_peer_id.clone(),
@@ -291,7 +285,7 @@ impl Peer {
                     &first
                 ));
             }
-            stats.handshake_latency = Some(first_byte_time - start);
+            println!("handshake latency: {:?}", first_byte_time - start);
         }
         for msg in messages.iter().skip(1) {
             tracing::warn!(
@@ -314,7 +308,7 @@ struct AppInfo {
 // try to connect to the given node, and ping it `num_pings` times, returning the associated latency stats
 async fn ping_node(
     app_info: &AppInfo,
-    peer_public_key: PublicKey,
+    peer_id: PeerId,
     peer_addr: SocketAddr,
     num_pings: usize,
 ) -> PingStats {
@@ -324,10 +318,10 @@ async fn ping_node(
     }
 
     let connect_start = Instant::now();
-    let mut peer = match Peer::connect(peer_addr, peer_public_key).await {
+    let mut peer = match Peer::connect(peer_addr, peer_id).await {
         Ok(p) => {
             tracing::info!(target: "ping", "Connection to {:?}@{:?} established", &p.peer_id, &peer_addr);
-            stats.connect_latency = Some(connect_start.elapsed());
+            println!("connect() latency: {:?}", connect_start.elapsed());
             p
         }
         Err(e) => {
@@ -336,7 +330,7 @@ async fn ping_node(
         }
     };
 
-    match peer.do_handshake(&mut stats, app_info).await {
+    match peer.do_handshake(app_info).await {
         Ok(true) => return stats,
         Ok(false) => {}
         Err(e) => {
@@ -389,9 +383,10 @@ fn chain_info<P: AsRef<Path>>(home: P) -> anyhow::Result<PeerChainInfoV2> {
 
 pub async fn ping_nodes<P: AsRef<Path>>(
     home: P,
-    peers: Vec<(PublicKey, SocketAddr)>,
+    peer_id: PeerId,
+    peer_addr: SocketAddr,
     num_pings: usize,
-) -> anyhow::Result<Vec<(SocketAddr, PingStats)>> {
+) -> anyhow::Result<PingStats> {
     let chain_info = chain_info(home)?;
     // don't use the key in node_key.json so we dont have to worry about the nonce
     // to use in the handshake
@@ -403,35 +398,17 @@ pub async fn ping_nodes<P: AsRef<Path>>(
         my_peer_id,
         sigint_received: AtomicBool::new(false),
     });
-    let mut tasks = Vec::new();
-    for (public_key, addr) in peers {
-        let app_info = app_info.clone();
-        // TODO: maybe don't just spawn them all at once. It's fine for the first
-        // version of the tool, but if we want the highest fidelity latency stats it would
-        // make sense to only have one task per CPU at a time.
-        tasks.push(tokio::spawn(async move {
-            let stats = ping_node(app_info.as_ref(), public_key, addr, num_pings).await;
-            (addr, stats)
-        }));
-    }
 
-    let mut pings = futures::future::join_all(tasks);
+    let ping = ping_node(app_info.as_ref(), peer_id, peer_addr, num_pings);
+    tokio::pin!(ping);
+
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 app_info.sigint_received.store(true, Ordering::Relaxed);
             }
-            results = &mut pings => {
-                let mut ret = Vec::new();
-                for r in results {
-                    match r {
-                        Ok(s) => ret.push(s),
-                        Err(e) => {
-                            tracing::error!(target: "ping", "ping task failed: {:?}", e);
-                        }
-                    }
-                }
-                return Ok(ret);
+            stats = &mut ping => {
+                return Ok(stats);
             }
         }
     }
