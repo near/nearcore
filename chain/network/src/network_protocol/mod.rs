@@ -187,6 +187,7 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+/// See SyncAccountsData in network_protocol/network.proto.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SyncAccountsData {
     pub accounts_data: Vec<SignedAccountData>,

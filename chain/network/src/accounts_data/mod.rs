@@ -215,7 +215,7 @@ impl Cache {
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         data: Vec<SignedAccountData>,
     ) -> (Vec<SignedAccountData>, Option<Error>) {
         let this = self.clone();

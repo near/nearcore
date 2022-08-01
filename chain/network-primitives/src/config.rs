@@ -115,12 +115,7 @@ impl NetworkConfig {
             validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
                 signer: signer.clone(),
                 endpoints: if cfg.public_addrs.len() > 0 {
-                    ValidatorEndpoints::PublicAddrs(
-                        cfg.public_addrs
-                            .into_iter()
-                            .map(|addr| addr.parse().expect("Failed to parse SocketAddr"))
-                            .collect(),
-                    )
+                    ValidatorEndpoints::PublicAddrs(cfg.public_addrs)
                 } else {
                     ValidatorEndpoints::TrustedStunServers(cfg.trusted_stun_servers)
                 },

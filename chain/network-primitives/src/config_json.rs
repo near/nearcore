@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
@@ -113,7 +114,9 @@ pub struct Config {
     ///   ["31.192.22.209:24567"]
     ///
     /// TODO(gprusak): add support for also restricting the peer_id (i.e. a public key of the node), in
-    ///   the same format as the whitelist field (i.e. "<public key>@<IP>:<port>").
+    ///   the same format as the whitelist field (i.e. "<public key>@<IP>:<port>"). Since this
+    ///   format is already used in multiple places in this config, create a dedicated type
+    ///   (PeerIdWithSocketAddr) which implements it.
     ///
     /// Recommended setup (requires static IP):
     /// In the simplest case this list should contains just 1 public address of this validator.
@@ -132,7 +135,7 @@ pub struct Config {
     /// this validator node will natually observe the address of the validator and broadcast it.
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
-    pub public_addrs: Vec<String>,
+    pub public_addrs: Vec<SocketAddr>,
     /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
     /// Used only if this node is a validator and public_ips is empty (see description of
     /// public_ips field). Format "<domain/ip>:<port>", for example "stun.l.google.com:19302".
