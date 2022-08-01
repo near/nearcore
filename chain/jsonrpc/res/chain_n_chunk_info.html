@@ -93,6 +93,16 @@
                         $('.js-blocks-tbody').append(row)
 
                     })
+
+                    chain_info.floating_chunks_info.forEach(chunk=> {
+                        let row = $('<tr>');
+                        row.append($('<td>').append(chunk.height_created));
+                        row.append($('<td>').append(chunk.shard_id));
+                        row.append($('<td>').append(chunk.chunk_hash));
+                        row.append($('<td>').append(chunk.created_by));
+                        row.append($('<td>').append(chunk.status));
+
+                    })
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -115,6 +125,23 @@
     <h3 class="js-chain-info-summary-missing-chunks"></h3>
     <h3 class="js-chain-info-summary-processing"></h3>
 
+    <h3>Floating chunks</h3>
+    <div>Floating chunks are the chunks for which we don't know the block they belong to yet.</div>
+    <table>
+        <thead>
+        <tr>
+            <th>Height</th>
+            <th>ShardId</th>
+            <th>Hash</th>
+            <th>Created by</th>
+            <th>Status</th>
+        </tr>
+        </thead>
+        <tbody class="js-floating-chunks-tbody">
+        </tbody>
+    </table>
+
+    <h3>Blocks</h3>
     <table>
         <thead>
         <tr>

@@ -86,6 +86,7 @@ impl ChunkTrackingStats {
 
     fn to_chunk_processing_info(
         &self,
+        chunk_hash: ChunkHash,
         runtime_adapter: &dyn RuntimeAdapter,
     ) -> ChunkProcessingInfo {
         let status = if self.completed_timestamp.is_some() {
@@ -102,6 +103,7 @@ impl ChunkTrackingStats {
             })
             .ok();
         ChunkProcessingInfo {
+            chunk_hash,
             height_created: self.height_created,
             shard_id: self.shard_id,
             prev_block_hash: self.prev_block_hash,
@@ -310,9 +312,9 @@ impl BlocksDelayTracker {
                 .iter()
                 .map(|chunk_hash| {
                     if let Some(chunk_hash) = chunk_hash {
-                        self.chunks
-                            .get(chunk_hash)
-                            .map(|x| x.to_chunk_processing_info(runtime_adapter))
+                        self.chunks.get(chunk_hash).map(|x| {
+                            x.to_chunk_processing_info(chunk_hash.clone(), runtime_adapter)
+                        })
                     } else {
                         None
                     }
@@ -395,16 +397,21 @@ impl Chain {
                     .collect::<Vec<_>>()
             })
             .collect();
-        let floating_chunks_info: Vec<_> =
-            self.blocks_delay_tracker
-                .floating_chunks
-                .iter()
-                .flat_map(|(chunk_hash, _)| {
-                    self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
-                        chunk_stats.to_chunk_processing_info(&*self.runtime_adapter)
-                    })
+        let mut floating_chunks_info = self
+            .blocks_delay_tracker
+            .floating_chunks
+            .iter()
+            .flat_map(|(chunk_hash, _)| {
+                self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
+                    chunk_stats.to_chunk_processing_info(chunk_hash.clone(), &*self.runtime_adapter)
                 })
-                .collect();
+            })
+            .collect::<Vec<_>>();
+        floating_chunks_info.sort_by(|chunk1, chunk2| {
+            (chunk1.height_created, chunk1.shard_id)
+                .partial_cmp(&(chunk2.height_created, chunk2.shard_id))
+                .unwrap()
+        });
         ChainProcessingInfo {
             num_blocks_in_processing: self.blocks_in_processing_len(),
             num_orphans: self.orphans_len(),

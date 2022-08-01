@@ -431,6 +431,7 @@ pub enum BlockProcessingStatus {
 pub struct ChunkProcessingInfo {
     pub height_created: BlockHeight,
     pub shard_id: ShardId,
+    pub chunk_hash: ChunkHash,
     pub prev_block_hash: CryptoHash,
     /// Account id of the validator who created this chunk
     pub created_by: Option<AccountId>,
