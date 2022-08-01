@@ -14,8 +14,8 @@ struct Cli {
     /// Path to a  list of public key@socket addr pairs to connect to
     /// e.g.:
     /// $ cat peers.txt
-    /// ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e,127.0.0.1:24568
-    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX,127.0.0.1:24567
+    /// ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e@127.0.0.1:24568
+    /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
     #[clap(long)]
     peers_file: PathBuf,
     /// Number of ping messages to try to send
@@ -57,7 +57,7 @@ fn display_stats(stats: &[(SocketAddr, ping::PingStats)]) {
     }
 
     println!(
-        "{:<18} | {:<16} | {:<17} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
+        "{:<20} | {:<16} | {:<17} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
         "addr",
         "connect latency",
         "handshake latency",
@@ -69,17 +69,17 @@ fn display_stats(stats: &[(SocketAddr, ping::PingStats)]) {
     );
     for (addr, stats) in stats.iter() {
         if stats.connect_latency.is_none() {
-            println!("{:<18} | Failed to connect: {:?}", addr, stats_error(stats));
+            println!("{:<20} | Failed to connect: {:?}", addr, stats_error(stats));
         } else if stats.handshake_latency.is_none() {
             println!(
-                "{:<18} | {:<10?} | handshake failed: {:?}",
+                "{:<20} | {:<16?} | handshake failed: {:?}",
                 addr,
                 stats.connect_latency.unwrap(),
                 stats_error(stats)
             );
         } else {
             println!(
-                "{:<18} | {:<16?} | {:<17?} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}",
+                "{:<20} | {:<16?} | {:<17?} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
                 addr,
                 stats.connect_latency.unwrap(),
                 stats.handshake_latency.unwrap(),
@@ -87,7 +87,12 @@ fn display_stats(stats: &[(SocketAddr, ping::PingStats)]) {
                 stats.pongs_received,
                 stats.min_latency,
                 stats.max_latency,
-                stats.average_latency
+                stats.average_latency,
+                if stats.error.is_some() {
+                    format!(" Error encountered: {:?}", &stats.error)
+                } else {
+                    format!("")
+                }
             );
         }
     }
