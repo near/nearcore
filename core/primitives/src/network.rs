@@ -1,14 +1,11 @@
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, EpochId};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
-
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-
-use crate::hash::CryptoHash;
-use crate::types::{AccountId, EpochId};
 
 /// Peer id is the public key.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
