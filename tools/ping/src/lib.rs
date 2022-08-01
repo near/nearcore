@@ -1,8 +1,6 @@
 use anyhow::Context;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
-use near_chain::types::ChainGenesis;
-use near_chain::Chain;
 use near_crypto::{KeyType, SecretKey};
 use near_network::types::{Encoding, Handshake, ParsePeerMessageError, PeerMessage};
 use near_network_primitives::time::Utc;
@@ -11,11 +9,11 @@ use near_network_primitives::types::{
     RoutedMessageBody,
 };
 use near_primitives::block::GenesisId;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use nearcore::NightshadeRuntime;
+use near_primitives::types::BlockHeight;
 use std::io;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -305,6 +303,24 @@ struct AppInfo {
     sigint_received: AtomicBool,
 }
 
+impl AppInfo {
+    fn new(chain_id: &str, genesis_hash: CryptoHash, head_height: BlockHeight) -> Self {
+        let secret_key = SecretKey::from_random(KeyType::ED25519);
+        let my_peer_id = PeerId::new(secret_key.public_key());
+        Self {
+            chain_info: PeerChainInfoV2 {
+                genesis_id: GenesisId { chain_id: chain_id.to_string(), hash: genesis_hash },
+                height: head_height,
+                tracked_shards: vec![0],
+                archival: false,
+            },
+            secret_key,
+            my_peer_id,
+            sigint_received: AtomicBool::new(false),
+        }
+    }
+}
+
 // try to connect to the given node, and ping it `num_pings` times, returning the associated latency stats
 async fn ping_node(
     app_info: &AppInfo,
@@ -353,51 +369,15 @@ async fn ping_node(
     stats
 }
 
-fn chain_info<P: AsRef<Path>>(home: P) -> anyhow::Result<PeerChainInfoV2> {
-    let near_config = nearcore::config::load_config(
-        home.as_ref(),
-        near_chain_configs::GenesisValidationMode::UnsafeFast,
-    )
-    .with_context(|| format!("Failed to open config at {:?}", home.as_ref()))?;
-    let store = near_store::Store::opener(home.as_ref(), &near_config.config.store).open();
-    let runtime = NightshadeRuntime::from_config(home.as_ref(), store.clone(), &near_config);
-    let chain = Chain::new_for_view_client(
-        std::sync::Arc::new(runtime),
-        &ChainGenesis::new(&near_config.genesis),
-        near_chain::DoomslugThresholdMode::TwoThirds,
-        !near_config.client_config.archive,
-    )
-    .context("Failed initializing chain")?;
-    let height = chain.head().context("Failed fetching chain HEAD")?.height;
-
-    Ok(PeerChainInfoV2 {
-        genesis_id: GenesisId {
-            chain_id: near_config.genesis.config.chain_id.clone(),
-            hash: chain.genesis().hash().clone(),
-        },
-        height,
-        tracked_shards: near_config.client_config.tracked_shards.clone(),
-        archival: near_config.client_config.archive,
-    })
-}
-
-pub async fn ping_nodes<P: AsRef<Path>>(
-    home: P,
+pub async fn ping_nodes(
+    chain_id: &str,
+    genesis_hash: CryptoHash,
+    head_height: BlockHeight,
     peer_id: PeerId,
     peer_addr: SocketAddr,
     num_pings: usize,
 ) -> anyhow::Result<PingStats> {
-    let chain_info = chain_info(home)?;
-    // don't use the key in node_key.json so we dont have to worry about the nonce
-    // to use in the handshake
-    let secret_key = SecretKey::from_random(KeyType::ED25519);
-    let my_peer_id = PeerId::new(secret_key.public_key());
-    let app_info = Arc::new(AppInfo {
-        chain_info,
-        secret_key,
-        my_peer_id,
-        sigint_received: AtomicBool::new(false),
-    });
+    let app_info = Arc::new(AppInfo::new(chain_id, genesis_hash, head_height));
 
     let ping = ping_node(app_info.as_ref(), peer_id, peer_addr, num_pings);
     tokio::pin!(ping);
