@@ -3,19 +3,19 @@ use near_chain_primitives::Error;
 use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::mem;
 use std::time::Instant;
 use tracing::error;
 
-use crate::{metrics, Chain, ChainStoreAccess};
+use crate::{metrics, Chain, ChainStoreAccess, RuntimeAdapter};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -37,7 +37,7 @@ pub struct BlocksDelayTracker {
     // Chunk stats
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
-    floating_chunks: HashSet<ChunkHash>,
+    floating_chunks: HashMap<ChunkHash, BlockHeight>,
     head_height: BlockHeight,
 }
 
@@ -62,8 +62,11 @@ pub struct BlockTrackingStats {
 
 /// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
 /// before it is received.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ChunkTrackingStats {
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub prev_block_hash: CryptoHash,
     /// Timestamp of first time when we request for this chunk.
     pub requested_timestamp: Option<Instant>,
     /// Timestamp of when the node receives all information it needs for this chunk
@@ -71,7 +74,20 @@ pub struct ChunkTrackingStats {
 }
 
 impl ChunkTrackingStats {
-    fn to_chunk_processing_info(&self) -> ChunkProcessingInfo {
+    fn new(chunk_header: &ShardChunkHeader) -> Self {
+        Self {
+            height_created: chunk_header.height_created(),
+            shard_id: chunk_header.shard_id(),
+            prev_block_hash: *chunk_header.prev_block_hash(),
+            requested_timestamp: None,
+            completed_timestamp: None,
+        }
+    }
+
+    fn to_chunk_processing_info(
+        &self,
+        runtime_adapter: &dyn RuntimeAdapter,
+    ) -> ChunkProcessingInfo {
         let status = if self.completed_timestamp.is_some() {
             ChunkProcessingStatus::Completed
         } else if self.requested_timestamp.is_some() {
@@ -79,7 +95,19 @@ impl ChunkTrackingStats {
         } else {
             ChunkProcessingStatus::NeedToRequest
         };
-        ChunkProcessingInfo { status }
+        let created_by = runtime_adapter
+            .get_epoch_id_from_prev_block(&self.prev_block_hash)
+            .and_then(|epoch_id| {
+                runtime_adapter.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
+            })
+            .ok();
+        ChunkProcessingInfo {
+            height_created: self.height_created,
+            shard_id: self.shard_id,
+            prev_block_hash: self.prev_block_hash,
+            created_by,
+            status,
+        }
     }
 }
 
@@ -97,7 +125,7 @@ impl BlocksDelayTracker {
                         let chunk_hash = chunk.chunk_hash();
                         self.chunks
                             .entry(chunk_hash.clone())
-                            .or_insert(ChunkTrackingStats::default());
+                            .or_insert(ChunkTrackingStats::new(chunk));
                         self.floating_chunks.remove(&chunk_hash);
                         Some(chunk_hash)
                     } else {
@@ -154,23 +182,25 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_chunk_completed(&mut self, chunk_hash: ChunkHash, timestamp: Instant) {
+    pub fn mark_chunk_completed(&mut self, chunk_header: &ShardChunkHeader, timestamp: Instant) {
+        let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash);
-                ChunkTrackingStats::default()
+                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                ChunkTrackingStats::new(chunk_header)
             })
             .completed_timestamp
             .get_or_insert(timestamp);
     }
 
-    pub fn mark_chunk_requested(&mut self, chunk_hash: ChunkHash, timestamp: Instant) {
+    pub fn mark_chunk_requested(&mut self, chunk_header: &ShardChunkHeader, timestamp: Instant) {
+        let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
             .or_insert_with(|| {
-                self.floating_chunks.insert(chunk_hash);
-                ChunkTrackingStats::default()
+                self.floating_chunks.insert(chunk_hash, chunk_header.height_created());
+                ChunkTrackingStats::new(chunk_header)
             })
             .requested_timestamp
             .get_or_insert(timestamp);
@@ -178,10 +208,9 @@ impl BlocksDelayTracker {
 
     fn update_head(&mut self, head_height: BlockHeight) {
         if head_height != self.head_height {
+            let cutoff_height = head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT);
             self.head_height = head_height;
-            let mut blocks_to_remove = self
-                .blocks_height_map
-                .split_off(&(head_height.saturating_sub(BLOCK_DELAY_TRACKING_COUNT)));
+            let mut blocks_to_remove = self.blocks_height_map.split_off(&cutoff_height);
             mem::swap(&mut self.blocks_height_map, &mut blocks_to_remove);
 
             for block_hash in blocks_to_remove.values().flatten() {
@@ -195,6 +224,22 @@ impl BlocksDelayTracker {
                     debug_assert!(false);
                     error!(target:"block_delay_tracker", "block {:?} in height map but no in blocks", block_hash);
                 }
+            }
+
+            let chunks_to_remove: Vec<_> = self
+                .floating_chunks
+                .iter()
+                .filter_map(|(chunk_hash, chunk_height)| {
+                    if chunk_height < &cutoff_height {
+                        Some(chunk_hash.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for chunk_hash in chunks_to_remove {
+                self.chunks.remove(&chunk_hash);
+                self.floating_chunks.remove(&chunk_hash);
             }
         }
     }
@@ -257,6 +302,7 @@ impl BlocksDelayTracker {
         block_height: BlockHeight,
         block_hash: &CryptoHash,
         chain: &Chain,
+        runtime_adapter: &dyn RuntimeAdapter,
     ) -> Option<BlockProcessingInfo> {
         self.blocks.get(block_hash).map(|block_stats| {
             let chunks_info: Vec<_> = block_stats
@@ -264,7 +310,9 @@ impl BlocksDelayTracker {
                 .iter()
                 .map(|chunk_hash| {
                     if let Some(chunk_hash) = chunk_hash {
-                        self.chunks.get(chunk_hash).map(|x| x.to_chunk_processing_info())
+                        self.chunks
+                            .get(chunk_hash)
+                            .map(|x| x.to_chunk_processing_info(runtime_adapter))
                     } else {
                         None
                     }
@@ -337,16 +385,32 @@ impl Chain {
                 hashes
                     .iter()
                     .flat_map(|hash| {
-                        self.blocks_delay_tracker.get_block_processing_info(*height, hash, self)
+                        self.blocks_delay_tracker.get_block_processing_info(
+                            *height,
+                            hash,
+                            self,
+                            &*self.runtime_adapter,
+                        )
                     })
                     .collect::<Vec<_>>()
             })
             .collect();
+        let floating_chunks_info: Vec<_> =
+            self.blocks_delay_tracker
+                .floating_chunks
+                .iter()
+                .flat_map(|(chunk_hash, _)| {
+                    self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
+                        chunk_stats.to_chunk_processing_info(&*self.runtime_adapter)
+                    })
+                })
+                .collect();
         ChainProcessingInfo {
             num_blocks_in_processing: self.blocks_in_processing_len(),
             num_orphans: self.orphans_len(),
             num_blocks_missing_chunks: self.blocks_with_missing_chunks_len(),
             blocks_info,
+            floating_chunks_info,
         }
     }
 

@@ -389,6 +389,8 @@ pub struct ChainProcessingInfo {
     pub num_blocks_missing_chunks: usize,
     /// contains processing info of recent blocks, ordered by height high to low
     pub blocks_info: Vec<BlockProcessingInfo>,
+    /// contains processing info of chunks that we don't know which block it belongs to yet
+    pub floating_chunks_info: Vec<ChunkProcessingInfo>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -427,6 +429,11 @@ pub enum BlockProcessingStatus {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkProcessingInfo {
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub prev_block_hash: CryptoHash,
+    /// Account id of the validator who created this chunk
+    pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /*
     /// Timestamp of first time when we request for this chunk.

@@ -1031,9 +1031,7 @@ impl Client {
     ) {
         match process_result {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.chain
-                    .blocks_delay_tracker
-                    .mark_chunk_completed(header.chunk_hash(), Clock::instant());
+                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::instant());
                 // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1374,7 +1372,7 @@ impl Client {
         let now = Clock::instant();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
-                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk.chunk_hash(), now);
+                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
             self.shards_mgr.request_chunks(
                 missing_chunks,
@@ -1390,7 +1388,7 @@ impl Client {
             orphans_missing_chunks
         {
             for chunk in &missing_chunks {
-                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk.chunk_hash(), now);
+                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
             }
             self.shards_mgr.request_chunks_for_orphan(
                 missing_chunks,
