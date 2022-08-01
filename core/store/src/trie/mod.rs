@@ -915,11 +915,7 @@ mod tests {
                             node.node.get_key().expect("we've just wrapped the value; qed");
                         let nib = &NibbleSlice::from_encoded(&node_key).0;
                         if &key != nib {
-                            if maybe_expected_value.is_none() {
-                                return true;
-                            } else {
-                                return false;
-                            }
+                            return maybe_expected_value.is_none();
                         }
 
                         return if let Some(value) = maybe_expected_value {
@@ -940,11 +936,7 @@ mod tests {
                             node.node.get_key().expect("we've just wrapped the value; qed");
                         let nib = NibbleSlice::from_encoded(&node_key).0;
                         if !key.starts_with(&nib) {
-                            if maybe_expected_value.is_none() {
-                                return true;
-                            } else {
-                                return false;
-                            }
+                            return maybe_expected_value.is_none();
                         }
                         key = key.mid(nib.len());
                     }
@@ -1405,8 +1397,20 @@ mod tests {
             assert!(trie.verify_proof(&k, proof, v.as_deref(), root));
         }
 
-        let (not_found, proof) = trie.get_proof(&root, b"horse_not_existing").unwrap();
-        assert!(trie.verify_proof(b"horse_not_existing", proof, None, root));
-        assert!(!not_found);
+        let non_existing_keys =
+            [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
+
+        for non_existing_key in non_existing_keys {
+            let (not_found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            assert!(trie.verify_proof(non_existing_key, proof, None, root));
+            assert!(!not_found);
+        }
+
+        for non_existing_key in non_existing_keys {
+            let (not_found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            // duplicating this because RawTrieNodeWithSize does not implement Clone
+            assert!(!trie.verify_proof(non_existing_key, proof, Some(b"0_value"), root));
+            assert!(!not_found);
+        }
     }
 }
