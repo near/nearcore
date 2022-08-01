@@ -103,17 +103,6 @@ fn test_view_call_with_args() {
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
 
-// helper function to avoid having to deal with large proof structs.
-fn make_children<'a>(
-    items: impl IntoIterator<Item = (usize, &'a str)>,
-) -> [Option<CryptoHash>; 16] {
-    let mut result = [None; 16];
-    for (idx, hash) in items {
-        result[idx] = Some(CryptoHash::from_str(hash).unwrap());
-    }
-    result
-}
-
 #[test]
 fn test_view_state() {
     // in order to ensure determinism under all conditions (compiler, build output, etc)
@@ -145,14 +134,7 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, (false, Some(vec![
-        "AgEAAAAQ3fgaEynsz1Lokp98nUl/icvchY0mKQ21u4fJyRTraGM=",
-        "AQFqVigWlaWIXcX/VlJSZbwdKVMTENOYdyJFCmfpPgqpogGt+cuaEmife37afd0DYK4R/Sk/kjwIqDS5xft/pelU5wGnmEa/D1YpSfNTICSr1f0dUsULk38MJm2erDf0wtl3ywAAAAAAAAHVIInhYzUZnTIxJo2kk52wkf2R1rbTdYzdmHzWDHPquQAAAAAAAAA=",
-        "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3g==",
-        "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAAA==",
-        "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTs=",
-        "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAA==",
-        "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLg=="].into_iter().map(String::from).collect())));
+    assert_eq!(result.proof, (false, Some(vec!["AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzM=", "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA", "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3g==", "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAAA==", "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTs=", "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAA==", "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLg=="].into_iter().map(String::from).collect())));
     assert_eq!(
         result.values,
         [
@@ -168,16 +150,7 @@ fn test_view_state() {
         [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: None }]
     );
 
-    assert_eq!(result.proof, (true, Some(vec![
-        "AgEAAAAQ3fgaEynsz1Lokp98nUl/icvchY0mKQ21u4fJyRTraGM=",
-        "AQFqVigWlaWIXcX/VlJSZbwdKVMTENOYdyJFCmfpPgqpogGt+cuaEmife37afd0DYK4R/Sk/kjwIqDS5xft/pelU5wGnmEa/D1YpSfNTICSr1f0dUsULk38MJm2erDf0wtl3ywAAAAAAAAHVIInhYzUZnTIxJo2kk52wkf2R1rbTdYzdmHzWDHPquQAAAAAAAAA=",
-        "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3g==",
-        "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAAA==",
-        "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTs=",
-        "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAA==",
-        "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLg==",
-        "AQABVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qQAAV1Bc8LWs2wIZEnud3rpJ9w2ZFRVW9BjoRgJuwiK6A7qAAAAAAAAAAAAAAAAAA==",
-        "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM="].into_iter().map(String::from).collect())));
+    assert_eq!(result.proof, (true, Some(vec!["AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzM=", "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA", "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3g==", "AQAAAAAAAe0tSsICzZdBz3UqPLKC/LBjpj4S+ztMU0kfLAw0eaWaAAAAAfO7S3LdQ9gnlQqsUYrFejLLI0bvkAX2Gckc7fHEWR/kAAAAAAAAAA==", "AgEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTs=", "AQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAA==", "AgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLg==", "AQABVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qQAAV1Bc8LWs2wIZEnud3rpJ9w2ZFRVW9BjoRgJuwiK6A7qAAAAAAAAAAAAAAAAAA==", "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuM="].into_iter().map(String::from).collect())));
 }
 
 #[test]
