@@ -768,8 +768,12 @@ impl Trie {
     }
 
     /// Given a root and a key, it returns a MerkleProof for that key.
+    /// Note that it can be a proof of membership, or a proof of non membership. This is encoded
+    /// in the boolean of the return type.
     ///
-    ///  Whenever a proof is not found, an empty vector is returned.
+    /// Hence, if [get_proof](#method.get_proof) returns (true, _), it means that the key-value are found in the trie
+    /// and a proof for that is presented. Similarly, if (false, _) is returned, it means that the key-value
+    /// pair does not belong to the trie and a proof for that is also returned.
     ///
     /// # Errors
     ///
