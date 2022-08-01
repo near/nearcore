@@ -78,10 +78,8 @@ def test_upgrade() -> None:
     node_root = utils.get_near_tempdir('upgradable', clean=True)
 
     # Setup local network.
-    # TODO(#4372): testnet subcommand deprecated since 1.24.  Replace with
-    # localnet after a couple of releases in 2022.
-    cmd = (executables.stable.neard, "--home=%s" % node_root, "testnet", "--v",
-           "4", "--prefix", "test")
+    cmd = (executables.stable.neard, f'--home={node_root}', 'testnet', '-v',
+           '4', '--prefix', 'test')
     logger.info(' '.join(str(arg) for arg in cmd))
     subprocess.check_call(cmd)
     genesis_config_changes = [("epoch_length", 20),
