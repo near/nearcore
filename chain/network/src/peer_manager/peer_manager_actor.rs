@@ -110,6 +110,9 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 // network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
+#[cfg(feature = "skip_sending_tombstones")]
+const SKIP_TOMBSTONES_AFTER_STARTUP_TIME: time::Duration = time::Duration::seconds(120);
+
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -579,13 +582,14 @@ impl PeerManagerActor {
                     match response {
                         Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
                             #[allow(unused_mut)]
+                            #[cfg(feature = "skip_sending_tombstones")]
                             let mut filtered_edges = filtered_edges.clone();
-                            // Don't send tombstones during the initial 120 seconds.
+                            // Don't send tombstones during the initial time.
                             // Most of the network is created during this time, which results
                             // in us sending a lot of tombstones to peers.
                             // Later, the amount of new edges is a lot smaller.
                             #[cfg(feature = "skip_sending_tombstones")]
-                            if start_time.elapsed().as_seconds_f32() < 120.0 {
+                            if start_time.elapsed() < SKIP_TOMBSTONES_AFTER_STARTUP_TIME {
                                 filtered_edges.retain(|edge| edge.removal_info().is_none());
                             }
                             // Broadcast new edges to all other peers.
