@@ -936,6 +936,29 @@ impl PeerManagerActor {
             .collect::<Vec<_>>()
     }
 
+    // Get peers that are potentially unreliable and we should avoid routing messages through them.
+    // Currently we're picking the peers that are NOT the highest peers.
+    fn unreliable_peers(&self) -> HashSet<PeerId> {
+        let connected_peers = self.state.connected_peers.read();
+        // This finds max height among peers, and returns one peer close to such height.
+        let max_height = match (connected_peers.values())
+            .map(|connected_peer| connected_peer.full_peer_info.chain_info.height)
+            .max()
+        {
+            Some(height) => height,
+            None => return HashSet::default(),
+        };
+        // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
+        connected_peers
+            .values()
+            .filter(|cp| {
+                cp.full_peer_info.chain_info.height.saturating_add(self.config.highest_peer_horizon)
+                    < max_height
+            })
+            .map(|cp| cp.full_peer_info.peer_info.id.clone())
+            .collect::<HashSet<_>>()
+    }
+
     /// Query current peers for more peers.
     fn query_connected_peers_for_more_peers(&mut self) {
         let mut requests = futures::stream::FuturesUnordered::new();
@@ -1229,6 +1252,11 @@ impl PeerManagerActor {
         if let Err(err) = self.peer_store.remove_expired(&self.clock, &self.config) {
             error!(target: "network", ?err, "Failed to remove expired peers");
         };
+
+        // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
+        let unreliable_peers = self.unreliable_peers();
+        metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
+        self.network_graph.write().set_unreliable_peers(unreliable_peers);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
