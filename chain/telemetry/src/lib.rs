@@ -16,12 +16,17 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
+    #[serde(default = "default_reporting_interval")]
     pub reporting_interval: near_primitives::time::Duration,
+}
+
+fn default_reporting_interval() -> near_primitives::time::Duration {
+    near_primitives::time::Duration::from_secs(10)
 }
 
 impl Default for TelemetryConfig {
     fn default() -> Self {
-        Self { endpoints: vec![], reporting_interval: Duration::from_secs(10) }
+        Self { endpoints: vec![], reporting_interval: default_reporting_interval() }
     }
 }
 
@@ -85,17 +90,19 @@ impl Handler<TelemetryEvent> for TelemetryActor {
             return;
         }
         for endpoint in self.config.endpoints.iter() {
+            let endpoint = endpoint.clone();
             near_performance_metrics::actix::spawn(
                 "telemetry",
                 self.client
-                    .post(endpoint)
+                    .post(endpoint.clone())
                     .insert_header(("Content-Type", "application/json"))
                     .send_json(&msg.content)
-                    .map(|response| {
+                    .map(move |response| {
                         let result = if let Err(error) = response {
                             tracing::warn!(
                                 target: "telemetry",
                                 err = ?error,
+                                endpoint = ?endpoint,
                                 "Failed to send telemetry data");
                             "failed"
                         } else {
