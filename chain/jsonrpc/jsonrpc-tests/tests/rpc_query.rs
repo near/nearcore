@@ -1,4 +1,3 @@
-use std::ops::ControlFlow;
 use std::str::FromStr;
 
 use actix::System;
@@ -18,6 +17,8 @@ use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
+
+pub type ControlFlow = std::ops::ControlFlow<()>;
 
 /// Retrieve blocks via json rpc
 #[test]
@@ -388,12 +389,13 @@ fn test_status_fail() {
         wait_or_timeout(100, 10000, || async {
             let res = client.health().await;
             if res.is_err() {
-                ControlFlow::Break(());
+                return ControlFlow::Break(());
             }
-            ControlFlow::Continue(());
+            ControlFlow::Continue(())
         })
         .await
         .unwrap();
+        System::current().stop()
     });
 }
 
@@ -424,12 +426,13 @@ fn test_health_fail_no_blocks() {
         wait_or_timeout(300, 10000, || async {
             let res = client.health().await;
             if res.is_err() {
-                ControlFlow::Break(());
+                return ControlFlow::Break(());
             }
-            ControlFlow::Continue(());
+            ControlFlow::Continue(())
         })
         .await
         .unwrap();
+        System::current().stop()
     });
 }
 
