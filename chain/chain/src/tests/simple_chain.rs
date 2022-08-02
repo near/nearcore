@@ -67,7 +67,6 @@ fn build_chain() {
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-
     assert_eq!(mock_clock_guard.utc_call_count(), 10);
     assert_eq!(mock_clock_guard.instant_call_count(), 21);
     assert_eq!(chain.head().unwrap().height, 4);
