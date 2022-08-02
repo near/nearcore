@@ -580,6 +580,10 @@ impl PeerManagerActor {
                         Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
                             #[allow(unused_mut)]
                             let mut filtered_edges = filtered_edges.clone();
+                            // Don't send tombstones during the initial 120 seconds.
+                            // Most of the network is created during this time, which results
+                            // in us sending a lot of tombstones to peers.
+                            // Later, the amount of new edges is a lot smaller.
                             #[cfg(feature = "skip_sending_tombstones")]
                             if start_time.elapsed().as_seconds_f32() < 120.0 {
                                 filtered_edges.retain(|edge| edge.removal_info().is_none());
