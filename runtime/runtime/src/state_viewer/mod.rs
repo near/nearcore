@@ -169,7 +169,7 @@ impl TrieViewer {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(ViewStateResult { values, proof: (found, Some(serialized_proof)) })
+        Ok(ViewStateResult { values, proof: Some((found, Some(serialized_proof))) })
     }
 
     pub fn call_function(

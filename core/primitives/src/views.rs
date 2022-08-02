@@ -213,7 +213,7 @@ pub struct StateItem {
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
     // signals whether the value was found in the trie, and the proof itself to verify the claim
-    pub proof: (bool, TrieProofPath),
+    pub proof: Option<(bool, TrieProofPath)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

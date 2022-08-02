@@ -893,8 +893,9 @@ mod tests {
             maybe_expected_value: Option<&[u8]>,
             mut expected_hash: CryptoHash,
         ) -> bool {
-            let hash_node = |node: &RawTrieNodeWithSize| {
-                let mut v = vec![];
+            let mut v = vec![];
+            let mut hash_node = |node: &RawTrieNodeWithSize| {
+                v.clear();
                 node.encode_into(&mut v).unwrap();
                 CryptoHash::hash_bytes(&v)
             };
