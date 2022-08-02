@@ -1303,7 +1303,9 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{process_block_sync, setup, setup_with_validators};
+    use near_chain::test_utils::{
+        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+    };
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1446,16 +1448,13 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (chain, _, signers) = setup_with_validators(
-            vec!["test0", "test1", "test2", "test3", "test4"]
-                .iter()
-                .map(|x| x.parse().unwrap())
-                .collect(),
-            1,
-            1,
-            1000,
-            100,
-        );
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
+            "test0", "test1", "test2", "test3", "test4",
+        ]
+        .iter()
+        .map(|x| x.parse().unwrap())
+        .collect()]);
+        let (chain, _, signers) = setup_with_validators(vs, 1000, 100);
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;

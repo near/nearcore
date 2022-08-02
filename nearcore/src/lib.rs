@@ -6,10 +6,11 @@ use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
-use near_chain::ChainGenesis;
+use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -251,6 +252,11 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
+    let genesis_block = Chain::make_genesis_block(runtime.clone(), &chain_genesis)?;
+    let genesis_id = GenesisId {
+        chain_id: config.client_config.chain_id.clone(),
+        hash: genesis_block.header().hash().clone(),
+    };
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -289,6 +295,7 @@ pub fn start_with_config_and_synchronization(
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),
+                genesis_id,
             )
             .unwrap()
         }

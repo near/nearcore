@@ -16,8 +16,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, ShardId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::views::FinalExecutionOutcomeView;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
@@ -195,15 +195,12 @@ pub enum RoutedMessageBody {
 
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
-    QueryRequest {
-        query_id: String,
-        block_reference: BlockReference,
-        request: QueryRequest,
-    },
-    QueryResponse {
-        query_id: String,
-        response: Result<QueryResponse, String>,
-    },
+
+    // Kept for backwards borsh compatibility.
+    _UnusedQueryRequest,
+    // Kept for backwards borsh compatibility.
+    _UnusedQueryResponse,
+
     ReceiptOutcomeRequest(CryptoHash),
     /// Not used, but needed to preserve backward compatibility.
     Unused,
@@ -250,8 +247,8 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
-            RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::_UnusedQueryRequest { .. } => write!(f, "QueryRequest"),
+            RoutedMessageBody::_UnusedQueryResponse { .. } => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
@@ -382,7 +379,6 @@ impl RoutedMessage {
                 | RoutedMessageBody::StateRequestHeader(_, _)
                 | RoutedMessageBody::StateRequestPart(_, _, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::QueryRequest { .. }
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
     }
