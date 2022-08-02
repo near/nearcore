@@ -1,4 +1,4 @@
-/// Collection of feature specific tests
+//! Collection of feature specific tests
 
 #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
 mod account_id_in_function_call_permission;
