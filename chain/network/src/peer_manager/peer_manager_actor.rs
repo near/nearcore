@@ -937,7 +937,7 @@ impl PeerManagerActor {
     }
 
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
-    // Currently we're picking the peers that are NOT the highest peers.
+    // Currently we're picking the peers that are too much behind the highest peers.
     fn unreliable_peers(&self) -> HashSet<PeerId> {
         let connected_peers = self.state.connected_peers.read();
         // This finds max height among peers, and returns one peer close to such height.
