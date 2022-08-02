@@ -63,16 +63,8 @@ impl Graph {
     }
 
     pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
-        self.unreliable_peers = unreliable_peers
-            .iter()
-            .filter_map(|peer_id| {
-                if let Some(&id) = self.p2id.get(peer_id) {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        self.unreliable_peers =
+            unreliable_peers.iter().filter_map(|peer_id| self.p2id.get(peer_id).cloned()).collect();
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
