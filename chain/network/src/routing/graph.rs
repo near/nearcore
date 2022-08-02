@@ -1,7 +1,7 @@
 use near_network_primitives::types::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::warn;
 
 /// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
@@ -28,6 +28,9 @@ pub struct Graph {
 
     /// Total number of edges used for stats.
     total_active_edges: u64,
+
+    // Set of peers that are 'unreliable', and we should avoid routing through them.
+    unreliable_peers: HashSet<u32>,
 }
 
 impl Graph {
@@ -41,6 +44,7 @@ impl Graph {
             unused: Vec::default(),
             adjacency: Vec::default(),
             total_active_edges: 0,
+            unreliable_peers: HashSet::default(),
         };
         res.id2p.push(source.clone());
         res.adjacency.push(Vec::default());
@@ -56,6 +60,11 @@ impl Graph {
 
     pub fn total_active_edges(&self) -> u64 {
         self.total_active_edges
+    }
+
+    pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
+        self.unreliable_peers =
+            unreliable_peers.iter().filter_map(|peer_id| self.p2id.get(peer_id).cloned()).collect();
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
@@ -155,7 +164,10 @@ impl Graph {
         {
             let neighbors = &self.adjacency[self.source_id as usize];
             for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
-                queue.push_back(neighbor);
+                if !self.unreliable_peers.contains(&neighbor) {
+                    queue.push_back(neighbor);
+                }
+
                 distance[neighbor as usize] = 1;
                 routes[neighbor as usize] = 1u128 << id;
             }
@@ -227,6 +239,7 @@ impl Graph {
 mod test {
     use crate::routing::graph::Graph;
     use crate::test_utils::{expected_routing_tables, random_peer_id};
+    use std::collections::HashSet;
     use std::ops::Not;
 
     #[test]
@@ -389,5 +402,71 @@ mod test {
 
         assert_eq!(22, graph.total_active_edges() as usize);
         assert_eq!(22, graph.compute_total_active_edges() as usize);
+    }
+
+    // Same test as above, but node 0 is marked as bad.
+    // So it can be used only for its own messages.
+    #[test]
+    fn graph_distance4_with_unreliable_nodes() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..11).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+
+        for node in &nodes[0..3] {
+            graph.add_edge(&source, node);
+        }
+
+        for level in 0..2 {
+            for i in 0..3 {
+                for j in 0..3 {
+                    graph.add_edge(&nodes[level * 3 + i], &nodes[level * 3 + 3 + j]);
+                }
+            }
+        }
+
+        // Dummy edge.
+        graph.add_edge(&nodes[9], &nodes[10]);
+        graph.set_unreliable_peers(HashSet::from([nodes[0].clone()]));
+
+        let mut next_hops: Vec<_> =
+            (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
+        let target: Vec<_> = (1..3).map(|i| nodes[i].clone()).collect();
+
+        for node in &nodes[3..9] {
+            next_hops.push((node.clone(), target.clone()));
+        }
+
+        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
+
+        assert_eq!(22, graph.total_active_edges() as usize);
+        assert_eq!(22, graph.compute_total_active_edges() as usize);
+    }
+
+    // Test looks like this:
+    // s - 0 ----- 1
+    //  \--2 - 3 --/
+    // When 0 is marked as  unreliable, the calls to 1 should go via 2.
+    #[test]
+    fn graph_longer_distance_with_unreliable_nodes() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..4).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+        graph.add_edge(&source, &nodes[0]);
+        graph.add_edge(&source, &nodes[2]);
+        graph.add_edge(&nodes[2], &nodes[3]);
+        graph.add_edge(&nodes[3], &nodes[1]);
+        graph.add_edge(&nodes[0], &nodes[1]);
+
+        graph.set_unreliable_peers(HashSet::from([nodes[0].clone()]));
+
+        let next_hops = vec![
+            (nodes[0].clone(), vec![nodes[0].clone()]),
+            (nodes[1].clone(), vec![nodes[2].clone()]),
+            (nodes[2].clone(), vec![nodes[2].clone()]),
+            (nodes[3].clone(), vec![nodes[2].clone()]),
+        ];
+        assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
     }
 }
