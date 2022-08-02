@@ -69,7 +69,7 @@ dependencies = [
  "actix-service",
  "actix-utils",
  "ahash",
- "base64 0.13.0",
+ "base64",
  "bitflags",
  "brotli",
  "bytes",
@@ -410,7 +410,7 @@ dependencies = [
  "actix-tls",
  "actix-utils",
  "ahash",
- "base64 0.13.0",
+ "base64",
  "bytes",
  "cfg-if 1.0.0",
  "cookie",
@@ -446,12 +446,6 @@ dependencies = [
  "object",
  "rustc-demangle",
 ]
-
-[[package]]
-name = "base64"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
 name = "base64"
@@ -2289,7 +2283,6 @@ dependencies = [
  "actix-rt",
  "anyhow",
  "assert_matches",
- "base64 0.11.0",
  "borsh",
  "chrono",
  "clap 3.1.18",
@@ -3099,12 +3092,11 @@ dependencies = [
  "actix",
  "arbitrary",
  "awc",
- "base64 0.13.0",
- "bs58",
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
  "near-logger-utils",
+ "near-primitives",
  "once_cell",
  "serde",
  "serde_json",
@@ -3345,7 +3337,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
- "base64 0.11.0",
+ "base64",
  "borsh",
  "bs58",
  "deepsize",
@@ -3477,6 +3469,7 @@ dependencies = [
  "near-metrics",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-primitives",
  "once_cell",
  "openssl",
  "serde",
@@ -3511,7 +3504,6 @@ dependencies = [
 name = "near-vm-logic"
 version = "0.0.0"
 dependencies = [
- "base64 0.13.0",
  "borsh",
  "bs58",
  "byteorder",
@@ -3538,7 +3530,6 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
- "base64 0.13.0",
  "bolero",
  "borsh",
  "expect-test",
@@ -3698,7 +3689,6 @@ name = "node-runtime"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "base64 0.11.0",
  "borsh",
  "byteorder",
  "hex",
@@ -4774,7 +4764,7 @@ version = "0.11.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46a1f7aa4f35e5e8b4160449f51afc758f0ce6454315a9fa7d0d113e958c41eb"
 dependencies = [
- "base64 0.13.0",
+ "base64",
  "bytes",
  "encoding_rs",
  "futures-core",

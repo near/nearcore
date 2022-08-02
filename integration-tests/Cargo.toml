@@ -11,7 +11,6 @@ edition = "2021"
 actix = "0.13.0"
 actix-rt = "2"
 anyhow = "1.0.55"
-base64 = "0.11"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive"] }

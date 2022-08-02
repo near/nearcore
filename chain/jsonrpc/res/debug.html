@@ -3,6 +3,22 @@
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        function convertTime(total_seconds) {
+            let seconds = total_seconds % 60;
+            let total_minutes = (total_seconds - seconds) / 60;
+            let minutes = total_minutes % 60;
+            let total_hours = total_minutes / 60;
+            let hours = total_hours % 24;
+            let days = total_hours / 24;
+            return `${days}d ${addZeros(hours)}:${addZeros(minutes)}:${addZeros(seconds)}`;
+        }
+        function addZeros(x) {
+            if (x >= 10) {
+                return x;
+            } else {
+                return "0" + x;
+            }
+        }
         $(document).ready(() => {
             $.ajax({
                 type: "GET",
@@ -11,7 +27,7 @@
                     $('.js-chain').text(data.chain_id);
                     $('.js-protocol').text(data.protocol_version);
                     $('.js-binary').text(JSON.stringify(data.version));
-
+                    $('.js-uptime').text(convertTime(data.uptime_sec));
                 },
                 dataType: "json",
                 contentType: "application/json; charset=utf-8",
@@ -25,6 +41,7 @@
         <p>Chain: <span class="js-chain"></span></p>
         <p>Protocol: <span class="js-protocol"></span></p>
         <p>Binary: <span class="js-binary"></span></p>
+        <p>Uptime: <span class="js-uptime"></span></p>
 
     </h3>
 

@@ -517,29 +517,30 @@ fn produce_block_with_approvals() {
 #[test]
 fn produce_block_with_approvals_arrived_early() {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             2000,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(
                 move |conns,
@@ -741,29 +742,29 @@ enum InvalidBlockMode {
 
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
         let mut sent_bad_blocks = false;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             100,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(
                 move |conns,
@@ -774,8 +775,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
                                 let block_producer_idx =
-                                    block.header().height() as usize % validators[0].len();
-                                let block_producer = &validators[0][block_producer_idx];
+                                    block.header().height() as usize % validators.len();
+                                let block_producer = &validators[block_producer_idx];
                                 let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                     block_producer.clone(),
                                     KeyType::ED25519,
@@ -2511,9 +2512,9 @@ fn test_refund_receipts_processing() {
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
                     refund_receipt_ids.insert(*id);
-                });
+                }
             }
             _ => assert!(false),
         };
@@ -2530,9 +2531,9 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .remove(&0)
             .unwrap();
-        execution_outcomes_from_block.iter().for_each(|outcome| {
+        for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        });
+        }
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
