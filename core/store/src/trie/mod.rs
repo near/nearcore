@@ -762,7 +762,7 @@ impl Trie {
     ) -> Result<(bool, Vec<RawTrieNodeWithSize>), StorageError> {
         let mut key = NibbleSlice::new(key);
         let mut hash = *root;
-        if hash == Trie::empty_root() {
+        if hash == Trie::EMPTY_ROOT {
             return Ok((key.is_empty(), Vec::new()));
         }
 
@@ -873,10 +873,10 @@ mod tests {
             let mut v = vec![];
             let mut hash_node = |node: &RawTrieNodeWithSize| {
                 v.clear();
-                node.encode_into(&mut v).unwrap();
+                node.encode_into(&mut v);
                 CryptoHash::hash_bytes(&v)
             };
-            let mut hash = Trie::empty_root();
+            let mut hash = Trie::EMPTY_ROOT;
             let mut key = NibbleSlice::new(key);
             if levels.is_empty() && maybe_expected_value.is_some() {
                 return false;
@@ -1360,7 +1360,7 @@ mod tests {
 
         let root = test_populate_trie(
             &tries,
-            &Trie::empty_root(),
+            &Trie::EMPTY_ROOT,
             ShardUId::single_shard(),
             changes.clone(),
         );

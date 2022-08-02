@@ -2,6 +2,7 @@ use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::serialize::to_base64;
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::{BorshDeserialize, BorshSerialize},
@@ -149,11 +150,7 @@ impl TrieViewer {
             if !key.starts_with(query.as_ref()) {
                 break;
             }
-            values.push(StateItem {
-                key: key[acc_sep_len..].to_vec(),
-                value: value,
-                proof: vec![],
-            });
+            values.push(StateItem { key: key[acc_sep_len..].to_vec(), value: value, proof: None });
         }
         // TODO(2076): Add proofs for the storage items.
         let trie = state_update.trie();
