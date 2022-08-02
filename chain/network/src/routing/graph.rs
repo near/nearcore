@@ -1,7 +1,7 @@
 use near_network_primitives::types::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 use tracing::warn;
 
 /// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
@@ -28,6 +28,9 @@ pub struct Graph {
 
     /// Total number of edges used for stats.
     total_active_edges: u64,
+
+    // Set of peers that are 'unreliable', and we should avoid routing through them.
+    unreliable_peers: HashSet<u32>,
 }
 
 impl Graph {
@@ -41,6 +44,7 @@ impl Graph {
             unused: Vec::default(),
             adjacency: Vec::default(),
             total_active_edges: 0,
+            unreliable_peers: HashSet::default(),
         };
         res.id2p.push(source.clone());
         res.adjacency.push(Vec::default());
@@ -56,6 +60,16 @@ impl Graph {
 
     pub fn total_active_edges(&self) -> u64 {
         self.total_active_edges
+    }
+
+    pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
+        self.unreliable_peers = unreliable_peers.iter().filter_map(|peer_id| {
+            if let Some(&id) = self.p2id.get(peer_id) {
+                Some(id.clone())
+            } else {
+                None
+            }
+        }).collect();
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
@@ -154,7 +168,7 @@ impl Graph {
 
         {
             let neighbors = &self.adjacency[self.source_id as usize];
-            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS).filter(|(_, neighbor)| !self.unreliable_peers.contains(neighbor)) {
                 queue.push_back(neighbor);
                 distance[neighbor as usize] = 1;
                 routes[neighbor as usize] = 1u128 << id;
