@@ -103,6 +103,9 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
+// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
+const UNRELIABLE_PEER_HORIZON: u64 = 60;
+
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -939,21 +942,15 @@ impl PeerManagerActor {
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind the highest peers.
     fn unreliable_peers(&self) -> HashSet<PeerId> {
+        let my_height = self.state.chain_info.read().height.clone();
+
         let connected_peers = self.state.connected_peers.read();
-        // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match (connected_peers.values())
-            .map(|connected_peer| connected_peer.full_peer_info.chain_info.height)
-            .max()
-        {
-            Some(height) => height,
-            None => return HashSet::default(),
-        };
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
         connected_peers
             .values()
             .filter(|cp| {
-                cp.full_peer_info.chain_info.height.saturating_add(self.config.highest_peer_horizon)
-                    < max_height
+                cp.full_peer_info.chain_info.height.saturating_add(UNRELIABLE_PEER_HORIZON)
+                    < my_height
             })
             .map(|cp| cp.full_peer_info.peer_info.id.clone())
             .collect::<HashSet<_>>()
