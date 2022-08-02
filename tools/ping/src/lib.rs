@@ -295,7 +295,9 @@ impl Ord for PingTarget {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         match &self.last_pinged {
             Some(my_last_pinged) => match &other.last_pinged {
-                Some(their_last_pinged) => my_last_pinged.cmp(their_last_pinged),
+                Some(their_last_pinged) => my_last_pinged
+                    .cmp(their_last_pinged)
+                    .then_with(|| self.peer_id.cmp(&other.peer_id)),
                 None => cmp::Ordering::Greater,
             },
             None => match &other.last_pinged {
