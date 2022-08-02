@@ -168,7 +168,7 @@ impl Graph {
 
         {
             let neighbors = &self.adjacency[self.source_id as usize];
-            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) { //.filter(|(_, neighbor)| !self.unreliable_peers.contains(neighbor)) {
+            for (id, &neighbor) in neighbors.iter().enumerate().take(MAX_NUM_PEERS) {
                 if !self.unreliable_peers.contains(&neighbor) {
                     queue.push_back(neighbor);
                 }
