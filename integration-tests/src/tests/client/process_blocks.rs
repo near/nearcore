@@ -135,7 +135,7 @@ fn check_tx_processing(
     next_height
 }
 
-fn deploy_test_contract(
+pub(crate) fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
@@ -230,24 +230,6 @@ fn prepare_env_with_congestion(
     }
 
     (env, tx_hashes)
-}
-
-/// Create a `TestEnv` with an account and a contract deployed to that account.
-#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
-fn prepare_env_with_contract(
-    epoch_length: u64,
-    protocol_version: u32,
-    account: AccountId,
-    contract: Vec<u8>,
-) -> TestEnv {
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
-    env
 }
 
 /// Runs block producing client and stops after network mock received two blocks.

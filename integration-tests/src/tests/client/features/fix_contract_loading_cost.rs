@@ -1,9 +1,30 @@
 use assert_matches::assert_matches;
 
+use near_chain::ChainGenesis;
+use near_chain_configs::Genesis;
+use near_client::test_utils::TestEnv;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
+use nearcore::config::GenesisExt;
 
-use super::super::prepare_env_with_contract;
+use super::super::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
+
+/// Create a `TestEnv` with an account and a contract deployed to that account.
+fn prepare_env_with_contract(
+    epoch_length: u64,
+    protocol_version: u32,
+    account: AccountId,
+    contract: Vec<u8>,
+) -> TestEnv {
+    let mut genesis = Genesis::test(vec![account.clone()], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = protocol_version;
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    env
+}
 
 /// Check that normal execution has the same gas cost after FixContractLoadingCost.
 #[test]
