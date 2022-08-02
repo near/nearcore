@@ -32,9 +32,10 @@ pub struct BlocksDelayTracker {
     // removed if it is too far from the chain head.
     blocks: HashMap<CryptoHash, BlockTrackingStats>,
     // Maps block height to block hash. Used for gc.
-    // Theoretically, each block height should only have one block, if our work works correctly.
-    blocks_height_map: BTreeMap<BlockHeight, Vec<CryptoHash>>, // Chunks that belong to the blocks in the tracker
-    // Chunk stats
+    // Theoretically, each block height should only have one block, if our block processing code
+    // works correctly. We are storing a vector here just in case.
+    blocks_height_map: BTreeMap<BlockHeight, Vec<CryptoHash>>,
+    // Chunks that belong to the blocks in the tracker
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
     floating_chunks: HashMap<ChunkHash, BlockHeight>,
@@ -116,9 +117,9 @@ impl ChunkTrackingStats {
 impl BlocksDelayTracker {
     pub fn mark_block_received(&mut self, block: &Block, timestamp: Instant) {
         let block_hash = block.header().hash();
-        let height = block.header().height();
 
         if let Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
+            let height = block.header().height();
             let chunks = block
                 .chunks()
                 .iter()
@@ -224,7 +225,7 @@ impl BlocksDelayTracker {
                     }
                 } else {
                     debug_assert!(false);
-                    error!(target:"block_delay_tracker", "block {:?} in height map but no in blocks", block_hash);
+                    error!(target:"block_delay_tracker", "block {:?} in height map but not in blocks", block_hash);
                 }
             }
 
@@ -247,7 +248,6 @@ impl BlocksDelayTracker {
     }
 
     pub fn finish_block_processing(&mut self, block_hash: &CryptoHash, new_head: Option<Tip>) {
-        tracing::info!(target:"block_delay_tracker", "\n{:?}\n{:?}\n{:?}", self.blocks_height_map, self.blocks, self.chunks);
         if let Some(processed_block) = self.blocks.get_mut(&block_hash) {
             processed_block.processed_timestamp = Some(Clock::instant());
         }
@@ -474,7 +474,7 @@ impl Chain {
                 };
 
                 let missing_chunks_str = match block_info.missing_chunks_ms {
-                    Some(duration) => format!("orphan for {:?}ms", duration),
+                    Some(duration) => format!("missing chunks for {:?}ms", duration),
                     None => "".to_string(),
                 };
 

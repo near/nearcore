@@ -57,6 +57,7 @@ fn build_chain() {
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
 
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
@@ -66,7 +67,7 @@ fn build_chain() {
     }
 
     assert_eq!(mock_clock_guard.utc_call_count(), 9);
-    assert_eq!(mock_clock_guard.instant_call_count(), 17);
+    assert_eq!(mock_clock_guard.instant_call_count(), 21);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;

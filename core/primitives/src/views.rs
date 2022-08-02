@@ -434,6 +434,7 @@ pub struct ChunkProcessingInfo {
     pub chunk_hash: ChunkHash,
     pub prev_block_hash: CryptoHash,
     /// Account id of the validator who created this chunk
+    /// Theoretically this field should never be None unless there is some database corruption.
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /*
