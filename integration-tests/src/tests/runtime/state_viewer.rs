@@ -136,8 +136,8 @@ fn test_view_state() {
     assert_eq!(
         result.values,
         [
-            StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: vec![] },
-            StateItem { key: "dGVzdDMyMQ==".to_string(), value: "MzIx".to_string(), proof: vec![] }
+            StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] },
+            StateItem { key: b"test321".to_vec(), value: b"321".to_vec(), proof: vec![] }
         ]
     );
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"xyz").unwrap();
@@ -145,7 +145,7 @@ fn test_view_state() {
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
     assert_eq!(
         result.values,
-        [StateItem { key: "dGVzdDEyMw==".to_string(), value: "MTIz".to_string(), proof: vec![] }]
+        [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] }]
     );
 }
 
