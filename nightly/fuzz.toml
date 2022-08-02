@@ -6,10 +6,6 @@ weight = 10
 name = "1.28.0"
 weight = 10
 
-[[branch]]
-name = "1.27.0"
-weight = 10
-
 [[target]]
 crate = "runtime/near-vm-runner/fuzz"
 runner = "runner"
