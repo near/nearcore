@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::sync::Arc;
-
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
