@@ -1,18 +1,18 @@
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
+    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{PeerInfo, ReasonForBan};
+use near_network_primitives::types::{PeerInfo, ReasonForBan, SetChainInfo};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
@@ -276,7 +276,7 @@ pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl PeerManagerAdapter for MockPeerManagerAdapter {
+impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(
         &self,
         msg: PeerManagerMessageRequest,
@@ -289,6 +289,13 @@ impl PeerManagerAdapter for MockPeerManagerAdapter {
     fn do_send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
     }
+}
+
+impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+        async { Ok(()) }.boxed()
+    }
+    fn do_send(&self, _msg: SetChainInfo) {}
 }
 
 impl MockPeerManagerAdapter {
@@ -343,46 +350,18 @@ pub mod test_features {
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),
                     )))
                 }
-                NetworkViewClientMessages::GetChainInfo => {
-                    Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId::default(),
-                        height: 1,
-                        tracked_shards: vec![],
-                        archival: false,
-                    }))
-                }
                 _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
             }
         }))
         .start();
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap()
-    }
-}
-
-#[derive(Default)]
-pub struct NetworkRecipient {
-    peer_manager_recipient: OnceCell<Recipient<PeerManagerMessageRequest>>,
-}
-
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        self.peer_manager_recipient
-            .set(peer_manager_recipient)
-            .expect("can't `set_recipient` twice");
-    }
-}
-
-impl PeerManagerAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient.wait().send(msg).boxed()
-    }
-
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self.peer_manager_recipient.wait().do_send(msg);
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
+        )
+        .unwrap()
     }
 }
 

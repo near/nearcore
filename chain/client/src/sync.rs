@@ -684,6 +684,11 @@ impl StateSync {
         Ok((request_block, have_block))
     }
 
+    // In the tuple of bools returned by this function, the first one
+    // indicates whether something has changed in `new_shard_sync`,
+    // and therefore whether the client needs to update its
+    // `sync_status`. The second indicates whether state sync is
+    // finished, in which case the client will transition to block sync
     pub fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
@@ -731,8 +736,10 @@ impl StateSync {
             let mut need_shard = false;
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
+                update_sync_status = true;
                 init_sync_download.clone()
             });
+            let old_status = shard_sync_download.status;
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
@@ -790,7 +797,6 @@ impl StateSync {
                         }
                     }
                     if parts_done {
-                        update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateDownloadScheduling,
@@ -808,7 +814,6 @@ impl StateSync {
                         state_parts_task_scheduler,
                     ) {
                         Ok(()) => {
-                            update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
                                 status: ShardSyncStatus::StateDownloadApplying,
@@ -818,7 +823,6 @@ impl StateSync {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
                             error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                            update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
                             chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                         }
@@ -829,7 +833,6 @@ impl StateSync {
                     if let Some(result) = result {
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
-                                update_sync_status = true;
                                 *shard_sync_download = ShardSyncDownload {
                                     downloads: vec![],
                                     status: ShardSyncStatus::StateDownloadComplete,
@@ -839,7 +842,6 @@ impl StateSync {
                                 // Cannot finalize the downloaded state.
                                 // The reasonable behavior here is to start from the very beginning.
                                 error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                                update_sync_status = true;
                                 *shard_sync_download = init_sync_download.clone();
                                 let shard_state_header =
                                     chain.get_state_header(shard_id, sync_hash)?;
@@ -946,6 +948,7 @@ impl StateSync {
                     highest_height_peers,
                 )?;
             }
+            update_sync_status |= shard_sync_download.status != old_status;
         }
 
         Ok((update_sync_status, all_done))
@@ -1300,7 +1303,9 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{process_block_sync, setup, setup_with_validators};
+    use near_chain::test_utils::{
+        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+    };
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1443,16 +1448,13 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (chain, _, signers) = setup_with_validators(
-            vec!["test0", "test1", "test2", "test3", "test4"]
-                .iter()
-                .map(|x| x.parse().unwrap())
-                .collect(),
-            1,
-            1,
-            1000,
-            100,
-        );
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
+            "test0", "test1", "test2", "test3", "test4",
+        ]
+        .iter()
+        .map(|x| x.parse().unwrap())
+        .collect()]);
+        let (chain, _, signers) = setup_with_validators(vs, 1000, 100);
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;

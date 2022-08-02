@@ -3,8 +3,10 @@ use super::*;
 use crate::types::{Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
+use near_network_primitives::types::NetworkConfig;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    AccountKeys, AccountOrPeerIdOrHash, ChainInfo, Edge, PartialEdgeInfo, PeerInfo,
+    RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -23,6 +25,7 @@ use rand::distributions::Standard;
 use rand::Rng;
 use std::collections::HashMap;
 use std::net;
+use std::sync::Arc;
 
 pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
@@ -87,7 +90,8 @@ pub fn make_signer<R: Rng>(rng: &mut R) -> InMemorySigner {
 
 pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
     let account_id = make_account_id(rng);
-    InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, &account_id)
+    let seed = rng.gen::<u64>().to_string();
+    InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
 }
 
 pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
@@ -212,10 +216,10 @@ impl ChunkSet {
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
         let chunks = genesis_chunks(
-            vec![StateRoot::default()], // state_roots
-            4,                          // num_shards
-            1000,                       // initial_gas_limit
-            0,                          // genesis_height
+            vec![StateRoot::new()], // state_roots
+            4,                      // num_shards
+            1000,                   // initial_gas_limit
+            0,                      // genesis_height
             PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
@@ -226,10 +230,12 @@ impl ChunkSet {
 pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
     EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
 }
+
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
+    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
 }
 
 impl Chain {
@@ -248,25 +254,70 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
+            tier1_accounts: (0..10)
+                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
+                .collect(),
             chunks: chunks.chunks,
         }
     }
 
     pub fn height(&self) -> BlockHeight {
-        self.blocks.last().unwrap().header().height()
+        self.tip().height()
     }
 
-    pub fn get_info(&self) -> PeerChainInfoV2 {
+    pub fn tip(&self) -> &BlockHeader {
+        self.blocks.last().unwrap().header()
+    }
+
+    pub fn get_tier1_accounts(&self) -> AccountKeys {
+        self.tier1_accounts
+            .iter()
+            .map(|(epoch_id, v)| {
+                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
+            })
+            .collect()
+    }
+
+    pub fn get_chain_info(&self) -> ChainInfo {
+        ChainInfo {
+            tracked_shards: Default::default(),
+            height: self.height(),
+            tier1_accounts: Arc::new(self.get_tier1_accounts()),
+        }
+    }
+
+    pub fn get_peer_chain_info(&self) -> PeerChainInfoV2 {
         PeerChainInfoV2 {
             genesis_id: self.genesis_id.clone(),
-            height: self.height(),
             tracked_shards: Default::default(),
             archival: false,
+            height: self.height(),
         }
     }
 
     pub fn get_block_headers(&self) -> Vec<BlockHeader> {
         self.blocks.iter().map(|b| b.header().clone()).collect()
+    }
+
+    pub fn make_config(&self, port: u16) -> NetworkConfig {
+        // TODO(gprusak): make config generation rng-based,
+        // rather than using a seed.
+        NetworkConfig::from_seed("test1", port)
+    }
+
+    pub fn make_tier1_data<R: Rng>(
+        &self,
+        rng: &mut R,
+        clock: &time::Clock,
+    ) -> Vec<SignedAccountData> {
+        self.tier1_accounts
+            .iter()
+            .map(|(epoch_id, v)| {
+                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
+                    .sign(v)
+                    .unwrap()
+            })
+            .collect()
     }
 }
 
@@ -280,7 +331,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         a_id,
         b_id,
         Some(rng.gen()),
-        chain.get_info(),
+        chain.get_peer_chain_info(),
         make_partial_edge(rng),
     )
 }
@@ -313,7 +364,8 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
-    clock: &time::Clock,
+    timestamp: time::Utc,
+    epoch_id: EpochId,
     account_id: AccountId,
 ) -> AccountData {
     AccountData {
@@ -334,12 +386,25 @@ pub fn make_account_data(
             },
         ],
         account_id,
-        epoch_id: make_epoch_id(rng),
-        timestamp: clock.now_utc(),
+        epoch_id,
+        timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
-    let signer = make_signer(rng);
-    make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
+    let signer = make_validator_signer(rng);
+    let epoch_id = make_epoch_id(rng);
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
+        .sign(&signer)
+        .unwrap()
+}
+
+// Accessors for creating malformed SignedAccountData
+impl SignedAccountData {
+    pub(crate) fn payload_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.payload.payload
+    }
+    pub(crate) fn signature_mut(&mut self) -> &mut near_crypto::Signature {
+        &mut self.payload.signature
+    }
 }

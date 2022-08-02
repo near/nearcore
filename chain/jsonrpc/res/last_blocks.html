@@ -33,12 +33,21 @@
         .skippedChunk {
             background-color: grey;
         }
+
+        .validatorUnavailable {
+            color: red;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        let known_producers = new Set([]);
+
         function createHashElement(hashValue, creator) {
             var element = $('<span>');
             element.addClass('hashElem');
+            if (!known_producers.has(creator)) {
+                element.addClass('validatorUnavailable')
+            }
             element.attr("hashvalue", hashValue);
             element.attr("creator", creator);
             element.css("font-family", "monospace");
@@ -50,16 +59,11 @@
             element.click(function () {
                 element.text(hashValue + " " + creator);
             })
+
             return element;
         }
 
-        $(document).ready(function () {
-            $(".expand_all").click(function () {
-                $(".hashElem").click();
-            })
-
-            var root = $("#blocks_table_tbody");
-            root.html("Loading...");
+        function fetchBlockStatus() {
             $.ajax({
                 type: "GET",
                 url: "/debug/api/block_status",
@@ -132,7 +136,39 @@
                 },
                 contentType: "application/json; charset=utf-8",
             })
+        }
 
+
+
+        $(document).ready(function () {
+            $(".expand_all").click(function () {
+                $(".hashElem").click();
+            })
+
+            var root = $("#blocks_table_tbody");
+            root.html("Loading...");
+
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/status",
+                success: function (data) {
+                    data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                        known_producers.add(element.account_id);
+                    });
+                    fetchBlockStatus();
+                    return;
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    if (errMsg.status == 405) {
+                        // Method not allowd.
+                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
+                    } else {
+                        alert("Failed: " + textStatus + " :" + errorThrown);
+                    }
+                },
+                contentType: "application/json; charset=utf-8",
+            })
         });
 
         function prepareTableHeader(max_shard) {
@@ -151,7 +187,8 @@
         Most recent blocks.
     </h1>
     Skipped chunks have grey background.<br>
-    Skipped blocks have hashes set to 11111... <br>
+    Skipped blocks have hashes set to 11111. <br>
+    Red text means that we don't know this producer (it is not present in our announce account list). <br>
     <button class="expand_all">Expand all</button><br>
     <div id="blocks_table">
         <table>

@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.0"
+rust-version = "1.62.1"
 edition = "2021"
 
 [dependencies]
@@ -28,7 +28,7 @@ near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-o11y = { path = "../../core/o11y" }
 near-jsonrpc-client = { path = "client" }
-near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
+near-jsonrpc-primitives = { path = "../jsonrpc-primitives", features = ["full"] }
 near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 near-network-primitives = { path = "../network-primitives" }

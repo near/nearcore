@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::config::VMConfig;
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -28,9 +29,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
+    NetworkRequests, NetworkResponses,
+};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -229,6 +233,7 @@ fn prepare_env_with_congestion(
 }
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
+#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
 fn prepare_env_with_contract(
     epoch_length: u64,
     protocol_version: u32,
@@ -512,29 +517,30 @@ fn produce_block_with_approvals() {
 #[test]
 fn produce_block_with_approvals_arrived_early() {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             2000,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(
                 move |conns,
@@ -736,29 +742,29 @@ enum InvalidBlockMode {
 
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
         let mut sent_bad_blocks = false;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             100,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(
                 move |conns,
@@ -769,8 +775,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
                                 let block_producer_idx =
-                                    block.header().height() as usize % validators[0].len();
-                                let block_producer = &validators[0][block_producer_idx];
+                                    block.header().height() as usize % validators.len();
+                                let block_producer = &validators[block_producer_idx];
                                 let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                     block_producer.clone(),
                                     KeyType::ED25519,
@@ -951,7 +957,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![FullPeerInfo {
+            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -960,7 +966,7 @@ fn client_sync_headers() {
                     archival: false,
                 },
                 partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            }],
+            })],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
@@ -1034,11 +1040,11 @@ fn test_time_attack() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1067,11 +1073,11 @@ fn test_invalid_approvals() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1116,11 +1122,11 @@ fn test_invalid_gas_price() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1274,11 +1280,12 @@ fn test_bad_chunk_mask() {
     let mut clients: Vec<Client> = validators
         .iter()
         .map(|account_id| {
+            let vs = ValidatorSchedule::new()
+                .num_shards(2)
+                .block_producers_per_epoch(vec![validators.clone()]);
             setup_client(
                 create_test_store(),
-                vec![validators.clone()],
-                1,
-                2,
+                vs,
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
@@ -2505,9 +2512,9 @@ fn test_refund_receipts_processing() {
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
                     refund_receipt_ids.insert(*id);
-                });
+                }
             }
             _ => assert!(false),
         };
@@ -2524,9 +2531,9 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .remove(&0)
             .unwrap();
-        execution_outcomes_from_block.iter().for_each(|outcome| {
+        for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        });
+        }
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
@@ -3472,7 +3479,6 @@ mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
     use near_client::test_utils::create_chunk_with_transactions;
-    use near_network::types::PeerManagerAdapter;
     use near_primitives::account::AccessKey;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;
@@ -4408,10 +4414,8 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let mut caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
@@ -4425,7 +4429,7 @@ mod contract_precompilation_tests {
         let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
-                .get(&key.0)
+                .get(&key)
                 .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
                 .unwrap_or_else(|| {
                     panic!("Compilation result should be non-empty for client {}", i)
@@ -4458,7 +4462,7 @@ mod contract_precompilation_tests {
             epoch_height: 1,
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
-            cache: Some(caches[1].clone()),
+            cache: Some(Box::new(caches.swap_remove(1))),
         };
         viewer
             .call_function(
@@ -4523,10 +4527,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
@@ -4548,12 +4550,12 @@ mod contract_precompilation_tests {
         );
 
         // Check that both deployed contracts are presented in cache for client 0.
-        assert!(caches[0].get(&tiny_contract_key.0).unwrap().is_some());
-        assert!(caches[0].get(&test_contract_key.0).unwrap().is_some());
+        assert!(caches[0].get(&tiny_contract_key).unwrap().is_some());
+        assert!(caches[0].get(&test_contract_key).unwrap().is_some());
 
         // Check that only last contract is presented in cache for client 1.
-        assert!(caches[1].get(&tiny_contract_key.0).unwrap().is_none());
-        assert!(caches[1].get(&test_contract_key.0).unwrap().is_some());
+        assert!(caches[1].get(&tiny_contract_key).unwrap().is_none());
+        assert!(caches[1].get(&test_contract_key).unwrap().is_some());
     }
 
     #[test]
@@ -4609,10 +4611,8 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
-            .iter()
-            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
-            .collect();
+        let caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
 
         let epoch_id = env.clients[0]
             .chain
@@ -4630,10 +4630,10 @@ mod contract_precompilation_tests {
         );
 
         // Check that contract is cached for client 0 despite account deletion.
-        assert!(caches[0].get(&contract_key.0).unwrap().is_some());
+        assert!(caches[0].get(&contract_key).unwrap().is_some());
 
         // Check that contract is not cached for client 1 because of late state sync.
-        assert!(caches[1].get(&contract_key.0).unwrap().is_none());
+        assert!(caches[1].get(&contract_key).unwrap().is_none());
     }
 }
 
@@ -4925,6 +4925,7 @@ mod lower_storage_key_limit_test {
     }
 }
 
+#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod new_contract_loading_cost {
     use super::*;
 

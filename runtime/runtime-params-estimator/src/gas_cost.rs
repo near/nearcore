@@ -292,9 +292,15 @@ fn least_squares_method_gas_cost_pos_neg(
 
     if let Some(first) = ys.get(0) {
         if first.qemu.is_some() {
-            assert!(ys.iter().all(|y| y.qemu.is_some()), "least square expects homogenous data");
+            assert!(
+                ys.iter().all(|y| y.qemu.is_some() || y.to_gas() == 0),
+                "least square expects homogenous data"
+            );
 
-            let qemu_ys = ys.iter().map(|y| y.qemu.clone().unwrap()).collect::<Vec<_>>();
+            let qemu_ys = ys
+                .iter()
+                .map(|y| y.qemu.clone().unwrap_or_else(|| QemuMeasurement::zero()))
+                .collect::<Vec<_>>();
 
             let (pos, neg) = crate::least_squares::qemu_measurement_least_squares(xs, &qemu_ys);
             pos_base.qemu = Some(pos.0);
@@ -303,8 +309,11 @@ fn least_squares_method_gas_cost_pos_neg(
             neg_factor.qemu = Some(neg.1);
         }
         if first.time_ns.is_some() {
-            assert!(ys.iter().all(|y| y.time_ns.is_some()), "least square expects homogenous data");
-            let time_ys = ys.iter().map(|y| y.time_ns.unwrap()).collect::<Vec<_>>();
+            assert!(
+                ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == 0),
+                "least square expects homogenous data"
+            );
+            let time_ys = ys.iter().map(|y| y.time_ns.unwrap_or(0.into())).collect::<Vec<_>>();
             let (pos, neg) = crate::least_squares::time_measurement_least_squares(xs, &time_ys);
             pos_base.time_ns = Some(pos.0);
             pos_factor.time_ns = Some(pos.1);

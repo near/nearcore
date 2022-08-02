@@ -12,6 +12,7 @@ use near_network::types::{
 };
 use near_network_primitives::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    SetChainInfo,
 };
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
@@ -228,7 +229,7 @@ impl MockPeerManagerActor {
             partial_edge_info: PartialEdgeInfo::default(),
         };
         let network_info = NetworkInfo {
-            connected_peers: vec![peer.clone()],
+            connected_peers: vec![(&peer).into()],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![peer],
@@ -260,7 +261,8 @@ impl MockPeerManagerActor {
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         let _response =
             self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
-        for peer in self.network_info.connected_peers.iter_mut() {
+        for connected_peer in self.network_info.connected_peers.iter_mut() {
+            let peer = &mut connected_peer.full_peer_info;
             let current_height = peer.chain_info.height;
             if current_height <= self.target_height {
                 if let Ok(block) =
@@ -275,7 +277,8 @@ impl MockPeerManagerActor {
                 peer.chain_info.height = current_height + 1;
             }
         }
-        self.network_info.highest_height_peers = self.network_info.connected_peers.clone();
+        self.network_info.highest_height_peers =
+            self.network_info.connected_peers.iter().map(|it| it.full_peer_info.clone()).collect();
         near_performance_metrics::actix::run_later(
             ctx,
             self.block_production_delay,
@@ -289,7 +292,7 @@ impl MockPeerManagerActor {
         if let Some((interval, block)) = &self.incoming_requests.block {
             let _response = self.client_addr.do_send(NetworkClientMessages::Block(
                 block.clone(),
-                self.network_info.connected_peers[0].peer_info.id.clone(),
+                self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone(),
                 false,
             ));
 
@@ -330,6 +333,12 @@ impl Actor for MockPeerManagerActor {
 
         self.send_incoming_requests(ctx);
     }
+}
+
+impl Handler<SetChainInfo> for MockPeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
 }
 
 impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {

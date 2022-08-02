@@ -433,7 +433,7 @@ mod tests {
         let changes = simplify_changes(&changes);
         let state_root = test_populate_trie(
             &tries,
-            &CryptoHash::default(),
+            &Trie::EMPTY_ROOT,
             ShardUId::single_shard(),
             changes.clone(),
         );
@@ -474,9 +474,9 @@ mod tests {
             let tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            let mut state_root = Trie::empty_root();
+            let mut state_root = Trie::EMPTY_ROOT;
             let mut state_roots: HashMap<_, _> = (0..num_shards)
-                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
+                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, Trie::EMPTY_ROOT))
                 .collect();
             for _ in 0..10 {
                 let trie = tries.get_trie_for_shard(ShardUId::single_shard());
@@ -503,10 +503,10 @@ mod tests {
                 let trie_items: HashMap<_, _> =
                     trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-                state_roots.iter().for_each(|(shard_uid, state_root)| {
+                for (shard_uid, state_root) in state_roots.iter() {
                     let trie = tries.get_view_trie_for_shard(*shard_uid);
                     combined_trie_items.extend(trie.iter(state_root).unwrap().map(Result::unwrap));
-                });
+                }
                 assert_eq!(trie_items, combined_trie_items);
             }
         }
@@ -521,8 +521,7 @@ mod tests {
 
             // push receipt to trie
             let tries = create_tries();
-            let mut trie_update =
-                tries.new_trie_update(ShardUId::single_shard(), StateRoot::default());
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
             for (i, receipt) in all_receipts.iter().enumerate() {
@@ -613,7 +612,7 @@ mod tests {
 
         for _ in 0..10 {
             let mut state_roots: HashMap<_, _> = (0..num_shards)
-                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
+                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, Trie::EMPTY_ROOT))
                 .collect();
             let mut all_receipts = vec![];
             let mut start_index = 0;
@@ -643,8 +642,7 @@ mod tests {
         let tries = create_tries();
         // add accounts and receipts to state
         let mut account_ids = gen_unique_accounts(rng, 100);
-        let mut trie_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         for account_id in account_ids.iter() {
             set_account(
                 &mut trie_update,
@@ -688,7 +686,7 @@ mod tests {
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|shard_id| {
-                    (ShardUId { version: 1, shard_id: shard_id as u32 }, CryptoHash::default())
+                    (ShardUId { version: 1, shard_id: shard_id as u32 }, Trie::EMPTY_ROOT)
                 })
                 .collect();
             let (store_update, split_state_roots) = tries

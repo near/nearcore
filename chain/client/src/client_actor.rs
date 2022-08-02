@@ -158,7 +158,7 @@ impl ClientActor {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper = InfoHelper::new(telemetry_actor, &config, validator_signer.clone());
+        let info_helper = InfoHelper::new(Some(telemetry_actor), &config, validator_signer.clone());
         let client = Client::new(
             config,
             chain_genesis,
@@ -700,8 +700,8 @@ impl Handler<Status> for ClientActor {
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
-        let validator_account_id =
-            self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
+        let validator_and_key =
+            self.client.validator_signer.as_ref().map(|vs| (vs.validator_id(), vs.public_key()));
 
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
@@ -762,7 +762,8 @@ impl Handler<Status> for ClientActor {
                 epoch_id: Some(head.epoch_id),
                 epoch_start_height,
             },
-            validator_account_id,
+            validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
+            node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
             detailed_debug_status,
         })
     }
@@ -783,7 +784,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| fpi.peer_info.clone())
+                .map(|fpi| fpi.full_peer_info.peer_info.clone())
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
@@ -1790,6 +1791,7 @@ impl ClientActor {
                 .unwrap_or(None)
                 .unwrap_or(0),
             statistics,
+            &self.client.config,
         );
         debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
     }

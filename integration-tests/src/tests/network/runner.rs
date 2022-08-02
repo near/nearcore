@@ -1,15 +1,15 @@
 use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail, Context};
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::ChainGenesis;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
 use near_network::test_utils::{
-    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo, NetworkRecipient,
+    expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
@@ -17,6 +17,7 @@ use near_network_primitives::types::{
     Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
     Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
+use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -48,8 +49,8 @@ fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -61,9 +62,13 @@ fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
-        let network_adapter = NetworkRecipient::default();
-        network_adapter.set_recipient(ctx.address().recipient());
-        let network_adapter = Arc::new(network_adapter);
+        let genesis_block = Chain::make_genesis_block(runtime.clone(), &chain_genesis).unwrap();
+        let genesis_id = GenesisId {
+            chain_id: client_config.chain_id.clone(),
+            hash: genesis_block.header().hash().clone(),
+        };
+
+        let network_adapter = Arc::new(ctx.address());
         let adv = near_client::adversarial::Controls::default();
 
         let client_actor = start_client(
@@ -92,6 +97,7 @@ fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            genesis_id,
         )
         .unwrap()
         .with_event_sink(send_events.sink())
@@ -264,7 +270,7 @@ impl StateMachine {
                     }
                     let res = pm.send(GetInfo{}).await?;
                     for peer in &res.connected_peers {
-                        if peer.peer_info.id==peer_id {
+                        if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
                         }
                     }
@@ -669,8 +675,11 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
         Box::pin(async move {
             let pm = &info.get_node(node_id)?.addr;
             let network_info = pm.send(GetInfo {}).await?;
-            let got: HashSet<_> =
-                network_info.connected_peers.into_iter().map(|i| i.peer_info.id).collect();
+            let got: HashSet<_> = network_info
+                .connected_peers
+                .into_iter()
+                .map(|i| i.full_peer_info.peer_info.id)
+                .collect();
             let want: HashSet<_> =
                 peers.iter().map(|i| info.runner.test_config[*i].peer_id()).collect();
             if got != want {

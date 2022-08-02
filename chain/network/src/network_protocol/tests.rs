@@ -16,7 +16,7 @@ fn good_account_data_size() {
     let mut rng = make_rng(39521947542);
     let clock = time::FakeClock::default();
     // rule of thumb: 10x IPv6 should be considered a valid account_data.
-    let signer = data::make_signer(&mut rng);
+    let signer = data::make_validator_signer(&mut rng);
 
     let ad = AccountData {
         peers: (0..10)
@@ -25,7 +25,7 @@ fn good_account_data_size() {
                 data::make_peer_addr(&mut rng, ip)
             })
             .collect(),
-        account_id: signer.account_id.clone(),
+        account_id: signer.validator_id().clone(),
         epoch_id: data::make_epoch_id(&mut rng),
         timestamp: clock.now_utc(),
     };
@@ -38,7 +38,7 @@ fn bad_account_data_size() {
     let mut rng = make_rng(19385389);
     let clock = time::FakeClock::default();
     // rule of thumb: 1000x IPv6 should be considered too much.
-    let signer = data::make_signer(&mut rng);
+    let signer = data::make_validator_signer(&mut rng);
 
     let ad = AccountData {
         peers: (0..1000)
@@ -47,7 +47,7 @@ fn bad_account_data_size() {
                 data::make_peer_addr(&mut rng, ip)
             })
             .collect(),
-        account_id: signer.account_id.clone(),
+        account_id: signer.validator_id().clone(),
         epoch_id: data::make_epoch_id(&mut rng),
         timestamp: clock.now_utc(),
     };

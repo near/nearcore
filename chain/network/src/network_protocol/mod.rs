@@ -27,6 +27,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
@@ -52,7 +53,21 @@ pub struct AccountData {
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
 impl AccountData {
-    pub fn sign(self, signer: &dyn near_crypto::Signer) -> anyhow::Result<SignedAccountData> {
+    /// Serializes AccountData to proto and signs it using `signer`.
+    /// Panics if AccountData.account_id doesn't match signer.validator_id(),
+    /// as this would likely be a bug.
+    /// Returns an error if the serialized data is too large to be broadcasted.
+    /// TODO(gprusak): consider separating serialization from signing (so introducing an
+    /// intermediate SerializedAccountData type) so that sign() then could fail only
+    /// due to account_id mismatch. Then instead of panicking we could return an error
+    /// and the caller (who constructs the arguments) would do an unwrap(). This would
+    /// consistute a cleaner never-panicking interface.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
+        assert_eq!(
+            &self.account_id,
+            signer.validator_id(),
+            "AccountData.account_id doesn't match the signer's account_id"
+        );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
             anyhow::bail!(
@@ -61,9 +76,7 @@ impl AccountData {
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        // TODO: here we should validate that payload is not too big - i.e. that it won't exceed
-        // the maximal allowed size.
-        let signature = signer.sign(&payload);
+        let signature = signer.sign_account_key_payload(&payload);
         Ok(SignedAccountData {
             account_data: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -303,9 +316,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.msg.body,
-                RoutedMessageBody::QueryRequest { .. }
-                    | RoutedMessageBody::QueryResponse { .. }
-                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
                     | RoutedMessageBody::TxStatusRequest(_, _)
