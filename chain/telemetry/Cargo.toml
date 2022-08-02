@@ -20,3 +20,4 @@ tracing = "0.1.13"
 near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-primitives = { path = "../../core/primitives" }
