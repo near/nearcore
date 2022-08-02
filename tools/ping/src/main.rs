@@ -1,6 +1,7 @@
 use clap::Parser;
 use near_network_primitives::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::types::BlockHeight;
 use std::str::FromStr;
 
@@ -20,34 +21,46 @@ struct Cli {
     /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
     #[clap(long)]
     peer: String,
-    /// Number of ping messages to try to send
-    #[clap(long, default_value = "20")]
-    num_pings: usize,
+    /// ttl to set on our Routed messages
+    #[clap(long, default_value = "100")]
+    ttl: u8,
+    /// milliseconds to wait between sending pings
+    #[clap(long, default_value = "1000")]
+    ping_frequency_millis: u64,
 }
 
-fn display_stats(stats: &ping::PingStats) {
+fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
+    let mut acc_width = "account".len();
+    for (peer, _) in stats.iter() {
+        acc_width = std::cmp::max(acc_width, format!("{}", peer).len());
+    }
+    // the ones that never responded should end up at the top with this sorting, which is a
+    // little weird, but we can fix it later.
+    stats.sort_by(|(_, left), (_, right)| left.average_latency.cmp(&right.average_latency));
     println!(
-        "{:<20} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
-        "addr",
+        "{:<acc_width$} | {:<10} | {:<10} | {:<17} | {:<17} | {:<17}",
+        "account",
         "num pings",
         "num pongs",
         "min ping latency",
         "max ping latency",
         "avg ping latency"
     );
-    println!(
-        "{:<20} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
-        "hello world",
-        stats.pings_sent,
-        stats.pongs_received,
-        stats.min_latency,
-        stats.max_latency,
-        stats.average_latency,
-        match &stats.error {
-            Some(e) => format!(" Error encountered: {:?}", e),
-            None => format!(""),
+    for (peer, stats) in stats.iter() {
+        if stats.pings_sent == 0 {
+            continue;
         }
-    );
+        println!(
+            "{:<acc_width$} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
+            peer,
+            stats.pings_sent,
+            stats.pongs_received,
+            stats.min_latency,
+            stats.max_latency,
+            stats.average_latency,
+            if peer_id == &peer.peer_id { " <-------------- direct pings" } else { "" }
+        );
+    }
 }
 
 struct ChainInfo {
@@ -88,7 +101,9 @@ async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
     let _subscriber = near_o11y::default_subscriber(
-        near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+        near_o11y::EnvFilterBuilder::new(std::env::var("RUST_LOG").unwrap_or("info".to_string()))
+            .finish()
+            .unwrap(),
         &Default::default(),
     )
     .await
@@ -137,15 +152,16 @@ async fn main() -> anyhow::Result<()> {
     if peer.addr.is_none() {
         anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
     }
-    let stats = ping::ping_nodes(
+    let mut stats = ping::ping_via_node(
         &args.chain_id,
         genesis_hash,
         head_height,
-        peer.id,
-        peer.addr.unwrap(),
-        args.num_pings,
+        peer.id.clone(),
+        peer.addr.clone().unwrap(),
+        args.ttl,
+        args.ping_frequency_millis,
     )
-    .await?;
-    display_stats(&stats);
+    .await;
+    display_stats(&mut stats, &peer.id);
     Ok(())
 }
