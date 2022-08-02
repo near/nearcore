@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
