@@ -75,8 +75,6 @@ use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
-mod features;
-
 pub fn set_block_protocol_version(
     block: &mut Block,
     block_producer: AccountId,
