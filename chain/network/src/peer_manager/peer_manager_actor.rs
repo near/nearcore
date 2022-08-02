@@ -940,7 +940,7 @@ impl PeerManagerActor {
     }
 
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
-    // Currently we're picking the peers that are too much behind the highest peers.
+    // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
         let my_height = self.state.chain_info.read().height.clone();
 
