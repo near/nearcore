@@ -85,6 +85,7 @@ impl Actor {
         // Update metrics after edge update
         metrics::EDGE_UPDATES.inc_by(total as u64);
         metrics::EDGE_ACTIVE.set(self.graph.read().total_active_edges() as i64);
+        metrics::EDGE_TOTAL.set(self.graph.read().edges().len() as i64);
         edges
     }
 
