@@ -27,6 +27,7 @@ num-rational = "0.3"
 thiserror = "1.0"
 tokio = { version = "1.1", features = ["sync"] }
 
+near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

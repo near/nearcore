@@ -1,12 +1,10 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::transaction::{Action, DeployContractAction};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::{
-    serialize::to_base64, transaction::SignedTransaction, views::FinalExecutionStatus,
-};
+use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 
 const ONE_NEAR: u128 = 10u128.pow(24);
@@ -52,7 +50,7 @@ fn test_deploy_max_size_contract() {
             token_balance,
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     // Deploy contract
@@ -61,7 +59,7 @@ fn test_deploy_max_size_contract() {
     near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config).unwrap();
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     // Check total TX gas is in limit

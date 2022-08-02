@@ -1,8 +1,8 @@
 use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail, Context};
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::ChainGenesis;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
@@ -17,6 +17,7 @@ use near_network_primitives::types::{
     Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
     Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
+use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -48,8 +49,8 @@ fn setup_network_node(
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -61,6 +62,12 @@ fn setup_network_node(
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
         client_config.ttl_account_id_router = config.ttl_account_id_router;
+        let genesis_block = Chain::make_genesis_block(runtime.clone(), &chain_genesis).unwrap();
+        let genesis_id = GenesisId {
+            chain_id: client_config.chain_id.clone(),
+            hash: genesis_block.header().hash().clone(),
+        };
+
         let network_adapter = Arc::new(ctx.address());
         let adv = near_client::adversarial::Controls::default();
 
@@ -90,6 +97,7 @@ fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            genesis_id,
         )
         .unwrap()
         .with_event_sink(send_events.sink())

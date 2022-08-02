@@ -99,7 +99,7 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
-    /// Not clear old data, set `true` for archive nodes.
+    /// Whether this is an archival node.
     pub archive: bool,
 }
 

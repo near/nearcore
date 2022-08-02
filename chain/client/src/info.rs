@@ -462,7 +462,7 @@ pub fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -494,14 +494,10 @@ mod tests {
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();
-        let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-            store,
-            vec![vec!["test".parse().unwrap()]],
-            1,
-            2,
-            123,
-            false,
-        ));
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        let runtime =
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
         let chain_genesis = ChainGenesis {
             time: Clock::utc(),
             height: 0,
