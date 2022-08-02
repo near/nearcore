@@ -3,6 +3,7 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -565,6 +566,31 @@ impl Genesis {
                 callback(record);
             }
         }
+    }
+}
+
+/// Config for changes applied to state dump.
+#[derive(Debug, Default)]
+pub struct GenesisChangeConfig {
+    pub select_account_ids: Option<Vec<AccountId>>,
+    pub whitelist_validators: Option<HashSet<AccountId>>,
+}
+
+impl GenesisChangeConfig {
+    pub fn with_select_account_ids(mut self, select_account_ids: Option<Vec<AccountId>>) -> Self {
+        self.select_account_ids = select_account_ids;
+        self
+    }
+
+    pub fn with_whitelist_validators(
+        mut self,
+        whitelist_validators: Option<Vec<AccountId>>,
+    ) -> Self {
+        self.whitelist_validators = match whitelist_validators {
+            None => None,
+            Some(whitelist) => Some(whitelist.into_iter().collect::<HashSet<AccountId>>()),
+        };
+        self
     }
 }
 
