@@ -656,7 +656,7 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler="Status").entered();
+        let _span = tracing::debug_span!(target: "client", "handle", handler = "Status").entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -743,6 +743,7 @@ impl Handler<Status> for ClientActor {
         } else {
             None
         };
+        let uptime_sec = Clock::utc().timestamp() - self.info_helper.boot_time_seconds;
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -764,6 +765,7 @@ impl Handler<Status> for ClientActor {
             },
             validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
             node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            uptime_sec,
             detailed_debug_status,
         })
     }
