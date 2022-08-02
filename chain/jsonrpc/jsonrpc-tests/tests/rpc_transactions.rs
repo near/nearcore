@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
         );
         let bytes = tx.try_to_vec().unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     });
 }
 

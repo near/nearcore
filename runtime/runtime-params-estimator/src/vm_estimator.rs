@@ -2,6 +2,7 @@ use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -9,7 +10,6 @@ use near_store::StoreCompiledContractCache;
 use near_vm_logic::VMContext;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::precompile_contract_vm;
-use std::sync::Arc;
 use walrus::Result;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -55,14 +55,14 @@ fn measure_contract(
 }
 
 #[derive(Default, Clone)]
-struct MockCompiledContractCache {}
+struct MockCompiledContractCache;
 
 impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, _key: &[u8], _value: &[u8]) -> Result<(), std::io::Error> {
+    fn put(&self, _key: &CryptoHash, _value: Vec<u8>) -> Result<(), std::io::Error> {
         Ok(())
     }
 
-    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+    fn get(&self, _key: &CryptoHash) -> Result<Option<Vec<u8>>, std::io::Error> {
         Ok(None)
     }
 }
@@ -78,18 +78,16 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let cache_store1: Arc<StoreCompiledContractCache>;
-    let cache_store2: Arc<MockCompiledContractCache>;
-    let cache: Option<&dyn CompiledContractCache>;
+    let cache_store1: StoreCompiledContractCache;
+    let cache_store2 = MockCompiledContractCache;
     let use_store = true;
-    if use_store {
+    let cache: Option<&dyn CompiledContractCache> = if use_store {
         let store = near_store::test_utils::create_test_store();
-        cache_store1 = Arc::new(StoreCompiledContractCache { store });
-        cache = Some(cache_store1.as_ref());
+        cache_store1 = StoreCompiledContractCache::new(&store);
+        Some(&cache_store1)
     } else {
-        cache_store2 = Arc::new(MockCompiledContractCache {});
-        cache = Some(cache_store2.as_ref());
-    }
+        Some(&cache_store2)
+    };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -155,9 +153,9 @@ pub(crate) fn compile_single_contract_cost(
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
 
     let store = near_store::test_utils::create_test_store();
-    let cache = Arc::new(StoreCompiledContractCache { store });
+    let cache = StoreCompiledContractCache::new(&store);
 
-    measure_contract(vm_kind, metric, &contract, Some(cache.as_ref()))
+    measure_contract(vm_kind, metric, &contract, Some(&cache))
 }
 
 pub(crate) fn compute_compile_cost_vm(

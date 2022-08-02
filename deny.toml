@@ -33,7 +33,6 @@ skip = [
     { name = "rand_chacha", version = "=0.1.1" },
     { name = "autocfg", version = "=0.1.8" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
-    { name = "base64", version = "=0.11.0" },
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates

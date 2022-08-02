@@ -2247,7 +2247,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use near_chain::test_utils::KeyValueRuntime;
+    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::{ChainStore, RuntimeAdapter};
     use near_crypto::KeyType;
     use near_logger_utils::init_test_logger;
@@ -2315,18 +2315,14 @@ mod test {
     #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_seal_removal() {
         init_test_logger();
-        let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-            create_test_store(),
-            vec![vec![
-                "test".parse().unwrap(),
-                "test1".parse().unwrap(),
-                "test2".parse().unwrap(),
-                "test3".parse().unwrap(),
-            ]],
-            1,
-            1,
-            5,
-        ));
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
+            "test".parse().unwrap(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+        ]]);
+        let runtime_adapter =
+            Arc::new(KeyValueRuntime::new_with_validators(create_test_store(), vs, 5));
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut chain_store = ChainStore::new(create_test_store(), 0, true);
         let mut shards_manager = ShardsManager::new(

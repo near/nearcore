@@ -1,6 +1,5 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError};
-use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 
@@ -27,12 +26,12 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
             TESTING_INIT_BALANCE / 2,
         )
         .unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".parse().unwrap(), wasm_binary.to_vec()).unwrap();
-    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
     node
@@ -60,7 +59,7 @@ fn test_evil_deep_trie() {
             )
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
-        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()), "{:?}", res);
     }
     for i in (0..50).rev() {
         println!("deleteStrings #{}", i);
@@ -81,7 +80,7 @@ fn test_evil_deep_trie() {
             )
             .unwrap();
         println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
-        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()), "{:?}", res);
     }
 }
 
@@ -103,12 +102,7 @@ fn test_evil_deep_recursion() {
             )
             .unwrap();
         if n <= 1000 {
-            assert_eq!(
-                res.status,
-                FinalExecutionStatus::SuccessValue(to_base64(&n_bytes)),
-                "{:?}",
-                res
-            );
+            assert_eq!(res.status, FinalExecutionStatus::SuccessValue(n_bytes), "{:?}", res);
         } else {
             assert_matches!(res.status, FinalExecutionStatus::Failure(_), "{:?}", res);
         }
