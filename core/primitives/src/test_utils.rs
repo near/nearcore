@@ -7,11 +7,10 @@ use near_primitives_core::types::ProtocolVersion;
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_header::{BlockHeader, BlockHeaderV3};
-use crate::errors::{EpochError, TxExecutionError};
+use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
-use crate::serialize::from_base64;
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -21,7 +20,6 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
-use crate::views::FinalExecutionStatus;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
@@ -488,26 +486,6 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn minimum_stake(&self, _prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         Ok(0)
-    }
-}
-
-impl FinalExecutionStatus {
-    pub fn as_success(self) -> Option<String> {
-        match self {
-            FinalExecutionStatus::SuccessValue(value) => Some(value),
-            _ => None,
-        }
-    }
-
-    pub fn as_failure(self) -> Option<TxExecutionError> {
-        match self {
-            FinalExecutionStatus::Failure(failure) => Some(failure),
-            _ => None,
-        }
-    }
-
-    pub fn as_success_decoded(self) -> Option<Vec<u8>> {
-        self.as_success().and_then(|value| from_base64(&value).ok())
     }
 }
 

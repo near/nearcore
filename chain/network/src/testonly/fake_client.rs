@@ -1,4 +1,3 @@
-use crate::network_protocol::testonly as data;
 use crate::sink::Sink;
 use crate::types::{NetworkClientMessages, NetworkClientResponses};
 use actix::Actor as _;
@@ -11,7 +10,6 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
@@ -30,7 +28,6 @@ pub enum Event {
 }
 
 pub struct Actor {
-    chain: Arc<data::Chain>,
     event_sink: Sink<Event>,
 }
 
@@ -38,23 +35,14 @@ impl actix::Actor for Actor {
     type Context = actix::Context<Self>;
 }
 
-pub fn start(chain: Arc<data::Chain>, event_sink: Sink<Event>) -> actix::Addr<Actor> {
-    Actor { chain, event_sink }.start()
+pub fn start(event_sink: Sink<Event>) -> actix::Addr<Actor> {
+    Actor { event_sink }.start()
 }
 
 impl actix::Handler<NetworkViewClientMessages> for Actor {
     type Result = NetworkViewClientResponses;
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            NetworkViewClientMessages::GetChainInfo => {
-                let ci = self.chain.get_info();
-                NetworkViewClientResponses::ChainInfo {
-                    genesis_id: ci.genesis_id,
-                    height: ci.height,
-                    tracked_shards: ci.tracked_shards,
-                    archival: ci.archival,
-                }
-            }
             NetworkViewClientMessages::BlockRequest(block_hash) => {
                 self.event_sink.push(Event::BlockRequest(block_hash));
                 NetworkViewClientResponses::NoResponse

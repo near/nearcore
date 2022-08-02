@@ -8,7 +8,7 @@ For an overview of the NEAR core architecture, see [this playlist](https://www.y
 
 # Pull Requests and Issues
 
-All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via Github interface.
+All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via the Github interface.
 
 The PRs should always be against the `master` branch.
 
@@ -45,6 +45,9 @@ Where `type` is `fix` for fixes, `feat` for features, `refactor` for changes tha
 
 The `test plan` should describe in detail what tests are presented, and what cases they cover.
 
+If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.
+
+
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
@@ -53,8 +56,7 @@ The `test plan` should describe in detail what tests are presented, and what cas
    They may re-assign the pull request to another person if they feel that they don't have sufficient expertise to review the pull request.
    The reviewers will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
    If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
-3. Once you address all the comments, and your PR is accepted, we will take care of merging it.
-4. If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.
+3. When all the comments have been addressed and all the reviewers are satisfied, they will approve your PR.  You can now add the `S-automerge` label on it to instruct Github to merge the PR.
 
 ## Proposing new ideas and features
 
