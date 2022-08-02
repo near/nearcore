@@ -444,13 +444,13 @@ impl Trie {
                     );
                 }
                 TrieNode::Branch(mut children, value) => {
-                    children.iter_mut().for_each(|child| {
+                    for child in children.iter_mut() {
                         if let Some(NodeHandle::InMemory(h)) = child {
                             if let TrieNode::Empty = memory.node_ref(*h).node {
                                 *child = None
                             }
                         }
-                    });
+                    }
                     let num_children = children.iter().filter(|&x| x.is_some()).count();
                     if num_children == 0 {
                         if let Some(value) = value {

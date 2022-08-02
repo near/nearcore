@@ -2175,7 +2175,7 @@ impl Client {
         }
         let info = self
             .runtime_adapter
-            .get_validator_info(ValidatorInfoIdentifier::EpochId(tip.epoch_id.clone()))?;
+            .get_validator_info(ValidatorInfoIdentifier::BlockHash(tip.last_block_hash))?;
         let mut accounts = HashMap::new();
         accounts.extend(
             info.current_validators
