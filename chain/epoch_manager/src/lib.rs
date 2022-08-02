@@ -175,7 +175,7 @@ impl EpochManager {
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
-        source_epoch_manager: &mut EpochManager,
+        source_epoch_manager: &EpochManager,
     ) -> Result<(), EpochError> {
         let block_info = source_epoch_manager.get_block_info(block_hash)?;
         let prev_hash = block_info.prev_hash();
