@@ -2512,9 +2512,9 @@ fn test_refund_receipts_processing() {
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
                     refund_receipt_ids.insert(*id);
-                });
+                }
             }
             _ => assert!(false),
         };
@@ -2531,9 +2531,9 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .remove(&0)
             .unwrap();
-        execution_outcomes_from_block.iter().for_each(|outcome| {
+        for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        });
+        }
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);

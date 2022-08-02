@@ -15,7 +15,7 @@ use near_network::test_utils::WaitOrTimeoutActor;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
@@ -74,9 +74,7 @@ fn test_get_validator_info_rpc() {
 fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
     let status = match &outcome.status {
         ExecutionStatusView::Unknown => PartialExecutionStatus::Unknown,
-        ExecutionStatusView::SuccessValue(s) => {
-            PartialExecutionStatus::SuccessValue(from_base64(s).unwrap())
-        }
+        ExecutionStatusView::SuccessValue(s) => PartialExecutionStatus::SuccessValue(s.clone()),
         ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
