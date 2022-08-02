@@ -5,7 +5,6 @@ use near_client::test_utils::TestEnv;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
-
 use super::super::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
