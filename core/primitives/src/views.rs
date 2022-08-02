@@ -385,11 +385,74 @@ pub struct BlockByChunksView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ChunkInfoView {
-    pub num_of_blocks_in_progress: usize,
-    pub num_of_chunks_in_progress: usize,
-    pub num_of_orphans: usize,
-    pub next_blocks_by_chunks: Vec<BlockByChunksView>,
+pub struct ChainProcessingInfo {
+    pub num_blocks_in_processing: usize,
+    pub num_orphans: usize,
+    pub num_blocks_missing_chunks: usize,
+    /// contains processing info of recent blocks, ordered by height high to low
+    pub blocks_info: Vec<BlockProcessingInfo>,
+    /// contains processing info of chunks that we don't know which block it belongs to yet
+    pub floating_chunks_info: Vec<ChunkProcessingInfo>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlockProcessingInfo {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
+    /// Timestamp when block was received.
+    //pub received_timestamp: DateTime<chrono::Utc>,
+    /// Time (in ms) between when the block was first received and when it was processed
+    pub in_progress_ms: u128,
+    /// Time (in ms) that the block spent in the orphan pool. If the block was never put in the
+    /// orphan pool, it is None. If the block is still in the orphan pool, it is since the time
+    /// it was put into the pool until the current time.
+    pub orphaned_ms: Option<u128>,
+    /// Time (in ms) that the block spent in the missing chunks pool. If the block was never put in the
+    /// missing chunks pool, it is None. If the block is still in the missing chunks pool, it is
+    /// since the time it was put into the pool until the current time.
+    pub missing_chunks_ms: Option<u128>,
+    pub block_status: BlockProcessingStatus,
+    /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
+    /// for a shard, the corresponding item will be None.
+    pub chunks_info: Vec<Option<ChunkProcessingInfo>>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum BlockProcessingStatus {
+    Orphan,
+    WaitingForChunks,
+    InProcessing,
+    Processed,
+    Unknown,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChunkProcessingInfo {
+    pub height_created: BlockHeight,
+    pub shard_id: ShardId,
+    pub chunk_hash: ChunkHash,
+    pub prev_block_hash: CryptoHash,
+    /// Account id of the validator who created this chunk
+    /// Theoretically this field should never be None unless there is some database corruption.
+    pub created_by: Option<AccountId>,
+    pub status: ChunkProcessingStatus,
+    /*
+    /// Timestamp of first time when we request for this chunk.
+    pub requested_timestamp: Option<Instant>,
+    /// Time (in secs) that it takes between when the chunk is completed and when it is completed.
+    pub request_secs: Option<f64>,
+     */
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ChunkProcessingStatus {
+    NeedToRequest,
+    Requested,
+    Completed,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -399,10 +462,8 @@ pub struct DetailedDebugStatus {
     pub sync_status: String,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
-    pub orphans: Vec<BlockStatusView>,
-    pub blocks_with_missing_chunks: Vec<BlockStatusView>,
     pub block_production_delay_millis: u64,
-    pub chunk_info: ChunkInfoView,
+    pub chain_processing_info: ChainProcessingInfo,
 }
 
 // TODO: add more information to status.
