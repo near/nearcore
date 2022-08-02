@@ -4464,9 +4464,10 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
-        apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
-            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
-        })
+        for result in apply_results {
+            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())?
+        }
+        Ok(())
     }
 
     /// Process ApplyTransactionResult to apply changes to split states

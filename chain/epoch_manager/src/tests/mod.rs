@@ -2009,21 +2009,20 @@ fn test_all_kickout_edge_case() {
 }
 
 fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]) {
-    epoch_info.validators_iter().zip(expected_validators.into_iter()).for_each(
-        |(ref v, (account_id, stake))| {
-            assert_eq!(v.account_id().as_ref(), *account_id);
-            assert_eq!(v.stake(), *stake);
-        },
-    )
+    for (v, (account_id, stake)) in
+        epoch_info.validators_iter().zip(expected_validators.into_iter())
+    {
+        assert_eq!(v.account_id().as_ref(), *account_id);
+        assert_eq!(v.stake(), *stake);
+    }
 }
 
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
-    epoch_info.fishermen_iter().zip(expected_fishermen.into_iter()).for_each(
-        |(ref v, (account_id, stake))| {
-            assert_eq!(v.account_id().as_ref(), *account_id);
-            assert_eq!(v.stake(), *stake);
-        },
-    )
+    for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
+    {
+        assert_eq!(v.account_id().as_ref(), *account_id);
+        assert_eq!(v.stake(), *stake);
+    }
 }
 
 fn check_stake_change(epoch_info: &EpochInfo, changes: Vec<(AccountId, u128)>) {
