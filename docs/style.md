@@ -109,6 +109,50 @@ Note that for some *big* `Copy` types, notably `CryptoHash`, we sometimes use
 references for performance reasons. As a rule of thumb, `T` is considered *big* if
 `size_of::<T>() > 2 * size_of::<usize>()`.
 
+### Prefer for loops over `for_each` and `try_for_each` methods
+
+Iterators offer `for_each` and `try_for_each` methods which allow executing
+a closure over all items of the iterator.  This is similar to using a for loop
+but comes with various complications and may lead to less readable code.  Prefer
+using a loop rather than those methods, for example:
+
+```rust
+// GOOD
+for outcome_with_id in result? {
+    *total_gas_burnt =
+        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+    outcomes.push(outcome_with_id);
+}
+
+// BAD
+result?.into_iter().try_for_each(
+    |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
+        *total_gas_burnt =
+            safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+        outcomes.push(outcome_with_id);
+        Ok(())
+    },
+)?;
+```
+
+**Rationale:** The `for_each` and `try_for_each` method don’t play nice with
+`break` and `continue` statements nor do they mesh well with async IO (since
+`.await` inside of the closure isn’t possible).  And while `try_for_each` allows
+for the use of question mark operator, one may end up having to uses it twice:
+once inside the closure and second time outside the call to `try_for_each`.
+Furthermore, usage of the functions often introduce some minor syntax noise.
+
+There are situations when those methods may lead to more readable code.  Common
+example are long call chains.  Even then such code may evolve with the closure
+growing and leading to less readable code.  If advantages of using the methods
+aren’t clear cut, it’s usually better to err on side of more imperative style.
+
+Lastly, anecdotally the methods (e.g. when used with `chain` or `flat_map`) may
+lead to faster code.  This intuitively makes sense but it’s worth to keep in
+mind that compilers are pretty good at optimising and in practice may generate
+optimal code anyway.  Furthermore, optimising code for readability may be more
+important (especially outside of hot path) than small performance gains.
+
 ### Import Granularity
 
 Group import by module, but not deeper:

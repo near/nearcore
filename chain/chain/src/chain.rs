@@ -633,6 +633,7 @@ impl Chain {
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
+        metrics::BOOT_TIME_SECONDS.set(Clock::utc().timestamp());
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
@@ -4459,9 +4460,10 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
-        apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
-            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())
-        })
+        for result in apply_results {
+            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())?
+        }
+        Ok(())
     }
 
     /// Process ApplyTransactionResult to apply changes to split states
