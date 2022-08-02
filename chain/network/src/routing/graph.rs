@@ -1,7 +1,7 @@
 use near_network_primitives::types::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::warn;
 
 /// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
@@ -63,13 +63,16 @@ impl Graph {
     }
 
     pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
-        self.unreliable_peers = unreliable_peers.iter().filter_map(|peer_id| {
-            if let Some(&id) = self.p2id.get(peer_id) {
-                Some(id.clone())
-            } else {
-                None
-            }
-        }).collect();
+        self.unreliable_peers = unreliable_peers
+            .iter()
+            .filter_map(|peer_id| {
+                if let Some(&id) = self.p2id.get(peer_id) {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
     }
 
     // Compute number of active edges. We divide by 2 to remove duplicates.
@@ -474,5 +477,4 @@ mod test {
         ];
         assert!(expected_routing_tables(&graph.calculate_distance(), &next_hops));
     }
-
 }

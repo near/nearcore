@@ -101,7 +101,8 @@ pub(crate) static EDGE_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_edge_active", "Total edges active between peers").unwrap()
 });
 pub(crate) static EDGE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_edge_total", "Total edges between peers (including removed ones).").unwrap()
+    try_create_int_gauge("near_edge_total", "Total edges between peers (including removed ones).")
+        .unwrap()
 });
 pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
