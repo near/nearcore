@@ -104,6 +104,10 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 // If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
+// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
+// horizon value is roughly matching this threshold (if the node is 60 blocks behind, it will take it a while to recover).
+// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
+// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
 #[derive(Clone, PartialEq, Eq)]
