@@ -649,7 +649,11 @@ impl PeerManagerActor {
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, ctx| {
                 let _guard = run_later_span.enter();
-                let known_edges = act.network_graph.read().edges().values().cloned().collect();
+                #[allow(unused_mut)]
+                let mut known_edges: Vec<Edge> = act.network_graph.read().edges().values().cloned().collect();
+                #[cfg(feature = "skip_sending_tombstones")]
+                known_edges.retain(|edge| edge.removal_info().is_none());
+
                 act.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
             },
         );

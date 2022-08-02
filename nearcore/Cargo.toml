@@ -147,4 +147,4 @@ sandbox = [
 ]
 io_trace = ["near-vm-runner/io_trace"]
 
-shardnet = ["protocol_feature_chunk_only_producers"]
+shardnet = ["protocol_feature_chunk_only_producers", "near-network/skip_sending_tombstones"]
