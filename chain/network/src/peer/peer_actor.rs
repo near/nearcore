@@ -259,6 +259,7 @@ impl PeerActor {
         let bytes = msg.serialize(enc);
         self.tracker.increment_sent(bytes.len() as u64);
         let bytes_len = bytes.len();
+        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();

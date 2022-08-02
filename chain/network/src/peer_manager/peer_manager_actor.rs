@@ -308,7 +308,7 @@ impl Actor for PeerManagerActor {
         self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period.try_into().unwrap());
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
-        self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
+        self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL, time::Instant::now());
 
         // Periodically updates routing table and prune edges that are no longer reachable.
         self.update_routing_table_trigger(ctx, UPDATE_ROUTING_TABLE_INTERVAL);
@@ -526,6 +526,7 @@ impl PeerManagerActor {
         &mut self,
         ctx: &mut Context<Self>,
         interval: time::Duration,
+        start_time: time::Instant,
     ) {
         let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
@@ -577,6 +578,12 @@ impl PeerManagerActor {
 
                     match response {
                         Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
+                            #[allow(unused_mut)]
+                            let mut filtered_edges = filtered_edges.clone();
+                            #[cfg(feature = "skip_sending_tombstones")]
+                            if start_time.elapsed().as_seconds_f32() < 120.0 {
+                                filtered_edges.retain(|edge| edge.removal_info().is_none());
+                            }
                             // Broadcast new edges to all other peers.
                             actix::spawn(act.state.clone().broadcast_message(SendMessage {
                                 message: PeerMessage::SyncRoutingTable(
@@ -595,7 +602,7 @@ impl PeerManagerActor {
             ctx,
             interval.try_into().unwrap(),
             move |act, ctx| {
-                act.broadcast_validated_edges_trigger(ctx, interval);
+                act.broadcast_validated_edges_trigger(ctx, interval, start_time);
             },
         );
     }
@@ -660,7 +667,6 @@ impl PeerManagerActor {
                 let mut known_edges: Vec<Edge> = act.network_graph.read().edges().values().cloned().collect();
                 #[cfg(feature = "skip_sending_tombstones")]
                 known_edges.retain(|edge| edge.removal_info().is_none());
-
                 act.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
             },
         );

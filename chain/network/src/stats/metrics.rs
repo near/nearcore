@@ -32,6 +32,10 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers")
+        .unwrap()
+});
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_bytes",
