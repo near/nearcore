@@ -78,15 +78,6 @@ pub static FORK_TAIL_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_fork_tail_height", "Height of fork tail").unwrap());
 pub static GC_STOP_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_gc_stop_height", "Target height of gc").unwrap());
-pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_block_chunks_request_delay_seconds",
-        "Delay between receiving a block and requesting its chunks",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
 pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_receive_delay_seconds",
