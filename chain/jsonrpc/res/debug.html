@@ -4,20 +4,20 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
         function convertTime(total_seconds) {
-            let hours = Math.floor(total_seconds / 3600)
-            let minutes = Math.floor((total_seconds - (hours * 3600)) / 60)
-            let seconds = total_seconds - (hours * 3600) - (minutes * 60)
-            if (hours > 0) {
-                if (minutes > 0) {
-                    return `${hours}h ${minutes}m ${seconds}s`
-                } else {
-                    return `${hours}h ${seconds}s`
-                }
+            let seconds = total_seconds % 60;
+            let total_minutes = (total_seconds - seconds) / 60;
+            let minutes = total_minutes % 60;
+            let total_hours = total_minutes / 60;
+            let hours = total_hours % 24;
+            let days = total_hours / 24;
+            return `${days}d ${addZeros(hours)}:${addZeros(minutes)}:${addZeros(seconds)}`;
+        }
+        function addZeros(x) {
+            if (x >= 10) {
+                return x;
+            } else {
+                return "0" + x;
             }
-            if (minutes > 0) {
-                return `${minutes}m ${seconds}s`
-            }
-            return `${seconds}s`
         }
         $(document).ready(() => {
             $.ajax({
