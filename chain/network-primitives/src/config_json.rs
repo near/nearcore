@@ -47,9 +47,6 @@ fn default_peer_stats_period() -> Duration {
 pub struct Config {
     /// Local address to listen for incoming connections.
     pub addr: String,
-    /// Address to advertise to peers for them to connect.
-    /// If empty, will use the same port as the addr, and will introspect on the listener.
-    pub external_address: String,
     /// Comma separated list of nodes to connect to.
     /// Examples:
     ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
@@ -140,7 +137,6 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             addr: "0.0.0.0:24567".to_string(),
-            external_address: "".to_string(),
             boot_nodes: "".to_string(),
             whitelist_nodes: "".to_string(),
             max_num_peers: default_max_num_peers(),
