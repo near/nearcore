@@ -489,6 +489,8 @@ pub struct StatusResponse {
     pub validator_account_id: Option<AccountId>,
     /// Public key of the node.
     pub node_key: Option<PublicKey>,
+    /// Uptime of the node.
+    pub uptime_sec: i64,
     /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
