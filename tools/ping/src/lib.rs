@@ -69,7 +69,7 @@ impl std::fmt::Debug for Peer {
 }
 
 impl Peer {
-    async fn connect(addr: SocketAddr, peer_id: PeerId) -> anyhow::Result<Self> {
+    async fn connect(addr: SocketAddr, peer_id: PeerId) -> io::Result<Self> {
         let stream =
             tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(addr)).await??;
         Ok(Self { stream, peer_id, buf: BytesMut::with_capacity(1024) })
@@ -120,18 +120,42 @@ impl Peer {
         Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
     }
 
-    // Append any messages currently buffered in the stream
-    // returns whether we read `stop` = true
+    // returns a vec of message lengths currently ready
+    // bool returned says whether we read `stop` = true
     fn read_remaining_messages(
         &mut self,
-        messages: &mut Vec<PeerMessage>,
+        first_msg_length: usize,
         stop: &AtomicBool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<(Vec<(usize, Instant)>, bool)> {
         // drain anything still available to be read without blocking
+        let mut stopped = false;
+        let mut pos = first_msg_length + 4;
+        let mut lengths = Vec::new();
+        let mut pending_msg_length = None;
+
         loop {
             match self.stream.try_read_buf(&mut self.buf) {
                 Ok(n) => {
-                    tracing::trace!(target: "ping", "Read {} bytes from {:?} non-blocking", n, self.stream.peer_addr())
+                    let timestamp = Instant::now();
+                    tracing::trace!(target: "ping", "Read {} bytes from {:?} non-blocking", n, self.stream.peer_addr());
+                    loop {
+                        if pending_msg_length.is_none() && self.buf.remaining() - pos >= 4 {
+                            let len =
+                                u32::from_le_bytes(self.buf[pos..pos + 4].try_into().unwrap());
+                            pending_msg_length = Some(len as usize);
+                        }
+                        if let Some(l) = pending_msg_length {
+                            if self.buf.remaining() - pos >= l + 4 {
+                                lengths.push((l, timestamp));
+                                pos += l + 4;
+                                pending_msg_length = None;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
                 Err(e) => match e.kind() {
                     io::ErrorKind::WouldBlock => {
@@ -141,73 +165,59 @@ impl Peer {
                 },
             };
             if stop.load(Ordering::Relaxed) {
-                return Ok(true);
-            }
-        }
-        loop {
-            if self.buf.remaining() < 4 {
-                if self.buf.has_remaining() {
-                    tracing::debug!(
-                        target: "ping", "There's a partial frame left over in the buffer with nothing left to read yet. \
-                        {} bytes out of the 4-byte length prefix received", self.buf.remaining()
-                    );
-                }
+                stopped = true;
                 break;
             }
-            let len = u32::from_le_bytes(self.buf[..4].try_into().unwrap()) as usize;
-            if self.buf.remaining() < len + 4 {
-                tracing::debug!(
-                    target: "ping", "There's a partial frame left over in the buffer. \
-                    {} bytes out of the {} byte message received", self.buf.remaining() - 4, len
-                );
-                break;
-            }
-            messages.push(
-                self.extract_msg(len)
-                    .with_context(|| format!("error parsing message of length {}", len))?,
-            );
         }
-        Ok(false)
+
+        Ok((lengths, stopped))
     }
 
     // Reads from the socket until there is at least one full PeerMessage available.
     // After that point, continues to read any bytes available to be read without blocking
     // and appends any extra messages to the returned Vec. Usually there is only one in there
 
-    // The Instant returned is the time we first read any bytes
-
     // The bool returned is true if we should stop now
     async fn recv_messages(
         &mut self,
         stop: &AtomicBool,
-    ) -> anyhow::Result<(Vec<PeerMessage>, Instant, bool)> {
+    ) -> anyhow::Result<(Vec<(PeerMessage, Instant)>, bool)> {
         if stop.load(Ordering::Relaxed) {
-            return Ok((Vec::new(), Instant::now(), true));
+            return Ok((Vec::new(), true));
         }
         let mut messages = Vec::new();
         let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
         while self.buf.remaining() < msg_length + 4 {
             if stop.load(Ordering::Relaxed) {
-                return Ok((messages, first_byte_time, true));
+                return Ok((messages, true));
             }
             // TODO: measure time to last byte here
             self.do_read().await?;
         }
 
-        messages.push(
+        let (more_messages, stopped) = self.read_remaining_messages(msg_length, stop)?;
+
+        messages.push((
             self.extract_msg(msg_length)
                 .with_context(|| format!("error parsing message of length {}", msg_length))?,
-        );
+            first_byte_time,
+        ));
 
-        let stopped = self.read_remaining_messages(&mut messages, stop)?;
+        for (len, timestamp) in more_messages {
+            messages.push((
+                self.extract_msg(len)
+                    .with_context(|| format!("error parsing message of length {}", len))?,
+                timestamp,
+            ));
+        }
 
         // make sure we can probably read the next message in one syscall next time
         let max_len_after_next_read = self.buf.chunk_mut().len() + self.buf.remaining();
         if max_len_after_next_read < 512 {
             self.buf.reserve(512 - max_len_after_next_read);
         }
-        Ok((messages, first_byte_time, stopped))
+        Ok((messages, stopped))
     }
 
     async fn send_ping(
@@ -246,9 +256,9 @@ impl Peer {
 
         let start = Instant::now();
 
-        let (messages, first_byte_time, stop) = self.recv_messages(&sigint_received).await?;
+        let (messages, stop) = self.recv_messages(&sigint_received).await?;
 
-        if let Some(first) = messages.first() {
+        if let Some((first, timestamp)) = messages.first() {
             // TODO: maybe check the handshake for sanity
             if !matches!(first, PeerMessage::Handshake(_)) {
                 return Err(anyhow::anyhow!(
@@ -257,9 +267,9 @@ impl Peer {
                     &first
                 ));
             }
-            tracing::info!(target: "ping", "handshake latency: {:?}", first_byte_time - start);
+            tracing::info!(target: "ping", "handshake latency: {:?}", *timestamp - start);
         }
-        for msg in messages.iter().skip(1) {
+        for (msg, _timestamp) in messages.iter().skip(1) {
             tracing::warn!(
                 target: "ping", "Received unexpected message from {:?} right after receiving the handshake: {:?}",
                 self,
@@ -571,7 +581,7 @@ pub async fn ping_via_node(
                 Ok(true) => return vec![],
                 Ok(false) => {}
                 Err(e) => {
-                    tracing::error!(target: "ping", "{:?}", e);
+                    tracing::error!(target: "ping", "{:#}", e);
                     return vec![];
                 }
             }
@@ -591,21 +601,21 @@ pub async fn ping_via_node(
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
                 if let Err(e) = peer.send_ping(&mut app_info, &target, nonce, ttl).await {
-                    tracing::error!(target: "ping", "Failed sending ping to {:?}: {:?}", &target, e);
+                    tracing::error!(target: "ping", "Failed sending ping to {:?}: {:#}", &target, e);
                     break;
                 }
                 nonce += 1;
                 next_ping.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(ping_frequency_millis));
             }
             res = peer.recv_messages(&sigint_received) => {
-                let (messages, first_byte_time, stop) = match res {
+                let (messages, stop) = match res {
                     Ok(x) => x,
                     Err(e) => {
-                        tracing::error!(target: "ping", "Failed receiving messages: {}", e);
+                        tracing::error!(target: "ping", "Failed receiving messages: {:#}", e);
                         break;
                     }
                 };
-                for msg in messages {
+                for (msg, first_byte_time) in messages {
                     handle_message(&mut app_info, &msg, first_byte_time);
                 }
                 if stop {
