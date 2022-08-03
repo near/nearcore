@@ -45,7 +45,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, trace, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -1023,14 +1023,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     // TODO(gprusak): this should be rate limited - diffs should be aggregated,
                     // unless there was no recent broadcast of this type.
                     if new_data.len() > 0 {
-                        pms.broadcast_message(SendMessage {
-                            message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                                incremental: true,
-                                requesting_full_sync: false,
-                                accounts_data: new_data,
-                            }),
-                            context: Span::current().context(),
-                        })
+                        pms.broadcast_message(PeerMessage::SyncAccountsData(SyncAccountsData {
+                            incremental: true,
+                            requesting_full_sync: false,
+                            accounts_data: new_data,
+                        }))
                         .await;
                     }
                     err.map(|err| match err {
