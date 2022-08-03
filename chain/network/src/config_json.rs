@@ -1,5 +1,5 @@
+use crate::network_protocol::PeerAddr;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use std::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
@@ -106,23 +106,23 @@ pub struct Config {
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
 
-    /// List of the public addresses (IP:port) of this node. Useful only if this node is a validator.
+    /// List of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
+    /// which are willing to route messages to this node. Useful only if this node is a validator.
     /// This list will be signed and broadcasted to the whole network, so that everyone
     /// knows how to reach the validator.
     ///
     /// Example:
-    ///   ["31.192.22.209:24567"]
+    ///   ["ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567"]
     ///
-    /// TODO(gprusak): add support for also restricting the peer_id (i.e. a public key of the node), in
-    ///   the same format as the whitelist field (i.e. "<public key>@<IP>:<port>"). Since this
-    ///   format is already used in multiple places in this config, create a dedicated type
-    ///   (PeerIdWithSocketAddr) which implements it.
-    ///
-    /// Recommended setup (requires static IP):
-    /// In the simplest case this list should contains just 1 public address of this validator.
+    /// Recommended setup (requires public static IP):
+    /// In the simplest case this list should contains just 1 public address (with the node public
+    /// key) of this validator.
     /// In case the validator doesn't have a public IP (i.e. it is hidden in a private network),
     /// this list should contain public addresses of the trusted nodes which will be routing messages to the
     /// validator - validator will connect to these nodes immediately after startup.
+    /// TODO(gprusak): in case a connection cannot be established (the peer is
+    /// unreachable/down/etc.) validator should probably remove (temporarily) the problematic peer from the list
+    /// and broadcast the new version of the list.
     ///
     /// Less recommended setup (requires exactly one public dynamic/ephemeral or static IP):
     /// If the list is empty, the validator node will query trusted_stun_servers to determine its own IP.
@@ -135,7 +135,7 @@ pub struct Config {
     /// this validator node will natually observe the address of the validator and broadcast it.
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
-    pub public_addrs: Vec<SocketAddr>,
+    pub public_addrs: Vec<PeerAddr>,
     /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
     /// Used only if this node is a validator and public_ips is empty (see description of
     /// public_ips field). Format "<domain/ip>:<port>", for example "stun.l.google.com:19302".

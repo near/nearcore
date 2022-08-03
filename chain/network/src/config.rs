@@ -1,13 +1,11 @@
-use crate::network_protocol::{AccountData, PeerAddr};
+use crate::network_protocol::PeerAddr;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::time;
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +14,9 @@ pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
+
+/// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
+pub const MAX_PEER_ADDRS: usize = 10;
 
 /// ValidatorEndpoints are the endpoints that peers should connect to, to send messages to this
 /// validator. Validator will sign the endpoints and broadcast them to the network.
@@ -26,7 +27,7 @@ pub enum ValidatorEndpoints {
     /// Single public address of this validator, or a list of public addresses of trusted nodes
     /// willing to route messages to this validator. Validator will connect to the listed relay
     /// nodes on startup.
-    PublicPeerAddrs(Vec<PeerAddr>),
+    PublicAddrs(Vec<PeerAddr>),
     /// Addresses of the format "<domain/ip>:<port>" of STUN servers.
     /// The IP of the validator will be determined dynamically by querying all the STUN servers on
     /// the list.
@@ -43,6 +44,11 @@ impl ValidatorConfig {
     pub fn account_id(&self) -> AccountId {
         self.signer.validator_id().clone()
     }
+}
+
+#[derive(Clone)]
+pub struct Features {
+    pub enable_tier1: bool,
 }
 
 /// Validated configuration for the peer-to-peer manager.
@@ -104,9 +110,8 @@ pub struct NetworkConfig {
     pub outbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
-    /// Feature flag: true if PeerManagerActor should maintain accounts_data::Cache and
-    /// exchange SyncAccountsData with peers. See accounts_data/mod.rs.
-    pub enable_accounts_data: bool,
+    /// features
+    pub features: Features,
 }
 
 impl NetworkConfig {
@@ -119,37 +124,27 @@ impl NetworkConfig {
         node_key: SecretKey,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         archive: bool,
-        enable_accounts_data: bool,
+        features: Features,
     ) -> anyhow::Result<Self> {
+        if cfg.public_addrs.len() > MAX_PEER_ADDRS {
+            anyhow::bail!(
+                "public_addrs has {} entries, limit is {MAX_PEER_ADDRS}",
+                cfg.public_addrs.len()
+            );
+        }
+        if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
+            anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
+        }
         let this = Self {
             node_key,
-            validator: validator_signer
-                .as_ref()
-                .map(|signer| {
-                    anyhow::Ok(ValidatorConfig {
-                        signer: signer.clone(),
-                        endpoints: if cfg.public_addrs.len() > 0 {
-                            let peers: Vec<_> = cfg
-                                .public_addrs
-                                .iter()
-                                .cloned()
-                                .map(|addr| PeerAddr { addr, peer_id: None })
-                                .collect();
-                            // Check that the amount of data is not too large.
-                            AccountData {
-                                peers: peers.clone(),
-                                account_id: signer.validator_id().clone(),
-                                epoch_id: EpochId::default(),
-                                timestamp: time::Clock::real().now_utc(),
-                            }
-                            .sign(signer.deref())?;
-                            ValidatorEndpoints::PublicPeerAddrs(peers)
-                        } else {
-                            ValidatorEndpoints::TrustedStunServers(cfg.trusted_stun_servers)
-                        },
-                    })
-                })
-                .transpose()?,
+            validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
+                signer: signer.clone(),
+                endpoints: if cfg.public_addrs.len() > 0 {
+                    ValidatorEndpoints::PublicAddrs(cfg.public_addrs)
+                } else {
+                    ValidatorEndpoints::TrustedStunServers(cfg.trusted_stun_servers)
+                },
+            }),
             node_addr: match cfg.addr.as_str() {
                 "" => None,
                 addr => Some(addr.parse().context("Failed to parse SocketAddr")?),
@@ -207,7 +202,7 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
-            enable_accounts_data,
+            features,
         };
         this.verify()?;
         Ok(this)
@@ -228,9 +223,9 @@ impl NetworkConfig {
                 KeyType::ED25519,
                 seed,
             )),
-            endpoints: ValidatorEndpoints::PublicPeerAddrs(vec![PeerAddr {
+            endpoints: ValidatorEndpoints::PublicAddrs(vec![PeerAddr {
                 addr: node_addr,
-                peer_id: None,
+                peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
         let this = NetworkConfig {
@@ -261,7 +256,7 @@ impl NetworkConfig {
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
-            enable_accounts_data: true,
+            features: Features { enable_tier1: true },
         };
         this.verify().unwrap();
         this
@@ -313,7 +308,13 @@ pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_
 #[cfg(test)]
 mod test {
     use crate::config;
+    use crate::network_protocol;
+    use crate::network_protocol::testonly as data;
+    use crate::network_protocol::AccountData;
+    use crate::testonly::make_rng;
+    use near_network_primitives::time;
     use near_network_primitives::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+    use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]
     fn test_network_config() {
@@ -339,5 +340,29 @@ mod test {
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         let res = nc.verify();
         assert!(res.is_err(), "{:?}", res);
+    }
+
+    // Check that MAX_PEER_ADDRS limit is consistent with the
+    // network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES limit
+    #[test]
+    fn accounts_data_size_limit() {
+        let mut rng = make_rng(39521947542);
+        let clock = time::FakeClock::default();
+        let signer = data::make_validator_signer(&mut rng);
+
+        let ad = AccountData {
+            peers: (0..config::MAX_PEER_ADDRS)
+                .map(|_| {
+                    // Using IPv6 gives maximal size of the resulting config.
+                    let ip = data::make_ipv6(&mut rng);
+                    data::make_peer_addr(&mut rng, ip)
+                })
+                .collect(),
+            account_id: signer.validator_id().clone(),
+            epoch_id: data::make_epoch_id(&mut rng),
+            timestamp: clock.now_utc(),
+        };
+        let sad = ad.sign(&signer).unwrap();
+        assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
     }
 }

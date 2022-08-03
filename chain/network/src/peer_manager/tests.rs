@@ -244,7 +244,7 @@ async fn accounts_data_broadcast() {
 
 fn peer_addrs(vc: &config::ValidatorConfig) -> Vec<PeerAddr> {
     match &vc.endpoints {
-        config::ValidatorEndpoints::PublicPeerAddrs(peer_addrs) => peer_addrs.clone(),
+        config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
         config::ValidatorEndpoints::TrustedStunServers(_) => {
             panic!("tests only support PublicAddrs in validator config")
         }

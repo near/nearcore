@@ -2146,10 +2146,10 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         // on the handler.
         *state.chain_info.write() = info.clone();
 
-        // If enable_accounts_data is false, we skip set_keys() call.
+        // If enable_tier1 is false, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
         // will be collected or broadcasted.
-        if !state.config.enable_accounts_data {
+        if !state.config.features.enable_tier1 {
             return;
         }
         // If the key set didn't change, early exit.
@@ -2176,7 +2176,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 // behavior for situations when the IPs are not known.
                 let my_peers = match &vc.endpoints {
                     config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
-                    config::ValidatorEndpoints::PublicPeerAddrs(peer_addrs) => peer_addrs.clone(),
+                    config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
                 };
                 let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
                     if account_id != my_account_id{

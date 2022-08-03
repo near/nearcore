@@ -362,7 +362,7 @@ pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
 }
 
 pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
-    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: Some(make_peer_id(rng)) }
+    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: make_peer_id(rng) }
 }
 
 pub fn make_account_data(
