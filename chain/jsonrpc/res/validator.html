@@ -76,11 +76,19 @@
         }
 
         .chunk-delay-orange {
-            background-color: orange;
+            color: orange;
         }
 
         .chunk-delay-red {
-            background-color: red;
+            color: red;
+        }
+
+        .chunk-missing {
+            background-color: grey;
+        }
+
+        .block-missing {
+            background-color: grey;
         }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
@@ -214,7 +222,8 @@
 
         function prettyTime(dtString) {
             let time = new Date(Date.parse(dtString));
-            return time.getUTCHours() + ":" + time.getUTCMinutes() + ":" + time.getUTCSeconds() + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
+            return time.getUTCHours() + ":" + String(time.getUTCMinutes()).padStart(2, "0") + ":" +
+                String(time.getUTCSeconds()).padStart(2, "0") + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
         }
 
         function processChunkProduction(chunk_production, cell) {
@@ -302,6 +311,7 @@
                 if (entry.block_production != null) {
                     let block_production = entry.block_production;
 
+                    let cell = $('<td>');
                     let content = "";
                     if (block_production.block_production_time != null) {
                         content += "Approval Threshold T = <b>F + " + (Date.parse(block_production.approvals.ready_at) - fastestValidator) + " ms</b> <br>";
@@ -312,7 +322,11 @@
                     } else {
                         content += "No block produced"
                     }
-                    row.append($('<td>').append(content));
+                    if (!block_production.block_included) {
+                        cell.addClass("block-missing");
+                    }
+                    cell.append(content);
+                    row.append(cell);
 
                     for (let i = 0; i < numShards; i += 1) {
                         let chunk_cell = $('<td>');
@@ -328,15 +342,16 @@
                             if (chunk_collection_time != null) {
                                 let time_delta = Date.parse(chunk_collection_time) - fastestValidator;
                                 chunk_cell.append("Collected<br>@" + prettyTime(chunk_collection_time) + "<br>")
-                                chunk_cell.append("F + " + time_delta + "ms<br>")
+                                chunk_cell.append("<b>F + " + time_delta + "ms</b><br>")
                                 if (thresholdApprovalTime != null) {
                                     let time_since_threshold = Date.parse(chunk_collection_time) - thresholdApprovalTime;
+                                    let text = $("<span><b>T + " + time_since_threshold+ "ms</b><br></span>");
                                     if (time_since_threshold > 300) {
-                                        chunk_cell.addClass('chunk-delay-red')
+                                        text.addClass('chunk-delay-red')
                                     } else if (time_since_threshold > 150) {
-                                        chunk_cell.addClass('chunk-delay-orange')
+                                        text.addClass('chunk-delay-orange')
                                     }
-                                    chunk_cell.append("T + " + time_since_threshold+ "ms<br>");
+                                    chunk_cell.append(text);
                                 }
                             } else {
                                 chunk_cell.append("No chunk collected<br>")
@@ -407,11 +422,11 @@
         <p>
             <b>F</b> is the time when the first approval arrives for a given height.<br>
             <b>T</b> is the time when a given blocks gets a threshold approval (66%).<br>
-            Shards can either be produced by this validator (marked as 'own production') or received from other
+            Shards can either be produced by this validator (marked as 'ME') or received from other
             validators.<br>
-            If shard arrives too late (more than 200 ms after T) - it might not get included in the block.<br>
-            Shards that are delayed by more than 150ms are marked as orange, and ones delayed more than 300 marked as
-            red.<br>
+            Shards have missing chunks are marked as grey. <br>
+            We also mark shards arrival time in color. Shards that are delayed by more than 150ms after T are marked as orange,
+            and ones delayed more than 300 marked as red.<br>
             <b>Approvals</b><br>
             Green field means that validators endorses the PREVIOUS block.<br>
             Grey means that we didn't get any info from the validator.<br>

@@ -102,6 +102,8 @@ pub struct BlockProduction {
     pub chunks_collection_time: Vec<ChunkCollection>,
     // Time when we produced the block, None if we didn't produce the block.
     pub block_production_time: Option<DateTime<chrono::Utc>>,
+    // Whether this block is included on the canonical chain.
+    pub block_included: bool,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

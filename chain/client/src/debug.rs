@@ -72,6 +72,7 @@ impl BlockProductionTracker {
                 approvals,
                 chunks_collection_time: vec![],
                 block_production_time: None,
+                block_included: false,
             },
         ) {
             log_assert!(
@@ -509,8 +510,10 @@ impl ClientActor {
 
                 if block_producer == validator_id {
                     // For each height - we want to collect information about received approvals.
-                    production.block_production =
-                        Some(self.client.block_production_info.get(height));
+                    let mut block_production = self.client.block_production_info.get(height);
+                    block_production.block_included =
+                        self.client.chain.get_block_hash_by_height(height).is_ok();
+                    production.block_production = Some(block_production);
                     has_block_or_chunks_to_produce = true;
                 }
 
