@@ -994,6 +994,11 @@ impl ClientActor {
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
 
+                self.client.block_production_info.record_approvals(
+                    height,
+                    self.client.doomslug.approval_status_at_height(&height),
+                );
+
                 if self.client.doomslug.ready_to_produce_block(
                     Clock::instant(),
                     height,

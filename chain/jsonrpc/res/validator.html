@@ -149,9 +149,89 @@
             });
         }
 
+        function processApprovals(height, all_validators, block_production) {
+            let approvalCells = [];
+            let fastestValidator = null;
+
+            if (block_production != null && !jQuery.isEmptyObject(block_production.approvals.approvals)) {
+                let approvals = block_production.approvals.approvals;
+                let approvalsMap = new Map();
+                let missingCount = 0;
+
+                all_validators.forEach(entry => {
+                    let validator = entry[0];
+                    let stake = entry[1];
+                    if (approvals[validator] == null) {
+                        missingCount += stake;
+                    } else {
+                        if (approvals[validator][0]["Endorsement"] != null) {
+                            approvalsMap.set(0, (approvalsMap.get(0) ?? 0) + stake);
+                        } else {
+                            let skip_delta = height - approvals[validator][0]["Skip"];
+                            approvalsMap.set(skip_delta, (approvalsMap.get(skip_delta) ?? 0) + stake);
+                        }
+                        let ts = Date.parse(approvals[validator][1]);
+                        if (fastestValidator == null || fastestValidator > ts) {
+                            fastestValidator = ts;
+                        }
+                    }
+                });
+
+                let canvas = $('<canvas>').height(100);
+                drawApprovals(approvalsMap, missingCount, canvas[0].getContext('2d'));
+                approvalCells.push($('<td>').append($('<div>').width("200px").append(canvas)));
+
+                all_validators.forEach(entry => {
+                    let validator = entry[0];
+                    let cell = $('<td>');
+                    if (approvals[validator] == null) {
+                        cell.addClass('validator-missing');
+                    } else {
+                        let cellText = "";
+                        if (approvals[validator][0]["Endorsement"] != null) {
+                            cell.addClass('validator-endorse');
+                        } else {
+                            let skip_delta = height - approvals[validator][0]["Skip"];
+
+                            cell.addClass('validator-skip-' + (skip_delta % 5));
+                            cellText += "Skip " + skip_delta + "<br>"
+                        }
+                        let ts = Date.parse(approvals[validator][1]);
+                        cellText += "F + " + (ts - fastestValidator) + "ms";
+                        cell.append(cellText);
+                    }
+                    approvalCells.push(cell);
+                });
+            } else {
+                approvalCells.push($('<td>'));
+                all_validators.forEach(_validator => {
+                    approvalCells.push($('<td>'));
+                });
+            }
+
+            return [approvalCells, fastestValidator]
+        }
+
+        function prettyTime(dtString) {
+            let time = new Date(Date.parse(dtString));
+            return time.getUTCHours() + ":" + time.getUTCMinutes() + ":" + time.getUTCSeconds() + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
+        }
+
+        function processChunkProduction(chunk_production, cell) {
+            if (chunk_production != null) {
+                if (chunk_production.chunk_production_time != null) {
+                    prettyTime(chunk_production.chunk_production_time)
+                    cell.append("Produced<br>@" + prettyTime(chunk_production.chunk_production_time));
+                } else {
+                    cell.append("MISSED CHUNK PRODUCTION</b>");
+                }
+            }
+        }
+
         function process_validator_status(data) {
-            if (data.status_response.ValidatorStatus.validator_name != null) {
-                $(".is-validator").text("Validator Id: " + data.status_response.ValidatorStatus.validator_name);
+            let validator_name = data.status_response.ValidatorStatus.validator_name;
+            if (validator_name != null) {
+                $(".is-validator").text("Validator Id: " + validator_name);
             } else {
                 $(".is-validator").text("NOT A VALIDATOR");
             }
@@ -194,146 +274,104 @@
             let all_validators = data.status_response.ValidatorStatus.validators;
             let validators_size = all_validators.length;
 
+
+            let numShards = data.status_response.ValidatorStatus.shards;
+            $('.js-thead-production').append($("<th>").text("Block production"));
+            for (let i = 0; i < numShards; i += 1) {
+                $('.js-thead-production').append($("<th>").text("Shard " + i));
+            }
             $('.js-thead-production').append($("<th>").text("Approvals"));
             for (let i = 0; i < validators_size; i += 1) {
                 $('.js-thead-production').append($("<th>").text(all_validators[i][0].substring(0, 7)));
             }
-            $('.js-thead-production').append($("<th>").text("Block production"));
-
-            let numShards = data.status_response.ValidatorStatus.shards;
-            for (let i = 0; i < numShards; i += 1) {
-                $('.js-thead-production').append($("<th>").text("Shard " + i));
-            }
-            let production = data.status_response.ValidatorStatus.production;
-
-            Object.keys(production).sort(function (a, b) { return a - b; }).reverse().forEach(function (key) {
-                if (key == head) {
+            let head_printed = false;
+            data.status_response.ValidatorStatus.production.forEach(item => {
+                let [height, entry] = item;
+                if (height <= head && !head_printed) {
+                    head_printed = true;
                     $('.js-tbody-production').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
                 }
-                let entry = production[key];
                 let row = $('<tr>')
-                    .append($('<td>').append(key));
-                let fastestValidator = null;
+                    .append($('<td>').append(height));
                 let thresholdApprovalTime = null;
 
                 // In case the current validator has received any approvals for this block.
-                if (entry.approvals != null && !jQuery.isEmptyObject(entry.approvals.approvals)) {
-                    let approvals = entry.approvals.approvals;
-                    let approvalsMap = new Map();
-                    let missingCount = 0;
-
-                    let more_info_data = $('<div>');
-                    more_info_data.hide();
-                    let more_info_table = $('<table><tr><th>Validator</th><td>State</td><td>Time</td></tr></table>');
-
-                    all_validators.forEach(entry => {
-                        let validator = entry[0];
-                        let stake = entry[1];
-                        if (approvals[validator] == null) {
-                            missingCount += stake;
-                        } else {
-                            if (approvals[validator][0]["Endorsement"] != null) {
-                                approvalsMap.set(0, (approvalsMap.get(0) ?? 0) + stake);
-                            } else {
-                                let skip_delta = key - approvals[validator][0]["Skip"];
-                                approvalsMap.set(skip_delta, (approvalsMap.get(skip_delta) ?? 0) + stake);
-                            }
-                            let ts = Date.parse(approvals[validator][1]);
-                            if (fastestValidator == null || fastestValidator > ts) {
-                                fastestValidator = ts;
-                            }
-                        }
-
-                    });
-
-                    let canvas = $('<canvas>').height(100);
-                    drawApprovals(approvalsMap, missingCount, canvas[0].getContext('2d'));
-                    row.append($('<td>').append($('<div>').width("200px").append(canvas)));
-
-                    all_validators.forEach(entry => {
-                        let validator = entry[0];
-                        let cell = $('<td>');
-                        if (approvals[validator] == null) {
-                            cell.addClass('validator-missing');
-                        } else {
-                            let cellText = "";
-                            if (approvals[validator][0]["Endorsement"] != null) {
-                                cell.addClass('validator-endorse');
-                            } else {
-                                let skip_delta = key - approvals[validator][0]["Skip"];
-
-                                cell.addClass('validator-skip-' + (skip_delta % 5));
-                                cellText += "Skip " + skip_delta + "<br>"
-                            }
-                            let ts = Date.parse(approvals[validator][1]);
-                            cellText += "F + " + (ts - fastestValidator) + "ms";
-                            cell.append(cellText);
-                        }
-                        row.append(cell);
-                    });
-                } else {
-                    row.append($('<td>'));
-                    all_validators.forEach(validator => {
-                        row.append($('<td>'));
-                    });
-                }
+                let [approvalCells, fastestValidator] = processApprovals(height, all_validators, entry.block_production);
 
                 // In case the current validator is responsible for producting this block.
                 if (entry.block_production != null) {
                     let block_production = entry.block_production;
+
                     let content = "";
-
-                    if (entry.approvals != null && entry.approvals.ready_at != null) {
-                        content += "Approval Threshold T = <b>F + " + (Date.parse(entry.approvals.ready_at) - fastestValidator) + " ms</b> <br>";
-                        thresholdApprovalTime = Date.parse(entry.approvals.ready_at);
-                    }
-
-                    content += "Block produced: <br>@" + (block_production.block_production_time ?? "-");
-
                     if (block_production.block_production_time != null) {
+                        content += "Approval Threshold T = <b>F + " + (Date.parse(block_production.approvals.ready_at) - fastestValidator) + " ms</b> <br>";
+                        thresholdApprovalTime = Date.parse(block_production.approvals.ready_at);
+                        content += "Block produced: <br>@" + prettyTime(block_production.block_production_time);
                         content += "<br> <b>F+" + (Date.parse(block_production.block_production_time) - fastestValidator) + "ms</b>";
                         content += "<br> <b>T+" + (Date.parse(block_production.block_production_time) - thresholdApprovalTime) + "ms</b>";
+                    } else {
+                        content += "No block produced"
                     }
+                    row.append($('<td>').append(content));
 
-                    let cell = $('<td>').append(content);
-
-                    row.append(cell);
                     for (let i = 0; i < numShards; i += 1) {
                         let chunk_cell = $('<td>');
 
-                        let time_delta = null;
-                        let time_since_threshold = null;
                         if (block_production.chunks_collection_time[i] != null) {
-                            time_delta = Date.parse(block_production.chunks_collection_time[i]) - fastestValidator;
+                            let chunk_producer = block_production.chunks_collection_time[i].chunk_producer;
+                            if (chunk_producer == validator_name) {
+                                chunk_cell.append("<strong>ME</strong><br>");
+                            } else {
+                                chunk_cell.append(chunk_producer + "<br>");
+                            }
+                            let chunk_collection_time = block_production.chunks_collection_time[i].received_time;
+                            if (chunk_collection_time != null) {
+                                let time_delta = Date.parse(chunk_collection_time) - fastestValidator;
+                                chunk_cell.append("Collected<br>@" + prettyTime(chunk_collection_time) + "<br>")
+                                chunk_cell.append("F + " + time_delta + "ms<br>")
+                                if (thresholdApprovalTime != null) {
+                                    let time_since_threshold = Date.parse(chunk_collection_time) - thresholdApprovalTime;
+                                    if (time_since_threshold > 300) {
+                                        chunk_cell.addClass('chunk-delay-red')
+                                    } else if (time_since_threshold > 150) {
+                                        chunk_cell.addClass('chunk-delay-orange')
+                                    }
+                                    chunk_cell.append("T + " + time_since_threshold+ "ms<br>");
+                                }
+                            } else {
+                                chunk_cell.append("No chunk collected<br>")
+                            }
                             if (thresholdApprovalTime != null) {
-                                time_since_threshold = Date.parse(block_production.chunks_collection_time[i]) - thresholdApprovalTime;
-                                if (time_since_threshold > 300) {
-                                    chunk_cell.addClass('chunk-delay-red')
-                                } else if (time_since_threshold > 150) {
-                                    chunk_cell.addClass('chunk-delay-orange')
+                                time_since_threshold = Date.parse(chunk_collection_time) - thresholdApprovalTime;
+                                if (!block_production.chunks_collection_time[i].chunk_included) {
+                                    chunk_cell.addClass('chunk-missing')
                                 }
                             }
                         }
 
-                        if (entry.chunk_production[i] != null) {
-                            chunk_cell.append("own production <br> F + " + (time_delta ?? "-") + " ms <br><b>T +" + (time_since_threshold ?? "-") + "ms </b> <br>Production duration: " + (entry.chunk_production[i].chunk_production_duration_millis ?? "-") + " ms");
-                        } else {
-                            chunk_cell.append("received <br> F + " + (time_delta ?? "-") + " ms  <br><b>T + " + (time_since_threshold ?? "-") + "ms</b> <br>");
-                        }
+                        processChunkProduction(entry.chunk_production[i], chunk_cell);
                         row.append(chunk_cell);
                     }
                 } else {
                     row.append($('<td>'));
                     for (let i = 0; i < numShards; i += 1) {
-                        if (entry.chunk_production[i] != null) {
-                            row.append($('<td>').append("produce: @" + (entry.chunk_production[i].chunk_production_duration_millis ?? "-") + " ms"));
-                        } else {
-                            row.append($('<td>'));
-                        }
+                        let cell = $('<td>');
+                        processChunkProduction(entry.chunk_production[i], cell);
+                        row.append(cell);
                     }
                 }
+
+                approvalCells.forEach(cell => {
+                    row.append(cell);
+                });
+
                 $('.js-tbody-production').append(row);
-            });
+
+            })
+
+            if (!head_printed) {
+                $('.js-tbody-production').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
+            }
 
         };
 
