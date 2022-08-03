@@ -1,3 +1,4 @@
+use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::peer;
@@ -9,7 +10,6 @@ use crate::testonly::{make_rng, AsSet as _, Rng};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
-use near_network_primitives::config;
 use near_network_primitives::time;
 use near_network_primitives::types::{Ping, RoutedMessageBody};
 use near_primitives::network::PeerId;
@@ -244,9 +244,7 @@ async fn accounts_data_broadcast() {
 
 fn peer_addrs(vc: &config::ValidatorConfig) -> Vec<PeerAddr> {
     match &vc.endpoints {
-        config::ValidatorEndpoints::PublicAddrs(addrs) => {
-            addrs.iter().cloned().map(|addr| PeerAddr { addr, peer_id: None }).collect()
-        }
+        config::ValidatorEndpoints::PublicPeerAddrs(peer_addrs) => peer_addrs.clone(),
         config::ValidatorEndpoints::TrustedStunServers(_) => {
             panic!("tests only support PublicAddrs in validator config")
         }

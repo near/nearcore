@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::PeerAddr;
 use crate::peer_manager::peer_manager_actor;
@@ -9,7 +10,6 @@ use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
-use near_network_primitives::config;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};

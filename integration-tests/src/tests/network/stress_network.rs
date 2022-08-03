@@ -12,12 +12,12 @@ use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
 use near_primitives::block::GenesisId;
 
+use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::config;
 use near_network_primitives::types::NetworkViewClientResponses;
 use near_store::test_utils::create_test_store;
 

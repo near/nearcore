@@ -1,5 +1,6 @@
 use crate::accounts_data;
-use crate::network_protocol::{AccountData, PeerAddr, SyncAccountsData};
+use crate::config;
+use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
@@ -26,7 +27,6 @@ use actix::{
 };
 use anyhow::bail;
 use futures::future;
-use near_network_primitives::config;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
@@ -2169,9 +2169,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 // behavior for situations when the IPs are not known.
                 let my_peers = match &vc.endpoints {
                     config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
-                    config::ValidatorEndpoints::PublicAddrs(addrs) => {
-                        addrs.iter().cloned().map(|addr| PeerAddr { addr, peer_id: None }).collect()
-                    }
+                    config::ValidatorEndpoints::PublicPeerAddrs(peer_addrs) => peer_addrs.clone(),
                 };
                 let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
                     if account_id != my_account_id{
@@ -2181,6 +2179,8 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                         warn!(target: "network", "node's account_id found in TIER1 accounts, but the public keys do not match");
                         return None;
                     }
+                    // This unwrap is safe, because we did signed a sample payload during
+                    // config validation. See config::Config::new().
                     Some(AccountData {
                         epoch_id: epoch_id.clone(),
                         account_id: my_account_id.clone(),

@@ -21,8 +21,8 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
+use near_network::config::NetworkConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::config::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -298,7 +298,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: near_network_primitives::config_json::Config,
+    pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
@@ -523,8 +523,8 @@ impl NearConfig {
         genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    ) -> Self {
-        NearConfig {
+    ) -> anyhow::Result<Self> {
+        Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
@@ -577,7 +577,7 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-            ),
+            )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -585,7 +585,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
-        }
+        })
     }
 
     pub fn rpc_addr(&self) -> Option<&str> {
@@ -1193,7 +1193,7 @@ impl From<NodeKeyFile> for KeyFile {
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
-) -> Result<NearConfig, anyhow::Error> {
+) -> anyhow::Result<NearConfig> {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
@@ -1211,7 +1211,7 @@ pub fn load_config(
     })?;
 
     let genesis_records_file = config.genesis_records_file.clone();
-    Ok(NearConfig::new(
+    NearConfig::new(
         config,
         match genesis_records_file {
             Some(genesis_records_file) => Genesis::from_files(
@@ -1223,7 +1223,7 @@ pub fn load_config(
         },
         network_signer.into(),
         validator_signer,
-    ))
+    )
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
@@ -1248,7 +1248,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         )) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
 #[test]

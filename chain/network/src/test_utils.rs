@@ -305,12 +305,12 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
-    use near_network_primitives::config;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;

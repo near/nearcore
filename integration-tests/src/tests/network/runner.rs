@@ -8,12 +8,12 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
+use near_network::config;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
-use near_network_primitives::config;
 use near_network_primitives::types::{
     Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
     ROUTED_MESSAGE_TTL,

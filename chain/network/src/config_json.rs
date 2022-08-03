@@ -170,5 +170,3 @@ impl Default for Config {
         }
     }
 }
-
-impl Config {}
