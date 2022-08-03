@@ -25,7 +25,7 @@ pub struct TrieKeyValueUpdate {
 pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
-/// TODO (#7326): rename to StateUpdate
+/// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
     pub flat_state: Option<FlatState>,
