@@ -110,10 +110,10 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
 };
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
-use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
@@ -328,11 +328,9 @@ impl SealsManager {
         match self.active_demurs.entry(chunk_hash.clone()) {
             hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
             hash_map::Entry::Vacant(entry) => {
-                let chunk_producer = self.runtime_adapter.get_chunk_producer(
-                    &self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?,
-                    height,
-                    shard_id,
-                )?;
+                let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
+                let chunk_producer =
+                    self.runtime_adapter.get_chunk_producer(&epoch_id, height, shard_id)?;
                 let candidates = {
                     let n = self.runtime_adapter.num_total_parts();
                     // `n` is an upper bound for elements in the accumulator; declaring with
@@ -343,7 +341,7 @@ impl SealsManager {
                     for part_ord in 0..n {
                         let part_ord = part_ord as u64;
                         let part_owner =
-                            self.runtime_adapter.get_part_owner(parent_hash, part_ord)?;
+                            self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
                         if part_owner == chunk_producer || Some(part_owner) == self.me {
                             continue;
                         }
@@ -597,6 +595,7 @@ impl ShardsManager {
         };
 
         let seal = self.seals_mgr.get_seal(chunk_hash, ancestor_hash, height, shard_id)?;
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(ancestor_hash)?;
 
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
@@ -608,7 +607,7 @@ impl ShardsManager {
                 true
             } else {
                 if let Some(me) = me {
-                    &self.runtime_adapter.get_part_owner(ancestor_hash, part_ord)? == me
+                    &self.runtime_adapter.get_part_owner(&epoch_id, part_ord)? == me
                 } else {
                     false
                 }
@@ -618,8 +617,7 @@ impl ShardsManager {
                 let fetch_from = if request_from_archival {
                     shard_representative_target.clone()
                 } else {
-                    let part_owner =
-                        self.runtime_adapter.get_part_owner(ancestor_hash, part_ord)?;
+                    let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
 
                     if Some(&part_owner) == me {
                         // If missing own part, request it from the chunk producer / node tracking shard
@@ -748,10 +746,6 @@ impl ShardsManager {
             Some(it) => it,
         };
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_hash)?;
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if !checked_feature!("stable", ForwardChunkParts, protocol_version) {
-            return Ok(false);
-        }
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
         for (bp, _) in block_producers {
@@ -1632,9 +1626,9 @@ impl ShardsManager {
         }
 
         // 1.c checking header validity
-        match partial_encoded_chunk
-            .validate_with(|pec| self.validate_chunk_header(chain_head, &pec.header).map(|()| true))
-        {
+        match partial_encoded_chunk.validate_with(|pec| {
+            self.validate_chunk_header(chain_head.clone(), &pec.header).map(|()| true)
+        }) {
             Err(Error::ChainError(chain_error)) => match chain_error {
                 // validate_chunk_header returns DBNotFoundError if the previous block is not ready
                 // in this case, we return NeedBlock instead of error
@@ -1686,7 +1680,39 @@ impl ShardsManager {
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
-        // 3. Process the forwarded parts in chunk_forwards_cache
+        // 3. Forward my parts to others tracking this chunk's shard
+        // It's possible that the previous block has not been processed yet. We will want to
+        // forward the chunk parts in this case, so we try our best to estimate current epoch id
+        // using the chain head. At epoch boundary, it could happen that this epoch id is not the
+        // actual epoch of the block, which is ok. In the worst case, chunk parts are not forwarded to the
+        // the right block producers, which may make validators wait for chunks for a little longer,
+        // but it doesn't affect the correctness of the protocol.
+        match self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&partial_encoded_chunk.header.prev_block_hash())
+        {
+            Ok(epoch_id) => {
+                self.send_partial_encoded_chunk_to_chunk_trackers(
+                    partial_encoded_chunk,
+                    &epoch_id,
+                    &partial_encoded_chunk.header.prev_block_hash(),
+                )?;
+            }
+            Err(_) => {
+                if let Some(chain_head) = chain_head {
+                    let epoch_id = self
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&chain_head.last_block_hash)?;
+                    self.send_partial_encoded_chunk_to_chunk_trackers(
+                        partial_encoded_chunk,
+                        &epoch_id,
+                        &chain_head.last_block_hash,
+                    )?;
+                }
+            }
+        };
+
+        // 4. Process the forwarded parts in chunk_forwards_cache
         if let Some(forwarded_parts) = self.chunk_forwards_cache.pop(&chunk_hash) {
             // We have the header now, and there were some parts we were forwarded earlier.
             // Let's process those parts now.
@@ -1706,21 +1732,6 @@ impl ShardsManager {
                 rs,
             );
         }
-
-        // 4. Forward my parts to others tracking this chunk's shard
-        let epoch_id = match self
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&partial_encoded_chunk.header.prev_block_hash())
-        {
-            Ok(epoch_id) => epoch_id,
-            Err(_) => {
-                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-            }
-        };
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
-            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-        };
 
         self.try_process_chunk_parts_and_receipts(&partial_encoded_chunk.header, chain_store, rs)
     }
@@ -1872,20 +1883,20 @@ impl ShardsManager {
     pub fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
+        epoch_id: &EpochId,
+        lastest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let me = match &self.me {
             Some(me) => me,
             None => return Ok(()),
         };
-        let parent_hash = partial_encoded_chunk.header.prev_block_hash();
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
         let shard_id = partial_encoded_chunk.header.shard_id();
         let owned_parts: Vec<_> = partial_encoded_chunk
             .parts
             .iter()
             .filter(|part| {
                 self.runtime_adapter
-                    .get_part_owner(&parent_hash, part.part_ord)
+                    .get_part_owner(epoch_id, part.part_ord)
                     .map_or(false, |owner| &owner == me)
             })
             .cloned()
@@ -1900,8 +1911,9 @@ impl ShardsManager {
             owned_parts,
         );
 
-        let block_producers =
-            self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
+        let block_producers = self
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
         let next_chunk_producer = self.runtime_adapter.get_chunk_producer(
             &epoch_id,
@@ -1921,7 +1933,7 @@ impl ShardsManager {
 
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
                 Some(&bp_account_id),
-                &parent_hash,
+                lastest_block_hash,
                 shard_id,
                 false,
             );
@@ -1953,7 +1965,8 @@ impl ShardsManager {
 
     /// Returns true if we need this part to sign the block.
     fn need_part(&self, prev_block_hash: &CryptoHash, part_ord: u64) -> Result<bool, Error> {
-        Ok(Some(self.runtime_adapter.get_part_owner(prev_block_hash, part_ord)?) == self.me)
+        let epoch_id = self.runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
+        Ok(Some(self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?) == self.me)
     }
 
     /// Returns true if we have all the necessary receipts for this chunk entry to process it.
@@ -2186,9 +2199,10 @@ impl ShardsManager {
         .entered();
 
         let mut block_producer_mapping = HashMap::new();
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
         for part_ord in 0..self.runtime_adapter.num_total_parts() {
             let part_ord = part_ord as u64;
-            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
+            let to_whom = self.runtime_adapter.get_part_owner(&epoch_id, part_ord).unwrap();
 
             let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
             entry.push(part_ord);
