@@ -576,6 +576,10 @@ impl ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                self.client.block_production_info.record_chunk_collected(
+                    partial_encoded_chunk.height_created(),
+                    partial_encoded_chunk.shard_id(),
+                );
                 let _ = self.client.process_partial_encoded_chunk(
                     MaybeValidated::from(partial_encoded_chunk),
                     self.get_apply_chunks_done_callback(),
