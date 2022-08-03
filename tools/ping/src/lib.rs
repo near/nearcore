@@ -25,6 +25,8 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+pub mod csv;
+
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
 pub struct PingStats {
@@ -412,7 +414,12 @@ impl AppInfo {
         };
     }
 
-    fn pong_received(&mut self, peer_id: &PeerId, nonce: u64, received_at: Instant) {
+    fn pong_received(
+        &mut self,
+        peer_id: &PeerId,
+        nonce: u64,
+        received_at: Instant,
+    ) -> Option<(Duration, Option<&AccountId>)> {
         match self.stats.get_mut(peer_id) {
             Some(state) => {
                 let pending_pings = self
@@ -439,6 +446,7 @@ impl AppInfo {
                                 &peer_id, latency
                             );
                         }
+                        Some((latency, state.account_id.as_ref()))
                     }
                     None => {
                         tracing::warn!(
@@ -446,13 +454,15 @@ impl AppInfo {
                             "received pong with nonce {} from {:?}, but don't remember sending a matching ping",
                             nonce, peer_id
                         );
+                        None
                     }
-                };
+                }
             }
             None => {
-                tracing::warn!(target: "ping", "received pong from {:?}, but don't know of this peer", peer_id)
+                tracing::warn!(target: "ping", "received pong from {:?}, but don't know of this peer", peer_id);
+                None
             }
-        };
+        }
     }
 
     fn add_peer(&mut self, peer_id: &PeerId, account_id: Option<&AccountId>) {
@@ -502,13 +512,25 @@ impl AppInfo {
     }
 }
 
-fn handle_message(app_info: &mut AppInfo, msg: &PeerMessage, received_at: Instant) {
+fn handle_message(
+    app_info: &mut AppInfo,
+    msg: &PeerMessage,
+    received_at: Instant,
+    latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
+) -> anyhow::Result<()> {
     tracing::debug!(target: "ping", "received PeerMessage::{}", msg);
     match &msg {
         PeerMessage::Routed(msg) => {
             match &msg.body {
                 RoutedMessageBody::Pong(p) => {
-                    app_info.pong_received(&p.source, p.nonce, received_at);
+                    if let Some((latency, account_id)) =
+                        app_info.pong_received(&p.source, p.nonce, received_at)
+                    {
+                        if let Some(csv) = latencies_csv {
+                            csv.write(&p.source, account_id, latency)
+                                .context("Failed writing to CSV file")?;
+                        }
+                    }
                 }
                 _ => {}
             };
@@ -517,7 +539,8 @@ fn handle_message(app_info: &mut AppInfo, msg: &PeerMessage, received_at: Instan
             app_info.add_announce_accounts(r);
         }
         _ => {}
-    }
+    };
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -553,6 +576,7 @@ pub async fn ping_via_node(
     ttl: u8,
     ping_frequency_millis: u64,
     account_filter: Option<HashSet<AccountId>>,
+    mut latencies_csv: Option<crate::csv::LatenciesCsv>,
 ) -> Vec<(PeerIdentifier, PingStats)> {
     let mut app_info = AppInfo::new(chain_id, genesis_hash, head_height, account_filter);
 
@@ -616,7 +640,10 @@ pub async fn ping_via_node(
                     }
                 };
                 for (msg, first_byte_time) in messages {
-                    handle_message(&mut app_info, &msg, first_byte_time);
+                    if let Err(e) = handle_message(&mut app_info, &msg, first_byte_time, latencies_csv.as_mut()) {
+                        tracing::error!(target: "ping", "{:#}", e);
+                        break;
+                    }
                 }
                 if stop {
                     break;

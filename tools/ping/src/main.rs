@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use near_network_primitives::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
@@ -5,7 +6,8 @@ use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
 use std::collections::HashSet;
-use std::io::BufRead;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -35,6 +37,9 @@ struct Cli {
     /// We will only try to send pings to these accounts
     #[clap(long)]
     account_filter_file: Option<PathBuf>,
+    /// filename to append CSV data to
+    #[clap(long)]
+    latencies_csv_file: Option<PathBuf>,
 }
 
 fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
@@ -105,8 +110,8 @@ static CHAIN_INFO: &[ChainInfo] = &[
 ];
 
 fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<AccountId>> {
-    let f = std::fs::File::open(filename.as_ref())?;
-    let mut reader = std::io::BufReader::new(f);
+    let f = File::open(filename.as_ref())?;
+    let mut reader = BufReader::new(f);
     let mut line = String::new();
     let mut line_num = 1;
     let mut filter = HashSet::new();
@@ -196,6 +201,14 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    let csv = if let Some(filename) = &args.latencies_csv_file {
+        Some(
+            ping::csv::LatenciesCsv::open(filename)
+                .with_context(|| format!("Couldn't open latencies CSV file at {:?}", filename))?,
+        )
+    } else {
+        None
+    };
     let mut stats = ping::ping_via_node(
         &args.chain_id,
         genesis_hash,
@@ -205,6 +218,7 @@ async fn main() -> anyhow::Result<()> {
         args.ttl,
         args.ping_frequency_millis,
         filter,
+        csv,
     )
     .await;
     display_stats(&mut stats, &peer.id);
