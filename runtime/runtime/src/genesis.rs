@@ -92,9 +92,14 @@ impl GenesisStateApplier {
         shard_uid: ShardUId,
     ) {
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
+        // let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
+        let (trie_changes, mut state_changes) =
+            state_update.finalize().expect("Genesis state update failed");
 
-        let (store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
+        let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
+        for change in state_changes.drain(..) {
+            store_update.apply_change_to_flat_state(&change);
+        }
         store_update.commit().expect("Store update failed on genesis initialization");
         *current_state_root = new_state_root;
     }

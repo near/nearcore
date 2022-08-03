@@ -4,12 +4,13 @@ use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
+use tracing::info;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{StateRoot, StateRootNode};
+use near_primitives::types::{StateRoot, StateRootNode, ValueRef};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -19,7 +20,7 @@ pub use crate::trie::shard_tries::{
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::StorageError;
+use crate::{DBCol, StorageError, Store};
 pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;
@@ -403,7 +404,42 @@ impl RawTrieNodeWithSize {
 }
 
 pub struct Trie {
-    pub(crate) storage: Box<dyn TrieStorage>,
+    pub storage: Box<dyn TrieStorage>,
+}
+
+#[derive(Clone)]
+pub struct FlatState {
+    pub store: Store,
+}
+
+impl FlatState {
+    fn decode_ref(bytes: &[u8]) -> Result<Option<ValueRef>, std::io::Error> {
+        let mut cursor = Cursor::new(bytes);
+        let value_length = cursor.read_u32::<LittleEndian>()?;
+        let mut arr = [0; 32];
+        cursor.read_exact(&mut arr)?;
+        let value_hash = CryptoHash(arr);
+        Ok(Some(ValueRef { length: value_length, hash: value_hash }))
+    }
+
+    fn get_raw_ref(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        #[cfg(feature = "protocol_feature_flat_state")]
+        return self
+            .store
+            .get(DBCol::FlatState, key)
+            .map_err(|_| StorageError::StorageInternalError);
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        unreachable!();
+    }
+
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        match self.get_raw_ref(key)? {
+            Some(bytes) => {
+                FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError)
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -624,7 +660,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice<'_>,
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = *root;
 
         loop {
@@ -639,7 +675,7 @@ impl Trie {
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some((value_length, value_hash)));
+                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
                     } else {
                         return Ok(None);
                     }
@@ -657,7 +693,10 @@ impl Trie {
                     if key.is_empty() {
                         match value {
                             Some((value_length, value_hash)) => {
-                                return Ok(Some((value_length, value_hash)));
+                                return Ok(Some(ValueRef {
+                                    length: value_length,
+                                    hash: value_hash,
+                                }));
                             }
                             None => return Ok(None),
                         }
@@ -675,18 +714,14 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    pub fn get_ref(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let key = NibbleSlice::new(key);
         self.lookup(root, key)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => {
+            Some(ValueRef { hash, .. }) => {
                 self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
             }
             None => Ok(None),
@@ -750,6 +785,16 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+
+    pub fn retrieve_flat_state(&self) -> Option<FlatState> {
+        #[cfg(feature = "protocol_feature_flat_state")]
+        match self.storage.as_caching_storage() {
+            Some(storage) => Some(FlatState { store: storage.store.clone() }),
+            None => None,
+        }
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        None
     }
 }
 

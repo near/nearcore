@@ -4,14 +4,17 @@ use std::iter::Peekable;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
+    ValueRef,
 };
 
-use crate::trie::TrieChanges;
+use crate::trie::{FlatState, TrieChanges};
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
+use tracing::info;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -23,8 +26,10 @@ pub struct TrieKeyValueUpdate {
 pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
+/// TODO: rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
+    pub flat_state: Option<FlatState>,
     root: CryptoHash,
     committed: RawStateChanges,
     prospective: TrieUpdates,
@@ -55,7 +60,21 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
 impl TrieUpdate {
     pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
-        TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
+        TrieUpdate::new_with_flat_state(trie, None, root)
+    }
+
+    pub fn new_with_flat_state(
+        trie: Rc<Trie>,
+        flat_state: Option<FlatState>,
+        root: CryptoHash,
+    ) -> Self {
+        TrieUpdate {
+            trie,
+            flat_state,
+            root,
+            committed: Default::default(),
+            prospective: Default::default(),
+        }
     }
 
     pub fn trie(&self) -> &Trie {
@@ -63,6 +82,7 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let is_delayed = key.is_delayed();
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
@@ -72,10 +92,19 @@ impl TrieUpdate {
             }
         }
 
-        self.trie.get(&self.root, &key)
+        match &self.flat_state {
+            Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
+                Some(ValueRef { hash, .. }) => {
+                    self.trie.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+                }
+                None => Ok(None),
+            },
+            _ => self.trie.get(&self.root, &key),
+        }
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+        // value refs don't exist for delayed columns
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
@@ -84,8 +113,15 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
-        self.trie.get_ref(&self.root, &key).map(|option| {
-            option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
+
+        let value_ref = match &self.flat_state {
+            Some(flat_state) => flat_state.get_ref(&key),
+            None => self.trie.get_ref(&self.root, &key),
+        };
+        value_ref.map(|option| {
+            option.map(|ValueRef { length, hash }| {
+                TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
+            })
         })
     }
 
@@ -133,6 +169,26 @@ impl TrieUpdate {
                 (k, data)
             }),
         )?;
+        for change in state_changes.iter() {
+            match change.trie_key {
+                TrieKey::Account { .. } => {
+                    for changes in &change.changes {
+                        match &changes.data {
+                            Some(data) => info!(
+                                "TRIE CHANGE: {:?}",
+                                StateRecord::from_raw_key_value(
+                                    change.trie_key.to_vec(),
+                                    data.clone()
+                                )
+                            ),
+                            None => info!("TRIE CHANGE: {:?} -", change.trie_key),
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
         Ok((trie_changes, state_changes))
     }
 

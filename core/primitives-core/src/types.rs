@@ -56,3 +56,8 @@ pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
+
+pub struct ValueRef {
+    pub length: u32,
+    pub hash: CryptoHash,
+}

@@ -16,6 +16,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
+use tracing::info;
 
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,

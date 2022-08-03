@@ -54,8 +54,11 @@ no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_chunk_only_producers = []
+protocol_feature_flat_state = []
+
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
+  "protocol_feature_flat_state",
 ]

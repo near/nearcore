@@ -7,6 +7,7 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use once_cell::sync::Lazy;
+use tracing::info;
 
 pub use columns::DBCol;
 pub use db::{
@@ -17,12 +18,15 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{
+    AccountId, CompiledContractCache, RawStateChangesWithTrieKey, StateRoot,
+};
 
 use crate::db::{
     refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
@@ -403,6 +407,33 @@ impl StoreUpdate {
             }
         }
         self.storage.write(self.transaction)
+    }
+
+    pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
+        if change.trie_key.is_delayed() {
+            return;
+        }
+        let key = change.trie_key.to_vec();
+        let last_change = change
+            .changes
+            .last()
+            .expect("Committed entry should have at least one change")
+            .data
+            .clone();
+        match last_change {
+            Some(value) => {
+                let mut value_ser = [0u8; 36];
+                value_ser[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
+                value_ser[4..36].copy_from_slice(&hash(&value).0);
+                #[cfg(feature = "protocol_feature_flat_state")]
+                self.set(DBCol::FlatState, &key, &value_ser)
+            }
+            None =>
+            {
+                #[cfg(feature = "protocol_feature_flat_state")]
+                self.delete(DBCol::FlatState, &key)
+            }
+        }
     }
 }
 

@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
-use tracing::debug;
+use tracing::{debug, info};
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
@@ -17,6 +17,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::transaction::ExecutionMetadata;
+use near_primitives::types::ValueRef;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -1164,8 +1165,9 @@ impl Runtime {
         }
 
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let flat_state = trie.retrieve_flat_state();
+        let initial_state = TrieUpdate::new_with_flat_state(trie.clone(), flat_state.clone(), root);
+        let mut state_update = TrieUpdate::new_with_flat_state(trie.clone(), flat_state, root);
 
         let mut stats = ApplyStats::default();
 

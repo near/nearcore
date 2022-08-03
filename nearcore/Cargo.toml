@@ -120,6 +120,8 @@ protocol_feature_fix_staking_threshold = [
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-chain/protocol_feature_flat_state"]
+
 nightly = [
   "nightly_protocol",
   "near-primitives/nightly",
@@ -129,6 +131,7 @@ nightly = [
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_flat_state",
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",

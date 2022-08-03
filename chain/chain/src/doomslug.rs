@@ -458,6 +458,8 @@ impl Doomslug {
                 self.endorsement_pending = false;
             }
 
+            continue; // DEBUG: no skips
+
             if cur_time >= self.timer.started + skip_delay {
                 debug_assert!(!self.endorsement_pending);
 
