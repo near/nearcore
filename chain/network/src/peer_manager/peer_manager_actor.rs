@@ -103,6 +103,10 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
+/// Send all partial encoded chunk messages three times.
+/// We send these messages multiple times to reduce the chance that they are lost
+const PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT: usize = 3;
+
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -1628,7 +1632,12 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
+                let mut message_sent = false;
+                for _ in 0..PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT {
+                    message_sent |=
+                        self.send_message_to_account(&account_id, partial_encoded_chunk.into());
+                }
+                if message_sent {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
