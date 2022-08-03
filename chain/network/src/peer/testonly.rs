@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::concurrency::demux;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor;
@@ -24,6 +25,7 @@ use near_rate_limiter::{
 };
 
 use near_network_primitives::time::Utc;
+use rand::Rng;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -191,12 +193,14 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub async fn start_endpoint<R: Rng>(
         clock: time::Clock,
+        rng: &mut R,
         cfg: PeerConfig,
         stream: TcpStream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
+        let network_cfg = cfg.chain.make_config(rng);
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
@@ -234,16 +238,13 @@ impl PeerHandle {
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(NetworkState {
-                        config: Arc::new(cfg.chain.make_config(my_addr.port())),
-                        genesis_id: cfg.chain.genesis_id.clone(),
-                        client_addr: fc.clone().recipient(),
-                        view_client_addr: fc.clone().recipient(),
-                        accounts_data: Arc::new(accounts_data::Cache::new()),
-                        connected_peers: Default::default(),
-                        chain_info: Default::default(),
-                        100., // accounts_data_broadcast_max_qps
-                    }),
+                    Arc::new(NetworkState::new(
+                        Arc::new(network_cfg),
+                        cfg.chain.genesis_id.clone(),
+                        fc.clone().recipient(),
+                        fc.clone().recipient(),
+                        demux::RateLimit { qps: 100., burst: 1 },
+                    )),
                     send.sink().compose(Event::Peer),
                 )
             })

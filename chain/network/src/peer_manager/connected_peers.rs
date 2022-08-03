@@ -1,17 +1,17 @@
-use crate::network_protocol::{Encoding,PeerMessage};
-use crate::peer::peer_actor::PeerActor;
-use crate::types::{FullPeerInfo, PeerStatsResult};
 use crate::concurrency::demux;
+use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::{SignedAccountData, SyncAccountsData};
+use crate::peer::peer_actor::PeerActor;
+use crate::private_actix::SendMessage;
+use crate::types::{FullPeerInfo, PeerStatsResult};
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::PeerType;
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
-use std::sync::Arc;
-use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use std::collections::{hash_map::Entry, HashMap};
-use crate::private_actix::SendMessage;
-use tracing::{Span};
+use std::sync::Arc;
+use tracing::{error, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Contains information relevant to a connected peer.
@@ -35,7 +35,7 @@ pub(crate) struct ConnectedPeer {
     pub throttle_controller: ThrottleController,
     /// Encoding used for communication.
     pub encoding: Option<Encoding>,
-    send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+    pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
 impl ConnectedPeer {
@@ -61,16 +61,19 @@ impl ConnectedPeer {
                         }
                     }
                 }
-                addr.send(SendMessage {
-                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                        incremental: true,
-                        requesting_full_sync: false,
-                        accounts_data: sum.into_values().collect(),
-                    }),
-                    context: Span::current().context(),
-                })
-                .await
-                .expect("Failed sending incremental SyncAccountsData");
+                if let Err(err) = addr
+                    .send(SendMessage {
+                        message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                            incremental: true,
+                            requesting_full_sync: false,
+                            accounts_data: sum.into_values().collect(),
+                        }),
+                        context: Span::current().context(),
+                    })
+                    .await
+                {
+                    error!("Failed sending incremental SyncAccountsData: {err}");
+                }
                 res
             },
         )

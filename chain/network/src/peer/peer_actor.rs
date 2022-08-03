@@ -285,7 +285,7 @@ impl PeerActor {
                 PeerChainInfoV2 {
                     genesis_id: self.peer_manager_state.genesis_id.clone(),
                     height: chain_info.height,
-                    tracked_shards: chain_info.tracked_shards,
+                    tracked_shards: chain_info.tracked_shards.clone(),
                     archival: self.peer_manager_state.config.archive,
                 },
                 self.partial_edge_info.as_ref().unwrap().clone(),
@@ -1025,11 +1025,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             .connected_peers
                             .read()
                             .values()
-                            .map(|p| tokio::spawn(p.send_accounts_data(new_data.clone())))
+                            .map(|p| p.send_accounts_data(new_data.clone()))
                             .collect();
-                        for h in handles {
-                            h.await.unwrap();
-                        }
+                        futures::future::join_all(handles).await;
                     }
                     err.map(|err| match err {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,

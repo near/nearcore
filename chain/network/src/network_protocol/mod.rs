@@ -32,12 +32,47 @@ use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
 use std::sync::Arc;
-use thiserror::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
-    addr: std::net::SocketAddr,
-    peer_id: Option<PeerId>,
+    pub addr: std::net::SocketAddr,
+    pub peer_id: PeerId,
+}
+
+impl serde::Serialize for PeerAddr {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{}@{}", self.peer_id, self.addr))
+    }
+}
+
+impl<'a> serde::Deserialize<'a> for PeerAddr {
+    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
+        <String as serde::Deserialize>::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerAddrError {
+    #[error("expected <PeerId>@<IP>:<port>, got \'{0}\'")]
+    Format(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+    #[error("SocketAddr: {0}")]
+    SocketAddr(#[source] std::net::AddrParseError),
+}
+
+impl std::str::FromStr for PeerAddr {
+    type Err = ParsePeerAddrError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<_> = s.split('@').collect();
+        if parts.len() != 2 {
+            return Err(Self::Err::Format(s.to_string()));
+        }
+        Ok(PeerAddr {
+            peer_id: PeerId::new(parts[0].parse().map_err(Self::Err::PeerId)?),
+            addr: parts[1].parse().map_err(Self::Err::SocketAddr)?,
+        })
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Hash)]
@@ -189,6 +224,7 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+/// See SyncAccountsData in network_protocol/network.proto.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SyncAccountsData {
     pub accounts_data: Vec<Arc<SignedAccountData>>,
@@ -243,16 +279,16 @@ pub enum Encoding {
     Proto,
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("BorshDecode")]
-    BorshDecode(std::io::Error),
+    BorshDecode(#[source] std::io::Error),
     #[error("BorshConv")]
-    BorshConv(borsh_conv::ParsePeerMessageError),
+    BorshConv(#[source] borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
-    ProtoDecode(protobuf::Error),
+    ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
-    ProtoConv(proto_conv::ParsePeerMessageError),
+    ProtoConv(#[source] proto_conv::ParsePeerMessageError),
 }
 
 impl PeerMessage {

@@ -8,14 +8,15 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
+use near_network::config;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
 use near_network_primitives::types::{
-    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
-    Pong as NetPong, ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
+    ROUTED_MESSAGE_TTL,
 };
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -42,7 +43,7 @@ fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
-    config: NetworkConfig,
+    config: config::NetworkConfig,
     send_events: broadcast::Sender<Event>,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
@@ -546,7 +547,7 @@ impl Runner {
         let whitelist =
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config = NetworkConfig::from_seed(&config.account_id, config.port);
+        let mut network_config = config::NetworkConfig::from_seed(&config.account_id, config.port);
         network_config.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = Duration::from_secs(5);

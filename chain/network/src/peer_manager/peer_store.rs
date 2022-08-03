@@ -1,8 +1,9 @@
+use crate::config;
 use crate::store;
 use anyhow::bail;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Blacklist, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
+    Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
@@ -276,7 +277,7 @@ impl PeerStore {
     pub(crate) fn remove_expired(
         &mut self,
         clock: &time::Clock,
-        config: &NetworkConfig,
+        config: &config::NetworkConfig,
     ) -> anyhow::Result<()> {
         let now = clock.now_utc();
         let mut to_remove = vec![];

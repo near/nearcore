@@ -2,8 +2,8 @@ use crate::accounts_data::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
+use crate::types::AccountKeys;
 use near_network_primitives::time;
-use near_network_primitives::types::AccountKeys;
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner as _};
 use pretty_assertions::assert_eq;
@@ -28,7 +28,7 @@ struct Signer {
 }
 
 impl Signer {
-    fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> Arc<SignedAccountData> {
+    fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> SignedAccountData {
         data::make_account_data(
             rng,
             timestamp,
@@ -89,17 +89,17 @@ async fn happy_path() {
     assert_eq!(cache.dump(), vec![]); // empty after initial set_keys.
 
     // initial insert
-    let a0 = signers[0].make_account_data(rng, now);
-    let a1 = signers[1].make_account_data(rng, now);
+    let a0 = Arc::new(signers[0].make_account_data(rng, now));
+    let a1 = Arc::new(signers[1].make_account_data(rng, now));
     let res = cache.clone().insert(vec![a0.clone(), a1.clone()]).await;
     assert_eq!([&a0, &a1].as_set(), unwrap(&res).as_set());
     assert_eq!([&a0, &a1].as_set(), cache.dump().as_set());
 
     // entries of various types
-    let a0new = signers[0].make_account_data(rng, now + time::Duration::seconds(1));
-    let a1old = signers[1].make_account_data(rng, now - time::Duration::seconds(1));
-    let a2 = signers[2].make_account_data(rng, now);
-    let a5 = signers[5].make_account_data(rng, now);
+    let a0new = Arc::new(signers[0].make_account_data(rng, now + time::Duration::seconds(1)));
+    let a1old = Arc::new(signers[1].make_account_data(rng, now - time::Duration::seconds(1)));
+    let a2 = Arc::new(signers[2].make_account_data(rng, now));
+    let a5 = Arc::new(signers[5].make_account_data(rng, now));
     let res = cache
         .clone()
         .insert(vec![
@@ -143,9 +143,9 @@ async fn data_too_large() {
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = signers[0].make_account_data(rng, now);
-    let a1 = signers[1].make_account_data(rng, now);
-    let mut a2_too_large = signers[2].make_account_data(rng, now);
+    let a0 = Arc::new(signers[0].make_account_data(rng, now));
+    let a1 = Arc::new(signers[1].make_account_data(rng, now));
+    let mut a2_too_large: SignedAccountData = signers[2].make_account_data(rng, now);
     *a2_too_large.payload_mut() =
         (0..crate::network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES + 1).map(|_| 17).collect();
     let a2_too_large = Arc::new(a2_too_large);
@@ -178,10 +178,12 @@ async fn invalid_signature() {
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = signers[0].make_account_data(rng, now);
+    let a0 = Arc::new(signers[0].make_account_data(rng, now));
     let mut a1 = signers[1].make_account_data(rng, now);
     let mut a2_invalid_sig = signers[2].make_account_data(rng, now);
     *a2_invalid_sig.signature_mut() = a1.signature_mut().clone();
+    let a1 = Arc::new(a1);
+    let a2_invalid_sig = Arc::new(a2_invalid_sig);
 
     // invalid signature => InvalidSignature
     let res = cache
@@ -211,10 +213,10 @@ async fn single_account_multiple_data() {
 
     let cache = Arc::new(Cache::new());
     cache.set_keys(e);
-    let a0 = signers[0].make_account_data(rng, now);
-    let a1 = signers[1].make_account_data(rng, now);
-    let a2old = signers[2].make_account_data(rng, now);
-    let a2new = signers[2].make_account_data(rng, now + time::Duration::seconds(1));
+    let a0 = Arc::new(signers[0].make_account_data(rng, now));
+    let a1 = Arc::new(signers[1].make_account_data(rng, now));
+    let a2old = Arc::new(signers[2].make_account_data(rng, now));
+    let a2new = Arc::new(signers[2].make_account_data(rng, now + time::Duration::seconds(1)));
 
     // 2 entries for the same (epoch_id,account_id) => SingleAccountMultipleData
     let res =
