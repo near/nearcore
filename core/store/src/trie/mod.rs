@@ -382,7 +382,7 @@ impl RawTrieNode {
         match self {
             RawTrieNode::Leaf(key, _, _) => Some(key),
             RawTrieNode::Extension(key, _) => Some(key),
-            _ => None,
+            RawTrieNode::Branch(_, _) => None,
         }
     }
 }
@@ -754,7 +754,7 @@ impl Trie {
     ///
     /// # Errors
     ///
-    /// If the root or any subsequent is not found in the trie, `StorageError` will be returned
+    /// If the root or any subsequent nodes are not found in the trie, `StorageError` is returned
     pub fn get_proof(
         &self,
         root: &CryptoHash,
@@ -769,8 +769,11 @@ impl Trie {
         let mut levels: Vec<RawTrieNodeWithSize> = vec![];
         loop {
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
-            let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
-                StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
+            let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
+                StorageError::StorageInconsistentState(format!(
+                    "RawTrieNode decode failed with {}",
+                    err.to_string()
+                ))
             })?;
 
             match node.node {
@@ -808,12 +811,13 @@ impl Trie {
                     }
 
                     let idx = key.at(0) as usize;
-                    let child = children[idx];
-                    if child.is_none() {
-                        return Ok((false, levels));
+                    match children[idx] {
+                        Some(child) => {
+                            hash = child;
+                            key = key.mid(1);
+                        }
+                        None => return Ok((false, levels)),
                     }
-                    hash = child.unwrap();
-                    key = key.mid(1);
                 }
             };
         }
@@ -866,7 +870,7 @@ mod tests {
             &self,
             key: &[u8],
             levels: Vec<RawTrieNodeWithSize>,
-            // when verifying proofs of non-membership, this value shuold be None
+            // when verifying proofs of non-membership, this value should be None
             maybe_expected_value: Option<&[u8]>,
             mut expected_hash: CryptoHash,
         ) -> bool {
@@ -937,11 +941,12 @@ mod tests {
                             };
                         }
                         let index = key.at(0);
-                        if let Some(child_hash) = &children[index as usize] {
-                            key = key.mid(1);
-                            expected_hash = *child_hash;
-                        } else {
-                            return maybe_expected_value.is_none();
+                        match &children[index as usize] {
+                            Some(child_hash) => {
+                                key = key.mid(1);
+                                expected_hash = *child_hash;
+                            }
+                            None => return maybe_expected_value.is_none(),
                         }
                     }
                 }
