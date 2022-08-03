@@ -3,7 +3,7 @@
 usage() {
     cat <<-EOF
 	Usage:
-	    get-validators.sh <socket addr> [<out file>]
+	    get-validators.sh <URL> [<out file>]
 	EOF
     exit 1
 }
