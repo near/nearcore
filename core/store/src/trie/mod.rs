@@ -253,7 +253,7 @@ impl TrieNode {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
@@ -263,7 +263,7 @@ pub enum RawTrieNode {
 
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
-#[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RawTrieNodeWithSize {
     node: RawTrieNode,
     memory_usage: u64,
@@ -757,17 +757,18 @@ impl Trie {
     /// # Errors
     ///
     /// If the root or any subsequent nodes are not found in the trie, `StorageError` is returned
-    pub fn get_proof(&self, root: &CryptoHash, key: &[u8]) -> Result<Arc<Vec<u8>>, StorageError> {
+    pub fn get_proof(
+        &self,
+        root: &CryptoHash,
+        key: &[u8],
+    ) -> Result<(ProofState, Vec<Arc<Vec<u8>>>), StorageError> {
         let mut key = NibbleSlice::new(key);
         let mut hash = *root;
         if hash == Trie::EMPTY_ROOT {
-            return Ok((ProofState::from(key.is_empty()), Vec::<RawTrieNodeWithSize>::new())
-                .try_to_vec()
-                .unwrap()
-                .into());
+            return Ok((ProofState::from(key.is_empty()), vec![]));
         }
 
-        let mut levels: Vec<RawTrieNodeWithSize> = vec![];
+        let mut levels: Vec<Arc<Vec<u8>>> = vec![];
         loop {
             let bytes = self.storage.retrieve_raw_bytes(&hash)?;
             let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
@@ -780,11 +781,14 @@ impl Trie {
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     let found = NibbleSlice::from_encoded(&existing_key).0 == key;
-                    levels.push(RawTrieNodeWithSize {
+                    let mut encoded_node = vec![];
+                    RawTrieNodeWithSize {
                         node: RawTrieNode::Leaf(existing_key, value_length, value_hash),
                         memory_usage: node.memory_usage,
-                    });
-                    return Ok((ProofState::from(found), levels).try_to_vec().unwrap().into());
+                    }
+                    .encode_into(&mut encoded_node);
+                    levels.push(encoded_node.into());
+                    return Ok((ProofState::from(found), levels));
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
                     let existing_key_nibble = NibbleSlice::from_encoded(&existing_key).0;
@@ -792,26 +796,28 @@ impl Trie {
 
                     key = key.mid(existing_key_nibble.len());
                     hash = child_hash;
-
-                    levels.push(RawTrieNodeWithSize {
+                    let mut encoded_node = vec![];
+                    RawTrieNodeWithSize {
                         node: RawTrieNode::Extension(existing_key, child_hash),
                         memory_usage: node.memory_usage,
-                    });
+                    }
+                    .encode_into(&mut encoded_node);
+                    levels.push(encoded_node.into());
                     if !found {
-                        return Ok((ProofState::Absent, levels).try_to_vec().unwrap().into());
+                        return Ok((ProofState::Absent, levels));
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
-                    levels.push(RawTrieNodeWithSize {
+                    let mut encoded_node = vec![];
+                    RawTrieNodeWithSize {
                         node: RawTrieNode::Branch(children, value),
                         memory_usage: node.memory_usage,
-                    });
+                    }
+                    .encode_into(&mut encoded_node);
+                    levels.push(encoded_node.into());
 
                     if key.is_empty() {
-                        return Ok((ProofState::from(value.is_some()), levels)
-                            .try_to_vec()
-                            .unwrap()
-                            .into());
+                        return Ok((ProofState::from(value.is_some()), levels));
                     }
 
                     let idx = key.at(0) as usize;
@@ -820,9 +826,7 @@ impl Trie {
                             hash = child;
                             key = key.mid(1);
                         }
-                        None => {
-                            return Ok((ProofState::Absent, levels).try_to_vec().unwrap().into())
-                        }
+                        None => return Ok((ProofState::Absent, levels)),
                     }
                 }
             };
@@ -1377,9 +1381,9 @@ mod tests {
         );
 
         for (k, v) in changes {
-            let (found, proof): (ProofState, Vec<_>) =
-                BorshDeserialize::try_from_slice(trie.get_proof(&root, &k).unwrap().as_ref())
-                    .unwrap();
+            let (found, raw_proof) = trie.get_proof(&root, &k).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
+
             assert_eq!(found, ProofState::Present);
             dbg!(&k);
             assert!(trie.verify_proof(&k, proof, v.as_deref(), root));
@@ -1389,19 +1393,15 @@ mod tests {
             [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
 
         for non_existing_key in non_existing_keys {
-            let (found, proof): (ProofState, Vec<_>) = BorshDeserialize::try_from_slice(
-                trie.get_proof(&root, &non_existing_key).unwrap().as_ref(),
-            )
-            .unwrap();
+            let (found, raw_proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             assert!(trie.verify_proof(non_existing_key, proof, None, root));
             assert_eq!(found, ProofState::Absent);
         }
 
         for non_existing_key in non_existing_keys {
-            let (found, proof): (ProofState, Vec<_>) = BorshDeserialize::try_from_slice(
-                trie.get_proof(&root, &non_existing_key).unwrap().as_ref(),
-            )
-            .unwrap();
+            let (found, raw_proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             // duplicating this because RawTrieNodeWithSize does not implement Clone
             assert!(!trie.verify_proof(non_existing_key, proof, Some(b"0_value"), root));
             assert_eq!(found, ProofState::Absent);

@@ -228,7 +228,7 @@ impl From<bool> for ProofState {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: Option<String>,
+    pub proof: Option<(ProofState, Vec<String>)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

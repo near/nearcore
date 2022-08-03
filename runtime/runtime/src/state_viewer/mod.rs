@@ -160,9 +160,10 @@ impl TrieViewer {
         let trie = state_update.trie();
         let root = state_update.get_root();
 
-        let raw_proof = trie.get_proof(&root, &query)?;
+        let (proof_state, raw_proof) = trie.get_proof(&root, &query)?;
+        let serialized_proof = raw_proof.iter().map(|p| to_base64(&**p)).collect();
 
-        Ok(ViewStateResult { values, proof: Some(to_base64(&*raw_proof)) })
+        Ok(ViewStateResult { values, proof: Some((proof_state, serialized_proof)) })
     }
 
     pub fn call_function(

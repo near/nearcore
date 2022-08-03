@@ -3,7 +3,7 @@ use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
-    views::{StateItem, ViewApplyState},
+    views::{ProofState, StateItem, ViewApplyState},
 };
 use near_primitives::{
     test_utils::MockEpochInfoProvider,
@@ -134,8 +134,7 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof,
-        Some("AQcAAAACAQAAABB4ILext7Xy8sRq1r/OjULv71w6KM6ZmsjbvEln5KnPMzIKAAAAAAAAAQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAACAwAAABYWxvCbZMVfgYctPkbUtKkXxSQbvNBXWiFcExH85BxQApneDAMAAAAAAAABAAAAAAAB7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZoAAAAB87tLct1D2CeVCqxRisV6MssjRu+QBfYZyRzt8cRZH+QAAAAAAAAA1AIAAAAAAAACAQAAABbrTso+Parc7x0XpeR8AuIit32aoaKvZSVghxm4s2SxOy8CAAAAAAAAAQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAPsBAAAAAAAAAgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA".to_string()));
+    assert_eq!(result.proof, Some((ProofState::Absent, ["AwEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==", "AQUCv3bNFVGGZS/TOlpHqqXRpxPXvaRlFU+gE8BM4GyIwpWnmEa/D1YpSfNTICSr1f0dUsULk38MJm2erDf0wtl3y9UgieFjNRmdMjEmjaSTnbCR/ZHWttN1jN2YfNYMc+q5/gkAAAAAAAA=", "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA", "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA", "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==", "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA", "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA"].into_iter().map(String::from).collect())));
     assert_eq!(
         result.values,
         [
@@ -151,7 +150,7 @@ fn test_view_state() {
         [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] }]
     );
 
-    assert_eq!(result.proof, Some("AAkAAAACAQAAABB4ILext7Xy8sRq1r/OjULv71w6KM6ZmsjbvEln5KnPMzIKAAAAAAAAAQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAACAwAAABYWxvCbZMVfgYctPkbUtKkXxSQbvNBXWiFcExH85BxQApneDAMAAAAAAAABAAAAAAAB7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZoAAAAB87tLct1D2CeVCqxRisV6MssjRu+QBfYZyRzt8cRZH+QAAAAAAAAA1AIAAAAAAAACAQAAABbrTso+Parc7x0XpeR8AuIit32aoaKvZSVghxm4s2SxOy8CAAAAAAAAAQAAAAE/iwx1uJZk+1XqPPyFgrNEVKDBpKVAqIaxBeiACYxysgAAAAAAAAAAAAABzpfkiX4gjlzExGdmtXm5kDhBpEWGt9BWiJQeOrCyNiAAAPsBAAAAAAAAAgwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAAAQABVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qQAAV1Bc8LWs2wIZEnud3rpJ9w2ZFRVW9BjoRgJuwiK6A7qAAAAAAAAAAAAAAAAAAwBAAAAAAAAAAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==".to_string()));
+    assert_eq!(result.proof, Some((ProofState::Present, ["AwEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==", "AQUCv3bNFVGGZS/TOlpHqqXRpxPXvaRlFU+gE8BM4GyIwpWnmEa/D1YpSfNTICSr1f0dUsULk38MJm2erDf0wtl3y9UgieFjNRmdMjEmjaSTnbCR/ZHWttN1jN2YfNYMc+q5/gkAAAAAAAA=", "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA", "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA", "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==", "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA", "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA", "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA", "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA=="].into_iter().map(String::from).collect())));
 }
 
 #[test]
