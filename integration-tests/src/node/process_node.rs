@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
@@ -18,8 +19,6 @@ use crate::user::User;
 use actix::System;
 use near_jsonrpc_client::new_client;
 use near_network::test_utils::wait_or_timeout;
-
-pub type ControlFlow = std::ops::ControlFlow<()>;
 
 pub enum ProcessNodeState {
     Stopped,
