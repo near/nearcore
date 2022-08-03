@@ -20,7 +20,6 @@ use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -274,10 +273,7 @@ impl Peer {
     }
 }
 
-#[derive(Debug)]
-struct PendingPing {
-    nonce: u64,
-}
+type Nonce = u64;
 
 #[derive(Debug, Eq, PartialEq)]
 struct PingTarget {
@@ -308,6 +304,8 @@ impl Ord for PingTarget {
     }
 }
 
+const MAX_PINGS_IN_FLIGHT: usize = 10;
+
 #[derive(Debug)]
 struct PingState {
     stats: PingStats,
@@ -322,9 +320,7 @@ struct AppInfo {
     stats: HashMap<PeerId, PingState>,
     // we will ping targets in round robin fashion. So this keeps a set of
     // targets ordered by when we last pinged them.
-    requests: BTreeMap<PingTarget, Option<PendingPing>>,
-    // how many requests in flight do we have?
-    num_pings_in_flight: usize,
+    requests: BTreeMap<PingTarget, HashMap<Nonce, Instant>>,
     account_filter: Option<HashSet<AccountId>>,
 }
 
@@ -349,21 +345,17 @@ impl AppInfo {
             my_peer_id,
             stats: HashMap::new(),
             requests: BTreeMap::new(),
-            num_pings_in_flight: 0,
             account_filter,
         }
     }
 
-    // Must not be called if self.num_pings_in_flight >= self.requests.len()
-    fn pick_next_target(&self) -> PeerId {
-        for (target, pending_request) in self.requests.iter() {
-            if pending_request.is_none() {
-                return target.peer_id.clone();
+    fn pick_next_target(&self) -> Option<PeerId> {
+        for (target, pending_pings) in self.requests.iter() {
+            if pending_pings.len() < MAX_PINGS_IN_FLIGHT {
+                return Some(target.peer_id.clone());
             }
         }
-        panic!(
-            "next_ping_target called with a pending request in flight for every peer. This is a bug."
-        );
+        None
     }
 
     fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64) {
@@ -372,14 +364,13 @@ impl AppInfo {
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
                 let state = e.get_mut();
-                let pending_ping = self
+                let mut pending_pings = self
                     .requests
                     .remove(&PingTarget {
                         peer_id: peer_id.clone(),
                         last_pinged: state.last_pinged,
                     })
                     .unwrap();
-                assert!(pending_ping.is_none());
 
                 if let Some(account_id) = state.account_id.as_ref() {
                     println!("send ping --------------> {}", account_id);
@@ -388,11 +379,22 @@ impl AppInfo {
                 }
                 state.stats.pings_sent += 1;
                 state.last_pinged = Some(timestamp);
+
+                match pending_pings.entry(nonce) {
+                    Entry::Occupied(_) => {
+                        tracing::warn!(
+                            target: "ping", "Internal error! Sent two pings with nonce {} to {}. \
+                            Latency stats will probably be wrong.", nonce, &peer_id
+                        );
+                    }
+                    Entry::Vacant(e) => {
+                        e.insert(timestamp);
+                    }
+                };
                 self.requests.insert(
                     PingTarget { peer_id: peer_id.clone(), last_pinged: Some(timestamp) },
-                    Some(PendingPing { nonce }),
+                    pending_pings,
                 );
-                self.num_pings_in_flight += 1;
             }
             Entry::Vacant(_) => {
                 panic!("sent ping to {:?}, but not present in stats HashMap", peer_id)
@@ -403,42 +405,37 @@ impl AppInfo {
     fn pong_received(&mut self, peer_id: &PeerId, nonce: u64, received_at: Instant) {
         match self.stats.get_mut(peer_id) {
             Some(state) => {
-                let pending_ping = self
+                let pending_pings = self
                     .requests
                     .get_mut(&PingTarget {
                         peer_id: peer_id.clone(),
                         last_pinged: state.last_pinged,
                     })
                     .unwrap();
-                match pending_ping {
-                    Some(p) => {
-                        if p.nonce == nonce {
-                            let latency = received_at - state.last_pinged.unwrap();
-                            state.stats.pong_received(latency);
-                            self.num_pings_in_flight -= 1;
-                            *pending_ping = None;
-                            if let Some(account_id) = state.account_id.as_ref() {
-                                println!(
-                                    "recv pong <-------------- {} latency: {:?}",
-                                    account_id, latency
-                                );
-                            } else {
-                                println!(
-                                    "recv pong <-------------- {} latency: {:?}",
-                                    &peer_id, latency
-                                );
-                            }
+
+                match pending_pings.remove(&nonce) {
+                    Some(sent_at) => {
+                        let latency = received_at - sent_at;
+                        state.stats.pong_received(latency);
+
+                        if let Some(account_id) = state.account_id.as_ref() {
+                            println!(
+                                "recv pong <-------------- {} latency: {:?}",
+                                account_id, latency
+                            );
                         } else {
-                            // should we update the stats still?
-                            tracing::warn!(
-                                target: "ping", "Received Pong with nonce {} when {} was expected",
-                                nonce,
-                                p.nonce,
+                            println!(
+                                "recv pong <-------------- {} latency: {:?}",
+                                &peer_id, latency
                             );
                         }
                     }
                     None => {
-                        tracing::warn!(target: "ping", "received pong from {:?}, but don't remember sending a ping", peer_id)
+                        tracing::warn!(
+                            target: "ping",
+                            "received pong with nonce {} from {:?}, but don't remember sending a matching ping",
+                            nonce, peer_id
+                        );
                     }
                 };
             }
@@ -480,8 +477,10 @@ impl AppInfo {
                     last_pinged: None,
                     stats: PingStats::default(),
                 });
-                self.requests
-                    .insert(PingTarget { peer_id: peer_id.clone(), last_pinged: None }, None);
+                self.requests.insert(
+                    PingTarget { peer_id: peer_id.clone(), last_pinged: None },
+                    HashMap::new(),
+                );
             }
         }
     }
@@ -491,12 +490,6 @@ impl AppInfo {
             self.add_peer(&a.peer_id, Some(&a.account_id));
         }
     }
-}
-
-async fn next_ping_target(sleep: Pin<&mut tokio::time::Sleep>, app_info: &AppInfo) -> PeerId {
-    sleep.await;
-
-    app_info.pick_next_target()
 }
 
 fn handle_message(app_info: &mut AppInfo, msg: &PeerMessage, received_at: Instant) {
@@ -593,8 +586,10 @@ pub async fn ping_via_node(
     tokio::pin!(next_ping);
 
     loop {
+        let target = app_info.pick_next_target();
         tokio::select! {
-            target = next_ping_target(next_ping.as_mut(), &app_info), if app_info.num_pings_in_flight < app_info.requests.len() => {
+            _ = &mut next_ping, if target.is_some() => {
+                let target = target.unwrap();
                 if let Err(e) = peer.send_ping(&mut app_info, &target, nonce, ttl).await {
                     tracing::error!(target: "ping", "Failed sending ping to {:?}: {:?}", &target, e);
                     break;
