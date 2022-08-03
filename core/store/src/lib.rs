@@ -7,7 +7,6 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use once_cell::sync::Lazy;
-use tracing::info;
 
 pub use columns::DBCol;
 pub use db::{

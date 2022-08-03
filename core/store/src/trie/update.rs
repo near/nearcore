@@ -14,7 +14,6 @@ use super::{Trie, TrieIterator};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
-use tracing::info;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -26,7 +25,7 @@ pub struct TrieKeyValueUpdate {
 pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
-/// TODO: rename to StateUpdate
+/// TODO (#7326): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
     pub flat_state: Option<FlatState>,
@@ -104,7 +103,6 @@ impl TrieUpdate {
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
-        // value refs don't exist for delayed columns
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));

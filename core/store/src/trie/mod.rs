@@ -4,7 +4,6 @@ use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::info;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -407,9 +406,11 @@ pub struct Trie {
     pub storage: Box<dyn TrieStorage>,
 }
 
+/// Struct for getting value references from the flat storage.
+/// Used to speed up `get` and `get_ref` trie methods.
 #[derive(Clone)]
 pub struct FlatState {
-    pub store: Store,
+    store: Store,
 }
 
 impl FlatState {

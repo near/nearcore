@@ -57,7 +57,10 @@ pub type PromiseId = Vec<ReceiptIndex>;
 
 pub type ProtocolVersion = u32;
 
+/// State value reference. Used to charge fees for value length before retrieving the value itself.
 pub struct ValueRef {
+    /// Value length in bytes.
     pub length: u32,
+    /// Unique value hash.
     pub hash: CryptoHash,
 }
