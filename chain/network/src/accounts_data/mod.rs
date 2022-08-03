@@ -111,7 +111,7 @@ struct CacheInner {
     /// key is the public key of the account in the given epoch.
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
-    data: HashMap<(EpochId, AccountId), SignedAccountData>,
+    data: HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
 }
 
 impl CacheInner {
@@ -123,7 +123,7 @@ impl CacheInner {
                 _ => true,
             }
     }
-    fn try_insert(&mut self, d: SignedAccountData) -> Option<SignedAccountData> {
+    fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }

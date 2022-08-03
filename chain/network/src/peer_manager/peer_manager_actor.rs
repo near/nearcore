@@ -1,12 +1,12 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
-use crate::network_protocol::{Encoding, SignedAccountData, SyncAccountsData};
+use crate::private_actix::SendMessage;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, StopMsg,
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, StopMsg,
     Unregister, ValidateEdgeList,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
@@ -16,6 +16,7 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
+use arc_swap::ArcSwap;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage,
@@ -50,9 +51,8 @@ use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -113,46 +113,6 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 // network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
-impl ConnectedPeer {
-    pub fn send_accounts_data(
-        &self,
-        data: Vec<Arc<SignedAccountData>>,
-    ) -> impl std::future::Future<Output = ()> {
-        let addr = self.addr.clone();
-        self.send_accounts_data_demux.call(
-            data,
-            |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
-                let res = ds.iter().map(|_| ()).collect();
-                let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
-                for d in ds.into_iter().flatten() {
-                    match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
-                        Entry::Occupied(mut x) => {
-                            if x.get().timestamp < d.timestamp {
-                                x.insert(d);
-                            }
-                        }
-                        Entry::Vacant(x) => {
-                            x.insert(d);
-                        }
-                    }
-                }
-                addr.send(SendMessage {
-                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                        incremental: true,
-                        requesting_full_sync: false,
-                        accounts_data: sum.into_values().collect(),
-                    }),
-                    context: Span::current().context(),
-                })
-                .await
-                .expect("Failed sending incremental SyncAccountsData");
-                res
-            },
-        )
-    }
-}
->>>>>>> 773678c3e (Implemented demultiplexing for rate limiting broadcasts.)
-
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -187,7 +147,7 @@ pub(crate) struct NetworkState {
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
 
     /// Network-related info about the chain.
-    pub chain_info: RwLock<ChainInfo>,
+    pub chain_info: ArcSwap<ChainInfo>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
@@ -200,17 +160,17 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
-        send_accounts_data_max_qps: f64,
+        send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
         Self {
             config,
             genesis_id,
             client_addr,
             view_client_addr,
-            network_metrics: Default::default(),
-            connected_peers: RwLock::new(HashMap::default()),
+            chain_info: Default::default(),
+            connected_peers: ConnectedPeers::default(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
-            send_accounts_data_rl: demux::RateLimit { qps: send_accounts_data_max_qps, burst: 1 },
+            send_accounts_data_rl, 
         }
     }
 
@@ -449,16 +409,13 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             whitelist_nodes,
             event_sink: Sink::void(),
-            state: Arc::new(NetworkState {
-                config: config.clone(),
+            state: Arc::new(NetworkState::new(
+                config.clone(),
                 genesis_id,
                 client_addr,
                 view_client_addr,
-                chain_info: RwLock::new(ChainInfo::default()),
-                connected_peers: ConnectedPeers::default(),
-                accounts_data: Arc::new(accounts_data::Cache::new()),
-                max_qps,
-            }),
+                demux::RateLimit { qps: max_qps, burst: 1 },
+            )),
         })
     }
 
@@ -1010,7 +967,7 @@ impl PeerManagerActor {
     // Get peers that are potentially unreliable and we should avoid routing messages through them.
     // Currently we're picking the peers that are too much behind (in comparison to us).
     fn unreliable_peers(&self) -> HashSet<PeerId> {
-        let my_height = self.state.chain_info.read().height.clone();
+        let my_height = self.state.chain_info.load().height;
 
         let connected_peers = self.state.connected_peers.read();
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).

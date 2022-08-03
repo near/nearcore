@@ -275,7 +275,7 @@ impl PeerActor {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
         }
-        let chain_info = self.peer_manager_state.chain_info.read().clone();
+        let chain_info = self.peer_manager_state.chain_info.load();
         let handshake = match self.protocol_version {
             39..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
                 self.protocol_version,
