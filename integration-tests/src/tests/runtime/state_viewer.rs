@@ -3,7 +3,7 @@ use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
-    views::{StateItem, ViewApplyState},
+    views::{ProofState, StateItem, ViewApplyState},
 };
 use near_primitives::{
     test_utils::MockEpochInfoProvider,
@@ -134,7 +134,7 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, Some((false, Some(vec![
+    assert_eq!(result.proof, Some((ProofState::Absent, Some(vec![
         "AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==", 
         "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAA=",
         "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
@@ -158,7 +158,7 @@ fn test_view_state() {
         [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: None }]
     );
 
-    assert_eq!(result.proof, Some((true, Some(vec![
+    assert_eq!(result.proof, Some((ProofState::Present, Some(vec![
         "AgEAAAAQeCC3sbe18vLEata/zo1C7+9cOijOmZrI27xJZ+SpzzMyCgAAAAAAAA==",
         "AQG/ds0VUYZlL9M6WkeqpdGnE9e9pGUVT6ATwEzgbIjClQABp5hGvw9WKUnzUyAkq9X9HVLFC5N/DCZtnqw39MLZd8sAAAAAAAAB1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rkAAAAAAAAA/gkAAAAAAAA=",
         "AgMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
