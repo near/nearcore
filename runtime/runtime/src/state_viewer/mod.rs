@@ -5,7 +5,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
 use near_primitives::{
     account::{AccessKey, Account},
-    borsh::{BorshDeserialize, BorshSerialize},
+    borsh::BorshDeserialize,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
@@ -150,22 +150,19 @@ impl TrieViewer {
             if !key.starts_with(query.as_ref()) {
                 break;
             }
-            values.push(StateItem { key: key[acc_sep_len..].to_vec(), value: value, proof: None });
+            values.push(StateItem {
+                key: key[acc_sep_len..].to_vec(),
+                value: value,
+                proof: vec![],
+            });
         }
         // TODO(2076): Add proofs for the storage items.
         let trie = state_update.trie();
         let root = state_update.get_root();
 
-        let (found, proof) = trie.get_proof(&root, &query)?;
-        let serialized_proof = proof
-            .iter()
-            .map(|level| {
-                level.try_to_vec().map(to_base64).map_err(|err| {
-                    errors::ViewStateError::InternalError { error_message: err.to_string() }
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ViewStateResult { values, proof: Some((found, Some(serialized_proof))) })
+        let raw_proof = trie.get_proof(&root, &query)?;
+
+        Ok(ViewStateResult { values, proof: Some(to_base64(&*raw_proof)) })
     }
 
     pub fn call_function(

@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -252,7 +253,7 @@ impl TrieNode {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, BorshSerialize)]
+#[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
@@ -262,7 +263,7 @@ pub enum RawTrieNode {
 
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
-#[derive(Debug, Eq, PartialEq, BorshSerialize)]
+#[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct RawTrieNodeWithSize {
     node: RawTrieNode,
     memory_usage: u64,
@@ -756,15 +757,14 @@ impl Trie {
     /// # Errors
     ///
     /// If the root or any subsequent nodes are not found in the trie, `StorageError` is returned
-    pub fn get_proof(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<(ProofState, Vec<RawTrieNodeWithSize>), StorageError> {
+    pub fn get_proof(&self, root: &CryptoHash, key: &[u8]) -> Result<Arc<Vec<u8>>, StorageError> {
         let mut key = NibbleSlice::new(key);
         let mut hash = *root;
         if hash == Trie::EMPTY_ROOT {
-            return Ok((key.is_empty().into(), Vec::new()));
+            return Ok((ProofState::from(key.is_empty()), Vec::<RawTrieNodeWithSize>::new())
+                .try_to_vec()
+                .unwrap()
+                .into());
         }
 
         let mut levels: Vec<RawTrieNodeWithSize> = vec![];
@@ -784,7 +784,7 @@ impl Trie {
                         node: RawTrieNode::Leaf(existing_key, value_length, value_hash),
                         memory_usage: node.memory_usage,
                     });
-                    return Ok((found.into(), levels));
+                    return Ok((ProofState::from(found), levels).try_to_vec().unwrap().into());
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
                     let existing_key_nibble = NibbleSlice::from_encoded(&existing_key).0;
@@ -798,7 +798,7 @@ impl Trie {
                         memory_usage: node.memory_usage,
                     });
                     if !found {
-                        return Ok((ProofState::Absent, levels));
+                        return Ok((ProofState::Absent, levels).try_to_vec().unwrap().into());
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
@@ -808,7 +808,10 @@ impl Trie {
                     });
 
                     if key.is_empty() {
-                        return Ok((value.is_some().into(), levels));
+                        return Ok((ProofState::from(value.is_some()), levels)
+                            .try_to_vec()
+                            .unwrap()
+                            .into());
                     }
 
                     let idx = key.at(0) as usize;
@@ -817,7 +820,9 @@ impl Trie {
                             hash = child;
                             key = key.mid(1);
                         }
-                        None => return Ok((ProofState::Absent, levels)),
+                        None => {
+                            return Ok((ProofState::Absent, levels).try_to_vec().unwrap().into())
+                        }
                     }
                 }
             };
@@ -1372,7 +1377,9 @@ mod tests {
         );
 
         for (k, v) in changes {
-            let (found, proof) = trie.get_proof(&root, &k).unwrap();
+            let (found, proof): (ProofState, Vec<_>) =
+                BorshDeserialize::try_from_slice(trie.get_proof(&root, &k).unwrap().as_ref())
+                    .unwrap();
             assert_eq!(found, ProofState::Present);
             dbg!(&k);
             assert!(trie.verify_proof(&k, proof, v.as_deref(), root));
@@ -1382,13 +1389,19 @@ mod tests {
             [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
 
         for non_existing_key in non_existing_keys {
-            let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let (found, proof): (ProofState, Vec<_>) = BorshDeserialize::try_from_slice(
+                trie.get_proof(&root, &non_existing_key).unwrap().as_ref(),
+            )
+            .unwrap();
             assert!(trie.verify_proof(non_existing_key, proof, None, root));
             assert_eq!(found, ProofState::Absent);
         }
 
         for non_existing_key in non_existing_keys {
-            let (found, proof) = trie.get_proof(&root, non_existing_key).unwrap();
+            let (found, proof): (ProofState, Vec<_>) = BorshDeserialize::try_from_slice(
+                trie.get_proof(&root, &non_existing_key).unwrap().as_ref(),
+            )
+            .unwrap();
             // duplicating this because RawTrieNodeWithSize does not implement Clone
             assert!(!trie.verify_proof(non_existing_key, proof, Some(b"0_value"), root));
             assert_eq!(found, ProofState::Absent);

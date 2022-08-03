@@ -194,7 +194,7 @@ impl From<AccessKeyView> for AccessKey {
 }
 
 /// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Option<Vec<String>>;
+pub type TrieProofPath = Vec<String>;
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -209,7 +209,8 @@ pub struct StateItem {
 
 /// A proof can be present or absent both on a result of a function but also on [ViewStateResult]. This
 /// enum encodes these different states.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, BorshSerialize, BorshDeserialize)]
 pub enum ProofState {
     Present,
     Absent,
@@ -227,8 +228,7 @@ impl From<bool> for ProofState {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    // signals whether the value was found in the trie, and the proof itself to verify the claim
-    pub proof: Option<(ProofState, TrieProofPath)>,
+    pub proof: Option<String>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
