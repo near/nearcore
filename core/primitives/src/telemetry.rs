@@ -31,6 +31,14 @@ pub struct TelemetryChainInfo {
     pub latest_block_hash: String,
     pub latest_block_height: BlockHeight,
     pub num_peers: usize,
+    /// The `block_production_tracking_delay` from the client config, represented in seconds.
+    pub block_production_tracking_delay: f64,
+    /// The `min_block_production_delay` from the client config, represented in seconds.
+    pub min_block_production_delay: f64,
+    /// The `max_block_production_delay` from the client config, represented in seconds.
+    pub max_block_production_delay: f64,
+    /// The `max_block_wait_delay` from the client config, represented in seconds.
+    pub max_block_wait_delay: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
