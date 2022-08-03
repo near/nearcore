@@ -1633,9 +1633,9 @@ impl PeerManagerActor {
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 let mut message_sent = false;
+                let msg: RoutedMessageBody = partial_encoded_chunk.into();
                 for _ in 0..PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT {
-                    message_sent |=
-                        self.send_message_to_account(&account_id, partial_encoded_chunk.into());
+                    message_sent |= self.send_message_to_account(&account_id, msg.clone());
                 }
                 if message_sent {
                     NetworkResponses::NoResponse
