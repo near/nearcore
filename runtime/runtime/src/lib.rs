@@ -1270,14 +1270,11 @@ impl Runtime {
                 epoch_info_provider,
             );
             tracing::debug!(target: "runtime", node_counter = ?state_update.trie.get_trie_nodes_count());
-            result?.into_iter().try_for_each(
-                |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *total_gas_burnt =
-                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                    outcomes.push(outcome_with_id);
-                    Ok(())
-                },
-            )?;
+            if let Some(outcome_with_id) = result? {
+                *total_gas_burnt =
+                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                outcomes.push(outcome_with_id);
+            }
             Ok(())
         };
 

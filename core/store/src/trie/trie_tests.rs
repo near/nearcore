@@ -358,10 +358,10 @@ mod caching_storage_tests {
         assert_eq!(result.unwrap().as_ref(), value);
 
         trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
-        values[1..].iter().for_each(|value| {
+        for value in values[1..].iter() {
             let result = trie_caching_storage.retrieve_raw_bytes(&hash(value));
             assert_eq!(result.unwrap().as_ref(), value);
-        });
+        }
 
         // Check that the first element gets evicted, but the counter is not incremented.
         assert_eq!(trie_cache.get(&key), None);

@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.0"
+rust-version = "1.62.1"
 edition = "2021"
 
 [dependencies]
@@ -27,6 +27,7 @@ num-rational = "0.3"
 thiserror = "1.0"
 tokio = { version = "1.1", features = ["sync"] }
 
+near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

@@ -46,6 +46,7 @@ pub enum DBCol {
     /// - *Content type*: [near_primitives::types::ChunkExtra]
     ChunkExtra = 6,
     /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
+    /// Multiple outcomes can arise due to forks.
     /// - *Rows*: outcome id (CryptoHash)
     /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
     TransactionResult = 7,
