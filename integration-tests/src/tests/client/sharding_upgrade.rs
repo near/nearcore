@@ -12,6 +12,7 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -570,7 +571,7 @@ fn gen_cross_contract_transaction(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],

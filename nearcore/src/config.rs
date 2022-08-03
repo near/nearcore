@@ -363,19 +363,36 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let mut unrecognised_fields = Vec::new();
-        let s = std::fs::read_to_string(path)
+        let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config =
-            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
-                unrecognised_fields.push(path.to_string());
-            })
-            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
-
+        let mut unrecognised_fields = Vec::new();
+        let config = serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&contents),
+            |field| {
+                let field = field.to_string();
+                // TODO(mina86): Remove this deprecation notice some time by the
+                // end of 2022.
+                if field == "network.external_address" {
+                    warn!(
+                        target: "neard",
+                        "{}: {field} is deprecated; please remove it from the config file",
+                        path.display(),
+                    );
+                } else {
+                    unrecognised_fields.push(field);
+                }
+            },
+        )
+        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         if !unrecognised_fields.is_empty() {
-            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognised_fields.join(", ");
+            warn!(
+                target: "neard",
+                "{}: encountered unrecognised field{s}: {fields}",
+                path.display(),
+            );
         }
-
         Ok(config)
     }
 

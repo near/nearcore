@@ -1,6 +1,6 @@
 use borsh::BorshSerialize;
 use near_chain::RuntimeAdapter;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
@@ -28,7 +28,7 @@ pub fn state_dump(
     last_block_header: BlockHeader,
     near_config: &NearConfig,
     records_path: Option<&Path>,
-    select_account_ids: Option<&Vec<AccountId>>,
+    change_config: &GenesisChangeConfig,
 ) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -94,12 +94,13 @@ pub fn state_dump(
                 &validators,
                 &genesis_config.protocol_treasury_account,
                 &mut |sr| seq.serialize_element(&sr).unwrap(),
-                select_account_ids,
+                change_config,
             );
             seq.end().unwrap();
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
+            change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
                 Genesis::new_with_path(genesis_config, records_path.to_path_buf());
             near_config.config.genesis_records_file =
@@ -114,11 +115,12 @@ pub fn state_dump(
                 &validators,
                 &genesis_config.protocol_treasury_account,
                 &mut |sr| records.push(sr),
-                select_account_ids,
+                change_config,
             );
             // `total_supply` is expected to change due to the natural processes of burning tokens and
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
+            change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis = Genesis::new(genesis_config, records.into());
         }
     }
@@ -216,9 +218,9 @@ fn iterate_over_records(
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
     protocol_treasury_account: &AccountId,
     mut callback: impl FnMut(StateRecord),
-    select_account_ids: Option<&Vec<AccountId>>,
+    change_config: &GenesisChangeConfig,
 ) -> Balance {
-    let account_allowlist = match select_account_ids {
+    let account_allowlist = match &change_config.select_account_ids {
         None => None,
         Some(select_account_id_list) => {
             let mut result = validators.keys().collect::<HashSet<&AccountId>>();
@@ -246,6 +248,7 @@ fn iterate_over_records(
                         account.set_locked(stake);
                     }
                 }
+                change_state_record(&mut sr, change_config);
                 callback(sr);
             }
         }
@@ -253,22 +256,54 @@ fn iterate_over_records(
     total_supply
 }
 
+/// Change record according to genesis_change_config.
+/// 1. Remove stake from non-whitelisted validators;
+pub fn change_state_record(record: &mut StateRecord, genesis_change_config: &GenesisChangeConfig) {
+    {
+        // Kick validators outside of whitelist
+        if let Some(whitelist) = &genesis_change_config.whitelist_validators {
+            if let StateRecord::Account { account_id, account } = record {
+                if !whitelist.contains(account_id) {
+                    account.set_amount(account.amount() + account.locked());
+                    account.set_locked(0);
+                }
+            }
+        }
+    };
+}
+
+/// Change genesis_config according to genesis_change_config.
+/// 1. Kick all the non-whitelisted validators;
+pub fn change_genesis_config(
+    genesis_config: &mut GenesisConfig,
+    genesis_change_config: &GenesisChangeConfig,
+) {
+    {
+        // Kick validators outside of whitelist
+        if let Some(whitelist) = &genesis_change_config.whitelist_validators {
+            genesis_config.validators.retain(|v| whitelist.contains(&v.account_id));
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::path::Path;
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::{run_catchup, TestEnv};
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
+    use near_primitives::types::{
+        Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
+    };
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
@@ -384,7 +419,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
-            None,
+            &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -457,7 +492,8 @@ mod test {
             last_block.header().clone(),
             &near_config,
             None,
-            Some(&select_account_ids),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(Some(select_account_ids.clone())),
         );
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
@@ -514,7 +550,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             None,
-            None,
+            &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -554,7 +590,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
-            None,
+            &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(
@@ -599,7 +635,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
-            None,
+            &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
 
@@ -682,7 +718,7 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
-            None,
+            &GenesisChangeConfig::default(),
         );
     }
 
@@ -752,11 +788,87 @@ mod test {
             last_block.header().clone(),
             &near_config,
             Some(&records_file.path().to_path_buf()),
-            None,
+            &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
 
         assert_eq!(new_genesis.config.validators.len(), 2);
+        validate_genesis(&new_genesis);
+    }
+
+    #[test]
+    fn test_dump_state_respect_select_whitelist_validators() {
+        let epoch_length = 4;
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &signer,
+            TESTING_INIT_STAKE,
+            signer.public_key.clone(),
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false, false);
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
+        let head = env.clients[0].chain.head().unwrap();
+        let last_block_hash = head.last_block_hash;
+        let cur_epoch_id = head.epoch_id;
+        let block_producers = env.clients[0]
+            .runtime_adapter
+            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
+            .unwrap();
+        assert_eq!(
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
+        );
+
+        let whitelist_validators =
+            vec!["test1".parse().unwrap(), "non_validator_account".parse().unwrap()];
+
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        let state_roots: Vec<CryptoHash> =
+            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
+        let new_near_config = state_dump(
+            runtime,
+            &state_roots,
+            last_block.header().clone(),
+            &near_config,
+            None,
+            &GenesisChangeConfig::default().with_whitelist_validators(Some(whitelist_validators)),
+        );
+        let new_genesis = new_near_config.genesis;
+
+        assert_eq!(
+            new_genesis
+                .config
+                .validators
+                .iter()
+                .map(|x| x.account_id.clone())
+                .collect::<Vec<AccountId>>(),
+            vec!["test1".parse().unwrap()]
+        );
+
+        let stake: HashMap<AccountId, Balance> = new_genesis
+            .records
+            .0
+            .iter()
+            .filter_map(|x| {
+                if let StateRecord::Account { account_id, account } = x {
+                    Some((account_id.clone(), account.locked()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
+
         validate_genesis(&new_genesis);
     }
 }

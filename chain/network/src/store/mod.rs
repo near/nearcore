@@ -132,7 +132,9 @@ impl Store {
     /// Deletes rows with keys in <peers> from Peers column.
     pub fn delete_peer_states(&mut self, peers: &[PeerId]) -> Result<(), Error> {
         let mut update = self.0.new_update();
-        peers.iter().for_each(|p| update.delete::<schema::Peers>(p));
+        for p in peers {
+            update.delete::<schema::Peers>(p);
+        }
         self.0.commit(update).map_err(Error)
     }
 
