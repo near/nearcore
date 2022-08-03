@@ -1,5 +1,3 @@
-use std::path::Path;
-use std::sync::Arc;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -13,6 +11,8 @@ use near_primitives::transaction::{Action, AddKeyAction, Transaction};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::TrackedConfig;
+use std::path::Path;
+use std::sync::Arc;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
