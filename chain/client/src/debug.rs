@@ -3,7 +3,6 @@
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
-use chrono::DateTime;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};

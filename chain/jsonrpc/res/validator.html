@@ -231,6 +231,7 @@
                 if (chunk_production.chunk_production_time != null) {
                     prettyTime(chunk_production.chunk_production_time)
                     cell.append("Produced<br>@" + prettyTime(chunk_production.chunk_production_time));
+                    cell.append("<br>Duration: " + chunk_production.chunk_production_duration_millis + "ms");
                 } else {
                     cell.append("MISSED CHUNK PRODUCTION</b>");
                 }
