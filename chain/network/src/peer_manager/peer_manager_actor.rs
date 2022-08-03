@@ -1,4 +1,6 @@
 use crate::accounts_data;
+use crate::config;
+use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
@@ -15,9 +17,9 @@ use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests,
-    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerMessage,
-    QueryPeerStats, RoutingTableUpdate,
+    ChainInfo, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerMessage, QueryPeerStats, RoutingTableUpdate, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -27,11 +29,11 @@ use anyhow::bail;
 use futures::future;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, ChainInfo, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping,
-    Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
-    SetChainInfo, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
+    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, Ping, Pong,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
+    StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
@@ -134,7 +136,7 @@ impl TryFrom<&PeerInfo> for WhitelistNode {
 
 pub(crate) struct NetworkState {
     /// PeerManager config.
-    pub config: Arc<NetworkConfig>,
+    pub config: Arc<config::NetworkConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     /// Address of the client actor.
@@ -152,15 +154,15 @@ pub(crate) struct NetworkState {
 
 impl NetworkState {
     /// Broadcast message to all active peers.
-    pub fn broadcast_message(self: &Self, msg: SendMessage) -> impl Future<Output = ()> {
-        metrics::BROADCAST_MESSAGES.with_label_values(&[msg.message.msg_variant()]).inc();
+    pub fn broadcast_message(self: &Self, msg: PeerMessage) -> impl Future<Output = ()> {
+        metrics::BROADCAST_MESSAGES.with_label_values(&[msg.msg_variant()]).inc();
         // Snapshot list of peers.
         let peer_addrs: Vec<_> =
             self.connected_peers.read().values().map(|p| p.addr.clone()).collect();
         async move {
             // Change message to reference counted to allow sharing with all actors
             // without cloning.
-            let msg = Arc::new(msg);
+            let msg = Arc::new(SendMessage { message: msg, context: Span::current().context() });
             // Send the message to each peer asynchronously.
             let handles = peer_addrs.into_iter().map(|addr| addr.send(msg.clone()));
             for res in future::join_all(handles).await {
@@ -170,6 +172,7 @@ impl NetworkState {
                 }
             }
         }
+        .instrument(tracing::trace_span!(target: "network", "broadcast_message"))
     }
 
     /// Send message to peer that belong to our active set
@@ -201,7 +204,7 @@ pub struct PeerManagerActor {
     /// Networking configuration.
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
-    config: Arc<NetworkConfig>,
+    config: Arc<config::NetworkConfig>,
     /// Maximal allowed number of peer connections.
     /// It is initialized with config.max_num_peers and is mutable
     /// only so that it can be changed in tests.
@@ -254,9 +257,11 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
+    PeerRegistered(PeerInfo),
     Peer(PeerEvent),
     Ping(Ping),
     Pong(Pong),
+    SetChainInfo,
 }
 
 impl Actor for PeerManagerActor {
@@ -335,7 +340,7 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     pub fn new(
         store: near_store::Store,
-        config: NetworkConfig,
+        config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
@@ -453,10 +458,9 @@ impl PeerManagerActor {
         for account in &accounts {
             self.routing_table_view.add_account(account.clone());
         }
-        actix::spawn(self.state.clone().broadcast_message(SendMessage {
-            message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_accounts(accounts)),
-            context: Span::current().context(),
-        }));
+        actix::spawn(self.state.broadcast_message(PeerMessage::SyncRoutingTable(
+            RoutingTableUpdate::from_accounts(accounts),
+        )));
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -578,12 +582,11 @@ impl PeerManagerActor {
                     match response {
                         Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
                             // Broadcast new edges to all other peers.
-                            actix::spawn(act.state.clone().broadcast_message(SendMessage {
-                                message: PeerMessage::SyncRoutingTable(
-                                    RoutingTableUpdate::from_edges(filtered_edges),
-                                ),
-                                context: Span::current().context(),
-                            }));
+                            actix::spawn(act.state.broadcast_message(
+                                PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                                    filtered_edges,
+                                )),
+                            ));
                         }
                         _ => error!(target: "network", "expected AddVerifiedEdgesResponse"),
                     }
@@ -634,6 +637,7 @@ impl PeerManagerActor {
             partial_edge_info.signature,
             full_peer_info.partial_edge_info.signature.clone(),
         );
+        let peer_info = full_peer_info.peer_info.clone();
 
         self.state.connected_peers.insert(ConnectedPeer {
             addr: addr.clone(),
@@ -647,8 +651,8 @@ impl PeerManagerActor {
             throttle_controller: throttle_controller.clone(),
             encoding: None,
         });
-
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+        self.event_sink.push(Event::PeerRegistered(peer_info));
 
         let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
         near_performance_metrics::actix::run_later(
@@ -700,12 +704,9 @@ impl PeerManagerActor {
                 if peer_type == PeerType::Outbound {
                     // Only broadcast new message from the outbound endpoint.
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    actix::spawn(act.state.clone().broadcast_message(SendMessage {
-                        message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                            vec![new_edge],
-                        )),
-                        context: Span::current().context(),
-                    }));
+                    actix::spawn(act.state.broadcast_message(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(vec![new_edge]),
+                    )));
                 }
             },
         );
@@ -734,12 +735,9 @@ impl PeerManagerActor {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                actix::spawn(self.state.clone().broadcast_message(SendMessage {
-                    message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                        edge_update,
-                    ])),
-                    context: Span::current().context(),
-                }));
+                actix::spawn(self.state.broadcast_message(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![edge_update]),
+                )));
             }
         }
     }
@@ -994,12 +992,9 @@ impl PeerManagerActor {
                 }
                 // Peer is still not connected after waiting a timeout.
                 let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                actix::spawn(act.state.clone().broadcast_message(SendMessage {
-                    message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                        new_edge,
-                    ])),
-                    context: Span::current().context(),
-                }));
+                actix::spawn(act.state.broadcast_message(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![new_edge]),
+                )));
             },
         );
     }
@@ -1466,6 +1461,7 @@ impl PeerManagerActor {
                         .map(|it| it.clone()),
                 })
                 .collect(),
+            tier1_accounts: self.state.accounts_data.dump().iter().map(|d| (**d).clone()).collect(),
             peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
@@ -1499,10 +1495,7 @@ impl PeerManagerActor {
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
-                actix::spawn(self.state.clone().broadcast_message(SendMessage {
-                    message: PeerMessage::Block(block),
-                    context: Span::current().context(),
-                }));
+                actix::spawn(self.state.broadcast_message(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
             NetworkRequests::Approval { approval_message } => {
@@ -1702,10 +1695,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
-                actix::spawn(self.state.clone().broadcast_message(SendMessage {
-                    message: PeerMessage::Challenge(challenge),
-                    context: Span::current().context(),
-                }));
+                actix::spawn(self.state.broadcast_message(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
         }
@@ -2156,14 +2146,103 @@ impl PeerManagerActor {
     }
 }
 
+/// Fetches NetworkInfo, which contains a bunch of stats about the
+/// P2P network state. Currently used only in tests.
+/// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
+/// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
+/// in the ClientActor.
+impl Handler<GetNetworkInfo> for PeerManagerActor {
+    type Result = NetworkInfo;
+    fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+        self.get_network_info()
+    }
+}
+
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
-        if self.state.accounts_data.set_keys(info.0.tier1_accounts.clone()) {
-            // TODO(gprusak): the set of tier1 accounts has changed.
-            // We might miss some data, so start a full sync with connected peers.
+        let now = self.clock.now_utc();
+        let SetChainInfo(info) = info;
+        let state = self.state.clone();
+        let event_sink = self.event_sink.clone();
+        // We set state.chain_info and call accounts_data.set_keys
+        // synchronously, therefore, assuming actix in-order delivery,
+        // there will be no race condition between subsequent SetChainInfo
+        // calls.
+        // TODO(gprusak): if we could make handle() async, then we could
+        // just require the caller to await for completion before calling
+        // SetChainInfo again. Alternatively we could have an async mutex
+        // on the handler.
+        *state.chain_info.write() = info.clone();
+
+        // If enable_tier1 is false, we skip set_keys() call.
+        // This way self.state.accounts_data is always empty, hence no data
+        // will be collected or broadcasted.
+        if !state.config.features.enable_tier1 {
+            return;
         }
-        *self.state.chain_info.write() = info.0;
+        // If the key set didn't change, early exit.
+        if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
+            return;
+        }
+        tokio::spawn(async move {
+            // If the set of keys has changed, and the node is a validator,
+            // we should try to sign data and broadcast it. However, this is
+            // also a trigger for a full sync, so a dedicated broadcast is
+            // not required.
+            //
+            // TODO(gprusak): For dynamic self-IP-discovery, add a STUN daemon which
+            // will add new AccountData and trigger an incremental broadcast.
+            if let Some(vc) = &state.config.validator {
+                let my_account_id = vc.signer.validator_id();
+                let my_public_key = vc.signer.public_key();
+                // TODO(gprusak): STUN servers should be queried periocally by a daemon
+                // so that the my_peers list is always resolved.
+                // Note that currently we will broadcast an empty list.
+                // It won't help us to connect the the validator BUT it
+                // will indicate that a validator is misconfigured, which
+                // is could be useful for debugging. Consider keeping this
+                // behavior for situations when the IPs are not known.
+                let my_peers = match &vc.endpoints {
+                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
+                    config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
+                };
+                let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
+                    if account_id != my_account_id{
+                        return None;
+                    }
+                    if key != &my_public_key {
+                        warn!(target: "network", "node's account_id found in TIER1 accounts, but the public keys do not match");
+                        return None;
+                    }
+                    // This unwrap is safe, because we did signed a sample payload during
+                    // config validation. See config::Config::new().
+                    Some(AccountData {
+                        epoch_id: epoch_id.clone(),
+                        account_id: my_account_id.clone(),
+                        timestamp: now,
+                        peers: my_peers.clone(),
+                    }.sign(vc.signer.as_ref()).unwrap())
+                }).collect();
+                // Insert node's own AccountData should never fail.
+                // We ignore the new data, because we trigger a full sync anyway.
+                if let (_, Some(err)) = state.accounts_data.insert(my_data).await {
+                    panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
+                }
+            }
+            // The set of tier1 accounts has changed.
+            // We might miss some data, so we start a full sync with the connected peers.
+            // TODO(gprusak): add a daemon which does a periodic full sync in case some messages
+            // are lost (at a frequency which makes the additional network load negligible).
+            state
+                .broadcast_message(PeerMessage::SyncAccountsData(SyncAccountsData {
+                    incremental: false,
+                    requesting_full_sync: true,
+                    accounts_data: state.accounts_data.dump(),
+                }))
+                .await;
+            event_sink.push(Event::SetChainInfo);
+        });
     }
 }
 

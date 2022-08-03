@@ -130,12 +130,15 @@ fn near_configs_to_node_configs(
 ) -> Vec<NodeConfig> {
     let mut result = vec![];
     for i in 0..configs.len() {
-        result.push(NodeConfig::Thread(NearConfig::new(
-            configs[i].clone(),
-            genesis.clone(),
-            (&network_signers[i]).into(),
-            Some(Arc::new(validator_signers[i].clone())),
-        )))
+        result.push(NodeConfig::Thread(
+            NearConfig::new(
+                configs[i].clone(),
+                genesis.clone(),
+                (&network_signers[i]).into(),
+                Some(Arc::new(validator_signers[i].clone())),
+            )
+            .unwrap(),
+        ))
     }
     result
 }
