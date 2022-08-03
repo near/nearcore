@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::str::FromStr;
 
 use actix::System;
@@ -17,8 +18,6 @@ use near_primitives::types::{BlockId, BlockReference, EpochId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
-
-pub type ControlFlow = std::ops::ControlFlow<()>;
 
 /// Retrieve blocks via json rpc
 #[test]
