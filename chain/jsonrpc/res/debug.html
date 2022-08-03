@@ -4,12 +4,13 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
         function convertTime(total_seconds) {
+            total_seconds += 3600*24+100+3600;
             let seconds = total_seconds % 60;
             let total_minutes = (total_seconds - seconds) / 60;
             let minutes = total_minutes % 60;
-            let total_hours = total_minutes / 60;
+            let total_hours = (total_minutes - minutes) / 60;
             let hours = total_hours % 24;
-            let days = total_hours / 24;
+            let days = (total_hours - hours) / 24;
             return `${days}d ${addZeros(hours)}:${addZeros(minutes)}:${addZeros(seconds)}`;
         }
         function addZeros(x) {
