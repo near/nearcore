@@ -17,7 +17,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use std::cmp;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -325,10 +325,16 @@ struct AppInfo {
     requests: BTreeMap<PingTarget, Option<PendingPing>>,
     // how many requests in flight do we have?
     num_pings_in_flight: usize,
+    account_filter: Option<HashSet<AccountId>>,
 }
 
 impl AppInfo {
-    fn new(chain_id: &str, genesis_hash: CryptoHash, head_height: BlockHeight) -> Self {
+    fn new(
+        chain_id: &str,
+        genesis_hash: CryptoHash,
+        head_height: BlockHeight,
+        account_filter: Option<HashSet<AccountId>>,
+    ) -> Self {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
 
@@ -344,6 +350,7 @@ impl AppInfo {
             stats: HashMap::new(),
             requests: BTreeMap::new(),
             num_pings_in_flight: 0,
+            account_filter,
         }
     }
 
@@ -442,6 +449,14 @@ impl AppInfo {
     }
 
     fn add_peer(&mut self, peer_id: &PeerId, account_id: Option<&AccountId>) {
+        if let Some(filter) = self.account_filter.as_ref() {
+            if let Some(account_id) = account_id {
+                if !filter.contains(account_id) {
+                    tracing::debug!(target: "ping", "skipping AnnounceAccount for {}", account_id);
+                    return;
+                }
+            }
+        }
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
                 if let Some(account_id) = account_id {
@@ -534,8 +549,9 @@ pub async fn ping_via_node(
     peer_addr: SocketAddr,
     ttl: u8,
     ping_frequency_millis: u64,
+    account_filter: Option<HashSet<AccountId>>,
 ) -> Vec<(PeerIdentifier, PingStats)> {
-    let mut app_info = AppInfo::new(chain_id, genesis_hash, head_height);
+    let mut app_info = AppInfo::new(chain_id, genesis_hash, head_height, account_filter);
 
     app_info.add_peer(&peer_id, None);
 

@@ -2,7 +2,11 @@ use clap::Parser;
 use near_network_primitives::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
+use std::collections::HashSet;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -27,6 +31,10 @@ struct Cli {
     /// milliseconds to wait between sending pings
     #[clap(long, default_value = "1000")]
     ping_frequency_millis: u64,
+    /// line-separated list of accounts to filter on.
+    /// We will only try to send pings to these accounts
+    #[clap(long)]
+    account_filter_file: Option<PathBuf>,
 }
 
 fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
@@ -96,6 +104,37 @@ static CHAIN_INFO: &[ChainInfo] = &[
     },
 ];
 
+fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<AccountId>> {
+    let f = std::fs::File::open(filename.as_ref())?;
+    let mut reader = std::io::BufReader::new(f);
+    let mut line = String::new();
+    let mut line_num = 1;
+    let mut filter = HashSet::new();
+    loop {
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        let acc = line.trim().trim_matches('"');
+        if acc.len() == 0 {
+            continue
+        }
+        match AccountId::from_str(acc) {
+            Ok(a) => {
+                filter.insert(a);
+            }
+            Err(e) => {
+                tracing::warn!(target: "ping", "Could not parse account {} on line {}: {:?}", &line, line_num, e);
+            }
+        }
+        line.clear();
+        line_num += 1;
+    }
+    if filter.is_empty() {
+        tracing::warn!(target: "ping", "No accounts parsed from {:?}. Only sending direct pings.", filename.as_ref());
+    }
+    Ok(filter)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -152,6 +191,11 @@ async fn main() -> anyhow::Result<()> {
     if peer.addr.is_none() {
         anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
     }
+    let filter = if let Some(filename) = &args.account_filter_file {
+        Some(parse_account_filter(filename)?)
+    } else {
+        None
+    };
     let mut stats = ping::ping_via_node(
         &args.chain_id,
         genesis_hash,
@@ -160,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
         peer.addr.clone().unwrap(),
         args.ttl,
         args.ping_frequency_millis,
+        filter,
     )
     .await;
     display_stats(&mut stats, &peer.id);
