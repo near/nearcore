@@ -9,6 +9,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::Error;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
@@ -61,7 +62,7 @@ pub(crate) fn dump_state(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    account_ids: Option<&Vec<AccountId>>,
+    change_config: &GenesisChangeConfig,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -81,13 +82,13 @@ pub(crate) fn dump_state(
             header,
             &near_config,
             Some(&records_path),
-            account_ids,
+            change_config,
         );
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
         new_near_config.save_to_dir(&output_dir);
     } else {
         let new_near_config =
-            state_dump(runtime, &state_roots, header, &near_config, None, account_ids);
+            state_dump(runtime, &state_roots, header, &near_config, None, change_config);
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);

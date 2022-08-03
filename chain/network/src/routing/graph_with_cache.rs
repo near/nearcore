@@ -48,6 +48,12 @@ impl GraphWithCache {
         prev.map_or(false, |x| x.nonce() >= edge.nonce())
     }
 
+    pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
+        self.graph.set_unreliable_peers(unreliable_peers);
+        // Invalidate cache.
+        *self.cached_next_hops.lock() = None;
+    }
+
     /// Adds an edge without validating the signatures. O(1).
     /// Returns true, iff <edge> was newer than an already known version of this edge.
     pub fn update_edge(&mut self, edge: Edge) -> bool {
