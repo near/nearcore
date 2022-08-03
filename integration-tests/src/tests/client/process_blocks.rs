@@ -135,7 +135,7 @@ fn check_tx_processing(
     next_height
 }
 
-fn deploy_test_contract(
+pub(crate) fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
@@ -230,24 +230,6 @@ fn prepare_env_with_congestion(
     }
 
     (env, tx_hashes)
-}
-
-/// Create a `TestEnv` with an account and a contract deployed to that account.
-#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
-fn prepare_env_with_contract(
-    epoch_length: u64,
-    protocol_version: u32,
-    account: AccountId,
-    contract: Vec<u8>,
-) -> TestEnv {
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
-    env
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -2619,91 +2601,6 @@ fn test_wasmer2_upgrade() {
 }
 
 #[test]
-#[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-fn test_account_id_in_function_call_permission_upgrade() {
-    use near_primitives::{
-        account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
-        errors::ActionsValidationError,
-        transaction::AddKeyAction,
-    };
-
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
-            .protocol_version()
-            - 1;
-    let new_protocol_version = old_protocol_version + 1;
-
-    // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::new_empty(),
-                    RuntimeConfigStore::new(None),
-                ),
-            ) as Arc<dyn RuntimeAdapter>])
-            .build()
-    };
-
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
-            public_key: signer.public_key(),
-            access_key: AccessKey {
-                nonce: 1,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: "#".to_string(),
-                    method_names: vec![],
-                }),
-            },
-        })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction, it should pass as we don't do validation at this protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, NetworkClientResponses::ValidTx);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-    };
-
-    env.upgrade_protocol(new_protocol_version);
-
-    // Re-run the transaction, now it fails due to invalid account id.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(
-            res,
-            NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
-                ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
-            ))
-        )
-    };
-}
-
-#[test]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.
     let wasm_code = wat::parse_str(
@@ -4922,82 +4819,5 @@ mod lower_storage_key_limit_test {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
-    }
-}
-
-#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
-mod new_contract_loading_cost {
-    use super::*;
-
-    /// Check that normal execution has the same gas cost after FixContractLoadingCost.
-    #[test]
-    fn unchanged_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let contract_size = 4096;
-        let contract = near_test_contracts::sized_contract(contract_size);
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        assert_eq!(old_gas, new_gas);
-    }
-
-    /// Check that execution that fails during contract preparation has the updated gas cost after the update.
-    #[test]
-    fn preparation_error_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let bad_contract = b"not-a-contract".to_vec();
-        let contract_size = bad_contract.len();
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            bad_contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
-
-        // Gas cost should be different because the upgrade pre-charges loading costs.
-        assert_ne!(old_gas, new_gas);
-        // Runtime parameter values for version of the protocol upgrade
-        let loading_base = 35_445_963;
-        let loading_byte = 216_750;
-        let loading_cost = loading_base + contract_size as u64 * loading_byte;
-        assert_eq!(old_gas + loading_cost, new_gas);
     }
 }
