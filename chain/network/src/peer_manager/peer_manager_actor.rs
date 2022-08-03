@@ -2145,6 +2145,13 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         // SetChainInfo again. Alternatively we could have an async mutex
         // on the handler.
         *state.chain_info.write() = info.clone();
+
+        // If enable_accounts_data is false, we skip set_keys() call.
+        // This way self.state.accounts_data is always empty, hence no data
+        // will be collected or broadcasted.
+        if !state.config.enable_accounts_data {
+            return;
+        }
         // If the key set didn't change, early exit.
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
             return;

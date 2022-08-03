@@ -104,6 +104,9 @@ pub struct NetworkConfig {
     pub outbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
+    /// Feature flag: true if PeerManagerActor should maintain accounts_data::Cache and
+    /// exchange SyncAccountsData with peers. See accounts_data/mod.rs.
+    pub enable_accounts_data: bool,
 }
 
 impl NetworkConfig {
@@ -116,6 +119,7 @@ impl NetworkConfig {
         node_key: SecretKey,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         archive: bool,
+        enable_accounts_data: bool,
     ) -> anyhow::Result<Self> {
         let this = Self {
             node_key,
@@ -203,6 +207,7 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
+            enable_accounts_data,
         };
         this.verify()?;
         Ok(this)
@@ -256,6 +261,7 @@ impl NetworkConfig {
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
+            enable_accounts_data: true,
         };
         this.verify().unwrap();
         this

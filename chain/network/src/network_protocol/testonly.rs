@@ -299,8 +299,6 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        // TODO(gprusak): make config generation rng-based,
-        // rather than using a seed.
         let port = crate::test_utils::open_port();
         let seed = &rng.gen::<u64>().to_string();
         let mut cfg = config::NetworkConfig::from_seed(&seed, port);

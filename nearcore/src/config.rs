@@ -577,6 +577,14 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
+                // enable_accounts_data:
+                match genesis.config.chain_id.as_ref() {
+                    // disable in mainnet, testnet and betanet.
+                    "mainnet" | "testnet" | "betanet" => false,
+                    // enable in shardnet and all test setups.
+                    "shardnet" => true,
+                    _ => true,
+                },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
