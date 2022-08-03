@@ -523,7 +523,7 @@ impl Client {
             BlockProductionTracker::construct_chunk_collection_info(
                 next_height,
                 &epoch_id,
-                new_chunks.len() as ShardId,
+                chunks.len() as ShardId,
                 &new_chunks,
                 &*self.runtime_adapter,
             )?,
