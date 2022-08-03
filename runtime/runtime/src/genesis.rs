@@ -97,6 +97,7 @@ impl GenesisStateApplier {
 
         let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
         for change in state_changes.drain(..) {
+            #[cfg(feature = "protocol_feature_flat_state")]
             store_update.apply_change_to_flat_state(&change);
         }
         store_update.commit().expect("Store update failed on genesis initialization");

@@ -4,13 +4,13 @@ use std::iter::Peekable;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
-    ValueRef,
 };
 
 use crate::trie::{FlatState, TrieChanges};
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;

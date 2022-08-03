@@ -9,7 +9,8 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{StateRoot, StateRootNode, ValueRef};
+use near_primitives::state::ValueRef;
+use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -404,43 +405,6 @@ impl RawTrieNodeWithSize {
 
 pub struct Trie {
     pub storage: Box<dyn TrieStorage>,
-}
-
-/// Struct for getting value references from the flat storage.
-/// Used to speed up `get` and `get_ref` trie methods.
-#[derive(Clone)]
-pub struct FlatState {
-    store: Store,
-}
-
-impl FlatState {
-    fn decode_ref(bytes: &[u8]) -> Result<Option<ValueRef>, std::io::Error> {
-        let mut cursor = Cursor::new(bytes);
-        let value_length = cursor.read_u32::<LittleEndian>()?;
-        let mut arr = [0; 32];
-        cursor.read_exact(&mut arr)?;
-        let value_hash = CryptoHash(arr);
-        Ok(Some(ValueRef { length: value_length, hash: value_hash }))
-    }
-
-    fn get_raw_ref(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        #[cfg(feature = "protocol_feature_flat_state")]
-        return self
-            .store
-            .get(DBCol::FlatState, key)
-            .map_err(|_| StorageError::StorageInternalError);
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        unreachable!();
-    }
-
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-        match self.get_raw_ref(key)? {
-            Some(bytes) => {
-                FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError)
-            }
-            None => Ok(None),
-        }
-    }
 }
 
 /// Stores reference count change for some key-value pair in DB.

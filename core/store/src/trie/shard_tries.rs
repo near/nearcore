@@ -284,7 +284,9 @@ impl WrappedTrieChanges {
                 "Resharding changes must never be finalized."
             );
 
+            #[cfg(feature = "protocol_feature_flat_state")]
             store_update.apply_change_to_flat_state(&change_with_trie_key);
+
             // Filtering trie keys for user facing RPC reporting.
             // NOTE: If the trie key is not one of the account specific, it may cause key conflict
             // when the node tracks multiple shards. See #2563.

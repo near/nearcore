@@ -21,7 +21,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_record::StateRecord;
+use near_primitives::state::ValueRef;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
     AccountId, CompiledContractCache, RawStateChangesWithTrieKey, StateRoot,
@@ -42,6 +42,7 @@ pub use crate::trie::{
 mod columns;
 mod config;
 pub mod db;
+pub mod flat_state;
 mod metrics;
 pub mod migrations;
 pub mod test_utils;
@@ -408,6 +409,7 @@ impl StoreUpdate {
         self.storage.write(self.transaction)
     }
 
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
         if change.trie_key.is_delayed() {
             return;
@@ -421,17 +423,10 @@ impl StoreUpdate {
             .clone();
         match last_change {
             Some(value) => {
-                let mut value_ser = [0u8; 36];
-                value_ser[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
-                value_ser[4..36].copy_from_slice(&hash(&value).0);
-                #[cfg(feature = "protocol_feature_flat_state")]
-                self.set(DBCol::FlatState, &key, &value_ser)
+                let value_ref_ser = ValueRef::create_serialized(&value);
+                self.set(DBCol::FlatState, &key, &value_ref_ser)
             }
-            None =>
-            {
-                #[cfg(feature = "protocol_feature_flat_state")]
-                self.delete(DBCol::FlatState, &key)
-            }
+            None => self.delete(DBCol::FlatState, &key),
         }
     }
 }

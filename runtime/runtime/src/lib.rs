@@ -16,8 +16,8 @@ pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::state::ValueRef;
 use near_primitives::transaction::ExecutionMetadata;
-use near_primitives::types::ValueRef;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
