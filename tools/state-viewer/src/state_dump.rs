@@ -351,7 +351,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
 
         (store, genesis, env, near_config)
     }
@@ -702,7 +703,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
 
         let last_block = blocks.pop().unwrap();
         let state_roots =
@@ -762,7 +764,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;

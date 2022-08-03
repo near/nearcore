@@ -185,6 +185,7 @@ impl ClientActor {
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
                 peer_counter: 0,
+                tier1_accounts: vec![],
             },
             last_validator_announce_time: None,
             info_helper,

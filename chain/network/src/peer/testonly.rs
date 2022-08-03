@@ -25,6 +25,7 @@ use near_rate_limiter::{
 };
 
 use near_network_primitives::time::Utc;
+use rand::Rng;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -192,12 +193,14 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub async fn start_endpoint<R: Rng>(
         clock: time::Clock,
+        rng: &mut R,
         cfg: PeerConfig,
         stream: TcpStream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
+        let network_cfg = cfg.chain.make_config(rng);
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
@@ -236,7 +239,7 @@ impl PeerHandle {
                     rate_limiter,
                     cfg.force_encoding,
                     Arc::new(NetworkState {
-                        config: Arc::new(cfg.chain.make_config(my_addr.port())),
+                        config: Arc::new(network_cfg),
                         genesis_id: cfg.chain.genesis_id.clone(),
                         client_addr: fc.clone().recipient(),
                         view_client_addr: fc.clone().recipient(),

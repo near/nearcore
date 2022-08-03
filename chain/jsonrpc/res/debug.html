@@ -7,9 +7,9 @@
             let seconds = total_seconds % 60;
             let total_minutes = (total_seconds - seconds) / 60;
             let minutes = total_minutes % 60;
-            let total_hours = total_minutes / 60;
+            let total_hours = (total_minutes - minutes) / 60;
             let hours = total_hours % 24;
-            let days = total_hours / 24;
+            let days = (total_hours - hours) / 24;
             return `${days}d ${addZeros(hours)}:${addZeros(minutes)}:${addZeros(seconds)}`;
         }
         function addZeros(x) {

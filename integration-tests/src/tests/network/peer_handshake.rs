@@ -14,12 +14,13 @@ use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 
+use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::{NetworkConfig, NetworkViewClientResponses};
+use near_network_primitives::types::NetworkViewClientResponses;
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
 
@@ -34,7 +35,7 @@ fn make_peer_manager(
     peer_max_count: u32,
 ) -> PeerManagerActor {
     let store = create_test_store();
-    let mut config = NetworkConfig::from_seed(seed, port);
+    let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
