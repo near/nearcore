@@ -169,45 +169,7 @@ impl TrieUpdate {
                 (k, data)
             }),
         )?;
-        for change in state_changes.iter() {
-            match change.trie_key {
-                TrieKey::Account { .. } => {
-                    for changes in &change.changes {
-                        match &changes.data {
-                            Some(data) => info!(
-                                "TRIE CHANGE: {:?}",
-                                StateRecord::from_raw_key_value(
-                                    change.trie_key.to_vec(),
-                                    data.clone()
-                                )
-                            ),
-                            None => info!("TRIE CHANGE: {:?} -", change.trie_key),
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
         Ok((trie_changes, state_changes))
-    }
-
-    pub fn finalize_genesis(self) -> Result<TrieChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, root, committed, .. } = self;
-        let trie_changes = trie.update(
-            &root,
-            committed.into_iter().map(|(k, changes_with_trie_key)| {
-                let data = changes_with_trie_key
-                    .changes
-                    .into_iter()
-                    .last()
-                    .expect("Committed entry should have at least one change")
-                    .data;
-                (k, data)
-            }),
-        )?;
-        Ok(trie_changes)
     }
 
     /// Returns Error if the underlying storage fails

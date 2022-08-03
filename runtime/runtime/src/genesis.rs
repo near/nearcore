@@ -92,7 +92,6 @@ impl GenesisStateApplier {
         shard_uid: ShardUId,
     ) {
         state_update.commit(StateChangeCause::InitialState);
-        // let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
         let (trie_changes, mut state_changes) =
             state_update.finalize().expect("Genesis state update failed");
 
