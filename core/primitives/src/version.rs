@@ -86,7 +86,6 @@ pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
-    ForwardChunkParts,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -219,9 +218,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts
-            | ProtocolFeature::RectifyInflation
-            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
             | ProtocolFeature::FixStorageUsage

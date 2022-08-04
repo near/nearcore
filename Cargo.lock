@@ -3239,6 +3239,7 @@ dependencies = [
  "opentelemetry",
  "serde",
  "strum",
+ "thiserror",
  "time 0.3.9",
  "tokio",
  "tracing",
