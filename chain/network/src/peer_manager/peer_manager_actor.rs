@@ -63,6 +63,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use anyhow::{Context as _};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -139,7 +140,7 @@ impl TryFrom<&PeerInfo> for WhitelistNode {
 
 pub(crate) struct NetworkState {
     /// PeerManager config.
-    pub config: Arc<config::NetworkConfig>,
+    pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub send_accounts_data_rl: demux::RateLimit,
@@ -158,7 +159,7 @@ pub(crate) struct NetworkState {
 
 impl NetworkState {
     pub fn new(
-        config: Arc<config::NetworkConfig>,
+        config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
@@ -227,7 +228,7 @@ pub struct PeerManagerActor {
     /// Networking configuration.
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
-    config: Arc<config::NetworkConfig>,
+    config: Arc<config::VerifiedConfig>,
     /// Maximal allowed number of peer connections.
     /// It is initialized with config.max_num_peers and is mutable
     /// only so that it can be changed in tests.
@@ -368,6 +369,7 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<Self> {
+        let config = config.verify().context("config")?;
         let clock = time::Clock::real();
         let store = store::Store::from(store);
         let peer_store =

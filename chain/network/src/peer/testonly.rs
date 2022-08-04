@@ -239,7 +239,7 @@ impl PeerHandle {
                     rate_limiter,
                     cfg.force_encoding,
                     Arc::new(NetworkState::new(
-                        Arc::new(network_cfg),
+                        Arc::new(network_cfg.verify().unwrap()),
                         cfg.chain.genesis_id.clone(),
                         fc.clone().recipient(),
                         fc.clone().recipient(),

@@ -208,7 +208,6 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.1,burst:1},
             features,
         };
-        this.verify()?;
         Ok(this)
     }
 
@@ -232,7 +231,7 @@ impl NetworkConfig {
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
-        let this = NetworkConfig {
+        NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
             validator: Some(validator),
@@ -262,12 +261,10 @@ impl NetworkConfig {
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.5,burst:1},
             features: Features { enable_tier1: true },
-        };
-        this.verify().unwrap();
-        this
+        }
     }
 
-    fn verify(&self) -> anyhow::Result<()> {
+    pub fn verify(self) -> anyhow::Result<VerifiedConfig> {
         if !(self.ideal_connections_lo <= self.ideal_connections_hi) {
             anyhow::bail!(
                 "Invalid ideal_connections values. lo({}) > hi({}).",
@@ -302,7 +299,7 @@ impl NetworkConfig {
             );
         }
         self.accounts_data_broadcast_rate_limit.validate().context("accounts_Data_broadcast_rate_limit")?;
-        Ok(())
+        Ok(VerifiedConfig(self))
     }
 }
 
@@ -310,6 +307,14 @@ impl NetworkConfig {
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+pub struct VerifiedConfig(NetworkConfig);
+
+impl std::ops::Deref for VerifiedConfig {
+    type Target = NetworkConfig;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
 
 #[cfg(test)]
 mod test {
@@ -329,23 +334,19 @@ mod test {
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.ideal_connections_hi = nc.max_num_peers;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.safe_set_size = nc.minimum_outbound_peers;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the
