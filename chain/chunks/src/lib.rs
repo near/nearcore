@@ -1687,29 +1687,23 @@ impl ShardsManager {
         // actual epoch of the block, which is ok. In the worst case, chunk parts are not forwarded to the
         // the right block producers, which may make validators wait for chunks for a little longer,
         // but it doesn't affect the correctness of the protocol.
-        match self
+        if let Ok(epoch_id) = self
             .runtime_adapter
             .get_epoch_id_from_prev_block(&partial_encoded_chunk.header.prev_block_hash())
         {
-            Ok(epoch_id) => {
-                self.send_partial_encoded_chunk_to_chunk_trackers(
-                    partial_encoded_chunk,
-                    &epoch_id,
-                    &partial_encoded_chunk.header.prev_block_hash(),
-                )?;
-            }
-            Err(_) => {
-                if let Some(chain_head) = chain_head {
-                    let epoch_id = self
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&chain_head.last_block_hash)?;
-                    self.send_partial_encoded_chunk_to_chunk_trackers(
-                        partial_encoded_chunk,
-                        &epoch_id,
-                        &chain_head.last_block_hash,
-                    )?;
-                }
-            }
+            self.send_partial_encoded_chunk_to_chunk_trackers(
+                partial_encoded_chunk,
+                &epoch_id,
+                &partial_encoded_chunk.header.prev_block_hash(),
+            )?;
+        } else if let Some(chain_head) = chain_head {
+            let epoch_id =
+                self.runtime_adapter.get_epoch_id_from_prev_block(&chain_head.last_block_hash)?;
+            self.send_partial_encoded_chunk_to_chunk_trackers(
+                partial_encoded_chunk,
+                &epoch_id,
+                &chain_head.last_block_hash,
+            )?;
         };
 
         // 4. Process the forwarded parts in chunk_forwards_cache
@@ -1965,7 +1959,7 @@ impl ShardsManager {
 
     /// Returns true if we need this part to sign the block.
     fn need_part(&self, prev_block_hash: &CryptoHash, part_ord: u64) -> Result<bool, Error> {
-        let epoch_id = self.runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
         Ok(Some(self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?) == self.me)
     }
 
