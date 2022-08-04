@@ -3,8 +3,11 @@ use std::string::ToString;
 
 use actix::Addr;
 
+use near_account_id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::views::SignedTransactionView;
+
+use crate::models::{AccountIdentifier, OperationMetadata};
 
 /// A mapping from NEAR transaction or receipt hash to list of receipts.
 /// and a mapping from transaction hashes to transactions.
@@ -13,8 +16,8 @@ use near_primitives::views::SignedTransactionView;
 pub(crate) struct ExecutionToReceipts {
     map: HashMap<CryptoHash, Vec<CryptoHash>>,
     transactions: HashMap<CryptoHash, SignedTransactionView>,
+    receipts: HashMap<CryptoHash, AccountId>,
 }
-
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
     /// transaction or receipt causing the execution to list of created
@@ -28,6 +31,7 @@ impl ExecutionToReceipts {
             .await?
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
+        let mut receipts = HashMap::new();
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
@@ -37,6 +41,8 @@ impl ExecutionToReceipts {
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
+                receipts
+                    .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)))
             }
         }
         let map = view_client_addr
@@ -48,13 +54,17 @@ impl ExecutionToReceipts {
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
-        Ok(Self { map, transactions })
+        Ok(Self { map, transactions, receipts })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
     #[cfg(test)]
     pub(crate) fn empty() -> Self {
-        Self { map: Default::default(), transactions: Default::default() }
+        Self {
+            map: Default::default(),
+            transactions: Default::default(),
+            receipts: Default::default(),
+        }
     }
 
     /// Returns list of related transactions for given NEAR transaction or
@@ -124,6 +134,42 @@ fn convert_cause_to_transaction_id(
     }
 }
 
+fn get_predecessor_id_from_receipt_or_transaction(
+    cause: &near_primitives::views::StateChangeCauseView,
+    transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
+    receipts_in_block: &HashMap<CryptoHash, AccountId>,
+) -> Option<AccountIdentifier> {
+    let predecessor_id = match cause {
+        near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
+            transactions_in_block
+                .get(tx_hash)
+                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.signer_id.clone())))
+        }
+        near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+            receipts_in_block
+                .get(receipt_hash)
+                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+        }
+        near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+            receipts_in_block
+                .get(receipt_hash)
+                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+        }
+        near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
+            receipt_hash,
+        } => receipts_in_block
+            .get(receipt_hash)
+            .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone()))),
+        near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => {
+            receipts_in_block
+                .get(receipt_hash)
+                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+        }
+        _ => None,
+    };
+    predecessor_id
+}
+
 type RosettaTransactionsMap = std::collections::HashMap<String, crate::models::Transaction>;
 
 pub(crate) struct RosettaTransactions<'a> {
@@ -178,6 +224,7 @@ pub(crate) fn convert_block_changes_to_transactions(
     let mut transactions = RosettaTransactions::new(exec_to_rx, block_hash);
     for account_change in accounts_changes {
         let transactions_in_block = &transactions.exec_to_rx.transactions;
+        let receipts_in_block = &transactions.exec_to_rx.receipts;
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
                 // Calculate the total amount of deposit from transfer actions.
@@ -205,6 +252,11 @@ pub(crate) fn convert_block_changes_to_transactions(
                     }),
                     _ => None,
                 };
+                let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
+                    &account_change.cause,
+                    &transactions_in_block,
+                    &receipts_in_block,
+                );
                 let previous_account_state = accounts_previous_state.get(&account_id);
                 convert_account_update_to_operations(
                     runtime_config,
@@ -213,6 +265,7 @@ pub(crate) fn convert_block_changes_to_transactions(
                     previous_account_state,
                     &account,
                     deposit,
+                    predecessor_id,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -244,6 +297,7 @@ fn convert_account_update_to_operations(
     previous_account_state: Option<&near_primitives::views::AccountView>,
     account: &near_primitives::views::AccountView,
     deposit: Option<near_primitives::types::Balance>,
+    predecessor_id: Option<crate::models::AccountIdentifier>,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -268,7 +322,10 @@ fn convert_account_update_to_operations(
                 amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: Some(OperationMetadata {
+                    predecessor_id: predecessor_id.clone(),
+                    ..Default::default()
+                }),
             });
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(operations),
@@ -287,7 +344,10 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: Some(OperationMetadata {
+                    predecessor_id: predecessor_id.clone(),
+                    ..Default::default()
+                }),
             });
         } else {
             operations.push(crate::models::Operation {
@@ -306,7 +366,10 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: Some(OperationMetadata {
+                    predecessor_id: predecessor_id.clone(),
+                    ..Default::default()
+                }),
             });
         }
     }
@@ -328,7 +391,10 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: None,
+            metadata: Some(OperationMetadata {
+                predecessor_id: predecessor_id.clone(),
+                ..Default::default()
+            }),
         });
     }
 
@@ -349,7 +415,10 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: None,
+            metadata: Some(OperationMetadata {
+                predecessor_id: predecessor_id.clone(),
+                ..Default::default()
+            }),
         });
     }
 }
