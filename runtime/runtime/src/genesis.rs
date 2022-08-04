@@ -95,10 +95,15 @@ impl GenesisStateApplier {
         let (trie_changes, mut state_changes) =
             state_update.finalize().expect("Genesis state update failed");
 
+        #[cfg(feature = "protocol_feature_flat_state")]
         let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        let (store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
         for change in state_changes.drain(..) {
             #[cfg(feature = "protocol_feature_flat_state")]
             store_update.apply_change_to_flat_state(&change);
+            #[cfg(not(feature = "protocol_feature_flat_state"))]
+            let _ = change;
         }
         store_update.commit().expect("Store update failed on genesis initialization");
         *current_state_root = new_state_root;

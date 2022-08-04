@@ -21,7 +21,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::state::ValueRef;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::types::RawStateChangesWithTrieKey;
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{

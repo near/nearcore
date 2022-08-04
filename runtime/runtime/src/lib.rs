@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
-use tracing::{debug, info};
+use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
@@ -16,7 +16,6 @@ pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::state::ValueRef;
 use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
