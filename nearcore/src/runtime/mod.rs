@@ -3537,7 +3537,7 @@ mod test {
 
         let state_value = state.get(&state_root, &key).unwrap().unwrap();
         let account = Account::try_from_slice(&state_value).unwrap();
-        assert_eq!(account.amount(), TESTING_INIT_BALANCE + 10);
+        assert_eq!(account.amount(), TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 10);
 
         let view_state_value = view_state.get(&state_root, &key).unwrap().unwrap();
         assert_eq!(state_value, view_state_value);
