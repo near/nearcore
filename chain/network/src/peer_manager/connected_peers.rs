@@ -10,8 +10,9 @@ use near_network_primitives::types::PeerType;
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
+use std::future::Future;
 use std::sync::Arc;
-use tracing::{error, Span};
+use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Contains information relevant to a connected peer.
@@ -42,7 +43,7 @@ impl ConnectedPeer {
     pub fn send_accounts_data(
         &self,
         data: Vec<Arc<SignedAccountData>>,
-    ) -> impl std::future::Future<Output = ()> {
+    ) -> impl Future<Output = ()> {
         let addr = self.addr.clone();
         self.send_accounts_data_demux.call(
             data,
@@ -61,18 +62,16 @@ impl ConnectedPeer {
                         }
                     }
                 }
-                if let Err(err) = addr
-                    .send(SendMessage {
-                        message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                            incremental: true,
-                            requesting_full_sync: false,
-                            accounts_data: sum.into_values().collect(),
-                        }),
-                        context: Span::current().context(),
-                    })
-                    .await
-                {
-                    error!("Failed sending incremental SyncAccountsData: {err}");
+                let msg = SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }),
+                    context: Span::current().context(),
+                };
+                if let Err(err) = addr.send(msg).await {
+                    tracing::error!(target: "network", ?err, "Failed sending incremental SyncAccountsData");
                 }
                 res
             },

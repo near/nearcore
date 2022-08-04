@@ -28,8 +28,8 @@ use actix::{
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use anyhow::bail;
+use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use futures::future;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
@@ -63,7 +63,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use anyhow::{Context as _};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -189,7 +188,7 @@ impl NetworkState {
             let msg = Arc::new(SendMessage { message: msg, context: Span::current().context() });
             // Send the message to each peer asynchronously.
             let handles = peer_addrs.into_iter().map(|addr| addr.send(msg.clone()));
-            for res in future::join_all(handles).await {
+            for res in futures_util::future::join_all(handles).await {
                 // Sending may fail in case a peer connection is closed in the meantime.
                 if let Err(err) = res {
                     warn!("failed sending a broadcast message to a peer: {err}");

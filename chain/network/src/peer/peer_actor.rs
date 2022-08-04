@@ -1000,6 +1000,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     ));
             }
             (PeerStatus::Ready, PeerMessage::SyncAccountsData(msg)) => {
+                let peer_id = self.other_peer_id().unwrap().clone();
                 let pms = self.peer_manager_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1025,9 +1026,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             .connected_peers
                             .read()
                             .values()
+                            // Do not send the data back.
+                            .filter(|p| peer_id != p.full_peer_info.peer_info.id)
                             .map(|p| p.send_accounts_data(new_data.clone()))
                             .collect();
-                        futures::future::join_all(handles).await;
+                        futures_util::future::join_all(handles).await;
                     }
                     err.map(|err| match err {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,

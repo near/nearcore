@@ -1,5 +1,5 @@
-use crate::network_protocol::PeerAddr;
 use crate::concurrency::demux;
+use crate::network_protocol::PeerAddr;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
@@ -205,7 +205,7 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
-            accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.1,burst:1},
+            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             features,
         };
         Ok(this)
@@ -259,7 +259,7 @@ impl NetworkConfig {
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.5,burst:1},
+            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
         }
     }
@@ -280,10 +280,6 @@ impl NetworkConfig {
             );
         }
 
-        if self.outbound_disabled {
-            anyhow::bail!("Outbound connections are disabled.");
-        }
-
         if !(self.safe_set_size > self.minimum_outbound_peers) {
             anyhow::bail!(
                 "safe_set_size({}) must be larger than minimum_outbound_peers({}).",
@@ -298,7 +294,9 @@ impl NetworkConfig {
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
             );
         }
-        self.accounts_data_broadcast_rate_limit.validate().context("accounts_Data_broadcast_rate_limit")?;
+        self.accounts_data_broadcast_rate_limit
+            .validate()
+            .context("accounts_Data_broadcast_rate_limit")?;
         Ok(VerifiedConfig(self))
     }
 }
@@ -313,7 +311,9 @@ pub struct VerifiedConfig(NetworkConfig);
 
 impl std::ops::Deref for VerifiedConfig {
     type Target = NetworkConfig;
-    fn deref(&self) -> &Self::Target { &self.0 }
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[cfg(test)]

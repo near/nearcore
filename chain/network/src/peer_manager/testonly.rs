@@ -1,13 +1,12 @@
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerMessage,PeerAddr,SyncAccountsData};
+use crate::network_protocol::{PeerAddr, PeerMessage, SyncAccountsData};
 use crate::peer::peer_actor;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
@@ -30,11 +29,11 @@ pub struct ActorHandler {
     pub actix: ActixSystem<PeerManagerActor>,
 }
 
-pub fn unwrap_sync_accounts_data_processed(ev:Event) -> Option<SyncAccountsData> {
+pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(peer_manager_actor::Event::Peer(peer_actor::Event::MessageProcessed(
-           PeerMessage::SyncAccountsData(msg) 
-        ))) => Some(msg),
+        Event::PeerManager(peer_manager_actor::Event::Peer(
+            peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(msg)),
+        )) => Some(msg),
         _ => None,
     }
 }
@@ -75,7 +74,7 @@ impl ActorHandler {
                 _ => None,
             })
             .await;
-    } 
+    }
 
     // Awaits until the accounts_data state matches `want`.
     pub async fn wait_for_accounts_data(
@@ -99,8 +98,7 @@ impl ActorHandler {
     }
 }
 
-pub async fn start(rng: &mut Rng, chain: Arc<data::Chain>) -> ActorHandler {
-    let cfg = chain.make_config(rng);
+pub async fn start(cfg: config::NetworkConfig, chain: Arc<data::Chain>) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();

@@ -203,7 +203,7 @@ impl Cache {
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, ok) = try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
-            if d.payload().verify(&key) {
+            if d.payload().verify(&key).is_ok() {
                 return Some(d);
             }
             return None;

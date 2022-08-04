@@ -68,13 +68,13 @@ impl<T: Clone + Send> Receiver<T> {
             }
         }
     }
-    
+
     pub fn try_recv(&mut self) -> Option<T> {
         let l = self.channel.stream.read().unwrap();
         if l.len() <= self.next {
             return None;
         }
         self.next += 1;
-        Some(l[self.next-1].clone())
+        Some(l[self.next - 1].clone())
     }
 }

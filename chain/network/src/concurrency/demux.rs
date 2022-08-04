@@ -121,7 +121,10 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
         }
     }
 
+    // Spawns a subroutine performing the demultiplexing.
+    // Panics if rl is not valid.
     pub fn new(rl: RateLimit) -> Demux<Arg, Res> {
+        rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let mut calls = vec![];
@@ -129,7 +132,7 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
             let mut tokens = rl.burst;
             let mut next_token = None;
             let interval = (time::Duration::SECOND / rl.qps).try_into().unwrap();
-            while !calls.is_empty() || !closed {
+            while !(calls.is_empty() && closed) {
                 // Restarting the timer every time a new request comes could
                 // cause a starvation, so we compute the next token arrival time
                 // just once for each token.
@@ -167,19 +170,15 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
                             outs.push(call.out);
                             handlers.push(call.handler);
                         }
-                        // A fancy way of extracting first element and dropping everything else.
-                        // Just calling (handler[0])(args).await, would require handlers to
-                        // implement Sync for some reason.
-                        let handler = handlers.into_iter().next().unwrap();
-                        let res = (handler)(args).await;
-                        if res.len() != outs.len() {
-                            panic!(
-                                "demux handler returned {} results, expected {}",
-                                res.len(),
-                                outs.len()
-                            );
-                        }
-                        for (res, out) in res.into_iter().zip(outs.into_iter()) {
+                        let res = handlers.swap_remove(0)(args).await;
+                        assert_eq!(
+                            res.len(),
+                            outs.len(),
+                            "demux handler returned {} results, expected {}",
+                            res.len(),
+                            outs.len(),
+                        );
+                        for (res, out) in std::iter::zip(res, outs) {
                             // If the caller is no longer interested in the result,
                             // the channel will be closed. Ignore that.
                             let _ = out.send(res);
