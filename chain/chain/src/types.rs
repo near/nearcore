@@ -454,8 +454,8 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<ShardId, Error>;
 
-    /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
+    /// Returns `account_id` that suppose to have the `part_id`.
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 

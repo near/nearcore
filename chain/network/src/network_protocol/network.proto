@@ -231,6 +231,10 @@ message UpdateNonceResponse {
   Edge edge = 1;
 }
 
+// SyncAccountData message can represent:
+// - incremental sync (incremental = true, requesting_full_sync = false)
+// - full sync request (incremental = false, requesting_full_sync = true)
+// - full sync response (incremental = false, requesting_full_sync = false)
 message SyncAccountsData {
   // Data about the (important) accounts,
   // which should be broadcasted to the whole network.

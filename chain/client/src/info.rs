@@ -5,7 +5,6 @@ use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
-use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -276,9 +275,15 @@ impl InfoHelper {
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: to_base(&head.last_block_hash),
+                latest_block_hash: head.last_block_hash.clone(),
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
+                block_production_tracking_delay: client_config
+                    .block_production_tracking_delay
+                    .as_secs_f64(),
+                min_block_production_delay: client_config.min_block_production_delay.as_secs_f64(),
+                max_block_production_delay: client_config.max_block_production_delay.as_secs_f64(),
+                max_block_wait_delay: client_config.max_block_wait_delay.as_secs_f64(),
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
@@ -527,6 +532,7 @@ mod tests {
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
                 peer_counter: 0,
+                tier1_accounts: vec![],
             },
             &config,
             0.0,

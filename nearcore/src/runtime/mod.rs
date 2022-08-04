@@ -1201,12 +1201,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(account_id_to_shard_id(account_id, shard_layout))
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let settlement =
-            epoch_manager.get_all_block_producers_settlement(&epoch_id, parent_hash)?;
-        Ok(settlement[part_id as usize % settlement.len()].0.account_id().clone())
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let settlement = epoch_info.block_producers_settlement();
+        let validator_id = settlement[part_id as usize % settlement.len()];
+        Ok(epoch_info.get_validator(validator_id).account_id().clone())
     }
 
     fn cares_about_shard(

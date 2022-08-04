@@ -1,13 +1,14 @@
+use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::Encoding;
-use crate::network_protocol::SyncAccountsData;
+use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::peer;
 use crate::peer::peer_actor;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::Event;
-use crate::testonly::{make_rng, AsSet as _};
+use crate::testonly::{make_rng, AsSet as _, Rng};
 use crate::types::{PeerMessage, RoutingTableUpdate};
+use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
 use near_network_primitives::types::{Ping, RoutedMessageBody};
@@ -26,9 +27,8 @@ async fn repeated_data_in_sync_routing_table() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
-    let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
+    let pm = peer_manager::testonly::start(rng, chain.clone()).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -37,7 +37,8 @@ async fn repeated_data_in_sync_routing_table() {
         force_encoding: Some(Encoding::Proto),
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();
@@ -93,9 +94,8 @@ async fn ttl() {
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
-    let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let mut pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
+    let mut pm = peer_manager::testonly::start(rng, chain.clone()).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -104,7 +104,8 @@ async fn ttl() {
         force_encoding: Some(Encoding::Proto),
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
     // TODO(gprusak): probably extract it to a separate function when migrating other tests from
@@ -148,36 +149,44 @@ async fn ttl() {
     }
 }
 
+async fn add_peer(
+    clock: &time::Clock,
+    rng: &mut Rng,
+    chain: Arc<data::Chain>,
+    cfg: &config::NetworkConfig,
+) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+    let peer_cfg = peer::testonly::PeerConfig {
+        signer: data::make_signer(rng),
+        chain,
+        peers: vec![],
+        start_handshake_with: Some(PeerId::new(cfg.node_key.public_key())),
+        force_encoding: Some(Encoding::Proto),
+    };
+    let stream = TcpStream::connect(cfg.node_addr.unwrap()).await.unwrap();
+    let mut peer =
+        peer::testonly::PeerHandle::start_endpoint(clock.clone(), rng, peer_cfg, stream).await;
+    peer.complete_handshake().await;
+    // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
+    let msg = match peer.events.recv().await {
+        peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
+            PeerMessage::SyncAccountsData(msg),
+        )) => msg,
+        ev => panic!("expected SyncAccountsData, got {ev:?}"),
+    };
+    (peer, msg)
+}
+
 #[tokio::test]
 async fn accounts_data_broadcast() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
-    let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
+    let clock = clock.clock();
+    let clock = &clock;
 
-    let add_peer = |signer| async {
-        let cfg = peer::testonly::PeerConfig {
-            signer,
-            chain: chain.clone(),
-            peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
-            force_encoding: Some(Encoding::Proto),
-        };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
-        peer.complete_handshake().await;
-        // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
-        let msg = match peer.events.recv().await {
-            peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
-                PeerMessage::SyncAccountsData(msg),
-            )) => msg,
-            ev => panic!("expected SyncAccountsData, got {ev:?}"),
-        };
-        (peer, msg)
-    };
+    let pm = peer_manager::testonly::start(rng, chain.clone()).await;
 
     let take_sync = |ev| match ev {
         peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
@@ -186,10 +195,10 @@ async fn accounts_data_broadcast() {
         _ => None,
     };
 
-    let data = chain.make_tier1_data(rng, &clock.clock());
+    let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let (mut peer1, got1) = add_peer(data::make_signer(rng)).await;
+    let (mut peer1, got1) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
     assert_eq!(got1.accounts_data, vec![]);
 
     // Send some data and wait for it to be broadcasted back.
@@ -204,7 +213,7 @@ async fn accounts_data_broadcast() {
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
 
     // Connect another peer and perform initial full sync.
-    let (mut peer2, got2) = add_peer(data::make_signer(rng)).await;
+    let (mut peer2, got2) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
@@ -231,4 +240,69 @@ async fn accounts_data_broadcast() {
         .await;
     let got1 = peer1.events.recv_until(take_sync).await;
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
+}
+
+fn peer_addrs(vc: &config::ValidatorConfig) -> Vec<PeerAddr> {
+    match &vc.endpoints {
+        config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
+        config::ValidatorEndpoints::TrustedStunServers(_) => {
+            panic!("tests only support PublicAddrs in validator config")
+        }
+    }
+}
+
+// Test with 3 peer managers connected sequentially: 1-2-3
+// All of them are validators.
+// No matter what the order of shifting into the epoch,
+// all of them should receive all the AccountDatas eventually.
+#[tokio::test]
+async fn accounts_data_gradual_epoch_change() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // It is an array [_;3] which allows compiler to borrow
+    // each position separately. If it was a Vec, the rest
+    // of the test would be way harder to express.
+    let mut pms = [
+        peer_manager::testonly::start(rng, chain.clone()).await,
+        peer_manager::testonly::start(rng, chain.clone()).await,
+        peer_manager::testonly::start(rng, chain.clone()).await,
+    ];
+
+    // 0 <-> 1 <-> 2
+    pms[0].connect_to(&pms[1].peer_info()).await;
+    pms[1].connect_to(&pms[2].peer_info()).await;
+
+    // Validator configs.
+    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
+
+    // For every order of nodes.
+    for ids in (0..pms.len()).permutations(3) {
+        // Construct ChainInfo for a new epoch,
+        // with tier1_accounts containing all validators.
+        let e = data::make_epoch_id(rng);
+        let mut chain_info = chain.get_chain_info();
+        chain_info.tier1_accounts = Arc::new(
+            vs.iter()
+                .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+                .collect(),
+        );
+
+        // Advance epoch in the given order.
+        for id in ids {
+            pms[id].set_chain_info(chain_info.clone()).await;
+        }
+
+        // Wait for data to arrive.
+        let want = vs
+            .iter()
+            .map(|v| ((e.clone(), v.signer.validator_id().clone()), peer_addrs(&v)))
+            .collect();
+        for pm in &mut pms {
+            pm.wait_for_accounts_data(&want).await;
+        }
+    }
 }
