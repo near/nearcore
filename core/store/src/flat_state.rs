@@ -9,7 +9,7 @@ use near_primitives::state::ValueRef;
 #[derive(Clone)]
 pub struct FlatState {
     #[allow(dead_code)]
-    pub(crate) store: Store,
+    pub store: Store,
 }
 
 impl FlatState {

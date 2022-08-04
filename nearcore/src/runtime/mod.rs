@@ -2016,7 +2016,7 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
+    use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
@@ -2027,6 +2027,7 @@ mod test {
 
     use super::*;
 
+    use near_primitives::trie_key::TrieKey;
     use primitive_types::U256;
 
     fn stake(
@@ -3483,5 +3484,62 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
+    }
+
+    /// Check that flat state is included into trie and is not included into view trie, because we can't apply flat
+    /// state optimization to view calls.
+    #[test]
+    fn test_flat_state_usage() {
+        let mut env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
+        let trie = env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
+        assert!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
+
+        let trie = env.runtime.get_view_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
+        assert!(trie.flat_state.is_none());
+    }
+
+    /// Check that querying trie and flat state gives the same result.
+    #[test]
+    fn test_trie_and_flat_state_equality() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes)
+            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
+            .collect::<Vec<_>>();
+        let mut env = TestEnv::new(vec![validators.clone()], 4, false);
+        let signers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+            .collect();
+
+        let transfer_tx = SignedTransaction::from_actions(
+            4,
+            signers[0].account_id.clone(),
+            validators[1].clone(),
+            &signers[0] as &dyn Signer,
+            vec![Action::Transfer(TransferAction { deposit: 10 })],
+            // runtime does not validate block history
+            CryptoHash::default(),
+        );
+        env.step_default(vec![transfer_tx]);
+        for _ in 1..=5 {
+            env.step_default(vec![]);
+        }
+
+        // Extract account in two ways:
+        // - using state trie, which should use flat state after enabling it in the protocol
+        // - using view state, which should never use flat state
+        let head_prev_block_hash = env.head.prev_block_hash;
+        let state_root = env.state_roots[0];
+        let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash).unwrap();
+        let view_state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash).unwrap();
+        let trie_key = TrieKey::Account { account_id: validators[1].clone() };
+        let key = trie_key.to_vec();
+
+        let state_value = state.get(&state_root, &key).unwrap().unwrap();
+        let account = Account::try_from_slice(&state_value).unwrap();
+        assert_eq!(account.amount(), TESTING_INIT_BALANCE + 10);
+
+        let view_state_value = view_state.get(&state_root, &key).unwrap().unwrap();
+        assert_eq!(state_value, view_state_value);
     }
 }

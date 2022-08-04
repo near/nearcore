@@ -25,7 +25,7 @@ pub struct ValueRef {
 
 impl ValueRef {
     /// Create serialized value reference by the value.
-    /// Resulting array stores [4 bytes of length] and then [32 bytes of hash].
+    /// Resulting array stores 4 bytes of length and then 32 bytes of hash.
     pub fn create_serialized(value: &[u8]) -> [u8; 36] {
         let mut result = [0u8; 36];
         result[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
