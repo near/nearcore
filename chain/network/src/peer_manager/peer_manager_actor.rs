@@ -2071,8 +2071,10 @@ impl PeerManagerActor {
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
+                    .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {
+                        let _span = tracing::trace_span!(target: "network", "announce_account").entered();
                         match response {
                             Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
                                 act.try_ban_peer(&peer_id_clone, ban_reason);
