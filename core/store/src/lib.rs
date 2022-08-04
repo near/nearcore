@@ -23,6 +23,7 @@ use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state::ValueRef;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 #[cfg(feature = "protocol_feature_flat_state")]
