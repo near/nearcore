@@ -47,6 +47,7 @@ pub struct BlocksDelayTracker {
 pub struct BlockTrackingStats {
     /// Timestamp when block was received.
     pub received_timestamp: Instant,
+    pub received_utc_timestamp: DateTime<chrono::Utc>,
     /// Timestamp when block was put to the orphan pool, if it ever was
     pub orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
@@ -121,6 +122,7 @@ impl ChunkTrackingStats {
             created_by,
             status,
             requested_timestamp: self.requested_timestamp,
+            completed_timestamp: self.completed_timestamp,
             request_duration,
             chunk_parts_collection: vec![],
         }
@@ -128,7 +130,12 @@ impl ChunkTrackingStats {
 }
 
 impl BlocksDelayTracker {
-    pub fn mark_block_received(&mut self, block: &Block, timestamp: Instant) {
+    pub fn mark_block_received(
+        &mut self,
+        block: &Block,
+        timestamp: Instant,
+        utc_timestamp: DateTime<chrono::Utc>,
+    ) {
         let block_hash = block.header().hash();
 
         if let Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
@@ -151,6 +158,7 @@ impl BlocksDelayTracker {
                 .collect();
             entry.insert(BlockTrackingStats {
                 received_timestamp: timestamp,
+                received_utc_timestamp: utc_timestamp,
                 orphaned_timestamp: None,
                 missing_chunks_timestamp: None,
                 removed_from_orphan_timestamp: None,
@@ -371,6 +379,7 @@ impl BlocksDelayTracker {
             BlockProcessingInfo {
                 height: block_height,
                 hash: *block_hash,
+                received_timestamp: block_stats.received_utc_timestamp,
                 in_progress_ms,
                 orphaned_ms,
                 block_status,

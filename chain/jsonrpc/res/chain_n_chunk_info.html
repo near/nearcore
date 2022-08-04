@@ -45,57 +45,53 @@
                 String(time.getUTCSeconds()).padStart(2, "0") + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
         }
 
+        function printDuration(start, end) {
+            return (Date.parse(end) - Date.parse(start)) + "ms"
+        }
+
         function generateBlocksTableHeader(num_shards) {
             let row = $('<tr>');
             row.append("<th>Height</th>");
             row.append("<th>Hash</th>");
+            row.append("<th>Received</th>");
             row.append("<th>Status</th>");
             row.append("<th>In Progress for</th>");
             row.append("<th>In Orphan for</th>");
             row.append("<th>Missing Chunks for</th>");
-            row.append("<th>Chunk status</th>");
             for (i = 0; i < num_shards; i+=1) {
                 row.append("<th>Shard " + i + "</th>");
             }
             $('.js-blocks-thead').append(row);
         }
 
-        function printChunkInfoSummary(chunks_info) {
-            let chunk_status = [];
-            chunks_info.forEach(chunk => {
-                if (chunk == null) {
-                    chunk_status.push("X");
-                } else {
-                    switch (chunk.status) {
-                        case "Completed":
-                            chunk_status.push("✔");
-                            break;
-                        case "Requested":
-                            chunk_status.push("⬇");
-                            break;
-                        case "NeedToRequest":
-                            chunk_status.push(".");
-                            break;
-                        default:
-                            break;
-                    }
-                }
-            });
-            return chunk_status.join("")
+        function getChunkStatusSymbol(chunk_status) {
+            switch (chunk_status) {
+                case "Completed":
+                    return "✔";
+                case "Requested":
+                    return "⬇";
+                case "NeedToRequest":
+                    return ".";
+                default:
+                    break;
+            }
         }
 
-        function printChunksInfo(chunks_info, row) {
+        function printChunksInfo(chunks_info, block_received_time, row) {
             chunks_info.forEach(chunk => {
                 let cell = $('<td>');
                 if (chunk == null) {
-                    cell.append("No Chunk")
+                    cell.append("<strong>No Chunk</strong>")
                 } else {
-                    cell.append(chunk.status);
+                    cell.append("<strong>" + chunk.status + " " + getChunkStatusSymbol(chunk.status) + "</strong>");
+                    if (chunk.completed_timestamp != null) {
+                        cell.append("<br>Completed @ BR+" + printDuration(block_received_time, chunk.completed_timestamp));
+                    }
                     if (chunk.requested_timestamp != null) {
-                        cell.append("<br>Requested: " + prettyTime(chunk.requested_timestamp));
+                        cell.append("<br>Requested @ BR+" + printDuration(block_received_time, chunk.requested_timestamp));
                     }
                     if (chunk.request_duration != null) {
-                        cell.append("<br>Chunk completed in " + chunk.request_duration + "ms");
+                        cell.append("<br>Duration " + chunk.request_duration + "ms");
                     }
                 }
                 row.append(cell);
@@ -126,12 +122,12 @@
                         let row = $('<tr>');
                         row.append($('<td>').append(block.height));
                         row.append($('<td>').append(block.hash));
+                        row.append($('<td>').append(prettyTime(block.received_timestamp)));
                         row.append($('<td>').append(block.block_status));
                         row.append($('<td>').append(printTimeInMs(block.in_progress_ms)));
                         row.append($('<td>').append(printTimeInMs(block.orphaned_ms)));
                         row.append($('<td>').append(printTimeInMs(block.missing_chunks_ms)));
-                        row.append($('<td>').append(printChunkInfoSummary(block.chunks_info)));
-                        printChunksInfo(block.chunks_info, row);
+                        printChunksInfo(block.chunks_info, block.received_timestamp, row);
                         $('.js-blocks-tbody').append(row)
 
                     })

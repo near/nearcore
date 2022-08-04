@@ -400,6 +400,7 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
+    pub received_timestamp: DateTime<chrono::Utc>,
     /// Timestamp when block was received.
     //pub received_timestamp: DateTime<chrono::Utc>,
     /// Time (in ms) between when the block was first received and when it was processed
@@ -441,6 +442,8 @@ pub struct ChunkProcessingInfo {
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
     pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    /// Timestamp of when the chunk is complete
+    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
