@@ -7,8 +7,6 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use once_cell::sync::Lazy;
-#[cfg(feature = "protocol_feature_flat_state")]
-use tracing::info;
 
 pub use columns::DBCol;
 pub use db::{
@@ -428,7 +426,6 @@ impl StoreUpdate {
             .clone();
         match last_change {
             Some(value) => {
-                info!("applying {:?} to {:?}", key, value);
                 let value_ref_ser = ValueRef::create_serialized(&value);
                 self.set(DBCol::FlatState, &key, &value_ref_ser)
             }
