@@ -418,6 +418,7 @@ impl StoreUpdate {
         if is_delayed_receipt_key(&key) {
             return;
         }
+
         let last_change = change
             .changes
             .last()
