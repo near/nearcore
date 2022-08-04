@@ -1,30 +1,31 @@
+//! Contains files used for a few different purposes:
+//! - Changes related to network config - TODO - move to another file
+//! - actix messages - used for communicating with `PeerManagerActor` - TODO move to another file
+//! - internal types used by `peer-store` only - TODO move to `peer_store.rs`
+//! - some types used for different purposes that don't meet any of the criteria above
+//! - unused code - TODO remove?
+//! - Some types types that are neither of the above
+//!
+//! NOTE:
+//! - We also export publicly types from `crate::network_protocol`
 use crate::time;
-/// Contains files used for a few different purposes:
-/// - Changes related to network config - TODO - move to another file
-/// - actix messages - used for communicating with `PeerManagerActor` - TODO move to another file
-/// - internal types used by `peer-store` only - TODO move to `peer_store.rs`
-/// - some types used for different purposes that don't meet any of the criteria above
-/// - unused code - TODO remove?
-/// - Some types types that are neither of the above
-///
-/// NOTE:
-/// - We also export publicly types from `crate::network_protocol`
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_crypto::SecretKey;
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryResponse};
+use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpStream;
 
 /// Exported types, which are part of network protocol.
@@ -313,49 +314,47 @@ pub enum NetworkViewClientMessages {
     EpochSyncRequest { epoch_id: EpochId },
     /// A request for headers and proofs during Epoch Sync
     EpochSyncFinalizationRequest { epoch_id: EpochId },
-    /// Get Chain information from Client.
-    GetChainInfo,
     /// Account announcements that needs to be validated before being processed.
     /// They are paired with last epoch id known to this announcement, in order to accept only
     /// newer announcements.
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-/// Set of account keys with a cached hash.
-/// BTreeMap implements Hash (while HashMap doesn't).
-pub type AccountKeys = BTreeMap<(EpochId, AccountId), PublicKey>;
+/// Set of account keys.
+/// This is information which chain pushes to network to implement tier1.
+/// See ChainInfo.
+pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
 
-// Network-relevant data about the epoch.
-#[derive(Debug, Clone)]
-pub struct NetworkEpochInfo {
-    pub id: EpochId,
-    // Public keys of accounts participating in the BFT consensus.
+/// Network-relevant data about the chain.
+// TODO(gprusak): it is more like node info, or sth.
+#[derive(Debug, Clone, Default)]
+pub struct ChainInfo {
+    pub tracked_shards: Vec<ShardId>,
+    pub height: BlockHeight,
+    // Public keys of accounts participating in the BFT consensus
+    // (both accounts from current and next epoch are important, that's why
+    // the map is indexed by (EpochId,AccountId) pair).
     // It currently includes "block producers", "chunk producers" and "approvers".
     // They are collectively known as "validators".
     // Peers acting on behalf of these accounts have a higher
     // priority on the NEAR network than other peers.
-    pub priority_accounts: HashMap<AccountId, PublicKey>,
+    pub tier1_accounts: Arc<AccountKeys>,
 }
+
+#[derive(Debug, actix::Message)]
+#[rtype(result = "()")]
+pub struct SetChainInfo(pub ChainInfo);
 
 #[derive(Debug, actix::MessageResponse)]
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Response to general queries
-    QueryResponse { query_id: String, response: Result<QueryResponse, String> },
     /// Receipt outcome response
     ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
     Block(Box<Block>),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
-    /// Chain information.
-    ChainInfo {
-        genesis_id: GenesisId,
-        height: BlockHeight,
-        tracked_shards: Vec<ShardId>,
-        archival: bool,
-    },
     /// Response to state request.
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
@@ -402,7 +401,6 @@ mod tests {
     #[test]
     fn test_struct_size() {
         assert_size!(PeerInfo);
-        assert_size!(PeerChainInfoV2);
         assert_size!(AnnounceAccount);
         assert_size!(Ping);
         assert_size!(Pong);

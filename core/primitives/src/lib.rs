@@ -21,7 +21,7 @@ pub mod runtime;
 pub mod sandbox_state_patch;
 pub mod shard_layout;
 pub mod sharding;
-pub mod state_part;
+pub mod state;
 pub mod state_record;
 pub mod syncing;
 pub mod telemetry;

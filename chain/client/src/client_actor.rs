@@ -14,7 +14,7 @@ use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, ChainAccess, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::ValidatorInfoIdentifier;
@@ -41,7 +41,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_part::PartId;
+use near_primitives::state::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
@@ -656,7 +656,7 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler="Status").entered();
+        let _span = tracing::debug_span!(target: "client", "handle", handler = "Status").entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -727,22 +727,17 @@ impl Handler<Status> for ClientActor {
                 ),
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
-                orphans: self.client.chain.orphans().list_orphans_by_height(),
-                blocks_with_missing_chunks: self
-                    .client
-                    .chain
-                    .blocks_with_missing_chunks
-                    .list_blocks_by_height(),
                 block_production_delay_millis: self
                     .client
                     .config
                     .min_block_production_delay
                     .as_millis() as u64,
-                chunk_info: self.client.detailed_upcoming_blocks_info_as_web(),
+                chain_processing_info: self.client.chain.get_chain_processing_info(),
             })
         } else {
             None
         };
+        let uptime_sec = Clock::utc().timestamp() - self.info_helper.boot_time_seconds;
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -764,6 +759,7 @@ impl Handler<Status> for ClientActor {
             },
             validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
             node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            uptime_sec,
             detailed_debug_status,
         })
     }
@@ -784,7 +780,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| fpi.peer_info.clone())
+                .map(|fpi| fpi.full_peer_info.peer_info.clone())
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
@@ -1793,7 +1789,7 @@ impl ClientActor {
             statistics,
             &self.client.config,
         );
-        debug!(target: "stats", "{}", self.client.detailed_upcoming_blocks_info_as_printable().unwrap_or(String::from("Upcoming block info failed.")));
+        debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
     }
 }
 

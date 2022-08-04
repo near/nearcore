@@ -80,7 +80,7 @@ where
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let trie = Trie { storage: Box::new(storage) };
+        let trie = Trie { storage: Box::new(storage), flat_state: None };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
         assert_eq!(test(Rc::new(trie)).as_ref(), expected_result);
@@ -358,10 +358,10 @@ mod caching_storage_tests {
         assert_eq!(result.unwrap().as_ref(), value);
 
         trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
-        values[1..].iter().for_each(|value| {
+        for value in values[1..].iter() {
             let result = trie_caching_storage.retrieve_raw_bytes(&hash(value));
             assert_eq!(result.unwrap().as_ref(), value);
-        });
+        }
 
         // Check that the first element gets evicted, but the counter is not incremented.
         assert_eq!(trie_cache.get(&key), None);

@@ -9,8 +9,11 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::types::{StateRoot, StateRootNode};
 
+use crate::flat_state::FlatState;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -403,7 +406,8 @@ impl RawTrieNodeWithSize {
 }
 
 pub struct Trie {
-    pub(crate) storage: Box<dyn TrieStorage>,
+    pub storage: Box<dyn TrieStorage>,
+    pub flat_state: Option<FlatState>,
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -468,8 +472,8 @@ pub struct ApplyStatePartResult {
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
-    pub fn new(store: Box<dyn TrieStorage>) -> Self {
-        Trie { storage: store }
+    pub fn new(storage: Box<dyn TrieStorage>, flat_state: Option<FlatState>) -> Self {
+        Trie { storage, flat_state }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -480,7 +484,7 @@ impl Trie {
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage) }
+        Trie { storage: Box::new(storage), flat_state: None }
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -499,6 +503,7 @@ impl Trie {
                 recorded_storage,
                 visited_nodes: Default::default(),
             }),
+            flat_state: None,
         }
     }
 
@@ -562,61 +567,49 @@ impl Trie {
         Ok(())
     }
 
+    fn retrieve_raw_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
+        if hash == &Self::EMPTY_ROOT {
+            return Ok(None);
+        }
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
+            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
+        })?;
+        Ok(Some((bytes, node)))
+    }
+
     fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
-        if *hash == Trie::EMPTY_ROOT {
-            Ok(memory.store(TrieNodeWithSize::empty()))
-        } else {
-            let bytes = self.storage.retrieve_raw_bytes(hash)?;
-            match RawTrieNodeWithSize::decode(&bytes) {
-                Ok(value) => {
-                    let result = memory.store(TrieNodeWithSize::from_raw(value));
-                    memory
-                        .refcount_changes
-                        .entry(*hash)
-                        .or_insert_with(|| (bytes.to_vec(), 0))
-                        .1 -= 1;
-                    Ok(result)
-                }
-                Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                    "Failed to decode node {}",
-                    hash
-                ))),
+        match self.retrieve_raw_node(hash)? {
+            None => Ok(memory.store(TrieNodeWithSize::empty())),
+            Some((bytes, node)) => {
+                let result = memory.store(TrieNodeWithSize::from_raw(node));
+                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+                Ok(result)
             }
         }
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
-        if *hash == Trie::EMPTY_ROOT {
-            return Ok(TrieNodeWithSize::empty());
-        }
-        let bytes = self.storage.retrieve_raw_bytes(hash)?;
-        match RawTrieNodeWithSize::decode(&bytes) {
-            Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
-            Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                "Failed to decode node {}",
-                hash
-            ))),
+        match self.retrieve_raw_node(hash)? {
+            None => Ok(TrieNodeWithSize::empty()),
+            Some((_bytes, node)) => Ok(TrieNodeWithSize::from_raw(node)),
         }
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
-        if *root == Trie::EMPTY_ROOT {
-            return Ok(StateRootNode::empty());
-        }
-        let data = self.storage.retrieve_raw_bytes(root)?;
-        match RawTrieNodeWithSize::decode(&data) {
-            Ok(value) => {
-                let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
-                Ok(StateRootNode { data: data.to_vec(), memory_usage })
-            }
-            Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                "Failed to decode node {}",
-                root
-            ))),
+        match self.retrieve_raw_node(root)? {
+            None => Ok(StateRootNode::empty()),
+            Some((bytes, node)) => Ok(StateRootNode {
+                data: bytes.to_vec(),
+                memory_usage: TrieNodeWithSize::from_raw(node).memory_usage,
+            }),
         }
     }
 
@@ -624,22 +617,17 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice<'_>,
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = *root;
-
         loop {
-            if hash == Trie::EMPTY_ROOT {
-                return Ok(None);
-            }
-            let bytes = self.storage.retrieve_raw_bytes(&hash)?;
-            let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
-                StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
-            })?;
-
-            match node.node {
+            let node = match self.retrieve_raw_node(&hash)? {
+                None => return Ok(None),
+                Some((_bytes, node)) => node.node,
+            };
+            match node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some((value_length, value_hash)));
+                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
                     } else {
                         return Ok(None);
                     }
@@ -657,7 +645,10 @@ impl Trie {
                     if key.is_empty() {
                         match value {
                             Some((value_length, value_hash)) => {
-                                return Ok(Some((value_length, value_hash)));
+                                return Ok(Some(ValueRef {
+                                    length: value_length,
+                                    hash: value_hash,
+                                }));
                             }
                             None => return Ok(None),
                         }
@@ -675,18 +666,20 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let key = NibbleSlice::new(key);
-        self.lookup(root, key)
+    pub fn get_ref(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        let is_delayed = is_delayed_receipt_key(key);
+        match &self.flat_state {
+            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
+            _ => {
+                let key = NibbleSlice::new(key);
+                self.lookup(root, key)
+            }
+        }
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => {
+            Some(ValueRef { hash, .. }) => {
                 self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
             }
             None => Ok(None),

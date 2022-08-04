@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::config::VMConfig;
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -28,10 +29,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
+    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
+use near_network::types::{
     FullPeerInfo, MsgRecipient as _, NetworkClientMessages, NetworkClientResponses,
     NetworkRequests, NetworkResponses,
 };
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -48,7 +51,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
-use near_primitives::state_part::PartId;
+use near_primitives::state::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
@@ -132,7 +135,7 @@ fn check_tx_processing(
     next_height
 }
 
-fn deploy_test_contract(
+pub(crate) fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
@@ -227,24 +230,6 @@ fn prepare_env_with_congestion(
     }
 
     (env, tx_hashes)
-}
-
-/// Create a `TestEnv` with an account and a contract deployed to that account.
-#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
-fn prepare_env_with_contract(
-    epoch_length: u64,
-    protocol_version: u32,
-    account: AccountId,
-    contract: Vec<u8>,
-) -> TestEnv {
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
-    env
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -514,29 +499,30 @@ fn produce_block_with_approvals() {
 #[test]
 fn produce_block_with_approvals_arrived_early() {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             2000,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(
                 move |conns,
@@ -738,29 +724,29 @@ enum InvalidBlockMode {
 
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
         let mut sent_bad_blocks = false;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             100,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(
                 move |conns,
@@ -771,8 +757,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
                                 let block_producer_idx =
-                                    block.header().height() as usize % validators[0].len();
-                                let block_producer = &validators[0][block_producer_idx];
+                                    block.header().height() as usize % validators.len();
+                                let block_producer = &validators[block_producer_idx];
                                 let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                     block_producer.clone(),
                                     KeyType::ED25519,
@@ -953,7 +939,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![FullPeerInfo {
+            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                 peer_info: peer_info2.clone(),
                 chain_info: PeerChainInfoV2 {
                     genesis_id: Default::default(),
@@ -962,7 +948,7 @@ fn client_sync_headers() {
                     archival: false,
                 },
                 partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            }],
+            })],
             num_connected_peers: 1,
             peer_max_count: 1,
             highest_height_peers: vec![FullPeerInfo {
@@ -1036,11 +1022,11 @@ fn test_time_attack() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1069,11 +1055,11 @@ fn test_invalid_approvals() {
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1118,11 +1104,11 @@ fn test_invalid_gas_price() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client(
         store,
-        vec![vec!["test1".parse().unwrap()]],
-        1,
-        1,
+        vs,
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
@@ -1276,11 +1262,12 @@ fn test_bad_chunk_mask() {
     let mut clients: Vec<Client> = validators
         .iter()
         .map(|account_id| {
+            let vs = ValidatorSchedule::new()
+                .num_shards(2)
+                .block_producers_per_epoch(vec![validators.clone()]);
             setup_client(
                 create_test_store(),
-                vec![validators.clone()],
-                1,
-                2,
+                vs,
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
@@ -2507,9 +2494,9 @@ fn test_refund_receipts_processing() {
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
                     refund_receipt_ids.insert(*id);
-                });
+                }
             }
             _ => assert!(false),
         };
@@ -2526,9 +2513,9 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .remove(&0)
             .unwrap();
-        execution_outcomes_from_block.iter().for_each(|outcome| {
+        for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        });
+        }
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
@@ -2611,91 +2598,6 @@ fn test_wasmer2_upgrade() {
 
     assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
     assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
-}
-
-#[test]
-#[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-fn test_account_id_in_function_call_permission_upgrade() {
-    use near_primitives::{
-        account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
-        errors::ActionsValidationError,
-        transaction::AddKeyAction,
-    };
-
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
-            .protocol_version()
-            - 1;
-    let new_protocol_version = old_protocol_version + 1;
-
-    // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::new_empty(),
-                    RuntimeConfigStore::new(None),
-                ),
-            ) as Arc<dyn RuntimeAdapter>])
-            .build()
-    };
-
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
-            public_key: signer.public_key(),
-            access_key: AccessKey {
-                nonce: 1,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: "#".to_string(),
-                    method_names: vec![],
-                }),
-            },
-        })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction, it should pass as we don't do validation at this protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, NetworkClientResponses::ValidTx);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-    };
-
-    env.upgrade_protocol(new_protocol_version);
-
-    // Re-run the transaction, now it fails due to invalid account id.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(
-            res,
-            NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
-                ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
-            ))
-        )
-    };
 }
 
 #[test]
@@ -4917,82 +4819,5 @@ mod lower_storage_key_limit_test {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
-    }
-}
-
-#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
-mod new_contract_loading_cost {
-    use super::*;
-
-    /// Check that normal execution has the same gas cost after FixContractLoadingCost.
-    #[test]
-    fn unchanged_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let contract_size = 4096;
-        let contract = near_test_contracts::sized_contract(contract_size);
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        assert_eq!(old_gas, new_gas);
-    }
-
-    /// Check that execution that fails during contract preparation has the updated gas cost after the update.
-    #[test]
-    fn preparation_error_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let bad_contract = b"not-a-contract".to_vec();
-        let contract_size = bad_contract.len();
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            bad_contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
-
-        // Gas cost should be different because the upgrade pre-charges loading costs.
-        assert_ne!(old_gas, new_gas);
-        // Runtime parameter values for version of the protocol upgrade
-        let loading_base = 35_445_963;
-        let loading_byte = 216_750;
-        let loading_cost = loading_base + contract_size as u64 * loading_byte;
-        assert_eq!(old_gas + loading_cost, new_gas);
     }
 }

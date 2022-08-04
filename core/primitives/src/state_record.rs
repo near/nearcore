@@ -163,3 +163,7 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
 pub fn is_contract_code_key(key: &[u8]) -> bool {
     key[0] == col::CONTRACT_CODE
 }
+
+pub fn is_delayed_receipt_key(key: &[u8]) -> bool {
+    key[0] == col::DELAYED_RECEIPT || key[0] == col::DELAYED_RECEIPT_INDICES
+}

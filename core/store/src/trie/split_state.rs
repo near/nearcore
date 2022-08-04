@@ -8,7 +8,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
+use near_primitives::state::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -340,7 +340,7 @@ mod tests {
     use near_primitives::borsh::BorshSerialize;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
-    use near_primitives::state_part::PartId;
+    use near_primitives::state::PartId;
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{
@@ -503,10 +503,10 @@ mod tests {
                 let trie_items: HashMap<_, _> =
                     trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-                state_roots.iter().for_each(|(shard_uid, state_root)| {
+                for (shard_uid, state_root) in state_roots.iter() {
                     let trie = tries.get_view_trie_for_shard(*shard_uid);
                     combined_trie_items.extend(trie.iter(state_root).unwrap().map(Result::unwrap));
-                });
+                }
                 assert_eq!(trie_items, combined_trie_items);
             }
         }

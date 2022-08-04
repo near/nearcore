@@ -7,7 +7,7 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{PeerInfo, ReasonForBan};
+use near_network_primitives::types::{PeerInfo, ReasonForBan, SetChainInfo};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -291,6 +291,13 @@ impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     }
 }
 
+impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+        async { Ok(()) }.boxed()
+    }
+    fn do_send(&self, _msg: SetChainInfo) {}
+}
+
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
@@ -343,20 +350,18 @@ pub mod test_features {
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),
                     )))
                 }
-                NetworkViewClientMessages::GetChainInfo => {
-                    Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId::default(),
-                        height: 1,
-                        tracked_shards: vec![],
-                        archival: false,
-                    }))
-                }
                 _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
             }
         }))
         .start();
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
+        )
+        .unwrap()
     }
 }
 
