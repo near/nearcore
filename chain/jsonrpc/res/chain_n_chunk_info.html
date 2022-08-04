@@ -46,7 +46,12 @@
         }
 
         function printDuration(start, end) {
-            return (Date.parse(end) - Date.parse(start)) + "ms"
+            let duration = Date.parse(end) - Date.parse(start);
+            if (duration > 0) {
+                return "+" + duration + "ms"
+            } else {
+                return duration + "ms"
+            }
         }
 
         function generateBlocksTableHeader(num_shards) {
@@ -85,10 +90,10 @@
                 } else {
                     cell.append("<strong>" + chunk.status + " " + getChunkStatusSymbol(chunk.status) + "</strong>");
                     if (chunk.completed_timestamp != null) {
-                        cell.append("<br>Completed @ BR+" + printDuration(block_received_time, chunk.completed_timestamp));
+                        cell.append("<br>Completed @ BR" + printDuration(block_received_time, chunk.completed_timestamp));
                     }
                     if (chunk.requested_timestamp != null) {
-                        cell.append("<br>Requested @ BR+" + printDuration(block_received_time, chunk.requested_timestamp));
+                        cell.append("<br>Requested @ BR" + printDuration(block_received_time, chunk.requested_timestamp));
                     }
                     if (chunk.request_duration != null) {
                         cell.append("<br>Duration " + chunk.request_duration + "ms");
