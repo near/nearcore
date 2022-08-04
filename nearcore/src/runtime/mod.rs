@@ -2911,6 +2911,7 @@ mod test {
 
     #[test]
     fn test_care_about_shard() {
+        init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
