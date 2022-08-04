@@ -27,15 +27,51 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
-use thiserror::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
-    addr: std::net::SocketAddr,
-    peer_id: Option<PeerId>,
+    pub addr: std::net::SocketAddr,
+    pub peer_id: PeerId,
+}
+
+impl serde::Serialize for PeerAddr {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{}@{}", self.peer_id, self.addr))
+    }
+}
+
+impl<'a> serde::Deserialize<'a> for PeerAddr {
+    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
+        <String as serde::Deserialize>::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerAddrError {
+    #[error("expected <PeerId>@<IP>:<port>, got \'{0}\'")]
+    Format(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+    #[error("SocketAddr: {0}")]
+    SocketAddr(#[source] std::net::AddrParseError),
+}
+
+impl std::str::FromStr for PeerAddr {
+    type Err = ParsePeerAddrError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<_> = s.split('@').collect();
+        if parts.len() != 2 {
+            return Err(Self::Err::Format(s.to_string()));
+        }
+        Ok(PeerAddr {
+            peer_id: PeerId::new(parts[0].parse().map_err(Self::Err::PeerId)?),
+            addr: parts[1].parse().map_err(Self::Err::SocketAddr)?,
+        })
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
@@ -52,7 +88,21 @@ pub struct AccountData {
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
 impl AccountData {
-    pub fn sign(self, signer: &dyn near_crypto::Signer) -> anyhow::Result<SignedAccountData> {
+    /// Serializes AccountData to proto and signs it using `signer`.
+    /// Panics if AccountData.account_id doesn't match signer.validator_id(),
+    /// as this would likely be a bug.
+    /// Returns an error if the serialized data is too large to be broadcasted.
+    /// TODO(gprusak): consider separating serialization from signing (so introducing an
+    /// intermediate SerializedAccountData type) so that sign() then could fail only
+    /// due to account_id mismatch. Then instead of panicking we could return an error
+    /// and the caller (who constructs the arguments) would do an unwrap(). This would
+    /// consistute a cleaner never-panicking interface.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
+        assert_eq!(
+            &self.account_id,
+            signer.validator_id(),
+            "AccountData.account_id doesn't match the signer's account_id"
+        );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
             anyhow::bail!(
@@ -61,9 +111,7 @@ impl AccountData {
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        // TODO: here we should validate that payload is not too big - i.e. that it won't exceed
-        // the maximal allowed size.
-        let signature = signer.sign(&payload);
+        let signature = signer.sign_account_key_payload(&payload);
         Ok(SignedAccountData {
             account_data: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -174,6 +222,7 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+/// See SyncAccountsData in network_protocol/network.proto.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SyncAccountsData {
     pub accounts_data: Vec<SignedAccountData>,
@@ -228,16 +277,16 @@ pub enum Encoding {
     Proto,
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("BorshDecode")]
-    BorshDecode(std::io::Error),
+    BorshDecode(#[source] std::io::Error),
     #[error("BorshConv")]
-    BorshConv(borsh_conv::ParsePeerMessageError),
+    BorshConv(#[source] borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
-    ProtoDecode(protobuf::Error),
+    ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
-    ProtoConv(proto_conv::ParsePeerMessageError),
+    ProtoConv(#[source] proto_conv::ParsePeerMessageError),
 }
 
 impl PeerMessage {
@@ -303,9 +352,7 @@ impl PeerMessage {
             | PeerMessage::EpochSyncRequest(_) => true,
             PeerMessage::Routed(r) => matches!(
                 r.msg.body,
-                RoutedMessageBody::QueryRequest { .. }
-                    | RoutedMessageBody::QueryResponse { .. }
-                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
                     | RoutedMessageBody::StateRequestPart(_, _, _)
                     | RoutedMessageBody::TxStatusRequest(_, _)

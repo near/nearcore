@@ -10,15 +10,15 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
+use near_primitives::block::GenesisId;
 
+use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::{
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-};
+use near_network_primitives::types::NetworkViewClientResponses;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
@@ -26,29 +26,24 @@ type ViewClientMock = Mocker<ViewClientActor>;
 
 fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
     let store = create_test_store();
-    let mut config = NetworkConfig::from_seed(seed, port);
+    let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))
     .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
-        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
-        match msg {
-            NetworkViewClientMessages::GetChainInfo => {
-                Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                    genesis_id: Default::default(),
-                    height: 1,
-                    tracked_shards: vec![],
-                    archival: false,
-                }))
-            }
-            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
-        }
+    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
+        Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        GenesisId::default(),
+    )
+    .unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.

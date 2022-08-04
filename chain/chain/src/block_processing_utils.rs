@@ -81,6 +81,10 @@ impl BlocksInProcessing {
         BlocksInProcessing { preprocessed_blocks: HashMap::new() }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.preprocessed_blocks.len()
+    }
+
     /// Add a preprocessed block to the pool. Return Error::ExceedingPoolSize if the pool already
     /// reaches its max size.
     pub(crate) fn add(
@@ -92,6 +96,10 @@ impl BlocksInProcessing {
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())
+    }
+
+    pub(crate) fn contains(&self, block_hash: &CryptoHash) -> bool {
+        self.preprocessed_blocks.contains_key(block_hash)
     }
 
     pub(crate) fn remove(

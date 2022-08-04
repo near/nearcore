@@ -82,17 +82,16 @@ pub(crate) fn check_balance(
             0
         };
     let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_accounts_ids
-            .iter()
-            .map(|account_id| {
-                get_account(state, account_id)?.map_or(Ok(0), |a| {
-                    safe_add_balance(a.amount(), a.locked())
-                        .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
-                })
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
+        all_accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
+            let (amount, locked) = match get_account(state, account_id)? {
+                None => return Ok(accumulator),
+                Some(account) => (account.amount(), account.locked()),
+            };
+            Ok(accumulator)
+                .and_then(|accumulator| safe_add_balance(accumulator, amount))
+                .and_then(|accumulator| safe_add_balance(accumulator, locked))
+                .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+        })
     };
     let initial_accounts_balance = total_accounts_balance(initial_state)?;
     let final_accounts_balance = total_accounts_balance(final_state)?;
@@ -122,12 +121,7 @@ pub(crate) fn check_balance(
         })
     };
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
-        receipts
-            .iter()
-            .map(receipt_cost)
-            .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)
+        receipts.iter().try_fold(0, |acc, receipt| safe_add_balance(acc, receipt_cost(receipt)?))
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -137,43 +131,40 @@ pub(crate) fn check_balance(
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
     // execution.
-    let all_potential_postponed_receipt_ids = incoming_receipts
-        .iter()
-        .chain(processed_delayed_receipts.iter())
-        .map(|receipt| {
-            let account_id = &receipt.receiver_id;
-            match &receipt.receipt {
-                ReceiptEnum::Action(_) => Ok(Some((account_id.clone(), receipt.receipt_id))),
+    let all_potential_postponed_receipt_ids = {
+        let mut set = HashSet::new();
+        for receipt in incoming_receipts.iter().chain(processed_delayed_receipts.iter()) {
+            let receipt_id = match &receipt.receipt {
+                ReceiptEnum::Action(_) => receipt.receipt_id,
                 ReceiptEnum::Data(data_receipt) => {
-                    if let Some(receipt_id) = get(
+                    let receipt_id = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {
-                            receiver_id: account_id.clone(),
+                            receiver_id: receipt.receiver_id.clone(),
                             data_id: data_receipt.data_id,
                         },
-                    )? {
-                        Ok(Some((account_id.clone(), receipt_id)))
+                    )?;
+                    if let Some(receipt_id) = receipt_id {
+                        receipt_id
                     } else {
-                        Ok(None)
+                        continue;
                     }
                 }
-            }
-        })
-        .collect::<Result<Vec<Option<_>>, StorageError>>()?
-        .into_iter()
-        .filter_map(|x| x)
-        .collect::<HashSet<_>>();
+            };
+            set.insert((receipt.receiver_id.clone(), receipt_id.clone()));
+        }
+        set
+    };
 
     let total_postponed_receipts_cost = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_potential_postponed_receipt_ids
-            .iter()
-            .map(|(account_id, receipt_id)| {
-                Ok(get_postponed_receipt(state, account_id, *receipt_id)?
-                    .map_or(Ok(0), |r| receipt_cost(&r))?)
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
+        all_potential_postponed_receipt_ids.iter().try_fold(0, |total, item| {
+            let (account_id, receipt_id) = item;
+            let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+                None => return Ok(total),
+                Some(receipt) => receipt_cost(&receipt)?,
+            };
+            safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+        })
     };
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;

@@ -19,6 +19,7 @@ pub struct TelemetrySystemInfo {
     pub bandwidth_upload: u64,
     pub cpu_usage: f32,
     pub memory_usage: u64,
+    pub boot_time_seconds: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -37,4 +38,6 @@ pub struct TelemetryInfo {
     pub agent: TelemetryAgentInfo,
     pub system: TelemetrySystemInfo,
     pub chain: TelemetryChainInfo,
+    // Extra telemetry information that will be ignored by the explorer frontend.
+    pub extra_info: String,
 }

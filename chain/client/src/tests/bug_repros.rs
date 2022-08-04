@@ -12,7 +12,7 @@ use rand::{thread_rng, Rng};
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, GetBlock, ViewClientActor};
 use near_actix_test_utils::run_actix;
-use near_chain::test_utils::account_id_to_shard_id;
+use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
@@ -26,18 +26,21 @@ use near_primitives::transaction::SignedTransaction;
 
 #[test]
 fn repro_1183() {
-    let validator_groups = 2;
     init_test_logger();
     run_actix(async {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let validators = vec![vec![
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-            "test4".parse().unwrap(),
-        ]];
+        let vs = ValidatorSchedule::new()
+            .num_shards(4)
+            .block_producers_per_epoch(vec![vec![
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+                "test4".parse().unwrap(),
+            ]])
+            .validator_groups(2);
+        let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
         let key_pairs = vec![
             PeerInfo::random(),
             PeerInfo::random(),
@@ -46,21 +49,19 @@ fn repro_1183() {
         ];
 
         let connectors1 = connectors.clone();
-        let validators2 = validators.clone();
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             200,
             false,
             false,
             5,
             false,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
@@ -83,7 +84,7 @@ fn repro_1183() {
                             ..
                         } = delayed_message
                         {
-                            for (i, name) in validators2.iter().flatten().enumerate() {
+                            for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::PartialEncodedChunk(
@@ -155,14 +156,14 @@ fn repro_1183() {
 }
 
 #[test]
-fn test_sync_from_achival_node() {
+fn test_sync_from_archival_node() {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let largest_height = Arc::new(RwLock::new(0));
@@ -172,9 +173,8 @@ fn test_sync_from_achival_node() {
     run_actix(async move {
         let mut block_counter = 0;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             100,
             false,
@@ -258,16 +258,17 @@ fn test_sync_from_achival_node() {
 #[test]
 fn test_long_gap_between_blocks() {
     init_test_logger();
-    let validators = vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]];
+    let vs = ValidatorSchedule::new()
+        .num_shards(2)
+        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]]);
     let key_pairs = vec![PeerInfo::random(), PeerInfo::random()];
     let epoch_length = 1000;
     let target_height = 600;
 
     run_actix(async move {
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             10,
             false,

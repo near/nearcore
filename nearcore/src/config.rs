@@ -21,8 +21,8 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
+use near_network::config::NetworkConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -298,7 +298,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: near_network_primitives::types::ConfigJSON,
+    pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
@@ -363,19 +363,36 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let mut unrecognised_fields = Vec::new();
-        let s = std::fs::read_to_string(path)
+        let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config =
-            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
-                unrecognised_fields.push(path.to_string());
-            })
-            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
-
+        let mut unrecognised_fields = Vec::new();
+        let config = serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&contents),
+            |field| {
+                let field = field.to_string();
+                // TODO(mina86): Remove this deprecation notice some time by the
+                // end of 2022.
+                if field == "network.external_address" {
+                    warn!(
+                        target: "neard",
+                        "{}: {field} is deprecated; please remove it from the config file",
+                        path.display(),
+                    );
+                } else {
+                    unrecognised_fields.push(field);
+                }
+            },
+        )
+        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         if !unrecognised_fields.is_empty() {
-            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognised_fields.join(", ");
+            warn!(
+                target: "neard",
+                "{}: encountered unrecognised field{s}: {fields}",
+                path.display(),
+            );
         }
-
         Ok(config)
     }
 
@@ -523,8 +540,8 @@ impl NearConfig {
         genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    ) -> Self {
-        NearConfig {
+    ) -> anyhow::Result<Self> {
+        Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
@@ -577,7 +594,14 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-            ),
+                match genesis.config.chain_id.as_ref() {
+                    "mainnet" | "testnet" | "betanet" => {
+                        near_network::config::Features { enable_tier1: false }
+                    }
+                    // shardnet and all test setups.
+                    "shardnet" | _ => near_network::config::Features { enable_tier1: true },
+                },
+            )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -585,7 +609,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
-        }
+        })
     }
 
     pub fn rpc_addr(&self) -> Option<&str> {
@@ -1193,7 +1217,7 @@ impl From<NodeKeyFile> for KeyFile {
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
-) -> Result<NearConfig, anyhow::Error> {
+) -> anyhow::Result<NearConfig> {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
@@ -1211,7 +1235,7 @@ pub fn load_config(
     })?;
 
     let genesis_records_file = config.genesis_records_file.clone();
-    Ok(NearConfig::new(
+    NearConfig::new(
         config,
         match genesis_records_file {
             Some(genesis_records_file) => Genesis::from_files(
@@ -1223,7 +1247,7 @@ pub fn load_config(
         },
         network_signer.into(),
         validator_signer,
-    ))
+    )
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
@@ -1248,7 +1272,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         )) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
 #[test]

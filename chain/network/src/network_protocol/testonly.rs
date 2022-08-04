@@ -1,6 +1,7 @@
 use super::*;
 
-use crate::types::{Handshake, RoutingTableUpdate};
+use crate::config;
+use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
 use near_network_primitives::types::{
@@ -23,6 +24,7 @@ use rand::distributions::Standard;
 use rand::Rng;
 use std::collections::HashMap;
 use std::net;
+use std::sync::Arc;
 
 pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
@@ -232,6 +234,7 @@ pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
+    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
 }
 
 impl Chain {
@@ -250,25 +253,74 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
+            tier1_accounts: (0..10)
+                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
+                .collect(),
             chunks: chunks.chunks,
         }
     }
 
     pub fn height(&self) -> BlockHeight {
-        self.blocks.last().unwrap().header().height()
+        self.tip().height()
     }
 
-    pub fn get_info(&self) -> PeerChainInfoV2 {
+    pub fn tip(&self) -> &BlockHeader {
+        self.blocks.last().unwrap().header()
+    }
+
+    pub fn get_tier1_accounts(&self) -> AccountKeys {
+        self.tier1_accounts
+            .iter()
+            .map(|(epoch_id, v)| {
+                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
+            })
+            .collect()
+    }
+
+    pub fn get_chain_info(&self) -> ChainInfo {
+        ChainInfo {
+            tracked_shards: Default::default(),
+            height: self.height(),
+            tier1_accounts: Arc::new(self.get_tier1_accounts()),
+        }
+    }
+
+    pub fn get_peer_chain_info(&self) -> PeerChainInfoV2 {
         PeerChainInfoV2 {
             genesis_id: self.genesis_id.clone(),
-            height: self.height(),
             tracked_shards: Default::default(),
             archival: false,
+            height: self.height(),
         }
     }
 
     pub fn get_block_headers(&self) -> Vec<BlockHeader> {
         self.blocks.iter().map(|b| b.header().clone()).collect()
+    }
+
+    pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
+        let port = crate::test_utils::open_port();
+        let seed = &rng.gen::<u64>().to_string();
+        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        // Currently, in unit tests PeerManagerActor is not allowed to try to establish
+        // connections on its own.
+        cfg.outbound_disabled = true;
+        cfg
+    }
+
+    pub fn make_tier1_data<R: Rng>(
+        &self,
+        rng: &mut R,
+        clock: &time::Clock,
+    ) -> Vec<SignedAccountData> {
+        self.tier1_accounts
+            .iter()
+            .map(|(epoch_id, v)| {
+                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
+                    .sign(v)
+                    .unwrap()
+            })
+            .collect()
     }
 }
 
@@ -282,7 +334,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         a_id,
         b_id,
         Some(rng.gen()),
-        chain.get_info(),
+        chain.get_peer_chain_info(),
         make_partial_edge(rng),
     )
 }
@@ -310,7 +362,7 @@ pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
 }
 
 pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
-    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: Some(make_peer_id(rng)) }
+    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: make_peer_id(rng) }
 }
 
 pub fn make_account_data(
@@ -343,9 +395,9 @@ pub fn make_account_data(
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
-    let signer = make_signer(rng);
+    let signer = make_validator_signer(rng);
     let epoch_id = make_epoch_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.account_id.clone())
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
         .sign(&signer)
         .unwrap()
 }

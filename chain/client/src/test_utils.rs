@@ -1,3 +1,10 @@
+use actix::{Actor, Addr, AsyncContext, Context};
+use chrono::DateTime;
+use futures::{future, FutureExt};
+use near_primitives::time::Utc;
+use num_rational::Ratio;
+use once_cell::sync::OnceCell;
+use rand::{thread_rng, Rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
@@ -6,16 +13,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::info;
 
-use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::DateTime;
-use futures::{future, FutureExt};
-use near_primitives::time::Utc;
-use num_rational::Ratio;
-use once_cell::sync::OnceCell;
-use rand::{thread_rng, Rng};
-
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+    ValidatorSchedule,
 };
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
@@ -24,8 +24,8 @@ use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
-    NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
+    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
@@ -36,8 +36,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
-    ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -51,10 +50,13 @@ use near_telemetry::TelemetryActor;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_client_primitives::types::Error;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+    PeerType,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -92,6 +94,11 @@ impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         (self.handle)(msg, ctx)
     }
+}
+
+impl actix::Handler<SetChainInfo> for PeerManagerMock {
+    type Result = ();
+    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
 }
 
 /// min block production time in milliseconds
@@ -162,9 +169,7 @@ impl Client {
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
-    validators: Vec<Vec<AccountId>>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -179,15 +184,9 @@ pub fn setup(
     ctx: &Context<ClientActor>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
-    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        epoch_length,
-        archive,
-    ));
+    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -255,9 +254,7 @@ pub fn setup(
 }
 
 pub fn setup_only_view(
-    validators: Vec<Vec<AccountId>>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -271,15 +268,9 @@ pub fn setup_only_view(
     genesis_time: DateTime<Utc>,
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
-    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        epoch_length,
-        archive,
-    ));
+    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+    let runtime =
+        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -368,10 +359,9 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let network_adapter = Arc::new(NetworkRecipient::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr) = setup(
-            vec![validators],
-            1,
-            1,
+            vs,
             5,
             account_id,
             skip_sync_wait,
@@ -555,9 +545,8 @@ fn send_chunks<T, I, F>(
 ///                 the default action is performed, that might (and likely will) overwrite the
 ///                 `response` before it is sent back to the requester.
 pub fn setup_mock_all_validators(
-    validators: Vec<Vec<AccountId>>,
+    vs: ValidatorSchedule,
     key_pairs: Vec<PeerInfo>,
-    validator_groups: u64,
     skip_sync_wait: bool,
     block_prod_time: u64,
     drop_chunks: bool,
@@ -576,7 +565,7 @@ pub fn setup_mock_all_validators(
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
-    let validators_clone = validators.clone();
+    let validators = vs.all_validators().cloned().collect::<Vec<_>>();
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
@@ -588,7 +577,6 @@ pub fn setup_mock_all_validators(
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
-    let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
@@ -596,10 +584,11 @@ pub fn setup_mock_all_validators(
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
     let block_stats = Arc::new(RwLock::new(BlockStats::new()));
 
-    for (index, account_id) in validators.into_iter().flatten().enumerate() {
+    for (index, account_id) in validators.clone().into_iter().enumerate() {
+        let vs = vs.clone();
         let block_stats1 = block_stats.clone();
         let mut view_client_addr_slot = None;
-        let validators_clone2 = validators_clone.clone();
+        let validators_clone2 = validators.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
         let key_pairs1 = key_pairs.clone();
@@ -625,7 +614,7 @@ pub fn setup_mock_all_validators(
                 drop(guard);
 
                 if perform_default {
-                    let my_ord = validators_clone2.iter().flatten().position(|it| it == &account_id).unwrap();
+                    let my_ord = validators_clone2.iter().position(|it| it == &account_id).unwrap();
                     let my_key_pair = key_pairs[my_ord].clone();
                     let my_address = addresses[my_ord];
 
@@ -635,7 +624,8 @@ pub fn setup_mock_all_validators(
                             .iter()
                             .take(connectors1.len())
                             .enumerate()
-                            .map(|(i, peer_info)| FullPeerInfo {
+                            .map(|(i, peer_info)| ConnectedPeerInfo {
+                                full_peer_info: FullPeerInfo {
                                 peer_info: peer_info.clone(),
                                 chain_info: PeerChainInfoV2 {
                                     genesis_id: GenesisId {
@@ -647,9 +637,15 @@ pub fn setup_mock_all_validators(
                                     archival: true,
                                 },
                                 partial_edge_info: PartialEdgeInfo::default(),
-                            })
+                            },
+                                received_bytes_per_sec: 0,
+                                sent_bytes_per_sec: 0,
+                                last_time_peer_requested: near_network_primitives::time::Instant::now(),
+                                last_time_received_message: near_network_primitives::time::Instant::now(),
+                                connection_established_time: near_network_primitives::time::Instant::now(),
+                                peer_type: PeerType::Outbound, })
                             .collect();
-                        let peers2 = peers.clone();
+                        let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();
                         let info = NetworkInfo {
                             connected_peers: peers,
                             num_connected_peers: key_pairs1.len(),
@@ -659,6 +655,7 @@ pub fn setup_mock_all_validators(
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
                             peer_counter: 0,
+                            tier1_accounts: vec![],
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -699,7 +696,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
+                                validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
                                 create_msg,
@@ -728,7 +725,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().cloned().enumerate(),
+                                validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
                                 create_msg,
@@ -740,7 +737,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().cloned().enumerate(),
+                                validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
                                 create_msg,
@@ -859,7 +856,7 @@ pub fn setup_mock_all_validators(
                                 AccountOrPeerIdOrHash::AccountId(x) => x,
                                 _ => panic!(),
                             };
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                            for (i, name) in validators_clone2.iter().enumerate() {
                                 if name == target_account_id {
                                     let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
@@ -896,7 +893,7 @@ pub fn setup_mock_all_validators(
                                 AccountOrPeerIdOrHash::AccountId(x) => x,
                                 _ => panic!(),
                             };
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                            for (i, name) in validators_clone2.iter().enumerate() {
                                 if name == target_account_id {
                                     let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
@@ -967,7 +964,7 @@ pub fn setup_mock_all_validators(
                             let approval = approval_message.approval.clone();
 
                             if do_propagate {
-                                for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
                                         connectors1[i].0.do_send(
                                             NetworkClientMessages::BlockApproval(
@@ -1015,7 +1012,6 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
-                        | NetworkRequests::Query { .. }
                         | NetworkRequests::Challenge(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
                     };
@@ -1025,9 +1021,7 @@ pub fn setup_mock_all_validators(
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm);
             let (block, client, view_client_addr) = setup(
-                validators_clone.clone(),
-                validator_groups,
-                num_shards,
+                vs,
                 epoch_length,
                 _account_id,
                 skip_sync_wait,
@@ -1123,23 +1117,16 @@ pub fn setup_client_with_runtime(
 
 pub fn setup_client(
     store: Store,
-    validators: Vec<Vec<AccountId>>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    vs: ValidatorSchedule,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
 ) -> Client {
-    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        validators,
-        validator_groups,
-        num_shards,
-        chain_genesis.epoch_length,
-    ));
+    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
+    let runtime_adapter =
+        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
     setup_client_with_runtime(
         num_validator_seats,
         account_id,
@@ -1281,11 +1268,11 @@ impl TestEnvBuilder {
                         Some(seed) => *seed,
                         None => TEST_SEED,
                     };
+                    let vs = ValidatorSchedule::new()
+                        .block_producers_per_epoch(vec![validators.clone()]);
                     setup_client(
                         create_test_store(),
-                        vec![validators.clone()],
-                        1,
-                        1,
+                        vs,
                         Some(account_id),
                         false,
                         network_adapter.clone(),
@@ -1542,11 +1529,10 @@ impl TestEnv {
             Some(seed) => *seed,
             None => TEST_SEED,
         };
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
         self.clients[idx] = setup_client(
             store,
-            vec![self.validators.clone()],
-            1,
-            1,
+            vs,
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),

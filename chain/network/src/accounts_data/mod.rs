@@ -26,7 +26,7 @@
 //!       lot of peers
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
-use near_network_primitives::types::AccountKeys;
+use crate::types::AccountKeys;
 use near_o11y::log_assert;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
@@ -137,8 +137,6 @@ pub(crate) struct Cache {
     inner: RwLock<CacheInner>,
 }
 
-// TODO(gprusak): Cache will be used in the next PR.
-#[allow(dead_code)]
 impl Cache {
     pub fn new() -> Self {
         Self {
@@ -217,7 +215,7 @@ impl Cache {
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         data: Vec<SignedAccountData>,
     ) -> (Vec<SignedAccountData>, Option<Error>) {
         let this = self.clone();
