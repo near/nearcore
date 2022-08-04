@@ -1,16 +1,17 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    AccountData, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use near_crypto::PublicKey;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
     PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
-    SetChainInfo, StateResponseInfo,
+    StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -20,11 +21,42 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+/// Set of account keys.
+/// This is information which chain pushes to network to implement tier1.
+/// See ChainInfo.
+pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
+
+/// Network-relevant data about the chain.
+// TODO(gprusak): it is more like node info, or sth.
+#[derive(Debug, Clone, Default)]
+pub struct ChainInfo {
+    pub tracked_shards: Vec<ShardId>,
+    pub height: BlockHeight,
+    // Public keys of accounts participating in the BFT consensus
+    // (both accounts from current and next epoch are important, that's why
+    // the map is indexed by (EpochId,AccountId) pair).
+    // It currently includes "block producers", "chunk producers" and "approvers".
+    // They are collectively known as "validators".
+    // Peers acting on behalf of these accounts have a higher
+    // priority on the NEAR network than other peers.
+    pub tier1_accounts: Arc<AccountKeys>,
+}
+
+#[derive(Debug, actix::Message)]
+#[rtype(result = "()")]
+pub struct SetChainInfo(pub ChainInfo);
+
+#[derive(Debug, actix::Message)]
+#[rtype(result = "NetworkInfo")]
+pub struct GetNetworkInfo;
 
 /// Peer stats query.
 #[derive(actix::Message)]
@@ -287,6 +319,7 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub peer_counter: usize,
+    pub tier1_accounts: Vec<AccountData>,
 }
 
 impl From<NetworkInfo> for NetworkInfoView {

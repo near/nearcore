@@ -251,8 +251,7 @@ impl ChunkTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                mock_runtime.get_part_owner(&mock_ancestor_hash, *p).unwrap()
-                    == mock_chunk_part_owner
+                mock_runtime.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk =
