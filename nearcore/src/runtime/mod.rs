@@ -3492,7 +3492,7 @@ mod test {
     fn test_flat_state_usage() {
         let mut env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
         let trie = env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
-        assert!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
+        assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
 
         let trie = env.runtime.get_view_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
         assert!(trie.flat_state.is_none());
