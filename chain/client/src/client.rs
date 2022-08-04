@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_client_primitives::debug::BlockProduction;
+use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
@@ -41,6 +41,8 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::debug::BlockProductionTracker;
+use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_chain::types::ValidatorInfoIdentifier;
@@ -65,9 +67,6 @@ pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
-
-/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
-pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
 
 pub struct Client {
     /// Adversarial controls
@@ -115,10 +114,11 @@ pub struct Client {
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
 
-    /// Block and chunk production timing information.
-    /// used only for debug purposes.
-    pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
-    pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
+    /// Block production timing information. Used only for debug purposes.
+    /// Stores approval information and production time of the block
+    pub block_production_info: BlockProductionTracker,
+    /// Chunk production timing information. Used only for debug purposes.
+    pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
@@ -241,8 +241,8 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
-            block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
-            chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            block_production_info: BlockProductionTracker::new(),
+            chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
         })
     }
@@ -517,16 +517,15 @@ impl Client {
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
         // Add debug information about the block production (and info on when did the chunks arrive).
-        self.block_production_times.put(
+        self.block_production_info.record_block_production(
             next_height,
-            BlockProduction {
-                block_production_time: Some(chrono::Utc::now()),
-                chunks_collection_time: (0..chunks.len() as u64)
-                    .map(|shard_id| {
-                        new_chunks.get(&shard_id).map(|(_, arrival_time)| arrival_time.clone())
-                    })
-                    .collect::<Vec<_>>(),
-            },
+            BlockProductionTracker::construct_chunk_collection_info(
+                next_height,
+                &epoch_id,
+                chunks.len() as ShardId,
+                &new_chunks,
+                &*self.runtime_adapter,
+            )?,
         );
 
         // Collect new chunks.
@@ -712,7 +711,13 @@ impl Client {
         );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
-        self.chunk_production_times.put((next_height, shard_id), timer.elapsed());
+        self.chunk_production_info.put(
+            (next_height, shard_id),
+            ChunkProduction {
+                chunk_production_time: Some(Clock::utc()),
+                chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
+            },
+        );
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
