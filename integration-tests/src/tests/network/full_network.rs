@@ -1,6 +1,6 @@
-pub use crate::tests::network::runner::*;
+use crate::tests::network::runner::*;
+use near_network_primitives::time;
 use std::cmp::min;
-use std::time::Duration;
 
 /// Check that a node is able to connect to the network, even if the number
 /// of active peers of every node is high.
@@ -100,7 +100,7 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     // - 1 shouldn't drop connections to 0,2,3, even though the
     //   connection limit is 2, since 0<->3 connection doesn't
     //   count towards this limit.
-    runner.push(Action::Wait(Duration::from_millis(200)));
+    runner.push(Action::Wait(time::Duration::milliseconds(200)));
     runner.push_action(assert_expected_peers(0, vec![1, 2, 3]));
     runner.push_action(assert_expected_peers(1, vec![0, 2]));
     runner.push_action(assert_expected_peers(2, vec![0, 1]));
