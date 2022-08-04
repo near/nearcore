@@ -297,11 +297,10 @@ impl Actor for PeerManagerActor {
         }
 
         // Periodically push network information to client.
-        self.push_network_info_trigger(ctx, self.config.push_info_period.try_into().unwrap());
+        self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        let max_interval =
-            min(MONITOR_PEERS_MAX_DURATION, self.config.bootstrap_peers_period.try_into().unwrap());
+        let max_interval = min(MONITOR_PEERS_MAX_DURATION, self.config.bootstrap_peers_period);
         debug!(target: "network", ?max_interval, "monitor_peers_trigger");
         self.monitor_peers_trigger(
             ctx,
@@ -310,7 +309,7 @@ impl Actor for PeerManagerActor {
         );
 
         // Periodically starts connected peer stats querying.
-        self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period.try_into().unwrap());
+        self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period);
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
@@ -469,7 +468,7 @@ impl PeerManagerActor {
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
-        self.update_routing_table(ctx, Some(self.clock.now() - PRUNE_UNREACHABLE_PEERS_AFTER));
+        self.update_routing_table(ctx, self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER));
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -538,7 +537,7 @@ impl PeerManagerActor {
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             new_edges.push(edge);
             // TODO: do we really need this limit?
-            if self.clock.now() - start >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
+            if self.clock.now() >= start + BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
         }
@@ -806,7 +805,7 @@ impl PeerManagerActor {
         let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.validator.as_ref().map(|v| v.account_id());
         let server_addr = self.config.node_addr;
-        let handshake_timeout = self.config.handshake_timeout.try_into().unwrap();
+        let handshake_timeout = self.config.handshake_timeout;
 
         let server_addr = match server_addr {
             Some(server_addr) => server_addr,
@@ -965,7 +964,7 @@ impl PeerManagerActor {
             SendMessage { message: PeerMessage::PeersRequest, context: Span::current().context() };
         for (peer_id, connected_peer) in &*self.state.connected_peers.read() {
             let now = self.clock.now();
-            if now - connected_peer.last_time_peer_requested > REQUEST_PEERS_INTERVAL {
+            if now > connected_peer.last_time_peer_requested + REQUEST_PEERS_INTERVAL {
                 self.state.connected_peers.set_last_time_peer_requested(peer_id, now);
                 requests.push(connected_peer.addr.send(msg.clone()));
             }

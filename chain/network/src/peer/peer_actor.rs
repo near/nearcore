@@ -569,8 +569,9 @@ impl PeerActor {
     fn on_receive_message(&mut self) {
         if let Some(peer_id) = self.other_peer_id().cloned() {
             let now = self.clock.now();
-            if now - self.last_time_received_message_update
-                > time::Duration::try_from(UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE).unwrap()
+            if now
+                > self.last_time_received_message_update
+                    + UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
                 self.last_time_received_message_update = now;
                 let _ = self.peer_manager_addr.do_send(PeerToManagerMsg::ReceivedMessage(
