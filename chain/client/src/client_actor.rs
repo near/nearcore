@@ -986,10 +986,23 @@ impl ClientActor {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
+        let me = if let Some(me) = &self.client.validator_signer {
+            me.validator_id().clone()
+        } else {
+            return Ok(());
+        };
+
+        // For debug purpose, we record the approvals we have seen so far to the future blocks
         for height in latest_known.height + 1..=self.client.doomslug.get_largest_approval_height() {
-            self.client
-                .block_production_info
-                .record_approvals(height, self.client.doomslug.approval_status_at_height(&height));
+            let next_block_producer_account =
+                self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
+
+            if me == next_block_producer_account {
+                self.client.block_production_info.record_approvals(
+                    height,
+                    self.client.doomslug.approval_status_at_height(&height),
+                );
+            }
         }
 
         for height in
@@ -998,9 +1011,7 @@ impl ClientActor {
             let next_block_producer_account =
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
-            if self.client.validator_signer.as_ref().map(|bp| bp.validator_id())
-                == Some(&next_block_producer_account)
-            {
+            if me == next_block_producer_account {
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
