@@ -475,7 +475,7 @@ impl ClientActor {
                 self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
                     + self.client.chain.epoch_length,
             );
-            let max_height = self.client.doomslug.get_largest_target_height().clamp(
+            let max_height = self.client.doomslug.get_largest_approval_height().clamp(
                 head.height,
                 min(head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW, estimated_epoch_end),
             );
