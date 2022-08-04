@@ -1165,9 +1165,8 @@ impl Runtime {
         }
 
         let trie = Rc::new(trie);
-        let flat_state = trie.retrieve_flat_state();
-        let initial_state = TrieUpdate::new_with_flat_state(trie.clone(), flat_state.clone(), root);
-        let mut state_update = TrieUpdate::new_with_flat_state(trie.clone(), flat_state, root);
+        let initial_state = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
 

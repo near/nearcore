@@ -12,6 +12,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
+use crate::flat_state::FlatState;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{DBCol, DBOp, DBTransaction};
@@ -92,7 +93,12 @@ impl ShardTries {
         TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid)), state_root)
     }
 
-    fn get_trie_for_shard_internal(&self, shard_uid: ShardUId, is_view: bool) -> Trie {
+    fn get_trie_for_shard_internal(
+        &self,
+        shard_uid: ShardUId,
+        is_view: bool,
+        use_flat_state: bool,
+    ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
@@ -101,16 +107,27 @@ impl ShardTries {
                 .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
                 .clone()
         };
-        let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
-        Trie::new(store)
+        let storage = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
+        let flat_state =
+            if use_flat_state { Some(FlatState { store: self.0.store.clone() }) } else { None };
+        Trie::new(storage, flat_state)
+    }
+
+    pub fn get_trie_with_optional_flat_state_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        is_view: bool,
+        use_flat_state: bool,
+    ) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, is_view, use_flat_state)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, false)
+        self.get_trie_with_optional_flat_state_for_shard(shard_uid, false, false)
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, true)
+        self.get_trie_with_optional_flat_state_for_shard(shard_uid, true, false)
     }
 
     pub fn get_store(&self) -> Store {

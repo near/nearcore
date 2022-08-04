@@ -27,10 +27,10 @@ impl ValueRef {
     /// Create serialized value reference by the value.
     /// Resulting array stores [4 bytes of length] and then [32 bytes of hash].
     pub fn create_serialized(value: &[u8]) -> [u8; 36] {
-        let mut value_ser = [0u8; 36];
-        value_ser[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
-        value_ser[4..36].copy_from_slice(&hash(value).0);
-        value_ser
+        let mut result = [0u8; 36];
+        result[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
+        result[4..36].copy_from_slice(&hash(value).0);
+        result
     }
 
     /// Decode value reference from the raw byte array.
@@ -41,5 +41,20 @@ impl ValueRef {
         cursor.read_exact(&mut arr)?;
         let value_hash = CryptoHash(arr);
         Ok(Some(ValueRef { length: value_length, hash: value_hash }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::state::ValueRef;
+    use near_primitives_core::hash::hash;
+
+    #[test]
+    fn test_encode_decode() {
+        let value = vec![1, 2, 3];
+        let value_ref_ser = ValueRef::create_serialized(&value);
+        let value_ref = ValueRef::decode(&value_ref_ser).unwrap().unwrap();
+        assert_eq!(value_ref.length, value.len());
+        assert_eq!(value_ref.hash, hash(&value));
     }
 }

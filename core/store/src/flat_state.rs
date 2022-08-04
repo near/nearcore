@@ -13,7 +13,7 @@ use std::io::{Cursor, Read};
 /// Used to speed up `get` and `get_ref` trie methods.
 #[derive(Clone)]
 pub struct FlatState {
-    store: Store,
+    pub(crate) store: Store,
 }
 
 impl FlatState {

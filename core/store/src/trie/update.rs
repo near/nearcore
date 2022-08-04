@@ -28,7 +28,6 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
-    pub flat_state: Option<FlatState>,
     root: CryptoHash,
     committed: RawStateChanges,
     prospective: TrieUpdates,
@@ -59,21 +58,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
 impl TrieUpdate {
     pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
-        TrieUpdate::new_with_flat_state(trie, None, root)
-    }
-
-    pub fn new_with_flat_state(
-        trie: Rc<Trie>,
-        flat_state: Option<FlatState>,
-        root: CryptoHash,
-    ) -> Self {
-        TrieUpdate {
-            trie,
-            flat_state,
-            root,
-            committed: Default::default(),
-            prospective: Default::default(),
-        }
+        TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
     }
 
     pub fn trie(&self) -> &Trie {
@@ -81,7 +66,6 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let is_delayed = key.is_delayed();
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
@@ -91,15 +75,7 @@ impl TrieUpdate {
             }
         }
 
-        match &self.flat_state {
-            Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
-                Some(ValueRef { hash, .. }) => {
-                    self.trie.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
-                }
-                None => Ok(None),
-            },
-            _ => self.trie.get(&self.root, &key),
-        }
+        self.trie.get(&self.root, &key)
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
@@ -112,11 +88,7 @@ impl TrieUpdate {
             }
         }
 
-        let value_ref = match &self.flat_state {
-            Some(flat_state) => flat_state.get_ref(&key),
-            None => self.trie.get_ref(&self.root, &key),
-        };
-        value_ref.map(|option| {
+        self.trie.get_ref(&self.root, &key).map(|option| {
             option.map(|ValueRef { length, hash }| {
                 TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
             })

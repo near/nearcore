@@ -716,9 +716,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.clone()
     }
 
+    // TODO (#7327): Make usage of flat state conditional on prev_hash
     fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_for_shard(shard_uid))
+        let use_flat_state = cfg!(feature = "protocol_feature_flat_state");
+        Ok(self.tries.get_trie_with_optional_flat_state_for_shard(shard_uid, true, use_flat_state))
     }
 
     fn get_view_trie_for_shard(
