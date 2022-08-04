@@ -80,4 +80,14 @@ impl LatenciesCsv {
         write!(self.out, "{:?},{},{}\n", chrono::offset::Utc::now(), id, latency.as_micros())?;
         Ok(())
     }
+
+    pub fn write_timeout(
+        &mut self,
+        peer_id: &PeerId,
+        account_id: Option<&AccountId>,
+    ) -> io::Result<()> {
+        let id = account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a));
+        write!(self.out, "{:?},{},TIMEOUT\n", chrono::offset::Utc::now(), id)?;
+        Ok(())
+    }
 }
