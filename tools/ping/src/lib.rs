@@ -337,6 +337,10 @@ impl Ord for PingTimeout {
     }
 }
 
+fn peer_str(peer_id: &PeerId, account_id: Option<&AccountId>) -> String {
+    account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a))
+}
+
 const MAX_PINGS_IN_FLIGHT: usize = 10;
 const PING_TIMEOUT: Duration = Duration::from_secs(100);
 
@@ -414,11 +418,11 @@ impl AppInfo {
                     })
                     .unwrap();
 
-                if let Some(account_id) = state.account_id.as_ref() {
-                    println!("send ping --------------> {}", account_id);
-                } else {
-                    println!("send ping --------------> {}", &peer_id);
-                }
+                println!(
+                    "send ping --------------> {}",
+                    peer_str(&peer_id, state.account_id.as_ref())
+                );
+
                 state.stats.pings_sent += 1;
                 state.last_pinged = Some(timestamp);
 
@@ -471,24 +475,18 @@ impl AppInfo {
                             timeout: times.timeout
                         }));
 
-                        if let Some(account_id) = state.account_id.as_ref() {
-                            println!(
-                                "recv pong <-------------- {} latency: {:?}",
-                                account_id, latency
-                            );
-                        } else {
-                            println!(
-                                "recv pong <-------------- {} latency: {:?}",
-                                &peer_id, latency
-                            );
-                        }
+                        println!(
+                            "recv pong <-------------- {} latency: {:?}",
+                            peer_str(&peer_id, state.account_id.as_ref()),
+                            latency
+                        );
                         Some((latency, state.account_id.as_ref()))
                     }
                     None => {
                         tracing::warn!(
                             target: "ping",
-                            "received pong with nonce {} from {:?}, after we probably treated it as timed out previously",
-                            nonce, peer_id
+                            "received pong with nonce {} from {}, after we probably treated it as timed out previously",
+                            nonce, peer_str(&peer_id, state.account_id.as_ref())
                         );
                         None
                     }
@@ -513,11 +511,11 @@ impl AppInfo {
             })
             .unwrap();
         assert!(pending_pings.remove(&t.nonce).is_some());
-        if let Some(account_id) = state.account_id.as_ref() {
-            println!("{} timeout after {:?} ---------", account_id, PING_TIMEOUT);
-        } else {
-            println!("{} timeout after {:?} ---------", &t.peer_id, PING_TIMEOUT);
-        }
+        println!(
+            "{} timeout after {:?} ---------",
+            peer_str(&t.peer_id, state.account_id.as_ref()),
+            PING_TIMEOUT
+        );
     }
 
     fn add_peer(&mut self, peer_id: &PeerId, account_id: Option<&AccountId>) {
