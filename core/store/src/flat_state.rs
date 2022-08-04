@@ -8,6 +8,7 @@ use near_primitives::state::ValueRef;
 /// Used to speed up `get` and `get_ref` trie methods.
 #[derive(Clone)]
 pub struct FlatState {
+    #[allow(dead_code)]
     pub(crate) store: Store,
 }
 
