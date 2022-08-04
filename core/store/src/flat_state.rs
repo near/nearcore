@@ -1,13 +1,9 @@
 use crate::{DBCol, Store};
 use alloc::vec::Vec;
-use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
-use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ValueRef;
-use near_store::columns::DBCol;
-use std::io::{Cursor, Read};
 
 /// Struct for getting value references from the flat storage.
 /// Used to speed up `get` and `get_ref` trie methods.

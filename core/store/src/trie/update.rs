@@ -6,12 +6,11 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
 };
 
-use crate::trie::{FlatState, TrieChanges};
+use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
 use near_primitives::state::ValueRef;
-use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 
