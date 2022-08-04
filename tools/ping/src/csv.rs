@@ -11,7 +11,7 @@ pub struct LatenciesCsv {
     out: BufWriter<File>,
 }
 
-const HEADER: &'static str = "timestamp,ID,latency";
+const HEADER: &'static str = "timestamp,ID,latency\n";
 
 impl LatenciesCsv {
     pub fn open<P: AsRef<Path>>(filename: P) -> io::Result<Self> {
