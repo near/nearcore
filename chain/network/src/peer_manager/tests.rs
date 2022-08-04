@@ -15,6 +15,7 @@ use near_network_primitives::types::{Ping, RoutedMessageBody};
 use near_primitives::network::PeerId;
 use pretty_assertions::assert_eq;
 use rand::Rng as _;
+use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -305,4 +306,88 @@ async fn accounts_data_gradual_epoch_change() {
             pm.wait_for_accounts_data(&want).await;
         }
     }
+}
+
+// Test with 20 peer managers connected in layers:
+// - 1st 5 and 2nd 5 are connected in full bipartite graph.
+// - 2nd 5 and 3rd 5 ...
+// - 3rd 5 and 4th 5 ...
+// All of them are validators.
+#[tokio::test(flavor = "multi_thread")]
+async fn accounts_data_rate_limiting() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // TODO(gprusak) 10 connections per peer is not much, try to scale up this test 2x (some config
+    // tweaking might be required).
+    let n = 4; // layers
+    let m = 5; // peer managers per layer
+    let mut pms = vec![];
+    for _ in 0..n*m {
+        pms.push(peer_manager::testonly::start(rng, chain.clone()).await);
+    }
+    // Construct a 4-layer bipartite graph.
+    let mut connections = 0;
+    for i in 0..n-1 {
+        for j in 0..m {
+            for k in 0..m {
+                let pi = pms[(i+1)*m+k].peer_info();
+                pms[i*m+j].connect_to(&pi).await;
+                connections += 1;
+            }
+        }
+    }
+    
+    // Validator configs.
+    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
+
+    // Construct ChainInfo for a new epoch,
+    // with tier1_accounts containing all validators.
+    let e = data::make_epoch_id(rng);
+    let mut chain_info = chain.get_chain_info();
+    chain_info.tier1_accounts = Arc::new(
+        vs.iter()
+            .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+            .collect(),
+    );
+
+    // Advance epoch in random order.
+    pms.shuffle(rng);
+    for pm in &mut pms {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+
+    // Capture the event streams at the start, so that we can compute
+    // the total number of SyncAccountsData messages exchanged in the process.
+    let events : Vec<_> = pms.iter().map(|pm|pm.events.clone()).collect();
+
+    // Wait for data to arrive.
+    let want = vs
+        .iter()
+        .map(|v| ((e.clone(), v.signer.validator_id().clone()), peer_addrs(&v)))
+        .collect();
+    for pm in &mut pms {
+        pm.wait_for_accounts_data(&want).await;
+    }
+
+    // Count the SyncAccountsData messages exchanged.
+    let mut msgs = 0;
+    for mut es in events {
+        while let Some(ev) = es.try_recv() {
+            if peer_manager::testonly::unwrap_sync_accounts_data_processed(ev).is_some() {
+                msgs += 1;
+            }
+        }
+    }
+
+    // We expect 3 rounds communication to cover the distance from 1st layer to 4th layer
+    // and +1 full sync at handshake.
+    // The communication is bidirectional, which gives 8 messages per connection.
+    // Then add +50% to accomodate for test execution flakiness (12 messages per connection).
+    // TODO(gprusak): if the test is still flaky, upgrade FakeClock for stricter flow control.
+    let want_max = connections*12;
+    assert!(msgs<=want_max,"got {msgs} messages, want at most {want_max}");
 }

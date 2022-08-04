@@ -62,6 +62,20 @@ pub struct RateLimit {
     pub qps: f64,
 }
 
+impl RateLimit {
+    // TODO(gprusak): consider having a constructor for RateLimit which enforces validation
+    // and getters for fields, so that they cannot be modified after construction.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.qps <= 0. {
+            anyhow::bail!("qps has to be >0");
+        }
+        if self.burst <= 0 {
+            anyhow::bail!("burst has to be >0");
+        }
+        Ok(())
+    }
+}
+
 /// A demux handler should be in practice of type [Arg;n] -> [Res;n] for arbitrary n.
 /// We approximate that by a function Vec<Arg> -> Vec<Res>. If the sizes do not match,
 /// demux will panic.

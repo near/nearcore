@@ -1,4 +1,5 @@
 use crate::network_protocol::PeerAddr;
+use crate::concurrency::demux;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
@@ -110,8 +111,8 @@ pub struct NetworkConfig {
     pub outbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
-    /// Maximal QPS at which SyncAccountsData can be broadcasted.
-    pub accounts_data_broadcast_max_qps: f64,
+    /// Maximal rate at which SyncAccountsData can be broadcasted.
+    pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
 }
@@ -204,7 +205,7 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
-            accounts_data_broadcast_max_qps: 0.1,
+            accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.1,burst:1},
             features,
         };
         this.verify()?;
@@ -259,7 +260,7 @@ impl NetworkConfig {
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
-            accounts_data_broadcast_max_qps: 100.,
+            accounts_data_broadcast_rate_limit: demux::RateLimit{qps:0.5,burst:1},
             features: Features { enable_tier1: true },
         };
         this.verify().unwrap();
@@ -300,9 +301,7 @@ impl NetworkConfig {
                 self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
             );
         }
-        if self.accounts_data_broadcast_max_qps <= 0. {
-            anyhow::bail!("accounts_data_broadcast_max_qps has to be >0");
-        }
+        self.accounts_data_broadcast_rate_limit.validate().context("accounts_Data_broadcast_rate_limit")?;
         Ok(())
     }
 }

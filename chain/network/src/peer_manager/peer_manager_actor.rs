@@ -396,7 +396,7 @@ impl PeerManagerActor {
             v
         };
         let config = Arc::new(config);
-        let max_qps = config.accounts_data_broadcast_max_qps;
+        let rl = config.accounts_data_broadcast_rate_limit;
         Ok(Self {
             clock,
             my_peer_id,
@@ -419,7 +419,7 @@ impl PeerManagerActor {
                 genesis_id,
                 client_addr,
                 view_client_addr,
-                demux::RateLimit { qps: max_qps, burst: 1 },
+                rl,
             )),
         })
     }
