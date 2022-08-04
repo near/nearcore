@@ -265,7 +265,7 @@ pub(crate) fn convert_block_changes_to_transactions(
                     previous_account_state,
                     &account,
                     deposit,
-                    predecessor_id,
+                    &predecessor_id,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -297,7 +297,7 @@ fn convert_account_update_to_operations(
     previous_account_state: Option<&near_primitives::views::AccountView>,
     account: &near_primitives::views::AccountView,
     deposit: Option<near_primitives::types::Balance>,
-    predecessor_id: Option<crate::models::AccountIdentifier>,
+    predecessor_id: &Option<crate::models::AccountIdentifier>,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -322,10 +322,14 @@ fn convert_account_update_to_operations(
                 amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: Some(OperationMetadata {
-                    predecessor_id: predecessor_id.clone(),
-                    ..Default::default()
-                }),
+                metadata: if let Some(predecessor_id) = predecessor_id {
+                    Some(OperationMetadata {
+                        predecessor_id: Some(predecessor_id.clone()),
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                },
             });
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(operations),
@@ -344,10 +348,14 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: Some(OperationMetadata {
-                    predecessor_id: predecessor_id.clone(),
-                    ..Default::default()
-                }),
+                metadata: if let Some(predecessor_id) = predecessor_id {
+                    Some(OperationMetadata {
+                        predecessor_id: Some(predecessor_id.clone()),
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                },
             });
         } else {
             operations.push(crate::models::Operation {
@@ -366,10 +374,14 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: Some(OperationMetadata {
-                    predecessor_id: predecessor_id.clone(),
-                    ..Default::default()
-                }),
+                metadata: if let Some(predecessor_id) = predecessor_id {
+                    Some(OperationMetadata {
+                        predecessor_id: Some(predecessor_id.clone()),
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                },
             });
         }
     }
@@ -391,10 +403,14 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: Some(OperationMetadata {
-                predecessor_id: predecessor_id.clone(),
-                ..Default::default()
-            }),
+            metadata: if let Some(predecessor_id) = predecessor_id {
+                Some(OperationMetadata {
+                    predecessor_id: Some(predecessor_id.clone()),
+                    ..Default::default()
+                })
+            } else {
+                None
+            },
         });
     }
 
@@ -415,10 +431,14 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: Some(OperationMetadata {
-                predecessor_id: predecessor_id.clone(),
-                ..Default::default()
-            }),
+            metadata: if let Some(predecessor_id) = predecessor_id {
+                Some(OperationMetadata {
+                    predecessor_id: Some(predecessor_id.clone()),
+                    ..Default::default()
+                })
+            } else {
+                None
+            },
         });
     }
 }
