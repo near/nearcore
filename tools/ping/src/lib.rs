@@ -16,10 +16,10 @@ use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
 use std::cmp;
 use std::collections::hash_map::Entry;
-use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -316,13 +316,40 @@ impl Ord for PingTarget {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PingTimeout {
+    peer_id: PeerId,
+    nonce: u64,
+    timeout: Instant,
+}
+
+impl PartialOrd for PingTimeout {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PingTimeout {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.timeout.cmp(&other.timeout).then_with(|| {
+            self.nonce.cmp(&other.nonce).then_with(|| self.peer_id.cmp(&other.peer_id))
+        })
+    }
+}
+
 const MAX_PINGS_IN_FLIGHT: usize = 10;
+const PING_TIMEOUT: Duration = Duration::from_secs(100);
 
 #[derive(Debug)]
 struct PingState {
     stats: PingStats,
     last_pinged: Option<Instant>,
     account_id: Option<AccountId>,
+}
+
+struct PingTimes {
+    sent_at: Instant,
+    timeout: Instant,
 }
 
 struct AppInfo {
@@ -332,7 +359,8 @@ struct AppInfo {
     stats: HashMap<PeerId, PingState>,
     // we will ping targets in round robin fashion. So this keeps a set of
     // targets ordered by when we last pinged them.
-    requests: BTreeMap<PingTarget, HashMap<Nonce, Instant>>,
+    requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
+    timeouts: BTreeSet<PingTimeout>,
     account_filter: Option<HashSet<AccountId>>,
 }
 
@@ -357,6 +385,7 @@ impl AppInfo {
             my_peer_id,
             stats: HashMap::new(),
             requests: BTreeMap::new(),
+            timeouts: BTreeSet::new(),
             account_filter,
         }
     }
@@ -372,6 +401,7 @@ impl AppInfo {
 
     fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64) {
         let timestamp = Instant::now();
+        let timeout = timestamp + PING_TIMEOUT;
 
         match self.stats.entry(peer_id.clone()) {
             Entry::Occupied(mut e) => {
@@ -400,13 +430,14 @@ impl AppInfo {
                         );
                     }
                     Entry::Vacant(e) => {
-                        e.insert(timestamp);
+                        e.insert(PingTimes { sent_at: timestamp, timeout });
                     }
                 };
                 self.requests.insert(
                     PingTarget { peer_id: peer_id.clone(), last_pinged: Some(timestamp) },
                     pending_pings,
                 );
+                self.timeouts.insert(PingTimeout { peer_id: peer_id.clone(), nonce, timeout })
             }
             Entry::Vacant(_) => {
                 panic!("sent ping to {:?}, but not present in stats HashMap", peer_id)
@@ -431,9 +462,14 @@ impl AppInfo {
                     .unwrap();
 
                 match pending_pings.remove(&nonce) {
-                    Some(sent_at) => {
-                        let latency = received_at - sent_at;
+                    Some(times) => {
+                        let latency = received_at - times.sent_at;
                         state.stats.pong_received(latency);
+                        assert!(self.timeouts.remove(&PingTimeout {
+                            peer_id: peer_id.clone(),
+                            nonce,
+                            timeout: times.timeout
+                        }));
 
                         if let Some(account_id) = state.account_id.as_ref() {
                             println!(
@@ -451,7 +487,7 @@ impl AppInfo {
                     None => {
                         tracing::warn!(
                             target: "ping",
-                            "received pong with nonce {} from {:?}, but don't remember sending a matching ping",
+                            "received pong with nonce {} from {:?}, after we probably treated it as timed out previously",
                             nonce, peer_id
                         );
                         None
@@ -462,6 +498,25 @@ impl AppInfo {
                 tracing::warn!(target: "ping", "received pong from {:?}, but don't know of this peer", peer_id);
                 None
             }
+        }
+    }
+
+    fn pop_timeout(&mut self, t: &PingTimeout) {
+        assert!(self.timeouts.remove(&t));
+        let state = self.stats.get(&t.peer_id).unwrap();
+
+        let pending_pings = self
+            .requests
+            .get_mut(&PingTarget {
+                peer_id: t.peer_id.clone(),
+                last_pinged: state.last_pinged.clone(),
+            })
+            .unwrap();
+        assert!(pending_pings.remove(&t.nonce).is_some());
+        if let Some(account_id) = state.account_id.as_ref() {
+            println!("{} timeout after {:?} ---------", account_id, PING_TIMEOUT);
+        } else {
+            println!("{} timeout after {:?} ---------", &t.peer_id, PING_TIMEOUT);
         }
     }
 
@@ -509,6 +564,10 @@ impl AppInfo {
         for a in r.accounts.iter() {
             self.add_peer(&a.peer_id, Some(&a.account_id));
         }
+    }
+
+    fn peer_id_to_account_id(&self, peer_id: &PeerId) -> Option<&AccountId> {
+        self.stats.get(peer_id).and_then(|s| s.account_id.as_ref())
     }
 }
 
@@ -567,6 +626,15 @@ fn collect_stats(app_info: AppInfo) -> Vec<(PeerIdentifier, PingStats)> {
     ret
 }
 
+fn prepare_timeout(sleep: Pin<&mut tokio::time::Sleep>, app_info: &AppInfo) -> Option<PingTimeout> {
+    if let Some(t) = app_info.timeouts.iter().next() {
+        sleep.reset(tokio::time::Instant::from_std(t.timeout));
+        Some(t.clone())
+    } else {
+        None
+    }
+}
+
 pub async fn ping_via_node(
     chain_id: &str,
     genesis_hash: CryptoHash,
@@ -618,9 +686,13 @@ pub async fn ping_via_node(
     let mut nonce = 1;
     let next_ping = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(next_ping);
+    let next_timeout = tokio::time::sleep(Duration::ZERO);
+    tokio::pin!(next_timeout);
 
     loop {
         let target = app_info.pick_next_target();
+        let pending_timeout = prepare_timeout(next_timeout.as_mut(), &app_info);
+
         tokio::select! {
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
@@ -647,6 +719,17 @@ pub async fn ping_via_node(
                 }
                 if stop {
                     break;
+                }
+            }
+            _ = &mut next_timeout, if pending_timeout.is_some() => {
+                let t = pending_timeout.unwrap();
+                app_info.pop_timeout(&t);
+                if let Some(csv) = latencies_csv.as_mut() {
+                    if let Err(e) =
+                    csv.write_timeout(&t.peer_id, app_info.peer_id_to_account_id(&t.peer_id)) {
+                        tracing::error!("Failed writing to CSV file: {}", e);
+                        break;
+                    }
                 }
             }
             _ = tokio::signal::ctrl_c() => {
