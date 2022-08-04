@@ -11,4 +11,7 @@ expression: report.to_string()
 AltBn128MultiExp                                    0 gas ➜           10 gas (+inf%)
 LogByte                                        15.00 Mgas ➜       20.00 Mgas (+33.33%)
 ```
+### Gas estimator uncertain changes: 0
+```
+```
 

@@ -42,6 +42,7 @@ pub(crate) enum Status {
 #[derive(Debug, PartialEq)]
 pub(crate) enum Notice {
     RelativeChange(RelativeChange),
+    UncertainChange(UncertainChange),
 }
 
 #[derive(Debug, PartialEq)]
@@ -49,6 +50,13 @@ pub(crate) struct RelativeChange {
     pub estimation: String,
     pub before: f64,
     pub after: f64,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct UncertainChange {
+    pub estimation: String,
+    pub before: String,
+    pub after: String,
 }
 
 pub(crate) fn check(db: &Db, config: &CheckConfig) -> anyhow::Result<()> {
@@ -99,8 +107,14 @@ pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<Zul
     let warnings =
         estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
 
+    let warnings_uncertain =
+        estimation_uncertain_changes(db, &estimations, &commit_before, &commit_after, config.metric)?;
+
     let mut report = ZulipReport::new(commit_before, commit_after);
     for warning in warnings {
+        report.add(warning, Status::Warn)
+    }
+    for warning in warnings_uncertain {
         report.add(warning, Status::Warn)
     }
     Ok(report)
@@ -129,6 +143,41 @@ fn estimation_changes(
     }
 
     Ok(warnings)
+}
+
+fn estimation_uncertain_changes(
+    db: &Db,
+    estimation_names: &[String],
+    commit_before: &str,
+    commit_after: &str,
+    metric: Metric,
+) -> anyhow::Result<Vec<Notice>> {
+    let mut warnings = Vec::new();
+    for name in estimation_names {
+        let b = &EstimationRow::get(db, name, commit_before, metric)?[0];
+        let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
+        match (&b.uncertain_reason, &a.uncertain_reason) {
+            (None, None) => continue,
+            (Some(uncertain_before), None) => add_warning(&mut warnings, name.clone(), uncertain_before.clone(), "None".to_owned()),
+            (None, Some(uncertain_after)) => add_warning(&mut warnings, name.clone(),"None".to_owned(), uncertain_after.clone()),
+            (Some(uncertain_before), Some(uncertain_after)) => {
+                if !uncertain_before.eq(uncertain_after) {
+                    add_warning(&mut warnings, name.clone(), uncertain_before.clone(), uncertain_after.clone());
+                }
+            },
+        }
+    }
+
+    Ok(warnings)
+}
+
+fn add_warning(warnings: &mut Vec<Notice>, name: String, before: String, after: String) {
+    warnings.push(Notice::UncertainChange(UncertainChange {
+        estimation: name,
+        before: before,
+        after: after,
+    }))
+
 }
 
 #[cfg(test)]
@@ -166,11 +215,11 @@ mod tests {
 
         0003a
         {"computed_in":{"nanos":633,"secs":7},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"BLOCK-MEASUREMENT-OVERHEAD"}}
         {"computed_in":{"nanos":655,"secs":56},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
 
         0004a
-        {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"HIGH-VARIANCE"}}
         {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
@@ -189,7 +238,7 @@ mod tests {
         WAIT
 
         0000b
-        {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"NEGATIVE-COST"}}
         {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
