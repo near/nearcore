@@ -22,7 +22,7 @@ pub use crate::trie::shard_tries::{
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::{DBCol, StorageError, Store};
+use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;

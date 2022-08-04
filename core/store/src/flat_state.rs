@@ -1,9 +1,8 @@
-use crate::{DBCol, Store};
-use alloc::vec::Vec;
+#[cfg(feature = "protocol_feature_flat_state")]
+use crate::DBCol;
+use crate::Store;
 use near_primitives::errors::StorageError;
-use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
-use near_primitives_core::types::ValueRef;
 
 /// Struct for getting value references from the flat storage.
 /// Used to speed up `get` and `get_ref` trie methods.
