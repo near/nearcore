@@ -439,12 +439,23 @@ pub struct ChunkProcessingInfo {
     /// Theoretically this field should never be None unless there is some database corruption.
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
-    /*
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<Instant>,
-    /// Time (in secs) that it takes between when the chunk is completed and when it is completed.
-    pub request_secs: Option<f64>,
-     */
+    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
+    pub request_duration: Option<u64>,
+    pub chunk_parts_collection: Vec<PartCollectionInfo>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartCollectionInfo {
+    pub part_owner: AccountId,
+    // Time when the part is received through any message
+    pub received_time: Option<DateTime<chrono::Utc>>,
+    // Time when we receive a PartialEncodedChunkForward containing this part
+    pub forwarded_received_time: Option<DateTime<chrono::Utc>>,
+    // Time when we receive the PartialEncodedChunk message containing this part
+    pub chunk_received_time: Option<DateTime<chrono::Utc>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

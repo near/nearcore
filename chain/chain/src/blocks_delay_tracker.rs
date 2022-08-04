@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use near_chain_configs::LogSummaryStyle;
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, Tip};
@@ -69,9 +70,9 @@ pub struct ChunkTrackingStats {
     pub shard_id: ShardId,
     pub prev_block_hash: CryptoHash,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<Instant>,
+    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
     /// Timestamp of when the node receives all information it needs for this chunk
-    pub completed_timestamp: Option<Instant>,
+    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
 }
 
 impl ChunkTrackingStats {
@@ -103,6 +104,15 @@ impl ChunkTrackingStats {
                 runtime_adapter.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
             })
             .ok();
+        let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
+            if let Some(completed_timestamp) = self.completed_timestamp {
+                Some((completed_timestamp - requested_timestamp).num_milliseconds() as u64)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         ChunkProcessingInfo {
             chunk_hash,
             height_created: self.height_created,
@@ -110,6 +120,9 @@ impl ChunkTrackingStats {
             prev_block_hash: self.prev_block_hash,
             created_by,
             status,
+            requested_timestamp: self.requested_timestamp,
+            request_duration,
+            chunk_parts_collection: vec![],
         }
     }
 }
@@ -185,7 +198,11 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_chunk_completed(&mut self, chunk_header: &ShardChunkHeader, timestamp: Instant) {
+    pub fn mark_chunk_completed(
+        &mut self,
+        chunk_header: &ShardChunkHeader,
+        timestamp: DateTime<chrono::Utc>,
+    ) {
         let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
@@ -197,7 +214,11 @@ impl BlocksDelayTracker {
             .get_or_insert(timestamp);
     }
 
-    pub fn mark_chunk_requested(&mut self, chunk_header: &ShardChunkHeader, timestamp: Instant) {
+    pub fn mark_chunk_requested(
+        &mut self,
+        chunk_header: &ShardChunkHeader,
+        timestamp: DateTime<chrono::Utc>,
+    ) {
         let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
@@ -292,9 +313,9 @@ impl BlocksDelayTracker {
             // Theoretically chunk_received should have been set here because a block being processed
             // requires all chunks to be received
             if let Some(chunk_received) = chunk.completed_timestamp {
-                metrics::CHUNK_RECEIVED_DELAY.with_label_values(&[&shard_id.to_string()]).observe(
-                    chunk_received.saturating_duration_since(chunk_requested).as_secs_f64(),
-                );
+                metrics::CHUNK_RECEIVED_DELAY
+                    .with_label_values(&[&shard_id.to_string()])
+                    .observe((chunk_received - chunk_requested).num_milliseconds() as f64 / 1000.);
             }
         }
     }
