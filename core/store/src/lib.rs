@@ -23,6 +23,7 @@ use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state::ValueRef;
+use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::types::RawStateChangesWithTrieKey;
@@ -412,10 +413,10 @@ impl StoreUpdate {
 
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
-        if change.trie_key.is_delayed() {
+        let key = change.trie_key.to_vec();
+        if is_delayed_receipt_key(&key) {
             return;
         }
-        let key = change.trie_key.to_vec();
         let last_change = change
             .changes
             .last()

@@ -208,13 +208,6 @@ impl TrieKey {
         self.append_into(&mut buf);
         buf
     }
-
-    pub fn is_delayed(&self) -> bool {
-        match self {
-            TrieKey::DelayedReceiptIndices | TrieKey::DelayedReceipt { .. } => true,
-            _ => false,
-        }
-    }
 }
 
 // TODO: Remove once we switch to non-raw keys everywhere.
