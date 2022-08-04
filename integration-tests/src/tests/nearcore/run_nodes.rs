@@ -1,9 +1,9 @@
-use actix::{Actor, System};
-use futures::{future, FutureExt};
+use std::ops::ControlFlow;
 
-use near_actix_test_utils::spawn_interruptible;
+use actix::System;
+
 use near_client::GetBlock;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 
@@ -30,21 +30,18 @@ fn run_heavy_nodes(
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    match &res {
-                        Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
-                        Err(_) => return future::ready(()),
-                        _ => {}
-                    };
-                    future::ready(())
-                }));
-            }),
-            100,
-            40000,
-        )
-        .start();
+        wait_or_timeout(100, 40000, || async {
+            let res = view_client.send(GetBlock::latest()).await;
+            match &res {
+                Ok(Ok(b)) if b.header.height > num_blocks => return ControlFlow::Break(()),
+                Err(_) => return ControlFlow::Continue(()),
+                _ => {}
+            };
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        System::current().stop()
     });
 
     // See https://github.com/near/nearcore/issues/3925 for why it is here.
