@@ -54,7 +54,7 @@ mod tests {
         let value = vec![1, 2, 3];
         let value_ref_ser = ValueRef::create_serialized(&value);
         let value_ref = ValueRef::decode(&value_ref_ser).unwrap().unwrap();
-        assert_eq!(value_ref.length, value.len());
+        assert_eq!(value_ref.length, value.len() as u32);
         assert_eq!(value_ref.hash, hash(&value));
     }
 }
