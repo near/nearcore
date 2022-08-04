@@ -82,7 +82,7 @@ pub struct ApprovalHistoryEntry {
 // Information about chunk produced by this node.
 // For debug purposes only.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct ChunkProduction {
     // Time when we produced the chunk.
     pub chunk_production_time: Option<DateTime<chrono::Utc>>,
@@ -93,12 +93,29 @@ pub struct ChunkProduction {
 // Information about the block produced by this node.
 // For debug purposes only.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct BlockProduction {
-    // Time at which we received chunk for given shard.
-    pub chunks_collection_time: Vec<Option<DateTime<chrono::Utc>>>,
-    // Time when we produced the block.
+    // Approvals that we received.
+    pub approvals: ApprovalAtHeightStatus,
+    // Chunk producer and time at which we received chunk for given shard. This field will not be
+    // set if we didn't produce the block.
+    pub chunks_collection_time: Vec<ChunkCollection>,
+    // Time when we produced the block, None if we didn't produce the block.
     pub block_production_time: Option<DateTime<chrono::Utc>>,
+    // Whether this block is included on the canonical chain.
+    pub block_included: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Debug, Clone)]
+pub struct ChunkCollection {
+    // Chunk producer of the chunk
+    pub chunk_producer: AccountId,
+    // Time when the chunk was received. Note that this field can be filled even if the block doesn't
+    // include a chunk for the shard, if a chunk at this height was received after the block was produced.
+    pub received_time: Option<DateTime<chrono::Utc>>,
+    // Whether the block included a chunk for this shard
+    pub chunk_included: bool,
 }
 
 // Information about things related to block/chunk production
@@ -107,17 +124,16 @@ pub struct BlockProduction {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Default)]
 pub struct ProductionAtHeight {
-    // Approvals that we received.
-    pub approvals: ApprovalAtHeightStatus,
-    // Block that we produced.
+    // Stores information about block production is we are responsible for producing this block,
+    // None if we are not responsible for producing this block.
     pub block_production: Option<BlockProduction>,
-    // Map from shard_id to chunk that we produced for this height.
+    // Map from shard_id to chunk that we are responsible to produce at this height
     pub chunk_production: HashMap<u64, ChunkProduction>,
 }
 
 // Infromation about the approvals that we received.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
     pub approvals: HashMap<AccountId, (ApprovalInner, DateTime<chrono::Utc>)>,
@@ -138,8 +154,9 @@ pub struct ValidatorStatus {
     // All approvals that we've sent.
     pub approval_history: Vec<ApprovalHistoryEntry>,
     // Blocks & chunks that we've produced or about to produce.
+    // Sorted by block height inversely (high to low)
     // The range of heights are controlled by constants in client_actor.rs
-    pub production: HashMap<BlockHeight, ProductionAtHeight>,
+    pub production: Vec<(BlockHeight, ProductionAtHeight)>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
