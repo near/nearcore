@@ -1035,7 +1035,7 @@ impl Client {
     ) {
         match process_result {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::instant());
+                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::utc());
                 // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1373,7 +1373,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        let now = Clock::instant();
+        let now = Clock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
