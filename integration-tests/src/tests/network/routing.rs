@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use tokio::time::Duration;
+use near_network_primitives::time;
 
 #[test]
 fn simple() -> anyhow::Result<()> {
@@ -158,7 +158,7 @@ fn test_drop_after_ttl() -> anyhow::Result<()> {
     runner.push(Action::AddEdge { from: 1, to: 2, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
     runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
-    runner.push(Action::Wait(Duration::from_millis(100)));
+    runner.push(Action::Wait(time::Duration::milliseconds(100)));
     runner.push(Action::CheckPingPong(2, vec![], vec![]));
     runner.push(Action::CheckPingPong(0, vec![], vec![]));
 
@@ -201,7 +201,7 @@ fn square() -> anyhow::Result<()> {
 fn blacklist_01() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).add_to_blacklist(0, Some(1)).use_boot_nodes(vec![0]);
 
-    runner.push(Action::Wait(Duration::from_millis(100)));
+    runner.push(Action::Wait(time::Duration::milliseconds(100)));
     runner.push(Action::CheckRoutingTable(1, vec![]));
     runner.push(Action::CheckRoutingTable(0, vec![]));
 
@@ -212,7 +212,7 @@ fn blacklist_01() -> anyhow::Result<()> {
 fn blacklist_10() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).add_to_blacklist(1, Some(0)).use_boot_nodes(vec![0]);
 
-    runner.push(Action::Wait(Duration::from_millis(100)));
+    runner.push(Action::Wait(time::Duration::milliseconds(100)));
     runner.push(Action::CheckRoutingTable(1, vec![]));
     runner.push(Action::CheckRoutingTable(0, vec![]));
 
@@ -223,7 +223,7 @@ fn blacklist_10() -> anyhow::Result<()> {
 fn blacklist_all() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).add_to_blacklist(0, None).use_boot_nodes(vec![0]);
 
-    runner.push(Action::Wait(Duration::from_millis(100)));
+    runner.push(Action::Wait(time::Duration::milliseconds(100)));
     runner.push(Action::CheckRoutingTable(1, vec![]));
     runner.push(Action::CheckRoutingTable(0, vec![]));
 
@@ -242,7 +242,7 @@ fn max_num_peers_limit() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
     runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
     runner.push(Action::AddEdge { from: 3, to: 0, force: false });
-    runner.push(Action::Wait(Duration::from_millis(100)));
+    runner.push(Action::Wait(time::Duration::milliseconds(100)));
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
     runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
@@ -268,25 +268,25 @@ fn archival_node() -> anyhow::Result<()> {
         .set_as_archival(1);
 
     runner.push(Action::AddEdge { from: 2, to: 0, force: true });
-    runner.push(Action::Wait(Duration::from_millis(50)));
+    runner.push(Action::Wait(time::Duration::milliseconds(50)));
     runner.push(Action::AddEdge { from: 3, to: 0, force: true });
-    runner.push(Action::Wait(Duration::from_millis(50)));
+    runner.push(Action::Wait(time::Duration::milliseconds(50)));
     runner.push(Action::AddEdge { from: 4, to: 0, force: true });
-    runner.push(Action::Wait(Duration::from_millis(50)));
+    runner.push(Action::Wait(time::Duration::milliseconds(50)));
     runner.push_action(check_expected_connections(0, Some(2), Some(2)));
 
     runner.push(Action::AddEdge { from: 1, to: 0, force: true });
-    runner.push(Action::Wait(Duration::from_millis(50)));
+    runner.push(Action::Wait(time::Duration::milliseconds(50)));
     runner.push_action(check_expected_connections(0, Some(2), Some(2)));
     runner.push_action(check_direct_connection(0, 1));
 
     for _step in 0..4 {
         runner.push(Action::AddEdge { from: 2, to: 0, force: true });
-        runner.push(Action::Wait(Duration::from_millis(50)));
+        runner.push(Action::Wait(time::Duration::milliseconds(50)));
         runner.push(Action::AddEdge { from: 3, to: 0, force: true });
-        runner.push(Action::Wait(Duration::from_millis(50)));
+        runner.push(Action::Wait(time::Duration::milliseconds(50)));
         runner.push(Action::AddEdge { from: 4, to: 0, force: true });
-        runner.push(Action::Wait(Duration::from_millis(50)));
+        runner.push(Action::Wait(time::Duration::milliseconds(50)));
         runner.push_action(check_expected_connections(0, Some(2), Some(2)));
         runner.push_action(check_direct_connection(0, 1));
     }
@@ -316,7 +316,7 @@ fn test_dropping_routing_messages() -> anyhow::Result<()> {
 
     // Send two identical messages but in 300ms interval so they don't get dropped.
     runner.push(Action::PingTo { source: 0, nonce: 1, target: 2 });
-    runner.push(Action::Wait(Duration::from_millis(300)));
+    runner.push(Action::Wait(time::Duration::milliseconds(300)));
     runner.push(Action::PingTo { source: 0, nonce: 1, target: 2 });
     runner.push(Action::CheckPingPong(
         2,
