@@ -296,9 +296,8 @@ fn archival_node() -> anyhow::Result<()> {
 
 /// Spawn 3 nodes, add edges to form 0---1---2 line. Then send 2 pings from 0 to 2, one should be dropped.
 #[test]
-#[cfg(feature = "test_features")]
 fn test_dropping_routing_messages() -> anyhow::Result<()> {
-    let mut runner = Runner::new(3, 3).max_num_peers(2).enable_outbound();
+    let mut runner = Runner::new(3, 3).max_num_peers(2).ideal_connections(2, 2).enable_outbound();
 
     runner.push(Action::SetOptions { target: 0, max_num_peers: Some(1) });
     runner.push(Action::SetOptions { target: 1, max_num_peers: Some(2) });
