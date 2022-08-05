@@ -223,6 +223,18 @@ pub enum RoutedMessageBody {
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
+impl RoutedMessageBody {
+    // Return whether this message is important.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are
+    // lost
+    pub fn is_important(&self) -> bool {
+        match self {
+            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
     fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
         if let ShardChunkHeader::V1(legacy_header) = pec.header {
