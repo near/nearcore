@@ -1,5 +1,5 @@
-use crate::accounts_data;
 use crate::broadcast;
+use crate::concurrency::demux;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor;
@@ -238,15 +238,13 @@ impl PeerHandle {
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(NetworkState {
-                        config: Arc::new(network_cfg),
-                        genesis_id: cfg.chain.genesis_id.clone(),
-                        client_addr: fc.clone().recipient(),
-                        view_client_addr: fc.clone().recipient(),
-                        accounts_data: Arc::new(accounts_data::Cache::new()),
-                        connected_peers: Default::default(),
-                        chain_info: Default::default(),
-                    }),
+                    Arc::new(NetworkState::new(
+                        Arc::new(network_cfg.verify().unwrap()),
+                        cfg.chain.genesis_id.clone(),
+                        fc.clone().recipient(),
+                        fc.clone().recipient(),
+                        demux::RateLimit { qps: 100., burst: 1 },
+                    )),
                     send.sink().compose(Event::Peer),
                 )
             })

@@ -25,7 +25,7 @@ pub fn connect_at_max_capacity(
         .enable_outbound()
         .max_num_peers(max_num_peers)
         .use_boot_nodes(boot_nodes)
-        .safe_set_size(0)
+        .safe_set_size(1)
         .minimum_outbound_peers(0)
         .ideal_connections(ideal_lo, ideal_hi);
 
@@ -80,7 +80,7 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     let validators = 2;
     let mut runner = Runner::new(nodes, validators)
         .enable_outbound()
-        .safe_set_size(0)
+        .safe_set_size(1)
         .minimum_outbound_peers(0)
         .max_num_peers(2)
         .ideal_connections(2, 2)
