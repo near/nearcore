@@ -1,3 +1,4 @@
+use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
@@ -14,6 +15,7 @@ use near_network_primitives::time;
 use near_network_primitives::types::{Ping, RoutedMessageBody};
 use near_primitives::network::PeerId;
 use pretty_assertions::assert_eq;
+use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -28,7 +30,7 @@ async fn repeated_data_in_sync_routing_table() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm = peer_manager::testonly::start(rng, chain.clone()).await;
+    let pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -95,7 +97,7 @@ async fn ttl() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let mut pm = peer_manager::testonly::start(rng, chain.clone()).await;
+    let mut pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -186,7 +188,7 @@ async fn accounts_data_broadcast() {
     let clock = clock.clock();
     let clock = &clock;
 
-    let pm = peer_manager::testonly::start(rng, chain.clone()).await;
+    let pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
 
     let take_sync = |ev| match ev {
         peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
@@ -201,7 +203,7 @@ async fn accounts_data_broadcast() {
     let (mut peer1, got1) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
     assert_eq!(got1.accounts_data, vec![]);
 
-    // Send some data and wait for it to be broadcasted back.
+    // Send some data. It won't be broadcasted back.
     let msg = SyncAccountsData {
         accounts_data: vec![data[0].clone(), data[1].clone()],
         incremental: true,
@@ -209,8 +211,6 @@ async fn accounts_data_broadcast() {
     };
     let want = msg.accounts_data.clone();
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
-    let got1 = peer1.events.recv_until(take_sync).await;
-    assert_eq!(got1.accounts_data.as_set(), want.as_set());
 
     // Connect another peer and perform initial full sync.
     let (mut peer2, got2) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
@@ -224,9 +224,7 @@ async fn accounts_data_broadcast() {
     };
     let want = vec![data[2].clone()];
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
-    let got1 = peer1.events.recv_until(take_sync).await;
     let got2 = peer2.events.recv_until(take_sync).await;
-    assert_eq!(got1.accounts_data.as_set(), want.as_set());
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a request for a full sync.
@@ -267,9 +265,9 @@ async fn accounts_data_gradual_epoch_change() {
     // each position separately. If it was a Vec, the rest
     // of the test would be way harder to express.
     let mut pms = [
-        peer_manager::testonly::start(rng, chain.clone()).await,
-        peer_manager::testonly::start(rng, chain.clone()).await,
-        peer_manager::testonly::start(rng, chain.clone()).await,
+        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
+        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
+        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
     ];
 
     // 0 <-> 1 <-> 2
@@ -305,4 +303,90 @@ async fn accounts_data_gradual_epoch_change() {
             pm.wait_for_accounts_data(&want).await;
         }
     }
+}
+
+// Test is expected to take ~5s.
+// Test with 20 peer managers connected in layers:
+// - 1st 5 and 2nd 5 are connected in full bipartite graph.
+// - 2nd 5 and 3rd 5 ...
+// - 3rd 5 and 4th 5 ...
+// All of them are validators.
+#[tokio::test(flavor = "multi_thread")]
+async fn accounts_data_rate_limiting() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // TODO(gprusak) 10 connections per peer is not much, try to scale up this test 2x (some config
+    // tweaking might be required).
+    let n = 4; // layers
+    let m = 5; // peer managers per layer
+    let mut pms = vec![];
+    for _ in 0..n * m {
+        let mut cfg = chain.make_config(rng);
+        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
+        pms.push(peer_manager::testonly::start(cfg, chain.clone()).await);
+    }
+    // Construct a 4-layer bipartite graph.
+    let mut connections = 0;
+    for i in 0..n - 1 {
+        for j in 0..m {
+            for k in 0..m {
+                let pi = pms[(i + 1) * m + k].peer_info();
+                pms[i * m + j].connect_to(&pi).await;
+                connections += 1;
+            }
+        }
+    }
+
+    // Validator configs.
+    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
+
+    // Construct ChainInfo for a new epoch,
+    // with tier1_accounts containing all validators.
+    let e = data::make_epoch_id(rng);
+    let mut chain_info = chain.get_chain_info();
+    chain_info.tier1_accounts = Arc::new(
+        vs.iter()
+            .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+            .collect(),
+    );
+
+    // Advance epoch in random order.
+    pms.shuffle(rng);
+    for pm in &mut pms {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+
+    // Capture the event streams at the start, so that we can compute
+    // the total number of SyncAccountsData messages exchanged in the process.
+    let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
+
+    // Wait for data to arrive.
+    let want =
+        vs.iter().map(|v| ((e.clone(), v.signer.validator_id().clone()), peer_addrs(&v))).collect();
+    for pm in &mut pms {
+        pm.wait_for_accounts_data(&want).await;
+    }
+
+    // Count the SyncAccountsData messages exchanged.
+    let mut msgs = 0;
+    for mut es in events {
+        while let Some(ev) = es.try_recv() {
+            if peer_manager::testonly::unwrap_sync_accounts_data_processed(ev).is_some() {
+                msgs += 1;
+            }
+        }
+    }
+
+    // We expect 3 rounds communication to cover the distance from 1st layer to 4th layer
+    // and +1 full sync at handshake.
+    // The communication is bidirectional, which gives 8 messages per connection.
+    // Then add +50% to accomodate for test execution flakiness (12 messages per connection).
+    // TODO(gprusak): if the test is still flaky, upgrade FakeClock for stricter flow control.
+    let want_max = connections * 12;
+    println!("got {msgs}, want <= {want_max}");
+    assert!(msgs <= want_max, "got {msgs} messages, want at most {want_max}");
 }

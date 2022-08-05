@@ -38,7 +38,7 @@ fn serialize_deserialize_protobuf_only() {
     let clock = time::FakeClock::default();
     let msgs = [PeerMessage::SyncAccountsData(SyncAccountsData {
         accounts_data: (0..4)
-            .map(|_| data::make_signed_account_data(&mut rng, &clock.clock()))
+            .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
             .collect(),
         incremental: true,
         requesting_full_sync: true,

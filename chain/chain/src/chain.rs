@@ -468,7 +468,7 @@ impl Drop for Chain {
 }
 impl Chain {
     pub fn make_genesis_block(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
         let (_, state_roots) = runtime_adapter.genesis_state();
@@ -487,7 +487,7 @@ impl Chain {
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(
-                &*runtime_adapter,
+                runtime_adapter,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
@@ -503,7 +503,7 @@ impl Chain {
     ) -> Result<Chain, Error> {
         let (store, _) = runtime_adapter.genesis_state();
         let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
-        let genesis = Self::make_genesis_block(runtime_adapter.clone(), chain_genesis)?;
+        let genesis = Self::make_genesis_block(&*runtime_adapter, chain_genesis)?;
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,
@@ -1469,7 +1469,7 @@ impl Chain {
             }
         }
         for part_id in 0..self.runtime_adapter.num_total_parts() {
-            if &Some(self.runtime_adapter.get_part_owner(&parent_hash, part_id as u64)?) == me {
+            if &Some(self.runtime_adapter.get_part_owner(&epoch_id, part_id as u64)?) == me {
                 return Ok(true);
             }
         }

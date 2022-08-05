@@ -1,15 +1,12 @@
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, EpochId};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
-
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-
-use crate::hash::CryptoHash;
-use crate::types::{AccountId, EpochId};
-
 /// Peer id is the public key.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
@@ -24,37 +21,11 @@ use crate::types::{AccountId, EpochId};
     Serialize,
     Deserialize,
 )]
-pub struct PeerId(Arc<PeerIdInner>);
-
-/// Peer id is the public key.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    Hash,
-)]
-pub struct PeerIdInner(PublicKey);
+pub struct PeerId(Arc<PublicKey>);
 
 impl PeerId {
     pub fn new(key: PublicKey) -> Self {
-        Self(Arc::new(PeerIdInner(key)))
-    }
-
-    pub fn public_key(&self) -> &PublicKey {
-        &self.0 .0
-    }
-}
-
-impl PeerIdInner {
-    pub fn new(key: PublicKey) -> Self {
-        Self(key)
+        Self(Arc::new(key))
     }
 
     pub fn public_key(&self) -> &PublicKey {
@@ -70,13 +41,13 @@ impl PeerId {
 
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0 .0)
+        write!(f, "{}", self.0)
     }
 }
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0 .0)
+        write!(f, "{}", self.0)
     }
 }
 
