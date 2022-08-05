@@ -2798,6 +2798,7 @@ name = "near-chain"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "assert_matches",
  "borsh",
  "chrono",
@@ -3187,6 +3188,7 @@ dependencies = [
  "deepsize",
  "delay-detector",
  "futures",
+ "futures-util",
  "im",
  "itertools",
  "lru",
@@ -3238,6 +3240,7 @@ dependencies = [
  "opentelemetry",
  "serde",
  "strum",
+ "thiserror",
  "time 0.3.9",
  "tokio",
  "tracing",
@@ -3469,6 +3472,7 @@ dependencies = [
  "near-metrics",
  "near-performance-metrics",
  "near-performance-metrics-macros",
+ "near-primitives",
  "once_cell",
  "openssl",
  "serde",

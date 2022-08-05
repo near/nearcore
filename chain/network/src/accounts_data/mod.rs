@@ -26,7 +26,7 @@
 //!       lot of peers
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
-use near_network_primitives::types::AccountKeys;
+use crate::types::AccountKeys;
 use near_o11y::log_assert;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
@@ -111,7 +111,7 @@ struct CacheInner {
     /// key is the public key of the account in the given epoch.
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
-    data: HashMap<(EpochId, AccountId), SignedAccountData>,
+    data: HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
 }
 
 impl CacheInner {
@@ -123,7 +123,7 @@ impl CacheInner {
                 _ => true,
             }
     }
-    fn try_insert(&mut self, d: SignedAccountData) -> Option<SignedAccountData> {
+    fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
@@ -165,7 +165,10 @@ impl Cache {
     /// Returns the verified new data and an optional error.
     /// Note that even if error has been returned the partially validated output is returned
     /// anyway.
-    fn verify(&self, data: Vec<SignedAccountData>) -> (Vec<SignedAccountData>, Option<Error>) {
+    fn verify(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
@@ -200,7 +203,7 @@ impl Cache {
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, ok) = try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
-            if d.payload().verify(&key) {
+            if d.payload().verify(&key).is_ok() {
                 return Some(d);
             }
             return None;
@@ -215,9 +218,9 @@ impl Cache {
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
-        self: Arc<Self>,
-        data: Vec<SignedAccountData>,
-    ) -> (Vec<SignedAccountData>, Option<Error>) {
+        self: &Arc<Self>,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let this = self.clone();
         // Execute verification on the rayon threadpool.
         let (data, err) = rayon_spawn(move || this.verify(data)).await;
@@ -228,7 +231,7 @@ impl Cache {
     }
 
     /// Copies and returns all the AccountData in the cache.
-    pub fn dump(&self) -> Vec<SignedAccountData> {
+    pub fn dump(&self) -> Vec<Arc<SignedAccountData>> {
         self.inner.read().data.values().cloned().collect()
     }
 }
