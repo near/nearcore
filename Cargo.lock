@@ -3188,6 +3188,7 @@ dependencies = [
  "deepsize",
  "delay-detector",
  "futures",
+ "futures-util",
  "im",
  "itertools",
  "lru",

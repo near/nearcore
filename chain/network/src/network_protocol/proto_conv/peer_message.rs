@@ -13,6 +13,7 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
 use protobuf::MessageField as MF;
+use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseRoutingTableUpdateError {
@@ -105,7 +106,11 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 }
                 PeerMessage::SyncAccountsData(msg) => {
                     ProtoMT::SyncAccountsData(proto::SyncAccountsData {
-                        accounts_data: msg.accounts_data.iter().map(Into::into).collect(),
+                        accounts_data: msg
+                            .accounts_data
+                            .iter()
+                            .map(|d| d.as_ref().into())
+                            .collect(),
                         incremental: msg.incremental,
                         requesting_full_sync: msg.requesting_full_sync,
                         ..Default::default()
@@ -258,7 +263,10 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
                 accounts_data: try_from_slice(&msg.accounts_data)
-                    .map_err(Self::Error::SyncAccountsData)?,
+                    .map_err(Self::Error::SyncAccountsData)?
+                    .into_iter()
+                    .map(Arc::new)
+                    .collect(),
                 incremental: msg.incremental,
                 requesting_full_sync: msg.requesting_full_sync,
             }),
