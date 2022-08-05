@@ -1,12 +1,12 @@
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::PeerAddr;
+use crate::network_protocol::{PeerAddr, PeerMessage, SyncAccountsData};
+use crate::peer::peer_actor;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
@@ -27,6 +27,15 @@ pub struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     pub actix: ActixSystem<PeerManagerActor>,
+}
+
+pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
+    match ev {
+        Event::PeerManager(peer_manager_actor::Event::Peer(
+            peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(msg)),
+        )) => Some(msg),
+        _ => None,
+    }
 }
 
 impl ActorHandler {
@@ -67,29 +76,29 @@ impl ActorHandler {
             .await;
     }
 
+    // Awaits until the accounts_data state matches `want`.
     pub async fn wait_for_accounts_data(
         &mut self,
         want: &HashMap<(EpochId, AccountId), Vec<PeerAddr>>,
     ) {
-        // WARNING: this loop might become a spin-lock if any of the calls in the loop iteration
-        // was generating an event. To fix that, wait for specific events.
         loop {
             let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
             let got: HashMap<_, _> = info
                 .tier1_accounts
                 .into_iter()
-                .map(|d| ((d.epoch_id, d.account_id), d.peers))
+                .map(|d| ((d.epoch_id.clone(), d.account_id.clone()), d.peers.clone()))
                 .collect();
             if &got == want {
                 break;
             }
-            self.events.recv().await;
+            // It is important that we wait for the next PeerMessage::SyncAccountsData to get
+            // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
+            self.events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
     }
 }
 
-pub async fn start(rng: &mut Rng, chain: Arc<data::Chain>) -> ActorHandler {
-    let cfg = chain.make_config(rng);
+pub async fn start(cfg: config::NetworkConfig, chain: Arc<data::Chain>) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();
