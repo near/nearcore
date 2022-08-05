@@ -76,12 +76,16 @@ impl Actor {
     /// we will try to re-add edges previously removed from disk.
     pub fn add_verified_edges(&mut self, edges: Vec<Edge>) -> Vec<Edge> {
         let total = edges.len();
-        let edges = self.graph.write().update_edges(edges);
+        // load the components BEFORE graph.update_edges
+        // so that result doesn't contain edges we already have in storage.
+        // It is especially important for initial full sync with peers, because
+        // we broadcast all the returned edges to all connected peers.
         for edge in &edges {
             let key = edge.key();
             self.load_component(&key.0);
             self.load_component(&key.1);
         }
+        let edges = self.graph.write().update_edges(edges);
         // Update metrics after edge update
         metrics::EDGE_UPDATES.inc_by(total as u64);
         metrics::EDGE_ACTIVE.set(self.graph.read().total_active_edges() as i64);
@@ -117,7 +121,7 @@ impl Actor {
     /// New component `C_3` will be created.
     /// And mapping from `C` to `C_2` will be overridden by mapping from `C` to `C_3`.
     /// And therefore `C_2` component will become unreachable.
-    /// TODO: this whole algorithm seems to be leaking stuff to storage and never cleaning up.
+    /// TODO(gprusak): this whole algorithm seems to be leaking stuff to storage and never cleaning up.
     /// What is the point of it? What does it actually gives us?
     fn load_component(&mut self, peer_id: &PeerId) {
         if *peer_id == self.my_peer_id || self.peer_reachable_at.contains_key(peer_id) {
