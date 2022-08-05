@@ -60,28 +60,6 @@ If you want to propose an idea or a feature and work on it, create a new issue i
 
 You should expect someone to comment on the issue within 48 hours after it is created. If the proposal in the issue is accepted, you should then follow the process for `Working on current tasks` above.
 
-# Code review process
-
-We have two groups of code reviewers:  Super owners and normal owners.  When a
-PR is created:
-
-- a super owner will be automatically assigned to review.
-- they may choose to review the PR themself or they may delegate to someone else
-  who belongs either to the super owners or the normal owners group.
-- the delegate will perform the review and as needed engage other reviewers as
-  well.  They will review your tests, and make sure that they can convince
-  themselves the test coverage is adequate before they even look into the
-  change, so make sure you tested all the corner cases.
-
-The author is also free to directly request reviews from specific persons
-[through the github
-ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
-In this case, the automatically selected super owner will ensure that the
-selected reviewer is sufficient or additional reviewers are needed.
-
-If you are interested in becoming a code reviewer, please get in touch with us
-on zulip.
-
 # Build Process
 
 Nearcore is a reasonably standard Rust project, so `cargo test` most likely will just work.
@@ -140,3 +118,25 @@ Common types include `C`, which means category, `A`, which means area, `T`, whic
 
 An issue can have multiple labels including which area it touches, which team should be responsible for the issue, and so on.
 Each issue should have at least one label attached to it after it is triaged and the label could be a general one, such as `C-enhancement` or `C-bug`.
+
+# Code review process
+
+We have two groups of code reviewers:  Super owners and normal owners.  When a
+PR is created:
+
+- a super owner will be automatically assigned to review.
+- they may choose to review the PR themself or they may delegate to someone else
+  who belongs either to the super owners or the normal owners group.
+- the delegate will perform the review and as needed engage other reviewers as
+  well.  They will review your tests, and make sure that they can convince
+  themselves the test coverage is adequate before they even look into the
+  change, so make sure you tested all the corner cases.
+
+The author is also free to directly request reviews from specific persons
+[through the github
+ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
+In this case, the automatically selected super owner will ensure that the
+selected reviewer is sufficient or additional reviewers are needed.
+
+If you are interested in becoming a code reviewer, please get in touch with us
+on zulip.
