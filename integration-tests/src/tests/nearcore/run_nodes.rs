@@ -1,13 +1,10 @@
-use std::ops::ControlFlow;
-
+use crate::tests::nearcore::node_cluster::NodeCluster;
 use actix::System;
-
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_timeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
-
-use crate::tests::nearcore::node_cluster::NodeCluster;
+use std::ops::ControlFlow;
 
 fn run_heavy_nodes(
     num_shards: NumShards,
