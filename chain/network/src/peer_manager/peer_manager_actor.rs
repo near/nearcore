@@ -59,6 +59,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument, Span};
@@ -375,7 +376,7 @@ impl PeerManagerActor {
         let clock = time::Clock::real();
         let store = store::Store::from(store);
         let peer_store =
-            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone())
+            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone(), config.connect_only_to_boot_node)
                 .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network",
                len = peer_store.len(),
@@ -686,7 +687,9 @@ impl PeerManagerActor {
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, ctx| {
                 let _guard = run_later_span.enter();
-                let known_edges = act.network_graph.read().edges().values().cloned().collect();
+                let start = Instant::now();
+                let known_edges: Vec<Edge> = act.network_graph.read().edges().values().cloned().collect();
+                error!("Returning edges {} in {} ms", known_edges.len(), start.elapsed().as_millis());
                 act.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
             },
         );
@@ -922,7 +925,7 @@ impl PeerManagerActor {
 
     fn is_inbound_allowed(&self) -> bool {
         self.state.connected_peers.read().len() + self.outgoing_peers.len()
-            < self.max_num_peers as usize
+            < self.max_num_peers as usize && !self.config.inbound_disabled
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.

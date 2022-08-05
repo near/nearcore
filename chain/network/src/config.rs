@@ -109,12 +109,15 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+    pub inbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
+
+    pub connect_only_to_boot_node: bool,
 }
 
 impl NetworkConfig {
@@ -207,6 +210,8 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             features,
+            inbound_disabled: true,
+            connect_only_to_boot_node: true
         };
         Ok(this)
     }
@@ -258,6 +263,8 @@ impl NetworkConfig {
             push_info_period: time::Duration::milliseconds(100),
             blacklist: Blacklist::default(),
             outbound_disabled: false,
+            inbound_disabled: false,
+            connect_only_to_boot_node: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
