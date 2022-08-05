@@ -1,8 +1,8 @@
-pub use crate::tests::network::runner::*;
+use crate::tests::network::runner::*;
+use near_network_primitives::time;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::System;
@@ -38,6 +38,8 @@ fn make_peer_manager(
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
+    config.ideal_connections_hi = peer_max_count;
+    config.ideal_connections_lo = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))
@@ -209,7 +211,7 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
-    runner.push(Action::Wait(Duration::from_millis(2000)));
+    runner.push(Action::Wait(time::Duration::milliseconds(2000)));
 
     // Check the no node tried to connect to itself in this process.
     #[cfg(feature = "test_features")]
@@ -235,7 +237,9 @@ fn connection_spam_security_test() {
         let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
         while vec.read().unwrap().len() < 100 {
-            if let Ok(stream) = TcpStream::connect_timeout(&addr.clone(), Duration::from_secs(10)) {
+            if let Ok(stream) =
+                TcpStream::connect_timeout(&addr.clone(), std::time::Duration::from_secs(10))
+            {
                 vec.write().unwrap().push(stream);
             }
         }

@@ -43,8 +43,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: std::time::Duration =
-    std::time::Duration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
 

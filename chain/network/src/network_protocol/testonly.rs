@@ -312,13 +312,20 @@ impl Chain {
         &self,
         rng: &mut R,
         clock: &time::Clock,
-    ) -> Vec<SignedAccountData> {
+    ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
             .map(|(epoch_id, v)| {
-                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
+                Arc::new(
+                    make_account_data(
+                        rng,
+                        clock.now_utc(),
+                        epoch_id.clone(),
+                        v.validator_id().clone(),
+                    )
                     .sign(v)
-                    .unwrap()
+                    .unwrap(),
+                )
             })
             .collect()
     }
