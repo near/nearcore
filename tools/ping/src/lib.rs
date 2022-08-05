@@ -200,18 +200,18 @@ impl Peer {
 
         let (more_messages, stopped) = self.read_remaining_messages(msg_length, stop)?;
 
-        messages.push((
-            self.extract_msg(msg_length)
-                .with_context(|| format!("error parsing message of length {}", msg_length))?,
-            first_byte_time,
-        ));
+        let msg = self
+            .extract_msg(msg_length)
+            .with_context(|| format!("error parsing message of length {}", msg_length))?;
+        tracing::debug!(target: "ping", "received PeerMessage::{} len: {}", msg, msg_length);
+        messages.push((msg, first_byte_time));
 
         for (len, timestamp) in more_messages {
-            messages.push((
-                self.extract_msg(len)
-                    .with_context(|| format!("error parsing message of length {}", len))?,
-                timestamp,
-            ));
+            let msg = self
+                .extract_msg(len)
+                .with_context(|| format!("error parsing message of length {}", len))?;
+            tracing::debug!(target: "ping", "received PeerMessage::{} len: {}", msg, len);
+            messages.push((msg, timestamp));
         }
 
         // make sure we can probably read the next message in one syscall next time
@@ -575,7 +575,6 @@ fn handle_message(
     received_at: Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
-    tracing::debug!(target: "ping", "received PeerMessage::{}", msg);
     match &msg {
         PeerMessage::Routed(msg) => {
             match &msg.body {
