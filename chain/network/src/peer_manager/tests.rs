@@ -6,7 +6,7 @@ use crate::peer;
 use crate::peer::peer_actor;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::Event;
+use crate::peer_manager::testonly::{Event, NormalAccountData};
 use crate::testonly::{make_rng, AsSet as _, Rng};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
@@ -188,7 +188,7 @@ async fn accounts_data_broadcast() {
     let clock = clock.clock();
     let clock = &clock;
 
-    let pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
+    let mut pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
 
     let take_sync = |ev| match ev {
         peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
@@ -211,6 +211,7 @@ async fn accounts_data_broadcast() {
     };
     let want = msg.accounts_data.clone();
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
+    pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
     let (mut peer2, got2) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
@@ -297,7 +298,11 @@ async fn accounts_data_gradual_epoch_change() {
         // Wait for data to arrive.
         let want = vs
             .iter()
-            .map(|v| ((e.clone(), v.signer.validator_id().clone()), peer_addrs(&v)))
+            .map(|v| NormalAccountData {
+                epoch_id: e.clone(),
+                account_id: v.signer.validator_id().clone(),
+                peers: peer_addrs(v),
+            })
             .collect();
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
@@ -365,8 +370,14 @@ async fn accounts_data_rate_limiting() {
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     // Wait for data to arrive.
-    let want =
-        vs.iter().map(|v| ((e.clone(), v.signer.validator_id().clone()), peer_addrs(&v))).collect();
+    let want = vs
+        .iter()
+        .map(|v| NormalAccountData {
+            epoch_id: e.clone(),
+            account_id: v.signer.validator_id().clone(),
+            peers: peer_addrs(&v),
+        })
+        .collect();
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }

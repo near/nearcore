@@ -72,8 +72,10 @@ fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
 /// and hence the panic message is not visible when running "cargo test".
 async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
     let (send, recv) = tokio::sync::oneshot::channel();
-    rayon::spawn(move || if send.send(f()).is_err() {
-        tracing::warn!("rayon_spawn has been aborted");
+    rayon::spawn(move || {
+        if send.send(f()).is_err() {
+            tracing::warn!("rayon_spawn has been aborted");
+        }
     });
     recv.await.unwrap()
 }

@@ -1,7 +1,7 @@
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, SyncAccountsData};
+use crate::network_protocol::{PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -14,7 +14,7 @@ use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use near_store::test_utils::create_test_store;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -35,6 +35,23 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
             peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(msg)),
         )) => Some(msg),
         _ => None,
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
+pub struct NormalAccountData {
+    pub epoch_id: EpochId,
+    pub account_id: AccountId,
+    pub peers: Vec<PeerAddr>,
+}
+
+impl From<&Arc<SignedAccountData>> for NormalAccountData {
+    fn from(d: &Arc<SignedAccountData>) -> Self {
+        Self {
+            epoch_id: d.epoch_id.clone(),
+            account_id: d.account_id.clone(),
+            peers: d.peers.clone(),
+        }
     }
 }
 
@@ -77,17 +94,10 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(
-        &mut self,
-        want: &HashMap<(EpochId, AccountId), Vec<PeerAddr>>,
-    ) {
+    pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
         loop {
             let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
-            let got: HashMap<_, _> = info
-                .tier1_accounts
-                .into_iter()
-                .map(|d| ((d.epoch_id.clone(), d.account_id.clone()), d.peers.clone()))
-                .collect();
+            let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
             if &got == want {
                 break;
             }
