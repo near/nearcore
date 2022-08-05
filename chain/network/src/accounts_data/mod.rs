@@ -53,6 +53,10 @@ impl Drop for MustCompleteGuard {
 /// that they can be put together into a tokio::select block. All the higher level logic
 /// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
 /// Rust doesn't support linear types as of now, so best we can do is a runtime check.
+/// TODO(gprusak): we would like to make the futures non-abortable, however with the current
+/// semantics of actix, which drops all the futures when stopped this is not feasible.
+/// Reconsider how to introduce must_complete to our codebase.
+#[allow(dead_code)]
 fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
     let guard = MustCompleteGuard;
     async move {
@@ -64,13 +68,16 @@ fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
 
 /// spawns a closure on a global rayon threadpool and awaits its completion.
 /// Returns the closure result.
+/// WARNING: panicking within a rayon task seems to be causing a double panic,
+/// and hence the panic message is not visible when running "cargo test".
 async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
-    must_complete(async move {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        rayon::spawn(move || log_assert!(send.send(f()).is_ok(), "rayon_spawn has been aborted"));
-        recv.await.unwrap()
-    })
-    .await
+    let (send, recv) = tokio::sync::oneshot::channel();
+    rayon::spawn(move || {
+        if send.send(f()).is_err() {
+            tracing::warn!("rayon_spawn has been aborted");
+        }
+    });
+    recv.await.unwrap()
 }
 
 /// Applies f to the iterated elements and collects the results, until the first None is returned.
