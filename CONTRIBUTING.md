@@ -62,15 +62,25 @@ You should expect someone to comment on the issue within 48 hours after it is cr
 
 # Code review process
 
-We have two groups of code reviewers:  Super owners and normal owners.  When a PR is created:
+We have two groups of code reviewers:  Super owners and normal owners.  When a
+PR is created:
 
 - a super owner will be automatically assigned to review.
-- they may choose to review the PR themself or they may delegate to someone else who belongs either to the super owners or the normal owners group.
-- the delegate will perform the review and as needed engage other reviewers as well.  They will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
+- they may choose to review the PR themself or they may delegate to someone else
+  who belongs either to the super owners or the normal owners group.
+- the delegate will perform the review and as needed engage other reviewers as
+  well.  They will review your tests, and make sure that they can convince
+  themselves the test coverage is adequate before they even look into the
+  change, so make sure you tested all the corner cases.
 
-The author is also free to directly request reviews from specific persons [through the github ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).  In this case, the automatically selected super owner will ensure that the selected reviewer is sufficient or additional reviewers are needed.
+The author is also free to directly request reviews from specific persons
+[through the github
+ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
+In this case, the automatically selected super owner will ensure that the
+selected reviewer is sufficient or additional reviewers are needed.
 
-If you are interested in becoming a code reviewer, please get in touch with us on zulip.
+If you are interested in becoming a code reviewer, please get in touch with us
+on zulip.
 
 # Build Process
 
