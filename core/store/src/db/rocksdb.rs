@@ -5,8 +5,7 @@ use std::sync::{Condvar, Mutex};
 
 use ::rocksdb::checkpoint::Checkpoint;
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
 use strum::IntoEnumIterator;
@@ -21,7 +20,8 @@ use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+pub const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
+    [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
 pub struct RocksDB {
     db: DB,
@@ -167,51 +167,50 @@ impl RocksDB {
     ) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col);
         let mut read_options = rocksdb_read_options();
-        let mode = if let Some(prefix) = prefix {
-            // prefix_same_as_start doesn’t do anything for us.  It takes effect
-            // only if prefix extractor is configured for the column family
-            // which is something we’re not doing.  Setting this option is
-            // therefore pointless.
+        if let Some(prefix) = prefix {
+            read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
+            // Note: prefix_same_as_start doesn’t do anything for us.  It takes
+            // effect only if prefix extractor is configured for the column
+            // family which is something we’re not doing.  Setting this option
+            // is therefore pointless.
             //     read_options.set_prefix_same_as_start(true);
-
-            // We’re running the iterator in From mode so there’s no need to set
-            // the lower bound.
-            //    read_options.set_iterate_lower_bound(key_prefix);
-
-            // Upper bound is exclusive so if we set it to the next prefix
-            // iterator will stop once keys no longer start with our desired
-            // prefix.
-            if let Some(upper) = next_prefix(prefix) {
-                read_options.set_iterate_upper_bound(upper);
-            }
-
-            IteratorMode::From(prefix, Direction::Forward)
-        } else {
-            IteratorMode::Start
-        };
-        let iter = self.db.iterator_cf_opt(cf_handle, read_options, mode);
-        RocksDBIterator(Some(iter))
+        }
+        let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        RocksDBIterator(iter)
     }
 }
 
-struct RocksDBIterator<'a>(Option<rocksdb::DBIteratorWithThreadMode<'a, DB>>);
+struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let iter = self.0.as_mut()?;
-        if let Some(item) = iter.next() {
-            Some(Ok(item))
-        } else {
-            let status = iter.status();
-            self.0 = None;
-            status.err().map(into_other).map(Result::Err)
-        }
+        Some(self.0.next()?.map_err(into_other))
     }
 }
 
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
+
+impl RocksDB {
+    fn get_cf_key_range(
+        &self,
+        cf_handle: &ColumnFamily,
+    ) -> Result<Option<std::ops::Range<Box<[u8]>>>, ::rocksdb::Error> {
+        let range = {
+            let mut iter = self.db.iterator_cf(cf_handle, IteratorMode::Start);
+            let start = iter.next().transpose()?;
+            iter.set_mode(IteratorMode::End);
+            let end = iter.next().transpose()?;
+            (start, end)
+        };
+        match range {
+            (Some(start), Some(end)) => Ok(Some(start.0..end.0)),
+            (None, None) => Ok(None),
+            _ => unreachable!(),
+        }
+    }
+}
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
@@ -268,13 +267,11 @@ impl Database for RocksDB {
                 }
                 DBOp::DeleteAll { col } => {
                     let cf_handle = self.cf_handle(col);
-                    let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
-                    let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
-                    assert_eq!(opt_first.is_some(), opt_last.is_some());
-                    if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
-                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                    let range = self.get_cf_key_range(cf_handle).map_err(into_other)?;
+                    if let Some(range) = range {
+                        batch.delete_range_cf(cf_handle, &range.start, &range.end);
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
-                        batch.delete_cf(cf_handle, max_key)
+                        batch.delete_cf(cf_handle, range.end)
                     }
                 }
             }
@@ -302,32 +299,6 @@ impl Database for RocksDB {
         } else {
             Some(result)
         }
-    }
-}
-
-/// Returns lowest value following largest value with given prefix.
-///
-/// In other words, computes upper bound for a prefix scan over list of keys
-/// sorted in lexicographical order.  This means that a prefix scan can be
-/// expressed as range scan over a right-open `[prefix, next_prefix(prefix))`
-/// range.
-///
-/// For example, for prefix `foo` the function returns `fop`.
-///
-/// Returns `None` if there is no value which can follow value with given
-/// prefix.  This happens when prefix consists entirely of `'\xff'` bytes (or is
-/// empty).
-fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
-    let ffs = prefix.iter().rev().take_while(|&&byte| byte == u8::MAX).count();
-    let next = &prefix[..(prefix.len() - ffs)];
-    if next.is_empty() {
-        // Prefix consisted of \xff bytes.  There is no prefix that
-        // follows it.
-        None
-    } else {
-        let mut next = next.to_vec();
-        *next.last_mut().unwrap() += 1;
-        Some(next)
     }
 }
 
@@ -511,12 +482,15 @@ impl RocksDB {
         Checkpoint::new(&self.db).map_err(into_other)
     }
 
-    /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
+    /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for stat_name in CF_STAT_NAMES {
+        for prop_name in CF_PROPERTY_NAMES {
+            let stat_name = prop_name.to_bytes();
+            // SAFETY: RocksDB property names are always entirely ASCII.
+            let stat_name = unsafe { std::str::from_utf8_unchecked(stat_name) };
             let mut values = vec![];
             for col in DBCol::iter() {
-                let size = self.db.property_int_value_cf(self.cf_handle(col), stat_name);
+                let size = self.db.property_int_value_cf(self.cf_handle(col), prop_name);
                 if let Ok(Some(value)) = size {
                     values.push(StatsValue::ColumnValue(col, value as i64));
                 }
@@ -739,18 +713,5 @@ mod tests {
                 ]
             }
         );
-    }
-
-    #[test]
-    fn next_prefix() {
-        fn test(want: Option<&[u8]>, arg: &[u8]) {
-            assert_eq!(want, super::next_prefix(arg).as_ref().map(Vec::as_ref));
-        }
-
-        test(None, b"");
-        test(None, b"\xff");
-        test(None, b"\xff\xff\xff\xff");
-        test(Some(b"b"), b"a");
-        test(Some(b"b"), b"a\xff\xff\xff");
     }
 }
