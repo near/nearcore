@@ -273,9 +273,9 @@ impl NetworkConfig {
             );
         }
 
-        if !(self.ideal_connections_hi < self.max_num_peers) {
+        if !(self.ideal_connections_hi <= self.max_num_peers) {
             anyhow::bail!(
-                "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
+                "max_num_peers({}) < ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
                 self.max_num_peers, self.ideal_connections_hi
             );
         }
@@ -337,7 +337,7 @@ mod test {
         assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
-        nc.ideal_connections_hi = nc.max_num_peers;
+        nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
