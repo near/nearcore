@@ -321,7 +321,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: sender_account_identifier.clone(),
                             amount: -transfer_amount.clone(),
-                            predecessor_id: sender_account_identifier.clone(),
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_operation(sender_transfer_operation_id.clone()),
                     );
@@ -330,7 +330,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: receiver_account_identifier.clone(),
                             amount: transfer_amount,
-                            predecessor_id: sender_account_identifier.clone(),
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_related_operation(
                             crate::models::OperationIdentifier::new(&operations),
@@ -383,7 +383,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                             validated_operations::TransferOperation {
                                 account: sender_account_identifier.clone(),
                                 amount: -attached_amount.clone(),
-                                predecessor_id: sender_account_identifier.clone(),
+                                predecessor_id: Some(sender_account_identifier.clone()),
                             }
                             .into_operation(fund_transfer_operation_id.clone()),
                         );

@@ -3,7 +3,7 @@ use super::ValidatedOperation;
 pub(crate) struct TransferOperation {
     pub(crate) account: crate::models::AccountIdentifier,
     pub(crate) amount: crate::models::Amount,
-    pub(crate) predecessor_id: crate::models::AccountIdentifier,
+    pub(crate) predecessor_id: Option<crate::models::AccountIdentifier>,
 }
 
 impl ValidatedOperation for TransferOperation {
@@ -18,10 +18,14 @@ impl ValidatedOperation for TransferOperation {
 
             account: self.account,
             amount: Some(self.amount),
-            metadata: Some(crate::models::OperationMetadata {
-                predecessor_id: Some(self.predecessor_id),
-                ..Default::default()
-            }),
+            metadata: if let Some(predecessor_id) = self.predecessor_id {
+                Some(crate::models::OperationMetadata {
+                    predecessor_id: Some(predecessor_id.clone()),
+                    ..Default::default()
+                })
+            } else {
+                None
+            },
 
             related_operations: None,
             type_: Self::OPERATION_TYPE,
@@ -42,8 +46,15 @@ impl TryFrom<crate::models::Operation> for TransferOperation {
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
         Self::validate_operation_type(operation.type_)?;
         let amount = operation.amount.ok_or_else(required_fields_error)?;
-        let metadata = operation.metadata.ok_or_else(required_fields_error)?;
-        let predecessor_id = metadata.predecessor_id.ok_or_else(required_fields_error)?;
-        Ok(Self { account: operation.account, amount, predecessor_id })
+        if let Some(metadata) = operation.metadata {
+            if let Some(predecessor_id) = metadata.predecessor_id {
+                return Ok(Self {
+                    account: operation.account,
+                    amount,
+                    predecessor_id: Some(predecessor_id),
+                });
+            }
+        }
+        Ok(Self { account: operation.account, amount, predecessor_id: None })
     }
 }
