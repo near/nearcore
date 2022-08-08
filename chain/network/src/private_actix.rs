@@ -125,9 +125,9 @@ pub struct StartRoutingTableSync {
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct SendMessage {
-    pub(crate) message: PeerMessage,
-    pub(crate) context: opentelemetry::Context,
+pub(crate) struct SendMessage {
+    pub message: Arc<PeerMessage>,
+    pub context: opentelemetry::Context,
 }
 
 impl Debug for ValidateEdgeList {

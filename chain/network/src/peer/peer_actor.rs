@@ -257,7 +257,7 @@ impl PeerActor {
         };
 
         let bytes = msg.serialize(enc);
-        self.tracker.increment_sent(bytes.len() as u64);
+        self.tracker.increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
@@ -586,7 +586,7 @@ impl PeerActor {
     fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
-        self.tracker.increment_received(msg_len as u64);
+        self.tracker.increment_received(&self.clock, msg_len as u64);
     }
 
     /// Check whenever we exceeded number of transactions we got since last block.
@@ -605,6 +605,43 @@ impl PeerActor {
         let r = self.txns_since_last_block.load(Ordering::Acquire);
         r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE
     }
+
+    /* TODO
+     *
+    Periodically starts connected peer stats querying.
+    self.monitor_peer_stats_trigger(ctx, self.config.peer_stats_period);
+    
+    /// Periodically query peer actors for latest weight and traffic info.
+    fn monitor_peer_stats_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
+        // Recompute the PEER_CONNECTIONS gauge metric.
+        let mut m = HashMap::new();
+        let connected_peers = self.state.connected_peers.read();
+        for p in connected_peers.values() {
+            let p = p.read();
+            *m.entry((p.peer_type, p.encoding)).or_insert(0) += 1;
+        }
+        metrics::set_peer_connections(m);
+
+        if res.is_abusive {
+            trace!(target: "network", ?peer_id1, sent = res.message_counts.0, recv = res.message_counts.1, "Banning peer for abuse");
+            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+            //  network traffic that flags honest peers.
+            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+            // }
+        } else {
+            act.state.connected_peers.set_peer_stats(&peer_id1,res);
+        }
+
+        near_performance_metrics::actix::run_later(
+            ctx,
+            interval.try_into().unwrap(),
+            move |act, ctx| {
+                act.monitor_peer_stats_trigger(ctx, interval);
+            },
+        );
+    }*/
 }
 
 impl Actor for PeerActor {
@@ -1027,6 +1064,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             .connected_peers
                             .read()
                             .values()
+                            .map(|p|p.read())
                             // Do not send the data back.
                             .filter(|p| peer_id != p.full_peer_info.peer_info.id)
                             .map(|p| p.send_accounts_data(new_data.clone()))
@@ -1099,19 +1137,6 @@ impl Handler<SendMessage> for PeerActor {
     }
 }
 
-impl Handler<Arc<SendMessage>> for PeerActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
-        span.set_parent(msg.context.clone());
-        let _d = delay_detector::DelayDetector::new(|| "send message".into());
-        self.send_message_or_log(&msg.as_ref().message);
-    }
-}
-
 impl Handler<QueryPeerStats> for PeerActor {
     type Result = PeerStatsResult;
 
@@ -1123,9 +1148,8 @@ impl Handler<QueryPeerStats> for PeerActor {
         let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
         // TODO(#5218) Refactor this code to use `SystemTime`
-        let now = self.clock.now();
-        let sent = self.tracker.sent_bytes.minute_stats(now.into());
-        let received = self.tracker.received_bytes.minute_stats(now.into());
+        let sent = self.tracker.sent_bytes.minute_stats(&self.clock);
+        let received = self.tracker.received_bytes.minute_stats(&self.clock);
 
         // Whether the peer is considered abusive due to sending too many messages.
         // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
