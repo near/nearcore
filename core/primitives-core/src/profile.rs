@@ -254,8 +254,6 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element },
         Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base },
         Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_base },
-        Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_byte },
     ];
 
     pub fn index(self) -> usize {
@@ -332,8 +330,6 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_element } => 69,
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base } => 70,
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte } => 71,
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_base } => 72,
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sr25519_verify_byte } => 73,
         }
     }
 }
