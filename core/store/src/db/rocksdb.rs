@@ -205,7 +205,7 @@ impl RocksDB {
             (start, end)
         };
         match range {
-            (Some(start), Some(end)) => Ok(Some(start.0..end.0)),
+            (Some(start), Some(end)) => Ok(Some(start.0..=end.0)),
             (None, None) => Ok(None),
             _ => unreachable!(),
         }
@@ -269,9 +269,9 @@ impl Database for RocksDB {
                     let cf_handle = self.cf_handle(col);
                     let range = self.get_cf_key_range(cf_handle).map_err(into_other)?;
                     if let Some(range) = range {
-                        batch.delete_range_cf(cf_handle, &range.start, &range.end);
+                        batch.delete_range_cf(cf_handle, range.start(), range.end());
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
-                        batch.delete_cf(cf_handle, range.end)
+                        batch.delete_cf(cf_handle, range.end())
                     }
                 }
             }
