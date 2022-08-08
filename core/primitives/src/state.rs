@@ -34,7 +34,7 @@ impl ValueRef {
     }
 
     /// Decode value reference from the raw byte array.
-    /// TODO (#7327): use &[u8; 36] and get rid of Cursor
+    /// TODO (#7327): use &[u8; 36] and get rid of Cursor; also check that there are no leftover bytes
     pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         let value_length = cursor.read_u32::<LittleEndian>()?;

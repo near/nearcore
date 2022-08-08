@@ -12,6 +12,7 @@
 use crate::DBCol;
 use crate::Store;
 use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 
 /// Struct for getting value references from the flat storage.
@@ -43,9 +44,14 @@ impl FlatState {
         unreachable!();
     }
 
-    /// Get value reference using raw trie key.
+    /// Get value reference using raw trie key and state root. We assume that flat state contains data for this root.
     /// To avoid duplication, we don't store values themselves in flat state, they are stored in `DBCol::State`.
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+    /// TODO (#7327): support different roots (or block hashes).
+    pub fn get_ref(
+        &self,
+        _root: &CryptoHash,
+        key: &[u8],
+    ) -> Result<Option<ValueRef>, StorageError> {
         match self.get_raw_ref(key)? {
             Some(bytes) => {
                 ValueRef::decode(&bytes).map(Some).map_err(|_| StorageError::StorageInternalError)

@@ -669,7 +669,7 @@ impl Trie {
     pub fn get_ref(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
-            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
+            Some(flat_state) if !is_delayed => flat_state.get_ref(root, &key),
             _ => {
                 let key = NibbleSlice::new(key);
                 self.lookup(root, key)
