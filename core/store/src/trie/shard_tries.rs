@@ -274,15 +274,16 @@ impl ShardTries {
                 return;
             }
 
-            let last_change = change
+            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
+            // to take only the last change.
+            let last_change = &change
                 .changes
                 .last()
                 .expect("Committed entry should have at least one change")
-                .data
-                .clone();
+                .data;
             match last_change {
                 Some(value) => {
-                    let value_ref_ser = ValueRef::create_serialized(&value);
+                    let value_ref_ser = ValueRef::create_serialized(value);
                     store_update.set(DBCol::FlatState, &key, &value_ref_ser)
                 }
                 None => store_update.delete(DBCol::FlatState, &key),
