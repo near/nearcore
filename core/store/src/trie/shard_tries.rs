@@ -271,7 +271,7 @@ impl ShardTries {
         for change in changes.iter() {
             let key = change.trie_key.to_vec();
             if is_delayed_receipt_key(&key) {
-                return;
+                continue;
             }
 
             // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
