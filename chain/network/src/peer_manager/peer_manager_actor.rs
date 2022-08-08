@@ -1334,10 +1334,17 @@ impl PeerManagerActor {
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
     fn send_signed_message_to_peer(&mut self, msg: Box<RoutedMessageV2>) -> bool {
+        let _span =
+            tracing::trace_span!(target: "network", "send_signed_message_to_peer").entered();
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
             if target == &self.my_peer_id {
-                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), my_peer_id = ?self.my_peer_id, ?msg, "Drop signed message to myself");
+                debug!(
+                    target: "network",
+                    account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                    my_peer_id = ?self.my_peer_id,
+                    ?msg,
+                    "Drop signed message to myself");
                 return false;
             }
         }
@@ -1439,6 +1446,7 @@ impl PeerManagerActor {
     }
 
     fn send_ping(&mut self, nonce: u64, target: PeerId) {
+        let _span = tracing::trace_span!(target: "network", "send_ping").entered();
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(msg);
@@ -1607,13 +1615,17 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
-                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY
-                    .observe((self.clock.now() - create_time.0).as_seconds_f64());
+                let delay = (self.clock.now() - create_time.0).as_seconds_f64();
+                let _span =
+                    tracing::trace_span!(target: "network", "PartialEncodedChunkRequest", delay)
+                        .entered();
+                metrics::PARTIAL_ENCODED_CHUNK_REQUEST_DELAY.observe(delay);
                 let mut success = false;
 
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
                 // and if it fails, against the preference.
                 for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
+                    trace!(target: "network", prefer_peer);
                     if !prefer_peer {
                         if let Some(account_id) = target.account_id.as_ref() {
                             if self.send_message_to_account(

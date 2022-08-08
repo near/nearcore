@@ -114,6 +114,7 @@ impl RawRoutedMessage {
         routed_message_ttl: u8,
         now: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {
+        let _span = tracing::trace_span!(target: "network", "sign").entered();
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());

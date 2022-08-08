@@ -92,6 +92,7 @@ impl RoutingTableView {
         clock: &time::Clock,
         target: &PeerIdOrHash,
     ) -> Result<PeerId, FindRouteError> {
+        let _span = tracing::trace_span!(target: "network", "find_route").entered();
         match target {
             PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
