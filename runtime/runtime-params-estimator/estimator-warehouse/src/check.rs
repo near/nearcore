@@ -219,12 +219,15 @@ mod tests {
 
         0003a
         {"computed_in":{"nanos":633,"secs":7},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null   }}
+        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":633,"secs":7},"name":"UncertainTest","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"NEGATIVE-COST"}}
         {"computed_in":{"nanos":655,"secs":56},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
 
         0004a
         {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":633,"secs":7},"name":"UncertainTest","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"HIGH-VARIANCE"}}
+        {"computed_in":{"nanos":633,"secs":7},"name":"UncertainTest2","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
@@ -244,66 +247,8 @@ mod tests {
         0000b
         {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
         {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
-        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
-        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":10.0,"time_ns":10,"metric":"time","uncertain_reason":null}}
-        "#;
-
-        // Now both estimations have changed.
-        let report = generate_test_report(&input_b, Metric::ICount, &[]);
-        insta::assert_snapshot!(report.to_string());
-
-        // Verify that filter for specific estimations works.
-        let report = generate_test_report(&input_b, Metric::ICount, &["LogBase"]);
-        insta::assert_snapshot!(report.to_string());
-
-        // Filter for metric.
-        let report = generate_test_report(&input_b, Metric::Time, &[]);
-        insta::assert_snapshot!(report.to_string());
-    }
-
-    #[test]
-    fn test_check_command_for_uncertain_changes() {
-        let input_a = r#"
-        0000a
-        {"computed_in":{"nanos":800,"secs":44},"name":"LogBase","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":809,"secs":26},"name":"LogByte","result":{"gas":1000000000.0,"instructions":8000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-
-        0001a
-        {"computed_in":{"nanos":814,"secs":9},"name":"LogBase","result":{"gas":2000000000.0,"instructions":16000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":694,"secs":33},"name":"LogByte","result":{"gas":1002000000.0,"instructions":8016.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-
-        0002a
-        {"computed_in":{"nanos":331,"secs":24},"name":"LogBase","result":{"gas":3000000000.0,"instructions":24000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":511,"secs":52},"name":"LogByte","result":{"gas":1004000000.0,"instructions":8032.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-
-        0003a
-        {"computed_in":{"nanos":633,"secs":7},"name":"LogBase","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":173,"secs":2},"name":"LogByte","result":{"gas":1006000000.0,"instructions":8048.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"BLOCK-MEASUREMENT-OVERHEAD"}}
-        {"computed_in":{"nanos":655,"secs":56},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
-
-        0004a
-        {"computed_in":{"nanos":319,"secs":19},"name":"LogBase","result":{"gas":5000000000.0,"instructions":40000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"HIGH-VARIANCE"}}
-        {"computed_in":{"nanos":527,"secs":15},"name":"LogByte","result":{"gas":1008000000.0,"instructions":8064.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
-        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
-        {"computed_in":{"nanos":661,"secs":11},"name":"LogByte","result":{"gas":15000000.0,"time_ns":15,"metric":"time","uncertain_reason":null}}
-        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
-        {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
-        "#;
-
-        // Only "LogBase" changes enough to show up in report.
-        let report = generate_test_report(input_a, Metric::ICount, &[]);
-        insta::assert_snapshot!(report.to_string());
-
-        // Add more data and verify the notifications are updated.
-        let input_b = input_a.to_owned()
-            + r#"
-
-        WAIT
-
-        0000b
-        {"computed_in":{"nanos":119,"secs":46},"name":"LogBase","result":{"gas":6000000000.0,"instructions":48000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"NEGATIVE-COST"}}
-        {"computed_in":{"nanos":372,"secs":12},"name":"LogByte","result":{"gas":7000000000.0,"instructions":56000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":633,"secs":7},"name":"UncertainTest","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":null}}
+        {"computed_in":{"nanos":633,"secs":7},"name":"UncertainTest2","result":{"gas":4000000000.0,"instructions":32000.0,"io_r_bytes":0.0,"io_w_bytes":0.0,"metric":"icount","uncertain_reason":"BLOCK-MEASUREMENT-OVERHEAD"}}
         {"computed_in":{"nanos":262,"secs":15},"name":"LogByte","result":{"gas":20000000.0,"time_ns":20,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128Sum","result":{"gas":0.0,"time_ns":0,"metric":"time","uncertain_reason":null}}
         {"computed_in":{"nanos":0,"secs":0},"name":"AltBn128MultiExp","result":{"gas":10.0,"time_ns":10,"metric":"time","uncertain_reason":null}}
