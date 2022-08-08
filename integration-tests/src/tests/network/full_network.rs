@@ -1,6 +1,6 @@
-pub use crate::tests::network::runner::*;
+use crate::tests::network::runner::*;
+use near_network_primitives::time;
 use std::cmp::min;
-use std::time::Duration;
 
 /// Check that a node is able to connect to the network, even if the number
 /// of active peers of every node is high.
@@ -25,7 +25,7 @@ pub fn connect_at_max_capacity(
         .enable_outbound()
         .max_num_peers(max_num_peers)
         .use_boot_nodes(boot_nodes)
-        .safe_set_size(0)
+        .safe_set_size(1)
         .minimum_outbound_peers(0)
         .ideal_connections(ideal_lo, ideal_hi);
 
@@ -80,7 +80,7 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     let validators = 2;
     let mut runner = Runner::new(nodes, validators)
         .enable_outbound()
-        .safe_set_size(0)
+        .safe_set_size(1)
         .minimum_outbound_peers(0)
         .max_num_peers(2)
         .ideal_connections(2, 2)
@@ -100,7 +100,7 @@ fn connect_whitelisted() -> anyhow::Result<()> {
     // - 1 shouldn't drop connections to 0,2,3, even though the
     //   connection limit is 2, since 0<->3 connection doesn't
     //   count towards this limit.
-    runner.push(Action::Wait(Duration::from_millis(200)));
+    runner.push(Action::Wait(time::Duration::milliseconds(200)));
     runner.push_action(assert_expected_peers(0, vec![1, 2, 3]));
     runner.push_action(assert_expected_peers(1, vec![0, 2]));
     runner.push_action(assert_expected_peers(2, vec![0, 1]));

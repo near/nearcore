@@ -1,6 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountData, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
@@ -319,7 +319,7 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub peer_counter: usize,
-    pub tier1_accounts: Vec<AccountData>,
+    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
 }
 
 impl From<NetworkInfo> for NetworkInfoView {

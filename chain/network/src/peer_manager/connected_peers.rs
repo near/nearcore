@@ -1,12 +1,19 @@
-use crate::network_protocol::Encoding;
+use crate::concurrency::demux;
+use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
+use crate::private_actix::SendMessage;
 use crate::types::{FullPeerInfo, PeerStatsResult};
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::PeerType;
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
+use std::collections::{hash_map::Entry, HashMap};
+use std::future::Future;
 use std::sync::Arc;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Contains information relevant to a connected peer.
 #[derive(Clone)]
@@ -29,6 +36,47 @@ pub(crate) struct ConnectedPeer {
     pub throttle_controller: ThrottleController,
     /// Encoding used for communication.
     pub encoding: Option<Encoding>,
+    pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+}
+
+impl ConnectedPeer {
+    pub fn send_accounts_data(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> impl Future<Output = ()> {
+        let addr = self.addr.clone();
+        self.send_accounts_data_demux.call(
+            data,
+            |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                let res = ds.iter().map(|_| ()).collect();
+                let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                for d in ds.into_iter().flatten() {
+                    match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                        Entry::Occupied(mut x) => {
+                            if x.get().timestamp < d.timestamp {
+                                x.insert(d);
+                            }
+                        }
+                        Entry::Vacant(x) => {
+                            x.insert(d);
+                        }
+                    }
+                }
+                let msg = SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }),
+                    context: Span::current().context(),
+                };
+                if let Err(err) = addr.send(msg).await {
+                    tracing::error!(target: "network", ?err, "Failed sending incremental SyncAccountsData");
+                }
+                res
+            },
+        )
+    }
 }
 
 #[derive(Default)]
