@@ -115,10 +115,14 @@ impl ShardTries {
         let storage = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         let flat_state = {
             #[cfg(feature = "protocol_feature_flat_state")]
-            if use_flat_state { Some(FlatState::new(self.0.store.clone()) } else { None }
+            if use_flat_state {
+                Some(FlatState::new(self.0.store.clone()))
+            } else {
+                None
+            }
             #[cfg(not(feature = "protocol_feature_flat_state"))]
             None
-        }
+        };
         Trie::new(storage, flat_state)
     }
 
