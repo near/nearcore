@@ -485,9 +485,6 @@ impl RocksDB {
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
         for prop_name in CF_PROPERTY_NAMES {
-            // TODO(mina86): Once const_str_from_utf8 is stabilised we can
-            // convert this run-time UTF8 validation into compile-time one.
-            let stat_name = std::str::from_utf8(prop_name.to_bytes()).unwrap();
             let mut values = vec![];
             for col in DBCol::iter() {
                 let size = self.db.property_int_value_cf(self.cf_handle(col), prop_name);
@@ -496,6 +493,9 @@ impl RocksDB {
                 }
             }
             if !values.is_empty() {
+                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // be able convert this runtime UTF-8 validation into const.
+                let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));
             }
         }
