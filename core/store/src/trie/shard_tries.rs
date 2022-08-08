@@ -12,6 +12,11 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::state::ValueRef;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::state_record::is_delayed_receipt_key;
+
 use crate::flat_state::FlatState;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
@@ -108,8 +113,12 @@ impl ShardTries {
                 .clone()
         };
         let storage = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
-        let flat_state =
-            if use_flat_state { Some(FlatState { store: self.0.store.clone() }) } else { None };
+        let flat_state = {
+            #[cfg(feature = "protocol_feature_flat_state")]
+            if use_flat_state { Some(FlatState::new(self.0.store.clone()) } else { None }
+            #[cfg(not(feature = "protocol_feature_flat_state"))]
+            None
+        }
         Trie::new(storage, flat_state)
     }
 
@@ -246,6 +255,34 @@ impl ShardTries {
     ) -> (StoreUpdate, StateRoot) {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn apply_changes_to_flat_state(
+        &self,
+        changes: &[RawStateChangesWithTrieKey],
+        store_update: &mut StoreUpdate,
+    ) {
+        for change in changes.iter() {
+            let key = change.trie_key.to_vec();
+            if is_delayed_receipt_key(&key) {
+                return;
+            }
+
+            let last_change = change
+                .changes
+                .last()
+                .expect("Committed entry should have at least one change")
+                .data
+                .clone();
+            match last_change {
+                Some(value) => {
+                    let value_ref_ser = ValueRef::create_serialized(&value);
+                    store_update.set(DBCol::FlatState, &key, &value_ref_ser)
+                }
+                None => store_update.delete(DBCol::FlatState, &key),
+            }
+        }
+    }
 }
 
 pub struct WrappedTrieChanges {
@@ -279,6 +316,9 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
+        #[cfg(feature = "protocol_feature_flat_state")]
+        self.tries.apply_changes_to_flat_state(&self.state_changes, store_update);
+
         for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
@@ -295,9 +335,6 @@ impl WrappedTrieChanges {
                 )),
                 "Resharding changes must never be finalized."
             );
-
-            #[cfg(feature = "protocol_feature_flat_state")]
-            store_update.apply_change_to_flat_state(&change_with_trie_key);
 
             // Filtering trie keys for user facing RPC reporting.
             // NOTE: If the trie key is not one of the account specific, it may cause key conflict

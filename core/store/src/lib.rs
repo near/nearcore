@@ -21,13 +21,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::state::ValueRef;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::types::RawStateChangesWithTrieKey;
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
@@ -410,28 +404,6 @@ impl StoreUpdate {
             }
         }
         self.storage.write(self.transaction)
-    }
-
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
-        let key = change.trie_key.to_vec();
-        if is_delayed_receipt_key(&key) {
-            return;
-        }
-
-        let last_change = change
-            .changes
-            .last()
-            .expect("Committed entry should have at least one change")
-            .data
-            .clone();
-        match last_change {
-            Some(value) => {
-                let value_ref_ser = ValueRef::create_serialized(&value);
-                self.set(DBCol::FlatState, &key, &value_ref_ser)
-            }
-            None => self.delete(DBCol::FlatState, &key),
-        }
     }
 }
 

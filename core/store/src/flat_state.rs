@@ -1,3 +1,13 @@
+//! Contains flat state optimization logic.
+//!
+//! The state of the contract is a key-value map, `Map<Vec<u8>, Vec<u8>>`.
+//! In the database, we store this map as a trie, which allows us to construct succinct proofs that a certain key/value
+//! belongs to contract's state. Using a trie has a drawback -- reading a single key/value requires traversing the trie
+//! from the root, loading many nodes from the database.
+//! To optimize this, we want to use flat state: alongside the trie, we store a *direct* mapping from keys to value
+//! references so that, if you don't need a proof, you can do a db lookup in just two db accesses.
+/// TODO (#7327): consider inlining small values, so we could use only one db access.
+
 #[cfg(feature = "protocol_feature_flat_state")]
 use crate::DBCol;
 use crate::Store;
@@ -13,10 +23,16 @@ use near_primitives::state::ValueRef;
 #[derive(Clone)]
 pub struct FlatState {
     #[allow(dead_code)]
-    pub store: Store,
+    store: Store,
 }
 
 impl FlatState {
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn new(store: Store) -> Self {
+        Self { store }
+    }
+
+    #[allow(unused_variables)]
     fn get_raw_ref(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         #[cfg(feature = "protocol_feature_flat_state")]
         return self
@@ -24,10 +40,7 @@ impl FlatState {
             .get(DBCol::FlatState, key)
             .map_err(|_| StorageError::StorageInternalError);
         #[cfg(not(feature = "protocol_feature_flat_state"))]
-        {
-            let _ = key;
-            unreachable!();
-        }
+        unreachable!();
     }
 
     /// Get value reference using raw trie key.
