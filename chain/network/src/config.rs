@@ -1,13 +1,14 @@
+use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
+use near_network_primitives::time;
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use std::time::Duration;
 
 /// How much height horizon to give to consider peer up to date.
 pub const HIGHEST_PEER_HORIZON: u64 = 5;
@@ -60,9 +61,9 @@ pub struct NetworkConfig {
 
     pub boot_nodes: Vec<PeerInfo>,
     pub whitelist_nodes: Vec<PeerInfo>,
-    pub handshake_timeout: Duration,
-    pub reconnect_delay: Duration,
-    pub bootstrap_peers_period: Duration,
+    pub handshake_timeout: time::Duration,
+    pub reconnect_delay: time::Duration,
+    pub bootstrap_peers_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
     pub max_num_peers: u32,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
@@ -72,7 +73,7 @@ pub struct NetworkConfig {
     /// Upper bound of the ideal number of connections.
     pub ideal_connections_hi: u32,
     /// Peers which last message is was within this period of time are considered active recent peers.
-    pub peer_recent_time_window: Duration,
+    pub peer_recent_time_window: time::Duration,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
     pub safe_set_size: u32,
@@ -80,15 +81,15 @@ pub struct NetworkConfig {
     /// if we are an archival node.
     pub archival_peer_connections_lower_bound: u32,
     /// Duration of the ban for misbehaving peers.
-    pub ban_window: Duration,
+    pub ban_window: time::Duration,
     /// Remove expired peers.
-    pub peer_expiration_duration: Duration,
+    pub peer_expiration_duration: time::Duration,
     /// Maximum number of peer addresses we should ever send on PeersRequest.
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
-    pub peer_stats_period: Duration,
+    pub peer_stats_period: time::Duration,
     /// Time to persist Accounts Id in the router without removing them.
-    pub ttl_account_id_router: Duration,
+    pub ttl_account_id_router: time::Duration,
     /// Number of hops a message is allowed to travel before being dropped.
     /// This is used to avoid infinite loop because of inconsistent view of the network
     /// by different nodes.
@@ -100,7 +101,7 @@ pub struct NetworkConfig {
     /// we still want to use the rest to query for state/headers/blocks.
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
-    pub push_info_period: Duration,
+    pub push_info_period: time::Duration,
     /// Nodes will not accept or try to establish connection to such peers.
     pub blacklist: Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
@@ -110,6 +111,8 @@ pub struct NetworkConfig {
     pub outbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
+    /// Maximal rate at which SyncAccountsData can be broadcasted.
+    pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
 }
@@ -175,25 +178,25 @@ impl NetworkConfig {
                 }
                 Ok(peers)
             }())?,
-            handshake_timeout: cfg.handshake_timeout,
-            reconnect_delay: cfg.reconnect_delay,
-            bootstrap_peers_period: Duration::from_secs(60),
+            handshake_timeout: cfg.handshake_timeout.try_into()?,
+            reconnect_delay: cfg.reconnect_delay.try_into()?,
+            bootstrap_peers_period: time::Duration::seconds(60),
             max_num_peers: cfg.max_num_peers,
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
-            peer_recent_time_window: cfg.peer_recent_time_window,
+            peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
-            ban_window: cfg.ban_window,
+            ban_window: cfg.ban_window.try_into()?,
             max_send_peers: 512,
-            peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
-            peer_stats_period: Duration::from_secs(5),
-            ttl_account_id_router: cfg.ttl_account_id_router,
+            peer_expiration_duration: time::Duration::seconds(7 * 24 * 60 * 60),
+            peer_stats_period: time::Duration::seconds(5),
+            ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             highest_peer_horizon: HIGHEST_PEER_HORIZON,
-            push_info_period: Duration::from_millis(100),
+            push_info_period: time::Duration::milliseconds(100),
             blacklist: cfg
                 .blacklist
                 .iter()
@@ -202,9 +205,9 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
+            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             features,
         };
-        this.verify()?;
         Ok(this)
     }
 
@@ -228,41 +231,40 @@ impl NetworkConfig {
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
-        let this = NetworkConfig {
+        NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
             validator: Some(validator),
             boot_nodes: vec![],
             whitelist_nodes: vec![],
-            handshake_timeout: Duration::from_secs(60),
-            reconnect_delay: Duration::from_secs(60),
-            bootstrap_peers_period: Duration::from_millis(100),
+            handshake_timeout: time::Duration::seconds(60),
+            reconnect_delay: time::Duration::seconds(60),
+            bootstrap_peers_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
-            peer_recent_time_window: Duration::from_secs(600),
+            peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
-            ban_window: Duration::from_secs(1),
-            peer_expiration_duration: Duration::from_secs(60 * 60),
+            ban_window: time::Duration::seconds(1),
+            peer_expiration_duration: time::Duration::seconds(60 * 60),
             max_send_peers: 512,
-            peer_stats_period: Duration::from_secs(5),
-            ttl_account_id_router: Duration::from_secs(60 * 60),
+            peer_stats_period: time::Duration::seconds(5),
+            ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
-            push_info_period: Duration::from_millis(100),
+            push_info_period: time::Duration::milliseconds(100),
             blacklist: Blacklist::default(),
             outbound_disabled: false,
             archive: false,
+            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
-        };
-        this.verify().unwrap();
-        this
+        }
     }
 
-    fn verify(&self) -> anyhow::Result<()> {
+    pub fn verify(self) -> anyhow::Result<VerifiedConfig> {
         if !(self.ideal_connections_lo <= self.ideal_connections_hi) {
             anyhow::bail!(
                 "Invalid ideal_connections values. lo({}) > hi({}).",
@@ -271,15 +273,11 @@ impl NetworkConfig {
             );
         }
 
-        if !(self.ideal_connections_hi < self.max_num_peers) {
+        if !(self.ideal_connections_hi <= self.max_num_peers) {
             anyhow::bail!(
-                "max_num_peers({}) is below ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
+                "max_num_peers({}) < ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
                 self.max_num_peers, self.ideal_connections_hi
             );
-        }
-
-        if self.outbound_disabled {
-            anyhow::bail!("Outbound connections are disabled.");
         }
 
         if !(self.safe_set_size > self.minimum_outbound_peers) {
@@ -293,17 +291,30 @@ impl NetworkConfig {
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
             anyhow::bail!(
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
-                self.peer_recent_time_window.as_secs(), UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE.as_secs()
+                self.peer_recent_time_window, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             );
         }
-        Ok(())
+        self.accounts_data_broadcast_rate_limit
+            .validate()
+            .context("accounts_Data_broadcast_rate_limit")?;
+        Ok(VerifiedConfig(self))
     }
 }
 
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
+
+#[derive(Clone)]
+pub struct VerifiedConfig(NetworkConfig);
+
+impl std::ops::Deref for VerifiedConfig {
+    type Target = NetworkConfig;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -323,23 +334,19 @@ mod test {
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
-        nc.ideal_connections_hi = nc.max_num_peers;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        nc.ideal_connections_hi = nc.max_num_peers + 1;
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.safe_set_size = nc.minimum_outbound_peers;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
 
         let mut nc = config::NetworkConfig::from_seed("123", 213);
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
-        let res = nc.verify();
-        assert!(res.is_err(), "{:?}", res);
+        assert!(nc.verify().is_err());
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the

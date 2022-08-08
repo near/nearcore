@@ -138,6 +138,10 @@ pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
     Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
 }
 
+pub fn make_edge_tombstone(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
+    make_edge(a, b).remove_edge(PeerId::new(a.public_key.clone()), &a.secret_key)
+}
+
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
     let signers: Vec<_> = (0..7).map(|_| make_signer(rng)).collect();
     RoutingTableUpdate {
@@ -312,13 +316,20 @@ impl Chain {
         &self,
         rng: &mut R,
         clock: &time::Clock,
-    ) -> Vec<SignedAccountData> {
+    ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
             .map(|(epoch_id, v)| {
-                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
+                Arc::new(
+                    make_account_data(
+                        rng,
+                        clock.now_utc(),
+                        epoch_id.clone(),
+                        v.validator_id().clone(),
+                    )
                     .sign(v)
-                    .unwrap()
+                    .unwrap(),
+                )
             })
             .collect()
     }

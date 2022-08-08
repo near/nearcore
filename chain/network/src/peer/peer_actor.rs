@@ -275,7 +275,7 @@ impl PeerActor {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
         }
-        let chain_info = self.peer_manager_state.chain_info.read().clone();
+        let chain_info = self.peer_manager_state.chain_info.load();
         let handshake = match self.protocol_version {
             39..=PROTOCOL_VERSION => PeerMessage::Handshake(Handshake::new(
                 self.protocol_version,
@@ -285,7 +285,7 @@ impl PeerActor {
                 PeerChainInfoV2 {
                     genesis_id: self.peer_manager_state.genesis_id.clone(),
                     height: chain_info.height,
-                    tracked_shards: chain_info.tracked_shards,
+                    tracked_shards: chain_info.tracked_shards.clone(),
                     archival: self.peer_manager_state.config.archive,
                 },
                 self.partial_edge_info.as_ref().unwrap().clone(),
@@ -569,8 +569,9 @@ impl PeerActor {
     fn on_receive_message(&mut self) {
         if let Some(peer_id) = self.other_peer_id().cloned() {
             let now = self.clock.now();
-            if now - self.last_time_received_message_update
-                > time::Duration::try_from(UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE).unwrap()
+            if now
+                > self.last_time_received_message_update
+                    + UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
                 self.last_time_received_message_update = now;
                 let _ = self.peer_manager_addr.do_send(PeerToManagerMsg::ReceivedMessage(
@@ -1000,6 +1001,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     ));
             }
             (PeerStatus::Ready, PeerMessage::SyncAccountsData(msg)) => {
+                let peer_id = self.other_peer_id().unwrap().clone();
                 let pms = self.peer_manager_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1020,15 +1022,16 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     // Broadcast any new data we have found, even in presence of an error.
                     // This will prevent a malicious peer from forcing us to re-verify valid
                     // datasets. See accounts_data::Cache documentation for details.
-                    // TODO(gprusak): this should be rate limited - diffs should be aggregated,
-                    // unless there was no recent broadcast of this type.
                     if new_data.len() > 0 {
-                        pms.broadcast_message(PeerMessage::SyncAccountsData(SyncAccountsData {
-                            incremental: true,
-                            requesting_full_sync: false,
-                            accounts_data: new_data,
-                        }))
-                        .await;
+                        let handles: Vec<_> = pms
+                            .connected_peers
+                            .read()
+                            .values()
+                            // Do not send the data back.
+                            .filter(|p| peer_id != p.full_peer_info.peer_info.id)
+                            .map(|p| p.send_accounts_data(new_data.clone()))
+                            .collect();
+                        futures_util::future::join_all(handles).await;
                     }
                     err.map(|err| match err {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,
