@@ -114,6 +114,8 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         ripemd160_base: get(Cost::Ripemd160Base)?,
         ripemd160_block: get(Cost::Ripemd160Block)?,
         ecrecover_base: get(Cost::EcrecoverBase)?,
+        ed25519_verify_base: get(Cost::Ed25519VerifyBase)?,
+        ed25519_verify_byte: get(Cost::Ed25519VerifyByte)?,
         log_base: get(Cost::LogBase)?,
         log_byte: get(Cost::LogByte)?,
         storage_write_base: get(Cost::StorageWriteBase)?,
