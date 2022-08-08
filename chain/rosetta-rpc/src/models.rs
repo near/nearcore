@@ -770,7 +770,6 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
-    /// Has to be specified for TRANSFER operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
 }
