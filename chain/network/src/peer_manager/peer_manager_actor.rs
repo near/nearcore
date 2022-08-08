@@ -108,9 +108,9 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
-/// Send all partial encoded chunk messages three times.
+/// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
-const PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT: usize = 3;
+const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
 // If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 // We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -1391,7 +1391,15 @@ impl PeerManagerActor {
         };
 
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        self.send_message_to_peer(msg)
+        if msg.body.is_important() {
+            let mut success = false;
+            for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
+                success |= self.send_message_to_peer(msg.clone());
+            }
+            success
+        } else {
+            self.send_message_to_peer(msg)
+        }
     }
 
     fn sign_routed_message(
@@ -1667,12 +1675,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                let mut message_sent = false;
-                let msg: RoutedMessageBody = partial_encoded_chunk.into();
-                for _ in 0..PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT {
-                    message_sent |= self.send_message_to_account(&account_id, msg.clone());
-                }
-                if message_sent {
+                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
