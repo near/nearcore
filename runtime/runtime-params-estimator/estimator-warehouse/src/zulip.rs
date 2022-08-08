@@ -112,9 +112,7 @@ impl std::fmt::Display for ZulipReport {
                 writeln!(
                     f,
                     "{:<40} {:>32} ➜ {:<32}",
-                    change.estimation,
-                    change.before,
-                    change.after,
+                    change.estimation, change.before, change.after,
                 )?;
             }
             writeln!(f, "```")?;

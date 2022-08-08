@@ -107,8 +107,13 @@ pub(crate) fn create_report(db: &Db, config: &CheckConfig) -> anyhow::Result<Zul
     let warnings =
         estimation_changes(db, &estimations, &commit_before, &commit_after, 0.1, config.metric)?;
 
-    let warnings_uncertain =
-        estimation_uncertain_changes(db, &estimations, &commit_before, &commit_after, config.metric)?;
+    let warnings_uncertain = estimation_uncertain_changes(
+        db,
+        &estimations,
+        &commit_before,
+        &commit_after,
+        config.metric,
+    )?;
 
     let mut report = ZulipReport::new(commit_before, commit_after);
     for warning in warnings {
@@ -158,13 +163,25 @@ fn estimation_uncertain_changes(
         let a = &EstimationRow::get(db, name, commit_after, metric)?[0];
         match (&b.uncertain_reason, &a.uncertain_reason) {
             (None, None) => continue,
-            (Some(uncertain_before), None) => add_warning(&mut warnings, name.clone(), uncertain_before.clone(), "None".to_owned()),
-            (None, Some(uncertain_after)) => add_warning(&mut warnings, name.clone(),"None".to_owned(), uncertain_after.clone()),
+            (Some(uncertain_before), None) => add_warning(
+                &mut warnings,
+                name.clone(),
+                uncertain_before.clone(),
+                "None".to_owned(),
+            ),
+            (None, Some(uncertain_after)) => {
+                add_warning(&mut warnings, name.clone(), "None".to_owned(), uncertain_after.clone())
+            }
             (Some(uncertain_before), Some(uncertain_after)) => {
                 if !uncertain_before.eq(uncertain_after) {
-                    add_warning(&mut warnings, name.clone(), uncertain_before.clone(), uncertain_after.clone());
+                    add_warning(
+                        &mut warnings,
+                        name.clone(),
+                        uncertain_before.clone(),
+                        uncertain_after.clone(),
+                    );
                 }
-            },
+            }
         }
     }
 
@@ -177,7 +194,6 @@ fn add_warning(warnings: &mut Vec<Notice>, name: String, before: String, after: 
         before: before,
         after: after,
     }))
-
 }
 
 #[cfg(test)]
