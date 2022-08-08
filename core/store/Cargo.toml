@@ -60,5 +60,4 @@ nightly_protocol = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_chunk_only_producers",
-  "protocol_feature_flat_state",
 ]
