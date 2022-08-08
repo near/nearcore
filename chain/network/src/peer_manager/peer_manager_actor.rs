@@ -690,7 +690,7 @@ impl PeerManagerActor {
         target_peer_id: PeerId,
         new_edge: Edge,
     ) {
-        let run_later_span = tracing::trace_span!(target: "network", "send_sync_attempt");
+        let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
             ctx,
