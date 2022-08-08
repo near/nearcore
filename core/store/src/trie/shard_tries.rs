@@ -113,21 +113,16 @@ impl ShardTries {
         Trie::new(storage, flat_state)
     }
 
-    pub fn get_trie_with_optional_flat_state_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        is_view: bool,
-        use_flat_state: bool,
-    ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, is_view, use_flat_state)
+    pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, false, false)
     }
 
-    pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_with_optional_flat_state_for_shard(shard_uid, false, false)
+    pub fn get_trie_with_flat_state_for_shard(&self, shard_uid: ShardUId) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, false, true)
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_with_optional_flat_state_for_shard(shard_uid, true, false)
+        self.get_trie_for_shard_internal(shard_uid, true, false)
     }
 
     pub fn get_store(&self) -> Store {
