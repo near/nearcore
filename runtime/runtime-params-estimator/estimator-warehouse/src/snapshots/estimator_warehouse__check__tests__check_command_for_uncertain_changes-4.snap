@@ -1,5 +1,6 @@
 ---
 source: runtime/runtime-params-estimator/estimator-warehouse/src/check.rs
+assertion_line: 322
 expression: report.to_string()
 ---
 ## Report 
@@ -8,7 +9,8 @@ expression: report.to_string()
 *Compared to:         0004a*
 ### Relative gas estimation changes above threshold: 2
 ```
-LogBase                                         5.00 Ggas ➜        6.00 Ggas (+20.00%)
-LogByte                                         1.01 Ggas ➜        7.00 Ggas (+594.44%)
+AltBn128MultiExp                                    0 gas ➜           10 gas (+inf%)
+LogByte                                        15.00 Mgas ➜       20.00 Mgas (+33.33%)
 ```
 ### Gas estimator uncertain changes: 0
+

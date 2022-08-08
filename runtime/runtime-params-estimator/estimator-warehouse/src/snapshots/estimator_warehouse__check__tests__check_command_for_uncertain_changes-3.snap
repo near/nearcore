@@ -1,5 +1,6 @@
 ---
 source: runtime/runtime-params-estimator/estimator-warehouse/src/check.rs
+assertion_line: 318
 expression: report.to_string()
 ---
 ## Report 
@@ -10,4 +11,8 @@ expression: report.to_string()
 ```
 LogBase                                         5.00 Ggas ➜        6.00 Ggas (+20.00%)
 ```
-### Gas estimator uncertain changes: 0
+### Gas estimator uncertain changes: 1
+```
+LogBase                                                     HIGH-VARIANCE ➜ NEGATIVE-COST                   
+```
+
