@@ -17,6 +17,7 @@ use near_primitives::state::ValueRef;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state_record::is_delayed_receipt_key;
 
+#[cfg(feature = "protocol_feature_flat_state")]
 use crate::flat_state::FlatState;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
@@ -98,6 +99,7 @@ impl ShardTries {
         TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid)), state_root)
     }
 
+    #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
