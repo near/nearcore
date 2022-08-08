@@ -23,9 +23,6 @@ serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<=0.10"
 sha3 = ">=0.8,<=0.10"
 ed25519-dalek = { version = "1" }
-schnorrkel = { version = "0.10.2" }
-blake2 = {version = "0.10.4" }
-
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
