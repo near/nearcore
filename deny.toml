@@ -17,6 +17,11 @@ deny = [
 ]
 
 skip = [
+    # See https://github.com/camshaft/bolero/issues/85
+    { name = "crossbeam-channel", version = "=0.4.4" },
+    { name = "crossbeam-utils", version = "=0.7.2" },
+    { name = "strsim", version = "=0.8.0" },
+
     { name = "clap", version = "=2.34.0" },
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
@@ -28,7 +33,6 @@ skip = [
     { name = "rand_chacha", version = "=0.1.1" },
     { name = "autocfg", version = "=0.1.8" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
-    { name = "base64", version = "=0.11.0" },
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
@@ -42,14 +46,10 @@ skip = [
     { name = "digest", version = "=0.9.0" },
     { name = "sha2", version = "=0.9.9" },
 
-    # Wasmer 2.0 uses newer object
-    { name = "object", version = "=0.27.1" },
+    # near-vm-runner and wasmer-compiler-near use 0.78.2
+    { name = "wasmparser", version = "=0.78.2" },
     # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
-    # Wasmtime 0.34 use relies on a newer wasmparser, the main version stays the one in production.
-    { name = "wasmparser", version = "=0.82.0" },
-    # wasm-smith relies on 0.84.0
-    { name = "wasmparser", version = "=0.84.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },

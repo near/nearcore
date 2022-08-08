@@ -684,6 +684,11 @@ impl StateSync {
         Ok((request_block, have_block))
     }
 
+    // In the tuple of bools returned by this function, the first one
+    // indicates whether something has changed in `new_shard_sync`,
+    // and therefore whether the client needs to update its
+    // `sync_status`. The second indicates whether state sync is
+    // finished, in which case the client will transition to block sync
     pub fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
@@ -731,8 +736,10 @@ impl StateSync {
             let mut need_shard = false;
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 need_shard = true;
+                update_sync_status = true;
                 init_sync_download.clone()
             });
+            let old_status = shard_sync_download.status;
             let mut this_done = false;
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
@@ -790,7 +797,6 @@ impl StateSync {
                         }
                     }
                     if parts_done {
-                        update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
                             status: ShardSyncStatus::StateDownloadScheduling,
@@ -808,7 +814,6 @@ impl StateSync {
                         state_parts_task_scheduler,
                     ) {
                         Ok(()) => {
-                            update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
                                 status: ShardSyncStatus::StateDownloadApplying,
@@ -818,7 +823,6 @@ impl StateSync {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
                             error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                            update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
                             chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                         }
@@ -829,7 +833,6 @@ impl StateSync {
                     if let Some(result) = result {
                         match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
-                                update_sync_status = true;
                                 *shard_sync_download = ShardSyncDownload {
                                     downloads: vec![],
                                     status: ShardSyncStatus::StateDownloadComplete,
@@ -839,7 +842,6 @@ impl StateSync {
                                 // Cannot finalize the downloaded state.
                                 // The reasonable behavior here is to start from the very beginning.
                                 error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
-                                update_sync_status = true;
                                 *shard_sync_download = init_sync_download.clone();
                                 let shard_state_header =
                                     chain.get_state_header(shard_id, sync_hash)?;
@@ -946,6 +948,7 @@ impl StateSync {
                     highest_height_peers,
                 )?;
             }
+            update_sync_status |= shard_sync_download.status != old_status;
         }
 
         Ok((update_sync_status, all_done))
@@ -1300,7 +1303,9 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use near_chain::test_utils::{setup, setup_with_validators};
+    use near_chain::test_utils::{
+        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+    };
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1309,6 +1314,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_logger_utils::init_test_logger;
     use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
@@ -1352,27 +1358,27 @@ mod test {
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer);
-            chain
-                .process_block(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut BlockProcessingArtifact::default(),
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, &*signer2);
-            chain2
-                .process_block(
-                    &None,
-                    block.into(),
-                    Provenance::PRODUCED,
-                    &mut BlockProcessingArtifact::default(),
-                )
-                .unwrap();
+            process_block_sync(
+                &mut chain2,
+                &None,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
@@ -1442,16 +1448,13 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (chain, _, signers) = setup_with_validators(
-            vec!["test0", "test1", "test2", "test3", "test4"]
-                .iter()
-                .map(|x| x.parse().unwrap())
-                .collect(),
-            1,
-            1,
-            1000,
-            100,
-        );
+        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
+            "test0", "test1", "test2", "test3", "test4",
+        ]
+        .iter()
+        .map(|x| x.parse().unwrap())
+        .collect()]);
+        let (chain, _, signers) = setup_with_validators(vs, 1000, 100);
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
@@ -1614,6 +1617,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
+        init_test_logger();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
@@ -1659,7 +1663,7 @@ mod test {
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
-        let _ = env.clients[1].process_block(
+        let _ = env.clients[1].process_block_test(
             MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
             Provenance::NONE,
         );
@@ -1675,7 +1679,8 @@ mod test {
 
         // Receive all blocks. Should not request more.
         for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
-            env.process_block(1, blocks[i].clone(), Provenance::NONE);
+            let _ = env.clients[1]
+                .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);

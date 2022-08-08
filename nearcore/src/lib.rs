@@ -6,18 +6,19 @@ use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
-use near_chain::ChainGenesis;
+use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::test_utils::NetworkRecipient;
+use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::{Mode, RocksDB};
+use near_store::db::RocksDB;
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
-use near_store::{DBCol, Store, StoreOpener};
+use near_store::{DBCol, Mode, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -251,6 +252,11 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_id = GenesisId {
+        chain_id: config.client_config.chain_id.clone(),
+        hash: genesis_block.header().hash().clone(),
+    };
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -279,7 +285,6 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    config.network_config.verify().context("start_with_config")?;
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
         let client_actor = client_actor.clone();
         let view_client = view_client.clone();
@@ -289,11 +294,12 @@ pub fn start_with_config_and_synchronization(
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),
+                genesis_id,
             )
             .unwrap()
         }
     });
-    network_adapter.set_recipient(network_actor.clone().recipient());
+    network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {

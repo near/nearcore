@@ -8,6 +8,7 @@ rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
+ansi_term = "0.12"
 actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -28,6 +29,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

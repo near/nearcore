@@ -86,7 +86,6 @@ pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
-    ForwardChunkParts,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -165,7 +164,7 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    /// Charge for contract loading before it happens.
+    /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
 }
@@ -179,17 +178,17 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// the corresponding version
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly_protocol")] {
-        /// Current latest nightly version of the protocol.
-        pub const PROTOCOL_VERSION: ProtocolVersion = 130;
-    } else if #[cfg(feature = "shardnet")] {
-        /// Protocol version for shardnet.
-        pub const PROTOCOL_VERSION: ProtocolVersion = 100;
-    } else {
-        pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-    }
-}
+/// Largest protocol version supported by the current binary.
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+    // On nightly, pick big enough version to support all features.
+    130
+} else if cfg!(feature = "shardnet") {
+    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
+    100
+} else {
+    // Enable all stable features.
+    STABLE_PROTOCOL_VERSION
+};
 
 /// The points in time after which the voting for the protocol version should start.
 #[allow(dead_code)]
@@ -219,9 +218,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts
-            | ProtocolFeature::RectifyInflation
-            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
             | ProtocolFeature::FixStorageUsage

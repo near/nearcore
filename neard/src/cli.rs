@@ -7,7 +7,8 @@ use near_o11y::{
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
-use near_store::db::{Mode, RocksDB};
+use near_store::db::RocksDB;
+use near_store::Mode;
 use std::cell::Cell;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

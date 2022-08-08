@@ -2,13 +2,12 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::db::Mode;
-use near_store::Store;
+use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -124,6 +123,11 @@ pub struct DumpStateCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// List of validators to remain validators.
+    /// All other validators will be kicked, but still dumped.
+    /// Their stake will be returned to balance.
+    #[clap(long)]
+    include_validators: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
@@ -135,7 +139,9 @@ impl DumpStateCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(self.account_ids)
+                .with_whitelist_validators(self.include_validators),
         );
     }
 }

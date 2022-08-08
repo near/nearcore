@@ -6,7 +6,7 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::StateRoot;
-use near_store::{db::Mode, TrieIterator};
+use near_store::Mode;
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
@@ -43,7 +43,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
         let state_root = state_roots[shard_id];
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, &state_root).unwrap();
+        let trie = trie.iter(&state_root).unwrap();
 
         let start = Instant::now();
         let num_items_read = trie

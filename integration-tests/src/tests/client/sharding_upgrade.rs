@@ -6,17 +6,19 @@ use crate::tests::client::process_blocks::{
 use near_chain::near_chain_primitives::Error;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
+use near_client::test_utils::{run_catchup, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
+use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
@@ -26,9 +28,11 @@ use nearcore::NEAR_BASE;
 use tracing::debug;
 
 use assert_matches::assert_matches;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -144,13 +148,27 @@ impl TestShardUpgradeEnv {
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let produce_chunks = !rng.gen_bool(p_drop_chunk);
-            env.process_block_with_options(
-                j as usize,
-                block.clone(),
-                Provenance::NONE,
-                should_catchup,
-                produce_chunks,
-            );
+            // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
+            // because we want to call run_catchup before finish processing this block. This simulates
+            // that catchup and block processing run in parallel.
+            env.clients[j]
+                .start_process_block(
+                    MaybeValidated::from(block.clone()),
+                    Provenance::NONE,
+                    Arc::new(|_| {}),
+                )
+                .unwrap();
+            if should_catchup {
+                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+            }
+            while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
+                let (_, errors) =
+                    env.clients[j].postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
+                assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+            }
+            if should_catchup {
+                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+            }
         }
 
         let expected_num_shards = if height < 2 * self.epoch_length { 1 } else { 4 };
@@ -553,7 +571,7 @@ fn gen_cross_contract_transaction(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],

@@ -1,5 +1,6 @@
 mod cache;
 mod compile_errors;
+mod fuzzers;
 mod rs_contract;
 mod runtime_errors;
 pub(crate) mod test_builder;
@@ -54,6 +55,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
 /// Includes hard-coded value for runtime parameter values
 /// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
 /// have to be updated if they change in the future.
+#[allow(unused)]
 fn prepaid_loading_gas(bytes: usize) -> u64 {
     if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
         35_445_963 + bytes as u64 * 21_6750

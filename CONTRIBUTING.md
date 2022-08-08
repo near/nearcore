@@ -8,7 +8,7 @@ For an overview of the NEAR core architecture, see [this playlist](https://www.y
 
 # Pull Requests and Issues
 
-All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via Github interface.
+All the contributions to `nearcore` happen via Pull Requests. To create a Pull Request, fork `nearcore`, create a new branch, do the work there, and then send the PR via the Github interface.
 
 The PRs should always be against the `master` branch.
 
@@ -45,16 +45,14 @@ Where `type` is `fix` for fixes, `feat` for features, `refactor` for changes tha
 
 The `test plan` should describe in detail what tests are presented, and what cases they cover.
 
+If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.
+
+
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within one business day.
-   One code owner (chosen in a round robin order for the codeowner list) will first review your pull request.
-   They may re-assign the pull request to another person if they feel that they don't have sufficient expertise to review the pull request.
-   The reviewers will review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
-   If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
-3. Once you address all the comments, and your PR is accepted, we will take care of merging it.
-4. If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.
+2. Once the CI passes, you should expect the first feedback to appear within one business day.  Please see the [code review process](#code-review-process) section for how we conduct code reviews.
+3. When all the comments have been addressed and all the reviewers are satisfied, they will approve your PR.  You can now add the `S-automerge` label on it to instruct Github to merge the PR.
 
 ## Proposing new ideas and features
 
@@ -120,3 +118,25 @@ Common types include `C`, which means category, `A`, which means area, `T`, whic
 
 An issue can have multiple labels including which area it touches, which team should be responsible for the issue, and so on.
 Each issue should have at least one label attached to it after it is triaged and the label could be a general one, such as `C-enhancement` or `C-bug`.
+
+# Code review process
+
+We have two groups of code reviewers:  Super owners and normal owners.  When a
+PR is created:
+
+- a super owner will be automatically assigned to review.
+- they may choose to review the PR themself or they may delegate to someone else
+  who belongs either to the super owners or the normal owners group.
+- the delegate will perform the review and as needed engage other reviewers as
+  well.  They will review your tests, and make sure that they can convince
+  themselves the test coverage is adequate before they even look into the
+  change, so make sure you tested all the corner cases.
+
+The author is also free to directly request reviews from specific persons
+[through the github
+ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
+In this case, the automatically selected super owner will ensure that the
+selected reviewer is sufficient or additional reviewers are needed.
+
+If you are interested in becoming a code reviewer, please get in touch with us
+on zulip.

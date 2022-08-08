@@ -9,7 +9,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::serialize::u128_dec_format;
+use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 
 use crate::receipt::Receipt;
@@ -21,7 +21,7 @@ pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -48,7 +48,7 @@ pub struct AccountWithPublicKey {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
 }
 
@@ -445,6 +445,7 @@ impl StateRootNode {
     Eq,
     PartialEq,
     PartialOrd,
+    Ord,
     DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,
@@ -774,7 +775,7 @@ pub struct ChunkExtraV1 {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -784,7 +785,7 @@ pub enum BlockId {
 pub type MaybeBlockId = Option<BlockId>;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
@@ -792,7 +793,7 @@ pub enum SyncCheckpoint {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
@@ -871,9 +872,9 @@ pub enum ValidatorKickoutReason {
     Unstaked,
     /// Validator stake is now below threshold
     NotEnoughStake {
-        #[serde(with = "u128_dec_format", rename = "stake_u128")]
+        #[serde(with = "dec_format", rename = "stake_u128")]
         stake: Balance,
-        #[serde(with = "u128_dec_format", rename = "threshold_u128")]
+        #[serde(with = "dec_format", rename = "threshold_u128")]
         threshold: Balance,
     },
     /// Enough stake but is not chosen because of seat limits.
@@ -889,8 +890,8 @@ pub enum TransactionOrReceiptId {
 
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error>;
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error>;
+    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> Result<(), std::io::Error>;
+    fn get(&self, key: &CryptoHash) -> Result<Option<Vec<u8>>, std::io::Error>;
 }
 
 /// Provides information about current epoch validators.

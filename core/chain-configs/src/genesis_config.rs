@@ -3,6 +3,7 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -26,7 +27,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    serialize::{u128_dec_format, u128_dec_format_compatible},
+    serialize::dec_format,
     state_record::StateRecord,
     types::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
@@ -116,9 +117,9 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
@@ -147,7 +148,7 @@ pub struct GenesisConfig {
     #[default(Rational32::from_integer(0))]
     pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -155,7 +156,7 @@ pub struct GenesisConfig {
     #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     #[serde(default = "default_minimum_stake_divisor")]
@@ -568,6 +569,31 @@ impl Genesis {
     }
 }
 
+/// Config for changes applied to state dump.
+#[derive(Debug, Default)]
+pub struct GenesisChangeConfig {
+    pub select_account_ids: Option<Vec<AccountId>>,
+    pub whitelist_validators: Option<HashSet<AccountId>>,
+}
+
+impl GenesisChangeConfig {
+    pub fn with_select_account_ids(mut self, select_account_ids: Option<Vec<AccountId>>) -> Self {
+        self.select_account_ids = select_account_ids;
+        self
+    }
+
+    pub fn with_whitelist_validators(
+        mut self,
+        whitelist_validators: Option<Vec<AccountId>>,
+    ) -> Self {
+        self.whitelist_validators = match whitelist_validators {
+            None => None,
+            Some(whitelist) => Some(whitelist.into_iter().collect::<HashSet<AccountId>>()),
+        };
+        self
+    }
+}
+
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
@@ -597,10 +623,10 @@ pub struct ProtocolConfigView {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
@@ -625,7 +651,7 @@ pub struct ProtocolConfigView {
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,

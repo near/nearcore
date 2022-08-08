@@ -5,7 +5,6 @@ use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
-use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -50,14 +49,17 @@ pub struct InfoHelper {
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Telemetry actor.
-    telemetry_actor: Addr<TelemetryActor>,
+    // The field can be None for testing. This allows avoiding running actix in tests.
+    telemetry_actor: Option<Addr<TelemetryActor>>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
+    /// Timestamp of starting the client.
+    pub boot_time_seconds: i64,
 }
 
 impl InfoHelper {
     pub fn new(
-        telemetry_actor: Addr<TelemetryActor>,
+        telemetry_actor: Option<Addr<TelemetryActor>>,
         client_config: &ClientConfig,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -74,6 +76,7 @@ impl InfoHelper {
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
+            boot_time_seconds: Clock::utc().timestamp(),
         }
     }
 
@@ -121,6 +124,7 @@ impl InfoHelper {
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         protocol_upgrade_block_height: BlockHeight,
         statistics: Option<StoreStatistics>,
+        client_config: &ClientConfig,
     ) {
         let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
@@ -224,6 +228,35 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
+        // In production `telemetry_actor` should always be available.
+        if let Some(telemetry_actor) = &self.telemetry_actor {
+            telemetry(
+                telemetry_actor,
+                self.telemetry_info(
+                    head,
+                    sync_status,
+                    node_id,
+                    network_info,
+                    client_config,
+                    cpu_usage,
+                    memory_usage,
+                    is_validator,
+                ),
+            );
+        }
+    }
+
+    fn telemetry_info(
+        &self,
+        head: &Tip,
+        sync_status: &SyncStatus,
+        node_id: &PeerId,
+        network_info: &NetworkInfo,
+        client_config: &ClientConfig,
+        cpu_usage: f32,
+        memory_usage: u64,
+        is_validator: bool,
+    ) -> serde_json::Value {
         let info = TelemetryInfo {
             agent: TelemetryAgentInfo {
                 name: "near-rs".to_string(),
@@ -235,25 +268,41 @@ impl InfoHelper {
                 bandwidth_upload: network_info.sent_bytes_per_sec,
                 cpu_usage,
                 memory_usage,
+                boot_time_seconds: self.boot_time_seconds,
             },
             chain: TelemetryChainInfo {
                 node_id: node_id.to_string(),
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: to_base(&head.last_block_hash),
+                latest_block_hash: head.last_block_hash.clone(),
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
+                block_production_tracking_delay: client_config
+                    .block_production_tracking_delay
+                    .as_secs_f64(),
+                min_block_production_delay: client_config.min_block_production_delay.as_secs_f64(),
+                max_block_production_delay: client_config.max_block_production_delay.as_secs_f64(),
+                max_block_wait_delay: client_config.max_block_wait_delay.as_secs_f64(),
             },
+            extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
         // Sign telemetry if there is a signer present.
-        let content = if let Some(vs) = self.validator_signer.as_ref() {
+        if let Some(vs) = self.validator_signer.as_ref() {
             vs.sign_telemetry(&info)
         } else {
             serde_json::to_value(&info).expect("Telemetry must serialize to json")
-        };
-        telemetry(&self.telemetry_actor, content);
+        }
     }
+}
+
+fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
+    serde_json::json!({
+        "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_secs_f64(),
+        "min_block_production_delay":  client_config.min_block_production_delay.as_secs_f64(),
+        "max_block_production_delay": client_config.max_block_production_delay.as_secs_f64(),
+        "max_block_wait_delay": client_config.max_block_wait_delay.as_secs_f64(),
+    })
 }
 
 pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
@@ -369,26 +418,6 @@ impl std::fmt::Display for PrettyNumber {
     }
 }
 
-#[test]
-fn test_pretty_number() {
-    for (want, num) in [
-        ("0 U", 0),
-        ("1 U", 1),
-        ("10 U", 10),
-        ("100 U", 100),
-        ("1.00 kU", 1_000),
-        ("10.0 kU", 10_000),
-        ("100 kU", 100_000),
-        ("1.00 MU", 1_000_000),
-        ("10.0 MU", 10_000_000),
-        ("100 MU", 100_000_000),
-        ("18.4 EU", u64::MAX),
-    ] {
-        let got = PrettyNumber(num, "U").to_string();
-        assert_eq!(want, &got, "num={}", num);
-    }
-}
-
 /// Number of blocks and chunks produced and expected by a certain validator.
 pub struct ValidatorProductionStats {
     pub account_id: AccountId,
@@ -432,4 +461,88 @@ pub fn get_validator_epoch_stats(
         stats.push(ValidatorProductionStats::validator(validator));
     }
     stats
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_network::test_utils::peer_id_from_seed;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use num_rational::Ratio;
+
+    #[test]
+    fn test_pretty_number() {
+        for (want, num) in [
+            ("0 U", 0),
+            ("1 U", 1),
+            ("10 U", 10),
+            ("100 U", 100),
+            ("1.00 kU", 1_000),
+            ("10.0 kU", 10_000),
+            ("100 kU", 100_000),
+            ("1.00 MU", 1_000_000),
+            ("10.0 MU", 10_000_000),
+            ("100 MU", 100_000_000),
+            ("18.4 EU", u64::MAX),
+        ] {
+            let got = PrettyNumber(num, "U").to_string();
+            assert_eq!(want, &got, "num={}", num);
+        }
+    }
+
+    #[test]
+    fn telemetry_info() {
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true);
+        let info_helper = InfoHelper::new(None, &config, None);
+
+        let store = near_store::test_utils::create_test_store();
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        let runtime =
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
+        let chain_genesis = ChainGenesis {
+            time: Clock::utc(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+            gas_price_adjustment_rate: Ratio::from_integer(0),
+            transaction_validity_period: 123123,
+            epoch_length: 123,
+            protocol_version: PROTOCOL_VERSION,
+        };
+        let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
+        let chain =
+            Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode, true).unwrap();
+
+        let telemetry = info_helper.telemetry_info(
+            &chain.head().unwrap(),
+            &SyncStatus::AwaitingPeers,
+            &peer_id_from_seed("zxc"),
+            &NetworkInfo {
+                connected_peers: vec![],
+                num_connected_peers: 0,
+                peer_max_count: 0,
+                highest_height_peers: vec![],
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+                known_producers: vec![],
+                peer_counter: 0,
+                tier1_accounts: vec![],
+            },
+            &config,
+            0.0,
+            0,
+            false,
+        );
+        println!("Got telemetry info: {:?}", telemetry);
+        assert_matches!(
+            telemetry["extra_info"].as_str().unwrap().find("\"max_block_production_delay\":2.34,"),
+            Some(_)
+        );
+    }
 }
