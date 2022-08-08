@@ -678,30 +678,20 @@ impl PeerManagerActor {
             send_accounts_data_demux: demux::Demux::new(self.state.send_accounts_data_rl),
         });
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+        self.sync_after_handshake(peer_type, addr, ctx, target_peer_id.clone(), new_edge);
         self.event_sink.push(Event::PeerRegistered(peer_info));
-
-        let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
-            move |act, ctx| {
-                let _guard = run_later_span.enter();
-                let known_edges = act.network_graph.read().edges().values().cloned().collect();
-                act.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
-            },
-        );
     }
 
-    fn send_sync(
+    fn sync_after_handshake(
         &self,
         peer_type: PeerType,
         addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
         target_peer_id: PeerId,
         new_edge: Edge,
-        known_edges: Vec<Edge>,
     ) {
         let run_later_span = tracing::trace_span!(target: "network", "send_sync_attempt");
+        // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
@@ -709,6 +699,7 @@ impl PeerManagerActor {
                 let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
+                let known_edges = act.network_graph.read().edges().values().cloned().collect();
                 let known_accounts = act.routing_table_view.get_announce_accounts();
                 addr.do_send(SendMessage {
                     message: PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
