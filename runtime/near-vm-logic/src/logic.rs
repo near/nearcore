@@ -2800,7 +2800,7 @@ impl<'a> VMLogic<'a> {
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64,
-    ) -> Result<u8> {
+    ) -> Result<u32> {
         use ed25519_dalek::{PublicKey, Signature, Verifier};
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
@@ -2814,8 +2814,8 @@ impl<'a> VMLogic<'a> {
             .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
 
         match pub_key.verify(&msg, &signature) {
-            Err(_) => Ok(0),
-            Ok(_) => Ok(1),
+            Err(_) => Ok(0 as _),
+            Ok(_) => Ok(1 as _),
         }
     }
 }
