@@ -255,12 +255,6 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
-        let msg_type: &str = msg.into();
-        let _span = tracing::trace_span!(
-            target: "network",
-            "send_message_with_encoding",
-            msg_type)
-        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -595,8 +589,7 @@ impl PeerActor {
     fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
-        tracing::trace!(target: "network", msg_len);
-        self.tracker.lock().increment_received(&self.clock, msg_len as u64);
+        self.tracker.increment_received(msg_len as u64);
     }
 
     /// Check whenever we exceeded number of transactions we got since last block.
