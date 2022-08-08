@@ -196,7 +196,7 @@ impl RocksDB {
     fn get_cf_key_range(
         &self,
         cf_handle: &ColumnFamily,
-    ) -> Result<Option<std::ops::Range<Box<[u8]>>>, ::rocksdb::Error> {
+    ) -> Result<Option<std::ops::RangeInclusive<Box<[u8]>>>, ::rocksdb::Error> {
         let range = {
             let mut iter = self.db.iterator_cf(cf_handle, IteratorMode::Start);
             let start = iter.next().transpose()?;
