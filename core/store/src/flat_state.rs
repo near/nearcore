@@ -47,7 +47,9 @@ impl FlatState {
     /// To avoid duplication, we don't store values themselves in flat state, they are stored in `DBCol::State`.
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         match self.get_raw_ref(key)? {
-            Some(bytes) => ValueRef::decode(&bytes).map_err(|_| StorageError::StorageInternalError),
+            Some(bytes) => {
+                ValueRef::decode(&bytes).map(Some).map_err(|_| StorageError::StorageInternalError)
+            }
             None => Ok(None),
         }
     }

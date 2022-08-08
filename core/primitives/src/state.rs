@@ -34,13 +34,14 @@ impl ValueRef {
     }
 
     /// Decode value reference from the raw byte array.
-    pub fn decode(bytes: &[u8]) -> Result<Option<Self>, std::io::Error> {
+    /// TODO (#7327): use &[u8; 36] and get rid of Cursor
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         let value_length = cursor.read_u32::<LittleEndian>()?;
         let mut arr = [0; 32];
         cursor.read_exact(&mut arr)?;
         let value_hash = CryptoHash(arr);
-        Ok(Some(ValueRef { length: value_length, hash: value_hash }))
+        Ok(ValueRef { length: value_length, hash: value_hash })
     }
 }
 
@@ -53,7 +54,7 @@ mod tests {
     fn test_encode_decode() {
         let value = vec![1, 2, 3];
         let value_ref_ser = ValueRef::create_serialized(&value);
-        let value_ref = ValueRef::decode(&value_ref_ser).unwrap().unwrap();
+        let value_ref = ValueRef::decode(&value_ref_ser).unwrap();
         assert_eq!(value_ref.length, value.len() as u32);
         assert_eq!(value_ref.hash, hash(&value));
     }
