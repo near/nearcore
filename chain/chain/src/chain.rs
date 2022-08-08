@@ -30,7 +30,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
-use near_primitives::state::PartId;
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,

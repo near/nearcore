@@ -33,7 +33,7 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::sharding::ChunkHash;
-use near_primitives::state::PartId;
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;

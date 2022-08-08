@@ -4,8 +4,9 @@
 //! In the database, we store this map as a trie, which allows us to construct succinct proofs that a certain key/value
 //! belongs to contract's state. Using a trie has a drawback -- reading a single key/value requires traversing the trie
 //! from the root, loading many nodes from the database.
-//! To optimize this, we want to use flat state: alongside the trie, we store a *direct* mapping from keys to value
-//! references so that, if you don't need a proof, you can do a db lookup in just two db accesses.
+//! To optimize this, we want to use flat state: alongside the trie, we store a mapping from keys to value
+//! references so that, if you don't need a proof, you can do a db lookup in just two db accesses - one to get value
+//! reference, one to get value itself.
 /// TODO (#7327): consider inlining small values, so we could use only one db access.
 
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -45,7 +46,8 @@ impl FlatState {
     }
 
     /// Get value reference using raw trie key and state root. We assume that flat state contains data for this root.
-    /// To avoid duplication, we don't store values themselves in flat state, they are stored in `DBCol::State`.
+    /// To avoid duplication, we don't store values themselves in flat state, they are stored in `DBCol::State`. Also
+    /// the separation is done so we could charge users for the value length before loading the value.
     /// TODO (#7327): support different roots (or block hashes).
     pub fn get_ref(
         &self,

@@ -51,7 +51,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
-use near_primitives::state::PartId;
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,

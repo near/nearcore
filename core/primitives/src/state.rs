@@ -2,19 +2,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives_core::hash::{hash, CryptoHash};
 use std::io::{Cursor, Read};
 
-// to specify a part we always specify both part_id and num_parts together
-#[derive(Copy, Clone)]
-pub struct PartId {
-    pub idx: u64,
-    pub total: u64,
-}
-impl PartId {
-    pub fn new(part_id: u64, num_parts: u64) -> PartId {
-        assert!(part_id < num_parts);
-        PartId { idx: part_id, total: num_parts }
-    }
-}
-
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
 pub struct ValueRef {
     /// Value length in bytes.

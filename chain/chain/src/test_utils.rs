@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
-use near_primitives::state::PartId;
+use near_primitives::state_part::PartId;
 use num_rational::Ratio;
 use tracing::debug;
 
