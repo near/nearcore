@@ -1553,7 +1553,11 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let block_received_time = Clock::instant();
-        self.blocks_delay_tracker.mark_block_received(block.get_inner(), block_received_time);
+        self.blocks_delay_tracker.mark_block_received(
+            block.get_inner(),
+            block_received_time,
+            Clock::utc(),
+        );
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
         let block_height = block.header().height();
