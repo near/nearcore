@@ -20,7 +20,7 @@ use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-pub const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
+const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
     [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
 pub struct RocksDB {
@@ -485,9 +485,9 @@ impl RocksDB {
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
         for prop_name in CF_PROPERTY_NAMES {
-            let stat_name = prop_name.to_bytes();
-            // SAFETY: RocksDB property names are always entirely ASCII.
-            let stat_name = unsafe { std::str::from_utf8_unchecked(stat_name) };
+            // TODO(mina86): Once const_str_from_utf8 is stabilised we can
+            // convert this run-time UTF8 validation into compile-time one.
+            let stat_name = std::str::from_utf8(prop_name.to_bytes()).unwrap();
             let mut values = vec![];
             for col in DBCol::iter() {
                 let size = self.db.property_int_value_cf(self.cf_handle(col), prop_name);
