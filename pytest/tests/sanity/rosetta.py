@@ -609,7 +609,8 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 0
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {'predecessor_id': {'address': 'test0'}}
             }, {
                 'account': {
                     'address': 'test0'
@@ -625,7 +626,8 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 1
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {'predecessor_id': {'address': 'test0'}}
             }],
             'related_transactions': [{
                 'direction': 'forward',
@@ -646,6 +648,7 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {'predecessor_id': {'address': 'test0'}},
                     'account': {
                         'address': implicit.account_id,
                     },
@@ -662,6 +665,7 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {'predecessor_id': {'address': 'test0'}},
                     'account': {
                         'address': implicit.account_id,
                         'sub_account': {
@@ -706,7 +710,8 @@ class RosettaTestCase(unittest.TestCase):
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {'predecessor_id': {'address': 'system'}}
                 }],
                 'transaction_identifier': related.identifier
             }, related.transaction())
@@ -751,7 +756,8 @@ class RosettaTestCase(unittest.TestCase):
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {'predecessor_id': {'address': implicit.account_id}}
                 }],
                 'related_transactions': [{
                     'direction': 'forward',
@@ -832,7 +838,9 @@ class RosettaTestCase(unittest.TestCase):
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {'predecessor_id': {'address': "system"}}
+
                 }],
                 'transaction_identifier': receipt_id_2
             }, result.transaction())
