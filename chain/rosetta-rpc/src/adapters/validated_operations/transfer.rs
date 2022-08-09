@@ -18,12 +18,7 @@ impl ValidatedOperation for TransferOperation {
 
             account: self.account,
             amount: Some(self.amount),
-            metadata: self.predecessor_id.map(|predecessor_id| {
-                crate::models::OperationMetadata {
-                    predecessor_id: Some(predecessor_id.clone()),
-                    ..Default::default()
-                }
-            }),
+            metadata: crate::models::OperationMetadata::from_predecessor(self.predecessor_id),
 
             related_operations: None,
             type_: Self::OPERATION_TYPE,
