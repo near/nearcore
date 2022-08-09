@@ -10,6 +10,7 @@ use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
+use std::sync::atomic::{Ordering,AtomicU64};
 use arc_swap::ArcSwap;
 use crate::sink::Sink;
 use crate::stats::metrics;
@@ -40,11 +41,10 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
-use std::cmp::max;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
@@ -112,8 +112,6 @@ pub(crate) struct PeerActor {
     peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
-    /// Latest chain info from the peer.
-    chain_info: PeerChainInfoV2,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
     /// How many transactions we have received since the last block message
@@ -188,7 +186,6 @@ impl PeerActor {
             peer_manager_addr,
             peer_manager_wrapper_addr,
             tracker: Default::default(),
-            chain_info: Default::default(),
             partial_edge_info,
             txns_since_last_block,
             peer_counter,
@@ -438,8 +435,7 @@ impl PeerActor {
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
-        let peer_id =
-            if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
+        let peer_id = if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
             .with_label_values(&[msg.msg_variant()])
@@ -449,7 +445,9 @@ impl PeerActor {
             PeerMessage::Block(block) => {
                 let block_hash = *block.hash();
                 self.tracker.lock().push_received(block_hash);
-                self.connection_state.chain_height.fetch_max(block.header().height());
+                if let Some(cs) = &self.connection_state {
+                    cs.chain_height.fetch_max(block.header().height(),Ordering::Relaxed);
+                }
                 NetworkClientMessages::Block(block, peer_id, self.tracker.lock().has_request(&block_hash))
             }
             PeerMessage::Transaction(transaction) => NetworkClientMessages::Transaction {
@@ -841,11 +839,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                self.chain_info = handshake.sender_chain_info.clone();
                 self.connection_state = Some(Arc::new(ConnectedPeer {
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
-                    chain_info: ArcSwap::new(Arc::new(handshake.sender_chain_info.clone())),
+                    initial_chain_info: handshake.sender_chain_info.clone(),
+                    chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     partial_edge_info: handshake.partial_edge_info.clone(),
                     peer_type: self.peer_type,
                     stats: ArcSwap::new(Arc::new(Stats {

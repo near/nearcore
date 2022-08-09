@@ -4,7 +4,7 @@ use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use arc_swap::ArcSwap;
-use crate::types::FullPeerInfo;
+use crate::types::{FullPeerInfo};
 use near_network_primitives::time;
 use near_network_primitives::types::{PeerInfo, PeerChainInfoV2, PartialEdgeInfo,ReasonForBan,PeerType,PeerManagerRequest,PeerManagerRequestWithContext};
 use near_primitives::network::PeerId;
@@ -12,6 +12,7 @@ use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64,Ordering};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::stats::metrics;
@@ -41,7 +42,8 @@ pub(crate) struct ConnectedPeer {
     
     pub peer_info: PeerInfo,
     pub partial_edge_info: PartialEdgeInfo,
-    pub chain_info: ArcSwap<PeerChainInfoV2>,
+    pub initial_chain_info: PeerChainInfoV2,
+    pub chain_height: AtomicU64,
 
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
@@ -73,9 +75,11 @@ impl std::fmt::Debug for ConnectedPeer {
 
 impl ConnectedPeer {
     pub fn full_peer_info(&self) -> FullPeerInfo {
+        let mut chain_info = self.initial_chain_info.clone();
+        chain_info.height = self.chain_height.load(Ordering::Relaxed);
         FullPeerInfo {
             peer_info: self.peer_info.clone(),
-            chain_info: (**self.chain_info.load()).clone(),
+            chain_info,
             partial_edge_info: self.partial_edge_info.clone(),
         }
     }

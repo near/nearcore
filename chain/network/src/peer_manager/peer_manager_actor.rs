@@ -910,7 +910,7 @@ impl PeerManagerActor {
         let my_height = self.state.chain_info.load().height;
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
         self.state.connected_peers.read().values()
-            .filter(|p| p.chain_info.load().height.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+            .filter(|p| p.chain_height.load(Ordering::Relaxed).saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
             .map(|p| p.peer_info.id.clone())
             .collect()
     }
@@ -1029,7 +1029,7 @@ impl PeerManagerActor {
 
         // If there is not enough archival peers, add them to the safe set.
         if self.config.archive {
-            let archival_peers = filter_peers(&|p| p.chain_info.load().archival);
+            let archival_peers = filter_peers(&|p| p.initial_chain_info.archival);
             if archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
                 safe_set.extend(archival_peers.into_iter());
             }
@@ -1490,13 +1490,12 @@ impl PeerManagerActor {
                     } else {
                         let mut matching_peers = vec![];
                         for (peer_id, peer) in self.state.connected_peers.read().iter() {
-                            if (peer.full_peer_info.chain_info.archival
+                            if (peer.initial_chain_info.archival
                                 || !target.only_archival)
-                                && peer.full_peer_info.chain_info.height
+                                && peer.chain_height.load(Ordering::Relaxed)
                                     >= target.min_height
                                 && peer
-                                    .full_peer_info
-                                    .chain_info
+                                    .initial_chain_info
                                     .tracked_shards
                                     .contains(&target.shard_id)
                             {
@@ -1675,7 +1674,7 @@ impl PeerManagerActor {
     ) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
-        let peer_info = &msg.connection_state.full_peer_info.peer_info;
+        let peer_info = &msg.connection_state.peer_info;
         // Check if this is a blacklisted peer.
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
@@ -1716,7 +1715,7 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject;
         }
 
-        let other_edge_info = &msg.connection_state.full_peer_info.partial_edge_info;
+        let other_edge_info = &msg.connection_state.partial_edge_info;
         if other_edge_info.nonce == 0 {
             debug!(target: "network", nonce = other_edge_info.nonce, "Invalid nonce. It must be greater than 0.");
             return RegisterPeerResponse::Reject;
