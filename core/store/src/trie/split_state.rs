@@ -262,7 +262,7 @@ fn apply_delayed_receipts_to_split_states_impl(
         let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
         let trie_key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
 
-        let stored_receipt = get::<Receipt>(trie_update, &trie_key)?
+        let stored_receipt = get::<Receipt, _>(trie_update, &trie_key)?
             .expect("removed receipt does not exist in new state");
         // check that the receipt to remove is at the first of delayed receipt queue
         assert_eq!(&stored_receipt, receipt);
@@ -740,7 +740,7 @@ mod tests {
             let mut removed_receipts = vec![];
             for index in delayed_receipt_indices.first_index..next_first_index {
                 let trie_key = TrieKey::DelayedReceipt { index };
-                removed_receipts.push(get::<Receipt>(&trie_update, &trie_key).unwrap().unwrap());
+                removed_receipts.push(get::<Receipt, _>(&trie_update, &trie_key).unwrap().unwrap());
                 trie_update.remove(trie_key);
             }
             delayed_receipt_indices.first_index = next_first_index;

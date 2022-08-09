@@ -411,6 +411,10 @@ pub struct Trie {
     pub flat_state: Option<FlatState>,
 }
 
+pub trait TrieReader {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError>;
+}
+
 /// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
@@ -741,6 +745,12 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+}
+
+impl TrieReader for Trie {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        Trie::get(self, key)
     }
 }
 

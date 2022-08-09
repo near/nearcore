@@ -1165,7 +1165,6 @@ impl Runtime {
         .entered();
 
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone());
         let mut state_update = TrieUpdate::new(trie.clone());
 
         let mut stats = ApplyStats::default();
@@ -1339,7 +1338,6 @@ impl Runtime {
 
         check_balance(
             &apply_state.config.transaction_costs,
-            &initial_state,
             &state_update,
             validator_accounts_update,
             incoming_receipts,

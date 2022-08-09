@@ -14,12 +14,12 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
-use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
+use near_store::{get, get_account, get_postponed_receipt, TrieReader, TrieUpdate};
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
 fn get_delayed_receipts(
-    state: &TrieUpdate,
+    state: &impl TrieReader,
     indexes: std::ops::Range<u64>,
 ) -> Result<Vec<Receipt>, StorageError> {
     indexes
@@ -77,7 +77,7 @@ fn total_receipts_cost(
 
 /// Returns total account balance of all accounts with given ids.
 fn total_accounts_balance(
-    state: &TrieUpdate,
+    state: &impl TrieReader,
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
     accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
@@ -91,7 +91,7 @@ fn total_accounts_balance(
 
 /// Calculates and returns total costs of all the postponed receipts.
 fn total_postponed_receipts_cost(
-    state: &TrieUpdate,
+    state: &impl TrieReader,
     transaction_costs: &RuntimeFeesConfig,
     current_protocol_version: ProtocolVersion,
     receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
@@ -108,7 +108,6 @@ fn total_postponed_receipts_cost(
 
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
-    initial_state: &TrieUpdate,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
@@ -117,6 +116,8 @@ pub(crate) fn check_balance(
     stats: &ApplyStats,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
+    let initial_state = final_state.trie().as_ref();
+
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
         get(initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
@@ -280,12 +281,10 @@ mod tests {
     fn test_check_balance_no_op() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[],
@@ -301,12 +300,10 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000)],
@@ -341,7 +338,6 @@ mod tests {
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&account_id, refund_balance)],
@@ -410,7 +406,6 @@ mod tests {
 
         check_balance(
             &cfg,
-            &initial_state,
             &final_state,
             &None,
             &[],
@@ -468,7 +463,6 @@ mod tests {
         assert_eq!(
             check_balance(
                 &transaction_costs,
-                &initial_state,
                 &initial_state,
                 &None,
                 &[receipt],

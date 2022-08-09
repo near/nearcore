@@ -82,15 +82,18 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
+        self.get_impl(&key.to_vec())
+    }
+
+    fn get_impl(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        if let Some(key_value) = self.prospective.get(key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+        } else if let Some(changes_with_trie_key) = self.committed.get(key) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        self.trie.get(&key)
+        self.trie.get(key)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -160,6 +163,12 @@ impl TrieUpdate {
         if let Some(storage) = self.trie.storage.as_caching_storage() {
             storage.set_mode(state);
         }
+    }
+}
+
+impl crate::TrieReader for TrieUpdate {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        TrieUpdate::get_impl(self, key)
     }
 }
 
