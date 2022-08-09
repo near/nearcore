@@ -80,7 +80,7 @@ where
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let trie = Trie { storage: Box::new(storage) };
+        let trie = Trie { storage: Box::new(storage), flat_state: None };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
         assert_eq!(test(Rc::new(trie)).as_ref(), expected_result);
