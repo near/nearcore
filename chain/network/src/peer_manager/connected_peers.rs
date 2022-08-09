@@ -3,22 +3,25 @@ use crate::network_protocol::{Encoding, PeerMessage};
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
+use crate::stats::metrics;
+use crate::types::FullPeerInfo;
 use arc_swap::ArcSwap;
-use crate::types::{FullPeerInfo};
 use near_network_primitives::time;
-use near_network_primitives::types::{PeerInfo, PeerChainInfoV2, PartialEdgeInfo,ReasonForBan,PeerType,PeerManagerRequest,PeerManagerRequestWithContext};
+use near_network_primitives::types::{
+    PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
+    PeerType, ReasonForBan,
+};
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64,Ordering};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use crate::stats::metrics;
 
-fn update<T:Clone>(p:&ArcSwap<T>, mut f: impl FnMut(&mut T)) {
-    p.rcu(|v|{
+fn update<T: Clone>(p: &ArcSwap<T>, mut f: impl FnMut(&mut T)) {
+    p.rcu(|v| {
         let mut v = (**v).clone();
         f(&mut v);
         Arc::new(v)
@@ -39,7 +42,7 @@ pub(crate) struct ConnectedPeer {
     // TODO(gprusak): addr should be internal, so that ConnectedPeer will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,
-    
+
     pub peer_info: PeerInfo,
     pub partial_edge_info: PartialEdgeInfo,
     pub initial_chain_info: PeerChainInfoV2,
@@ -49,7 +52,7 @@ pub(crate) struct ConnectedPeer {
     pub peer_type: PeerType,
     /// Time where the connection was established.
     pub connection_established_time: time::Instant,
-    
+
     /// Last time requested peers.
     pub last_time_peer_requested: ArcSwap<time::Instant>,
     /// Last time we received a message from this peer.
@@ -63,12 +66,12 @@ pub(crate) struct ConnectedPeer {
 }
 
 impl std::fmt::Debug for ConnectedPeer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("ConnectedPeer")
-            .field("peer_info",&self.peer_info)
-            .field("partial_edge_info",&self.partial_edge_info)
-            .field("peer_type",&self.peer_type)
-            .field("connection_established_time",&self.connection_established_time)
+            .field("peer_info", &self.peer_info)
+            .field("partial_edge_info", &self.partial_edge_info)
+            .field("peer_type", &self.peer_type)
+            .field("connection_established_time", &self.connection_established_time)
             .finish()
     }
 }
@@ -98,17 +101,19 @@ impl ConnectedPeer {
         });
     }
 
-    pub fn send_message(&self,msg:Arc<PeerMessage>) {
+    pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
         // Sending may fail in case a peer connection is closed in the meantime.
-        if let Err(err) = self.addr.try_send(SendMessage { message:msg, context: Span::current().context() }) {
+        if let Err(err) =
+            self.addr.try_send(SendMessage { message: msg, context: Span::current().context() })
+        {
             tracing::warn!("peer mailbox error: {err}");
         }
     }
 
     pub fn send_accounts_data(
-        self:&Arc<Self>,
+        self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
     ) -> impl Future<Output = ()> {
         let this = self.clone();
@@ -151,11 +156,15 @@ impl ConnectedPeers {
 
     pub fn insert(&self, peer: Arc<ConnectedPeer>) {
         let id = peer.peer_info.id.clone();
-        update(&self.0,|peers|{ peers.insert(id.clone(), peer.clone()); });
+        update(&self.0, |peers| {
+            peers.insert(id.clone(), peer.clone());
+        });
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
-        update(&self.0,|peers|{ peers.remove(peer_id); });
+        update(&self.0, |peers| {
+            peers.remove(peer_id);
+        });
     }
 
     /// Send message to peer that belong to our active set

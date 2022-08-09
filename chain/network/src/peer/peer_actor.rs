@@ -1,27 +1,25 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
-use crate::peer_manager::connected_peers::{ConnectedPeer,Stats};
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
+use crate::peer_manager::connected_peers::{ConnectedPeer, Stats};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
-use std::sync::atomic::{Ordering,AtomicU64};
-use arc_swap::ArcSwap;
 use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
 };
-use parking_lot::Mutex;
 use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use arc_swap::ArcSwap;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -41,10 +39,12 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
+use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
@@ -133,7 +133,7 @@ pub(crate) struct PeerActor {
     connection_state: Option<Arc<ConnectedPeer>>,
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
-    
+
     /// test-only.
     event_sink: Sink<Event>,
 }
@@ -236,7 +236,11 @@ impl PeerActor {
 
     fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
         if let PeerMessage::PeersRequest = msg {
-            self.connection_state.as_mut().unwrap().last_time_peer_requested.store(Arc::new(self.clock.now()));
+            self.connection_state
+                .as_mut()
+                .unwrap()
+                .last_time_peer_requested
+                .store(Arc::new(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -435,7 +439,8 @@ impl PeerActor {
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
-        let peer_id = if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
+        let peer_id =
+            if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
         metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
             .with_label_values(&[msg.msg_variant()])
@@ -446,9 +451,13 @@ impl PeerActor {
                 let block_hash = *block.hash();
                 self.tracker.lock().push_received(block_hash);
                 if let Some(cs) = &self.connection_state {
-                    cs.chain_height.fetch_max(block.header().height(),Ordering::Relaxed);
+                    cs.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
                 }
-                NetworkClientMessages::Block(block, peer_id, self.tracker.lock().has_request(&block_hash))
+                NetworkClientMessages::Block(
+                    block,
+                    peer_id,
+                    self.tracker.lock().has_request(&block_hash),
+                )
             }
             PeerMessage::Transaction(transaction) => NetworkClientMessages::Transaction {
                 transaction,
@@ -620,7 +629,7 @@ impl Actor for PeerActor {
                 }
             },
         );
-        
+
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {
             self.send_handshake();
@@ -855,9 +864,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     last_time_received_message: ArcSwap::new(Arc::new(self.clock.now())),
                     connection_established_time: self.clock.now(),
                     throttle_controller: self.throttle_controller.clone(),
-                    send_accounts_data_demux: demux::Demux::new(self.network_state.send_accounts_data_rl),
+                    send_accounts_data_demux: demux::Demux::new(
+                        self.network_state.send_accounts_data_rl,
+                    ),
                 }));
-            
+
                 let connection_state = self.connection_state.clone().unwrap();
                 let tracker = self.tracker.clone();
                 let clock = self.clock.clone();
@@ -869,7 +880,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                         // expected to change. Rest of the content of chain_info is not relevant
                         // after handshake.
-                        connection_state.stats.store(Arc::new(Stats {        
+                        connection_state.stats.store(Arc::new(Stats {
                             received_bytes_per_sec: received.bytes_per_min / 60,
                             sent_bytes_per_sec: sent.bytes_per_min / 60,
                             // TODO(gprusak): deprecated, remove together with the Borsh encoding
