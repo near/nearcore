@@ -252,7 +252,7 @@ impl PeerActor {
         let _span = tracing::trace_span!(
             target: "network",
             "send_message_with_encoding",
-            msg_type)
+            msg_type = msg_type)
         .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
