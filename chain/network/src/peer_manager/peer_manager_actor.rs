@@ -104,9 +104,9 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
-/// Send all partial encoded chunk messages three times.
+/// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
-const PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT: usize = 3;
+const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
 // If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 // We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
@@ -633,28 +633,18 @@ impl PeerManagerActor {
 
         self.state.connected_peers.insert(connection_state.clone());
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+        self.sync_after_handshake(connection_state, ctx, new_edge);
         self.event_sink.push(Event::PeerRegistered(peer_info));
-
-        let run_later_span = tracing::trace_span!(target: "network", "RequestRoutingTableResponse");
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
-            move |act, ctx| {
-                let _guard = run_later_span.enter();
-                let known_edges = act.network_graph.read().edges().values().cloned().collect();
-                act.send_sync(connection_state, ctx, new_edge, known_edges);
-            },
-        );
     }
 
-    fn send_sync(
+    fn sync_after_handshake(
         &self,
         peer: Arc<ConnectedPeer>,
         ctx: &mut Context<Self>,
         new_edge: Edge,
-        known_edges: Vec<Edge>,
     ) {
-        let run_later_span = tracing::trace_span!(target: "network", "send_sync_attempt");
+        let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
+        // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
@@ -662,6 +652,7 @@ impl PeerManagerActor {
                 let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
+                let known_edges = act.network_graph.read().edges().values().cloned().collect();
                 let known_accounts = act.routing_table_view.get_announce_accounts();
                 peer.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                     RoutingTableUpdate::new(known_edges, known_accounts.cloned().collect()),
@@ -1267,7 +1258,15 @@ impl PeerManagerActor {
         };
 
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        self.send_message_to_peer(msg)
+        if msg.body.is_important() {
+            let mut success = false;
+            for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
+                success |= self.send_message_to_peer(msg.clone());
+            }
+            success
+        } else {
+            self.send_message_to_peer(msg)
+        }
     }
 
     fn sign_routed_message(
@@ -1558,12 +1557,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                let mut message_sent = false;
-                let msg: RoutedMessageBody = partial_encoded_chunk.into();
-                for _ in 0..PARTIAL_ENCODED_CHUNK_MESSAGE_RESENT_COUNT {
-                    message_sent |= self.send_message_to_account(&account_id, msg.clone());
-                }
-                if message_sent {
+                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1973,8 +1967,10 @@ impl PeerManagerActor {
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
+                    .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {
+                        let _span = tracing::trace_span!(target: "network", "announce_account").entered();
                         match response {
                             Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
                                 act.try_ban_peer(&peer_id_clone, ban_reason);

@@ -13,7 +13,6 @@ use actix::Actor;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
-use near_store::test_utils::create_test_store;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -108,14 +107,17 @@ impl ActorHandler {
     }
 }
 
-pub async fn start(cfg: config::NetworkConfig, chain: Arc<data::Chain>) -> ActorHandler {
+pub async fn start(
+    store: near_store::Store,
+    cfg: config::NetworkConfig,
+    chain: Arc<data::Chain>,
+) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
-            let store = create_test_store();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             PeerManagerActor::new(
                 store,
