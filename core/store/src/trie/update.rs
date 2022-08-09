@@ -169,7 +169,7 @@ impl TrieUpdate {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
-    pub fn get_root(&self) -> &CryptoHash {
+    pub fn get_root(&self) -> &StateRoot {
         self.trie.get_root()
     }
 
