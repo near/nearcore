@@ -774,6 +774,17 @@ pub(crate) struct OperationMetadata {
     pub predecessor_id: Option<AccountIdentifier>,
 }
 
+impl OperationMetadata {
+    pub(crate) fn from_predecessor(
+        predecessor_id: Option<AccountIdentifier>,
+    ) -> Option<OperationMetadata> {
+        return predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
+            predecessor_id: Some(predecessor_id.clone()),
+            ..Default::default()
+        });
+    }
+}
+
 /// Operations contain all balance-changing information within a transaction.
 /// They are always one-sided (only affect 1 AccountIdentifier) and can
 /// succeed or fail independently from a Transaction.

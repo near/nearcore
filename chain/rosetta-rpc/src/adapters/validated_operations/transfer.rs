@@ -18,14 +18,12 @@ impl ValidatedOperation for TransferOperation {
 
             account: self.account,
             amount: Some(self.amount),
-            metadata: if let Some(predecessor_id) = self.predecessor_id {
-                Some(crate::models::OperationMetadata {
+            metadata: self.predecessor_id.map(|predecessor_id| {
+                crate::models::OperationMetadata {
                     predecessor_id: Some(predecessor_id.clone()),
                     ..Default::default()
-                })
-            } else {
-                None
-            },
+                }
+            }),
 
             related_operations: None,
             type_: Self::OPERATION_TYPE,
@@ -46,15 +44,7 @@ impl TryFrom<crate::models::Operation> for TransferOperation {
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
         Self::validate_operation_type(operation.type_)?;
         let amount = operation.amount.ok_or_else(required_fields_error)?;
-        if let Some(metadata) = operation.metadata {
-            if let Some(predecessor_id) = metadata.predecessor_id {
-                return Ok(Self {
-                    account: operation.account,
-                    amount,
-                    predecessor_id: Some(predecessor_id),
-                });
-            }
-        }
-        Ok(Self { account: operation.account, amount, predecessor_id: None })
+        let predecessor_id = operation.metadata.and_then(|metadata| metadata.predecessor_id);
+        Ok(Self { account: operation.account, amount, predecessor_id })
     }
 }
