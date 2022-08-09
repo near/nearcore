@@ -860,6 +860,7 @@ fn test_contract_size_limit() {
     );
 }
 
+#[cfg(feature = "protocol_feature_ed25519_verify")]
 #[test]
 fn test_ed25519_verify() {
     let mut logic_builder = VMLogicBuilder::default();
@@ -899,17 +900,10 @@ fn test_ed25519_verify() {
     assert_eq!(result, 1);
 
     assert_costs(map! {
-        ExtCosts::base: 1,
-        ExtCosts::read_memory_base: 1,
-        ExtCosts::read_memory_byte: 32,
-        ExtCosts::write_memory_base: 1,
-        ExtCosts::write_memory_byte: 32,
-        ExtCosts::read_register_base: 1,
-        ExtCosts::read_register_byte: 32,
-        ExtCosts::write_register_base: 1,
-        ExtCosts::write_register_byte: 32,
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
         ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 32,
+        ExtCosts::ed25519_verify_byte: 96,
     });
 
     let result = logic
@@ -926,16 +920,9 @@ fn test_ed25519_verify() {
     assert_eq!(result, 0);
 
     assert_costs(map! {
-        ExtCosts::base: 1,
-        ExtCosts::read_memory_base: 1,
-        ExtCosts::read_memory_byte: 32,
-        ExtCosts::write_memory_base: 1,
-        ExtCosts::write_memory_byte: 32,
-        ExtCosts::read_register_base: 1,
-        ExtCosts::read_register_byte: 32,
-        ExtCosts::write_register_base: 1,
-        ExtCosts::write_register_byte: 32,
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
         ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 32,
+        ExtCosts::ed25519_verify_byte: 96,
     });
 }
