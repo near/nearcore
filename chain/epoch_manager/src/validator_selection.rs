@@ -844,6 +844,8 @@ mod tests {
             avg_hidden_validator_seats_per_shard: vec![0; num_shards as usize],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
+            #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+            validator_max_kickout_stake_ratio: 100,
             online_min_threshold: 0.into(),
             online_max_threshold: 0.into(),
             fishermen_threshold,

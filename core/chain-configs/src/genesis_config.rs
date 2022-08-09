@@ -72,6 +72,11 @@ fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
 
+#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+fn default_max_kickout_stake_ratio() -> u8 {
+    30
+}
+
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
     Some(ShardLayout::v1(
         vec![],
@@ -177,6 +182,10 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
+    #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+    #[serde(default = "default_max_kickout_stake_ratio")]
+    #[default(30)]
+    pub max_kickout_stake_ratio: u8,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
     #[serde(default = "default_minimum_stake_ratio")]
@@ -209,6 +218,8 @@ impl From<&GenesisConfig> for EpochConfig {
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },
+            #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+            validator_max_kickout_stake_ratio: config.max_kickout_stake_ratio,
         }
     }
 }

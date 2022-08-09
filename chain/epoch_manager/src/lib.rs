@@ -1,3 +1,5 @@
+#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+use num_rational::Rational64;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -6,6 +8,8 @@ use near_cache::SyncLruCache;
 use primitive_types::U256;
 use tracing::{debug, warn};
 
+#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
@@ -264,7 +268,7 @@ impl EpochManager {
     /// - If all validators are either previously kicked out or to be kicked out, we choose one not to
     /// kick out
     fn compute_kickout_info(
-        &self,
+        config: &EpochConfig,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
         chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
@@ -272,14 +276,10 @@ impl EpochManager {
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, ValidatorKickoutReason>, HashMap<AccountId, BlockChunkValidatorStats>)
     {
-        let mut all_kicked_out = true;
-        let mut maximum_block_prod = 0;
-        let mut max_validator = None;
-        let config = self.config.for_protocol_version(epoch_info.protocol_version());
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        let mut validator_kickout = HashMap::new();
+        let mut _total_stake: Balance = 0;
 
         for (i, v) in epoch_info.validators_iter().enumerate() {
             let account_id = v.account_id();
@@ -288,19 +288,8 @@ impl EpochManager {
             }
             let block_stats = block_validator_tracker
                 .get(&(i as u64))
-                .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 });
-            // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
-            if block_stats.produced * 100
-                < u64::from(block_producer_kickout_threshold) * block_stats.expected
-            {
-                validator_kickout.insert(
-                    account_id.clone(),
-                    ValidatorKickoutReason::NotEnoughBlocks {
-                        produced: block_stats.produced,
-                        expected: block_stats.expected,
-                    },
-                );
-            }
+                .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 })
+                .clone();
             let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
             for (_, tracker) in chunk_validator_tracker.iter() {
                 if let Some(stat) = tracker.get(&(i as u64)) {
@@ -308,38 +297,116 @@ impl EpochManager {
                     chunk_stats.produced += stat.produced;
                 }
             }
-            if chunk_stats.produced * 100
-                < u64::from(chunk_producer_kickout_threshold) * chunk_stats.expected
+            _total_stake += v.stake();
+            validator_block_chunk_stats
+                .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
+        }
+
+        #[allow(unused_mut)]
+        let mut exempted_validators = HashSet::<&AccountId>::new();
+        #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+        if checked_feature!(
+            "protocol_feature_max_kickout_stake_ratio",
+            MaxKickoutStakeRatio,
+            epoch_info.protocol_version()
+        ) {
+            let min_keep_stake = _total_stake
+                * (100_u8.checked_sub(config.validator_max_kickout_stake_ratio).unwrap_or_default()
+                    as u128)
+                / 100;
+            let mut sorted_validators = validator_block_chunk_stats
+                .iter()
+                .map(|(account, stats)| {
+                    let production_ratio =
+                        if stats.block_stats.expected == 0 && stats.chunk_stats.expected == 0 {
+                            Rational64::from_integer(1)
+                        } else if stats.block_stats.expected == 0 {
+                            Rational64::new(
+                                stats.chunk_stats.produced as i64,
+                                stats.chunk_stats.expected as i64,
+                            )
+                        } else if stats.chunk_stats.expected == 0 {
+                            Rational64::new(
+                                stats.block_stats.produced as i64,
+                                stats.block_stats.expected as i64,
+                            )
+                        } else {
+                            (Rational64::new(
+                                stats.chunk_stats.produced as i64,
+                                stats.chunk_stats.expected as i64,
+                            ) + Rational64::new(
+                                stats.block_stats.produced as i64,
+                                stats.block_stats.expected as i64,
+                            )) / 2
+                        };
+                    (account, production_ratio)
+                })
+                .collect::<Vec<_>>();
+            sorted_validators.sort_by_key(|a| a.1);
+            let mut exempted_stake: Balance = 0;
+            for (account_id, _) in sorted_validators.into_iter().rev() {
+                if exempted_stake >= min_keep_stake {
+                    break;
+                }
+                exempted_stake += epoch_info
+                    .get_validator_by_account(account_id)
+                    .map(|v| v.stake())
+                    .unwrap_or_default();
+                exempted_validators.insert(account_id);
+            }
+        }
+
+        let mut all_kicked_out = true;
+        let mut maximum_block_prod = 0;
+        let mut max_validator = None;
+        let mut validator_kickout = HashMap::new();
+        for (account_id, stats) in validator_block_chunk_stats.iter() {
+            if exempted_validators.contains(account_id) {
+                all_kicked_out = false;
+                continue;
+            }
+            if stats.block_stats.produced * 100
+                < u64::from(block_producer_kickout_threshold) * stats.block_stats.expected
+            {
+                validator_kickout.insert(
+                    account_id.clone(),
+                    ValidatorKickoutReason::NotEnoughBlocks {
+                        produced: stats.block_stats.produced,
+                        expected: stats.block_stats.expected,
+                    },
+                );
+            }
+            if stats.chunk_stats.produced * 100
+                < u64::from(chunk_producer_kickout_threshold) * stats.chunk_stats.expected
             {
                 validator_kickout.entry(account_id.clone()).or_insert_with(|| {
                     ValidatorKickoutReason::NotEnoughChunks {
-                        produced: chunk_stats.produced,
-                        expected: chunk_stats.expected,
+                        produced: stats.chunk_stats.produced,
+                        expected: stats.chunk_stats.expected,
                     }
                 });
             }
-
             let is_already_kicked_out = prev_validator_kickout.contains_key(account_id);
             if !validator_kickout.contains_key(account_id) {
-                validator_block_chunk_stats.insert(
-                    account_id.clone(),
-                    BlockChunkValidatorStats { block_stats: block_stats.clone(), chunk_stats },
-                );
                 if !is_already_kicked_out {
                     all_kicked_out = false;
                 }
             }
-            if (max_validator.is_none() || block_stats.produced > maximum_block_prod)
+            if (max_validator.is_none() || stats.block_stats.produced > maximum_block_prod)
                 && !is_already_kicked_out
             {
-                maximum_block_prod = block_stats.produced;
-                max_validator = Some(v);
+                maximum_block_prod = stats.block_stats.produced;
+                max_validator = Some(account_id);
             }
         }
         if all_kicked_out {
+            println!("all kicked out {:?} {:?}", max_validator, validator_kickout);
             if let Some(validator) = max_validator {
-                validator_kickout.remove(validator.account_id());
+                validator_kickout.remove(validator);
             }
+        }
+        for account_id in validator_kickout.keys() {
+            validator_block_chunk_stats.remove(account_id);
         }
         (validator_kickout, validator_block_chunk_stats)
     }
@@ -427,8 +494,10 @@ impl EpochManager {
             *self.get_block_info(last_block_info.epoch_first_block())?.prev_hash();
         let prev_validator_kickout = next_epoch_info.validator_kickout();
 
+        let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
-        let (kickout, validator_block_chunk_stats) = self.compute_kickout_info(
+        let (kickout, validator_block_chunk_stats) = Self::compute_kickout_info(
+            config,
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
