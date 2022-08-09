@@ -90,6 +90,8 @@ wasm_keccak512_byte: 36_649_701
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
 wasm_ecrecover_base: 3_365_369_625_000
+wasm_ed25519_verify_base: 3_365_369_625_000
+wasm_ed25519_verify_byte: 291_580_479
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000

@@ -108,6 +108,8 @@ pub enum Parameter {
     WasmRipemd160Base,
     WasmRipemd160Block,
     WasmEcrecoverBase,
+    WasmEd25519VerifyBase,
+    WasmEd25519VerifyByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
