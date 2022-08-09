@@ -1,22 +1,25 @@
 use crate::tests::network::multiset::MultiSet;
 use actix::{Actor, Addr, AsyncContext};
 use anyhow::{anyhow, bail, Context};
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::ChainGenesis;
+use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
+use near_network::config;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
+use near_network_primitives::time;
 use near_network_primitives::types::{
-    Blacklist, BlacklistEntry, NetworkConfig, OutboundTcpConnect, PeerInfo, Ping as NetPing,
-    Pong as NetPong, ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
+    ROUTED_MESSAGE_TTL,
 };
+use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -28,7 +31,6 @@ use std::iter::Iterator;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::debug;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
@@ -41,15 +43,15 @@ fn setup_network_node(
     account_id: AccountId,
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
-    config: NetworkConfig,
+    config: config::NetworkConfig,
     send_events: broadcast::Sender<Event>,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
     let num_validators = validators.len() as ValidatorId;
 
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vec![validators], 1, 1, 5));
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -60,7 +62,13 @@ fn setup_network_node(
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
-        client_config.ttl_account_id_router = config.ttl_account_id_router;
+        client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
+        let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        let genesis_id = GenesisId {
+            chain_id: client_config.chain_id.clone(),
+            hash: genesis_block.header().hash().clone(),
+        };
+
         let network_adapter = Arc::new(ctx.address());
         let adv = near_client::adversarial::Controls::default();
 
@@ -90,6 +98,7 @@ fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            genesis_id,
         )
         .unwrap()
         .with_event_sink(send_events.sink())
@@ -131,7 +140,7 @@ pub enum Action {
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
-    Wait(Duration),
+    Wait(time::Duration),
     #[allow(dead_code)]
     SetOptions {
         target: usize,
@@ -262,7 +271,7 @@ impl StateMachine {
                     }
                     let res = pm.send(GetInfo{}).await?;
                     for peer in &res.connected_peers {
-                        if peer.peer_info.id==peer_id {
+                        if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
                         }
                     }
@@ -299,7 +308,7 @@ impl StateMachine {
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    tokio::time::sleep(t).await;
+                    tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -319,7 +328,7 @@ struct TestConfig {
     blacklist: HashSet<Option<usize>>,
     whitelist: HashSet<usize>,
     outbound_disabled: bool,
-    ban_window: Duration,
+    ban_window: time::Duration,
     ideal_connections: Option<(u32, u32)>,
     minimum_outbound_peers: Option<u32>,
     safe_set_size: Option<u32>,
@@ -338,7 +347,7 @@ impl TestConfig {
             blacklist: HashSet::new(),
             whitelist: HashSet::new(),
             outbound_disabled: true,
-            ban_window: Duration::from_secs(1),
+            ban_window: time::Duration::seconds(1),
             ideal_connections: None,
             minimum_outbound_peers: None,
             safe_set_size: None,
@@ -480,7 +489,7 @@ impl Runner {
     }
 
     /// Set ban window range.
-    pub fn ban_window(mut self, ban_window: Duration) -> Self {
+    pub fn ban_window(mut self, ban_window: time::Duration) -> Self {
         self.apply_all(move |test_config| test_config.ban_window = ban_window);
         self
     }
@@ -538,10 +547,10 @@ impl Runner {
         let whitelist =
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config = NetworkConfig::from_seed(&config.account_id, config.port);
+        let mut network_config = config::NetworkConfig::from_seed(&config.account_id, config.port);
         network_config.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
-        network_config.ttl_account_id_router = Duration::from_secs(5);
+        network_config.ttl_account_id_router = time::Duration::seconds(5);
         network_config.routed_message_ttl = config.routed_message_ttl;
         network_config.blacklist = blacklist;
         network_config.whitelist_nodes = whitelist;
@@ -615,8 +624,8 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let actions = std::mem::take(&mut info.runner.state_machine.actions);
         let actions_count = actions.len();
 
-        let timeout = Duration::from_secs(15);
-        let step = Duration::from_millis(10);
+        let timeout = tokio::time::Duration::from_secs(15);
+        let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
             debug!("[starting action {i}]");
@@ -667,8 +676,11 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
         Box::pin(async move {
             let pm = &info.get_node(node_id)?.addr;
             let network_info = pm.send(GetInfo {}).await?;
-            let got: HashSet<_> =
-                network_info.connected_peers.into_iter().map(|i| i.peer_info.id).collect();
+            let got: HashSet<_> = network_info
+                .connected_peers
+                .into_iter()
+                .map(|i| i.full_peer_info.peer_info.id)
+                .collect();
             let want: HashSet<_> =
                 peers.iter().map(|i| info.runner.test_config[*i].peer_id()).collect();
             if got != want {

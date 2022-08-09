@@ -18,11 +18,12 @@ fn build_chain() {
     let mock_clock_guard = MockClockGuard::default();
 
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, signer) = setup();
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 1);
+    assert_eq!(mock_clock_guard.utc_call_count(), 2);
     assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
@@ -52,7 +53,9 @@ fn build_chain() {
         // - one time for validating block header
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         // Instant calls for CryptoHashTimer.
+        mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
@@ -65,8 +68,8 @@ fn build_chain() {
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 9);
-    assert_eq!(mock_clock_guard.instant_call_count(), 17);
+    assert_eq!(mock_clock_guard.utc_call_count(), 14);
+    assert_eq!(mock_clock_guard.instant_call_count(), 21);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;

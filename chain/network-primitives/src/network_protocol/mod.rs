@@ -16,8 +16,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, ShardId};
-use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::views::FinalExecutionOutcomeView;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
@@ -71,8 +71,16 @@ impl fmt::Display for PeerInfo {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerInfoError {
+    #[error("invalid format: {0}")]
+    InvalidFormat(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+}
+
 impl FromStr for PeerInfo {
-    type Err = Box<dyn std::error::Error>;
+    type Err = ParsePeerInfoError;
     /// Returns a PeerInfo from string
     ///
     /// Valid format examples:
@@ -90,13 +98,6 @@ impl FromStr for PeerInfo {
         let addr;
         let account_id;
 
-        let invalid_peer_error_factory = || -> Self::Err {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid PeerInfo format: {:?}", chunks),
-            ))
-        };
-
         if chunks.len() == 1 {
             addr = None;
             account_id = None;
@@ -113,17 +114,21 @@ impl FromStr for PeerInfo {
                 addr = x.next();
                 account_id = Some(chunks[2].parse().unwrap());
             } else {
-                return Err(invalid_peer_error_factory());
+                return Err(Self::Err::InvalidFormat(s.to_string()));
             }
         } else {
-            return Err(invalid_peer_error_factory());
+            return Err(Self::Err::InvalidFormat(s.to_string()));
         }
-        Ok(PeerInfo { id: PeerId::new(chunks[0].parse()?), addr, account_id })
+        Ok(PeerInfo {
+            id: PeerId::new(chunks[0].parse().map_err(Self::Err::PeerId)?),
+            addr,
+            account_id,
+        })
     }
 }
 
 impl TryFrom<&str> for PeerInfo {
-    type Error = Box<dyn std::error::Error>;
+    type Error = ParsePeerInfoError;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         Self::from_str(s)
@@ -195,15 +200,12 @@ pub enum RoutedMessageBody {
 
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
-    QueryRequest {
-        query_id: String,
-        block_reference: BlockReference,
-        request: QueryRequest,
-    },
-    QueryResponse {
-        query_id: String,
-        response: Result<QueryResponse, String>,
-    },
+
+    // Kept for backwards borsh compatibility.
+    _UnusedQueryRequest,
+    // Kept for backwards borsh compatibility.
+    _UnusedQueryResponse,
+
     ReceiptOutcomeRequest(CryptoHash),
     /// Not used, but needed to preserve backward compatibility.
     Unused,
@@ -219,6 +221,21 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+}
+
+impl RoutedMessageBody {
+    // Return whether this message is important.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are
+    // lost
+    pub fn is_important(&self) -> bool {
+        match self {
+            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // are only sent by the original node and if they are lost, the receiver node doesn't
+            // know to request them.
+            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
@@ -250,8 +267,8 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
-            RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::_UnusedQueryRequest { .. } => write!(f, "QueryRequest"),
+            RoutedMessageBody::_UnusedQueryResponse { .. } => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
@@ -382,7 +399,6 @@ impl RoutedMessage {
                 | RoutedMessageBody::StateRequestHeader(_, _)
                 | RoutedMessageBody::StateRequestPart(_, _, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::QueryRequest { .. }
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
     }

@@ -81,10 +81,16 @@
                     let chunks_by_index = {};
 
                     prepareTableHeader(max_shard);
+                    let missing_blocks = 0;
+                    let missing_chunks_per_shard = Array(max_shard+1).fill(0);
+                    let total_blocks = data.status_response.BlockStatus.length;
                     data.status_response.BlockStatus.forEach(element => {
                         var row = $('<tr>');
 
                         row.append($('<td>').text(element.block_height));
+                        if (element.block_hash == "11111111111111111111111111111111") {
+                            missing_blocks += 1;
+                        }
                         row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer, "block_id")));
 
                         row.append($('<td>').text(element.processing_time_ms));
@@ -117,10 +123,16 @@
                             let new_hash = chunks_by_index[i][j][0].attributes['hashvalue'].value;
                             if (previous_hash == new_hash) {
                                 chunks_by_index[i][j].addClass('skippedChunk')
+                                missing_chunks_per_shard[i] += 1;
                             }
                             previous_hash = new_hash;
                         }
 
+                    }
+                    $('.missing-blocks').append("Missing blocks: " + missing_blocks + "   Produced: " + (total_blocks - missing_blocks) + "   Missing Rate: " + (missing_blocks / total_blocks * 100).toFixed(2) + "%");
+                    let produced_blocks = total_blocks - missing_blocks;
+                    for (let i = 0; i <= max_shard; i += 1) {
+                        $('.missing-chunks').append("Shard " + i + ", Missing chunks: " + missing_chunks_per_shard[i] + " Produced: " + (produced_blocks - missing_chunks_per_shard[i]) + " Missing Rate: " + (missing_chunks_per_shard[i] / produced_blocks * 100).toFixed(2) + "%<br>");
                     }
 
                     return;
@@ -188,6 +200,8 @@
     </h1>
     Skipped chunks have grey background.<br>
     Skipped blocks have hashes set to 11111. <br>
+    <h3 class="missing-blocks"></h3>
+    <h3 class="missing-chunks"></h3>
     Red text means that we don't know this producer (it is not present in our announce account list). <br>
     <button class="expand_all">Expand all</button><br>
     <div id="blocks_table">

@@ -1268,14 +1268,11 @@ impl Runtime {
                 epoch_info_provider,
             );
             tracing::debug!(target: "runtime", node_counter = ?state_update.trie.get_trie_nodes_count());
-            result?.into_iter().try_for_each(
-                |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *total_gas_burnt =
-                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                    outcomes.push(outcome_with_id);
-                    Ok(())
-                },
-            )?;
+            if let Some(outcome_with_id) = result? {
+                *total_gas_burnt =
+                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                outcomes.push(outcome_with_id);
+            }
             Ok(())
         };
 
@@ -1584,7 +1581,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -2392,7 +2389,7 @@ mod tests {
         apply_state
             .cache
             .unwrap()
-            .get(&key.0)
+            .get(&key)
             .expect("Compiled contract should be cached")
             .expect("Compilation result should be non-empty");
     }

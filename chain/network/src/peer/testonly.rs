@@ -1,7 +1,10 @@
 use crate::broadcast;
+use crate::concurrency::demux;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
+use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::testonly::actix::ActixSystem;
@@ -22,6 +25,7 @@ use near_rate_limiter::{
 };
 
 use near_network_primitives::time::Utc;
+use rand::Rng;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -55,7 +59,7 @@ impl PeerConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
+pub(crate) enum Event {
     HandshakeDone(Edge),
     Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
@@ -63,6 +67,7 @@ pub enum Event {
     ResponseUpdateNonce(Edge),
     PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
+    Peer(peer_actor::Event),
 }
 
 struct FakePeerManagerActor {
@@ -152,9 +157,9 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
 }
 
 pub struct PeerHandle {
-    pub cfg: Arc<PeerConfig>,
+    pub(crate) cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
-    pub events: broadcast::Receiver<Event>,
+    pub(crate) events: broadcast::Receiver<Event>,
 }
 
 impl PeerHandle {
@@ -188,12 +193,14 @@ impl PeerHandle {
         )
     }
 
-    pub async fn start_endpoint(
+    pub async fn start_endpoint<R: Rng>(
         clock: time::Clock,
+        rng: &mut R,
         cfg: PeerConfig,
         stream: TcpStream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
+        let network_cfg = cfg.chain.make_config(rng);
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
@@ -202,7 +209,7 @@ impl PeerHandle {
             let (read, write) = tokio::io::split(stream);
             let handshake_timeout = time::Duration::seconds(5);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
-            let fc = fake_client::start(cfg.chain.clone(), send.sink().compose(Event::Client));
+            let fc = fake_client::start(send.sink().compose(Event::Client));
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {
@@ -226,13 +233,19 @@ impl PeerHandle {
                     handshake_timeout,
                     fpm.clone().recipient(),
                     fpm.clone().recipient(),
-                    fc.clone().recipient(),
-                    fc.clone().recipient(),
                     cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
+                    Arc::new(NetworkState::new(
+                        Arc::new(network_cfg.verify().unwrap()),
+                        cfg.chain.genesis_id.clone(),
+                        fc.clone().recipient(),
+                        fc.clone().recipient(),
+                        demux::RateLimit { qps: 100., burst: 1 },
+                    )),
+                    send.sink().compose(Event::Peer),
                 )
             })
         })

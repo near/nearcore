@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
 use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -136,12 +135,13 @@ impl TrieNode {
         }
     }
 
+    #[cfg(test)]
     fn print(
         &self,
-        f: &mut dyn fmt::Write,
+        f: &mut dyn std::fmt::Write,
         memory: &NodesStorage,
         spaces: &mut String,
-    ) -> fmt::Result {
+    ) -> std::fmt::Result {
         match self {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
@@ -197,7 +197,7 @@ impl TrieNode {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
         self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");
@@ -562,61 +562,49 @@ impl Trie {
         Ok(())
     }
 
+    fn retrieve_raw_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
+        if hash == &Self::EMPTY_ROOT {
+            return Ok(None);
+        }
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
+            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
+        })?;
+        Ok(Some((bytes, node)))
+    }
+
     fn move_node_to_mutable(
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
-        if *hash == Trie::EMPTY_ROOT {
-            Ok(memory.store(TrieNodeWithSize::empty()))
-        } else {
-            let bytes = self.storage.retrieve_raw_bytes(hash)?;
-            match RawTrieNodeWithSize::decode(&bytes) {
-                Ok(value) => {
-                    let result = memory.store(TrieNodeWithSize::from_raw(value));
-                    memory
-                        .refcount_changes
-                        .entry(*hash)
-                        .or_insert_with(|| (bytes.to_vec(), 0))
-                        .1 -= 1;
-                    Ok(result)
-                }
-                Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                    "Failed to decode node {}",
-                    hash
-                ))),
+        match self.retrieve_raw_node(hash)? {
+            None => Ok(memory.store(TrieNodeWithSize::empty())),
+            Some((bytes, node)) => {
+                let result = memory.store(TrieNodeWithSize::from_raw(node));
+                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+                Ok(result)
             }
         }
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
-        if *hash == Trie::EMPTY_ROOT {
-            return Ok(TrieNodeWithSize::empty());
-        }
-        let bytes = self.storage.retrieve_raw_bytes(hash)?;
-        match RawTrieNodeWithSize::decode(&bytes) {
-            Ok(value) => Ok(TrieNodeWithSize::from_raw(value)),
-            Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                "Failed to decode node {}",
-                hash
-            ))),
+        match self.retrieve_raw_node(hash)? {
+            None => Ok(TrieNodeWithSize::empty()),
+            Some((_bytes, node)) => Ok(TrieNodeWithSize::from_raw(node)),
         }
     }
 
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
-        if *root == Trie::EMPTY_ROOT {
-            return Ok(StateRootNode::empty());
-        }
-        let data = self.storage.retrieve_raw_bytes(root)?;
-        match RawTrieNodeWithSize::decode(&data) {
-            Ok(value) => {
-                let memory_usage = TrieNodeWithSize::from_raw(value).memory_usage;
-                Ok(StateRootNode { data: data.to_vec(), memory_usage })
-            }
-            Err(_) => Err(StorageError::StorageInconsistentState(format!(
-                "Failed to decode node {}",
-                root
-            ))),
+        match self.retrieve_raw_node(root)? {
+            None => Ok(StateRootNode::empty()),
+            Some((bytes, node)) => Ok(StateRootNode {
+                data: bytes.to_vec(),
+                memory_usage: TrieNodeWithSize::from_raw(node).memory_usage,
+            }),
         }
     }
 
@@ -626,17 +614,12 @@ impl Trie {
         mut key: NibbleSlice<'_>,
     ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
         let mut hash = *root;
-
         loop {
-            if hash == Trie::EMPTY_ROOT {
-                return Ok(None);
-            }
-            let bytes = self.storage.retrieve_raw_bytes(&hash)?;
-            let node = RawTrieNodeWithSize::decode(&bytes).map_err(|_| {
-                StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
-            })?;
-
-            match node.node {
+            let node = match self.retrieve_raw_node(&hash)? {
+                None => return Ok(None),
+                Some((_bytes, node)) => node.node,
+            };
+            match node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
                         return Ok(Some((value_length, value_hash)));

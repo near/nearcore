@@ -9,7 +9,7 @@ use futures::{future, FutureExt};
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
-use near_chain::test_utils::account_id_to_shard_id;
+use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
@@ -27,8 +27,8 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockRefe
 use near_primitives::views::QueryRequest;
 use near_primitives::views::QueryResponseKind::ViewAccount;
 
-fn get_validators_and_key_pairs() -> (Vec<Vec<AccountId>>, Vec<PeerInfo>) {
-    let validators: Vec<Vec<AccountId>> = vec![
+fn get_validators_and_key_pairs() -> (ValidatorSchedule, Vec<PeerInfo>) {
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![
         ["test1.1", "test1.2", "test1.3", "test1.4"]
             .iter()
             .map(|account_id| account_id.parse().unwrap())
@@ -41,7 +41,7 @@ fn get_validators_and_key_pairs() -> (Vec<Vec<AccountId>>, Vec<PeerInfo>) {
             .iter()
             .map(|account_id| account_id.parse().unwrap())
             .collect(),
-    ];
+    ]);
     let key_pairs = vec![
         PeerInfo::random(),
         PeerInfo::random(),
@@ -60,7 +60,7 @@ fn get_validators_and_key_pairs() -> (Vec<Vec<AccountId>>, Vec<PeerInfo>) {
         PeerInfo::random(),
         PeerInfo::random(), // 16
     ];
-    (validators, key_pairs)
+    (vs, key_pairs)
 }
 
 fn send_tx(
@@ -128,13 +128,14 @@ fn test_catchup_receipts_sync_distant_epoch() {
 }
 
 fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool) {
-    let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let (validators, key_pairs) = get_validators_and_key_pairs();
+        let (vs, key_pairs) = get_validators_and_key_pairs();
+        let archive = vec![true; vs.all_block_producers().count()];
+        let epoch_sync_enabled = vec![false; vs.all_block_producers().count()];
 
         let phase = Arc::new(RwLock::new(ReceiptsSyncPhases::WaitingForFirstBlock));
         let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockHeight>::new()));
@@ -146,17 +147,16 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
         }
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             block_prod_time,
             false,
             false,
             5,
             false,
-            vec![true; validators.iter().map(|x| x.len()).sum()],
-            vec![false; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
@@ -406,15 +406,14 @@ fn test_catchup_random_single_part_sync_height_6() {
 }
 
 fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
-    let validator_groups = 2;
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let (validators, key_pairs) = get_validators_and_key_pairs();
-        let flat_validators = validators.iter().flatten().cloned().collect::<Vec<_>>();
-
+        let (vs, key_pairs) = get_validators_and_key_pairs();
+        let vs = vs.validator_groups(2);
+        let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
         let phase = Arc::new(RwLock::new(RandomSinglePartPhases::WaitingForFirstBlock));
         let seen_heights_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
@@ -441,17 +440,16 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 
         let connectors1 = connectors.clone();
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             6000,
             false,
             false,
             5,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
@@ -473,8 +471,8 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                             assert!(block.header().height() <= height);
                             let mut tx_count = 0;
                             if block.header().height() == height && block.header().height() >= 2 {
-                                for (i, validator1) in flat_validators.iter().enumerate() {
-                                    for (j, validator2) in flat_validators.iter().enumerate() {
+                                for (i, validator1) in validators.iter().enumerate() {
+                                    for (j, validator2) in validators.iter().enumerate() {
                                         let mut amount = (((i + j + 17) * 701) % 42 + 1) as u128;
                                         if non_zero {
                                             if i > j {
@@ -489,7 +487,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                             validator2.to_string(),
                                             amount
                                         );
-                                        for conn in 0..flat_validators.len() {
+                                        for conn in 0..validators.len() {
                                             send_tx(
                                                 &connectors1.write().unwrap()[conn].0,
                                                 validator1.clone(),
@@ -517,14 +515,14 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                 for i in 0..16 {
                                     for j in 0..16 {
                                         let amounts1 = amounts.clone();
-                                        let validator = flat_validators[j].clone();
+                                        let validator = validators[j].clone();
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
                                                 .1
                                                 .send(Query::new(
                                                     BlockReference::latest(),
                                                     QueryRequest::ViewAccount {
-                                                        account_id: flat_validators[j].clone(),
+                                                        account_id: validators[j].clone(),
                                                     },
                                                 ))
                                                 .then(move |res| {
@@ -553,7 +551,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                 );
                                 assert_eq!(seen_heights_same_block.len(), 1);
                                 let amounts1 = amounts.clone();
-                                for flat_validator in &flat_validators {
+                                for flat_validator in &validators {
                                     match amounts1.write().unwrap().entry(flat_validator.clone()) {
                                         Entry::Occupied(_) => {
                                             continue;
@@ -606,7 +604,6 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_catchup_sanity_blocks_produced() {
-    let validator_groups = 2;
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
@@ -625,20 +622,22 @@ fn test_catchup_sanity_blocks_produced() {
                 }
             };
 
-        let (validators, key_pairs) = get_validators_and_key_pairs();
+        let (vs, key_pairs) = get_validators_and_key_pairs();
+        let vs = vs.validator_groups(2);
+        let archive = vec![false; vs.all_block_producers().count()];
+        let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             2000,
             false,
             false,
             5,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
@@ -679,13 +678,14 @@ enum ChunkGrievingPhases {
 #[test]
 #[ignore]
 fn test_chunk_grieving() {
-    let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let (validators, key_pairs) = get_validators_and_key_pairs();
+        let (vs, key_pairs) = get_validators_and_key_pairs();
+        let archive = vec![false; vs.all_block_producers().count()];
+        let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
         let malicious_node = "test3.6".parse().unwrap();
         let victim_node = "test3.5".parse().unwrap();
@@ -697,17 +697,16 @@ fn test_chunk_grieving() {
 
         let block_prod_time: u64 = 3500;
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             block_prod_time,
             false,
             false,
             5,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
@@ -845,13 +844,15 @@ fn test_all_chunks_accepted_common(
     block_prod_time: u64,
     epoch_length: BlockHeightDelta,
 ) {
-    let validator_groups = 1;
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let (validators, key_pairs) = get_validators_and_key_pairs();
+        let (vs, key_pairs) = get_validators_and_key_pairs();
+        let archive = vec![false; vs.all_block_producers().count()];
+        let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
+
         let verbose = false;
 
         let _connectors1 = connectors.clone();
@@ -860,17 +861,16 @@ fn test_all_chunks_accepted_common(
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             block_prod_time,
             false,
             false,
             epoch_length,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();

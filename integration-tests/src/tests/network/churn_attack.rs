@@ -6,7 +6,7 @@ pub use crate::tests::network::runner::*;
 /// a connection among them.
 #[test]
 fn churn_attack() -> anyhow::Result<()> {
-    let mut runner = Runner::new(4, 4).enable_outbound().max_num_peers(2);
+    let mut runner = Runner::new(4, 4).enable_outbound().max_num_peers(2).ideal_connections(2, 2);
 
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::AddEdge { from: 2, to: 3, force: true });

@@ -1,6 +1,6 @@
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
@@ -291,6 +291,13 @@ impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     }
 }
 
+impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+        async { Ok(()) }.boxed()
+    }
+    fn do_send(&self, _msg: SetChainInfo) {}
+}
+
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
@@ -298,14 +305,13 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
-    use near_network_primitives::types::{
-        NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    };
+    use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -319,7 +325,7 @@ pub mod test_features {
     // Make peer manager for unit tests
     pub fn make_peer_manager(
         store: Store,
-        mut config: NetworkConfig,
+        mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
     ) -> PeerManagerActor {
@@ -343,20 +349,18 @@ pub mod test_features {
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),
                     )))
                 }
-                NetworkViewClientMessages::GetChainInfo => {
-                    Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId::default(),
-                        height: 1,
-                        tracked_shards: vec![],
-                        archival: false,
-                    }))
-                }
                 _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
             }
         }))
         .start();
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
+        )
+        .unwrap()
     }
 }
 

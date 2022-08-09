@@ -11,6 +11,8 @@ validators_found = {}
 visited_nodes = set()
 known_nodes = set()
 next_to_visit = []
+active_validators = set()
+active_validators_height = 0
 
 
 def learn_about_node(node_ip):
@@ -24,33 +26,39 @@ def visit_node(node_ip, timeout):
 
     visited_nodes.add(node_ip)
     assert node_ip in known_nodes
+    global active_validators
+    global active_validators_height
 
+    account_id = None
     try:
-        data = requests.get(f'http://{node_ip}:3030/debug/api/status',
+        data = requests.get(f'http://{node_ip}:3030/status',
                             timeout=timeout).json()
-        validators = [x['account_id'] for x in data['validators']]
+        validators = set([x['account_id'] for x in data['validators']])
+        height = int(data['sync_info']['latest_block_height'])
+        if not active_validators or height > active_validators_height + 1000:
+            active_validators = validators
         if 'validator_account_id' in data:
             account_id = data['validator_account_id']
-            if account_id in validators and not node_ip in validators_found:
+            if account_id in active_validators and not node_ip in validators_found:
                 validators_found[node_ip] = account_id
                 logger.info(f'Scraped validator {account_id}')
+
+        data = requests.get(f'http://{node_ip}:3030/network_info',
+                            timeout=timeout).json()
         peer_id_to_account_id = {}
-        for known_producer in data['detailed_debug_status']['network_info'][
-                'known_producers']:
+        for known_producer in data['known_producers']:
             peer_id_to_account_id[
                 known_producer['peer_id']] = known_producer['account_id']
-        for peer in data['detailed_debug_status']['network_info'][
-                'connected_peers']:
+        for peer in data['active_peers']:
             ip = peer['addr'].split(':')[0]
             learn_about_node(ip)
-            peer_id = peer['peer_id']
+            peer_id = peer['id']
             if peer_id in peer_id_to_account_id:
                 account_id = peer_id_to_account_id[peer_id]
                 if account_id in validators and not ip in validators_found:
                     validators_found[ip] = account_id
                     logger.info(f'Found a validator {account_id} in peers')
-
-            # peer['account_id'] is always 'null'
+            # Note that peer['account_id'] is always 'null'
 
     except Exception as e:
         logger.exception(f'Error scraping {node_ip}')

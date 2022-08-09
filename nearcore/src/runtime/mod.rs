@@ -351,7 +351,6 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let genesis_hash = genesis.json_hash();
         let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
         if let Some(_hash) = stored_hash {
             // TODO: re-enable this check (#4447)
@@ -360,6 +359,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let genesis_hash = genesis.json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
@@ -542,7 +542,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -633,8 +633,8 @@ impl NightshadeRuntime {
         .entered();
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
-            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+        let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
+            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -646,14 +646,14 @@ impl NightshadeRuntime {
             }
             for code in contract_codes {
                 slot_receiver.recv().expect("could not receive a slot to compile contract");
-                let contract_cache = compiled_contract_cache.as_ref().map(Arc::clone);
+                let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
                     precompile_contract(
                         &code,
                         &runtime_config.wasm_config,
                         protocol_version,
-                        contract_cache.as_deref(),
+                        contract_cache,
                     )
                     .ok();
                     // If this fails, it just means there won't be any more attempts to recv the
@@ -1199,12 +1199,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(account_id_to_shard_id(account_id, shard_layout))
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
         let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        let settlement =
-            epoch_manager.get_all_block_producers_settlement(&epoch_id, parent_hash)?;
-        Ok(settlement[part_id as usize % settlement.len()].0.account_id().clone())
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+        let settlement = epoch_info.block_producers_settlement();
+        let validator_id = settlement[part_id as usize % settlement.len()];
+        Ok(epoch_info.get_validator(validator_id).account_id().clone())
     }
 
     fn cares_about_shard(
@@ -1956,7 +1956,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
         };
         self.trie_viewer.call_function(
             state_update,

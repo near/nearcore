@@ -4,14 +4,13 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.0"
+rust-version = "1.62.1"
 edition = "2021"
 
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2"
 anyhow = "1.0.55"
-base64 = "0.11"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive"] }
