@@ -103,7 +103,7 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    ##["protocol_feature_ed25519_verify"] ed25519_verify<[ sig_len: u64,
+    #["protocol_feature_ed25519_verify", Ed25519Verify] ed25519_verify<[ sig_len: u64,
     sig_ptr: u64,
     msg_len: u64,
     msg_ptr: u64,
