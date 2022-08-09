@@ -266,6 +266,7 @@ impl PeerStore {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
+                    // if we're connecting only to the bood nodes - filter out the nodes that are not bootnodes.
                     && (!self.connect_only_to_boot_nodes || self.boot_nodes.contains(&p.peer_info.id))
             },
             1,

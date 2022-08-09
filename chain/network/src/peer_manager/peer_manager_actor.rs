@@ -376,7 +376,7 @@ impl PeerManagerActor {
         let clock = time::Clock::real();
         let store = store::Store::from(store);
         let peer_store =
-            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone(), config.connect_only_to_boot_node)
+            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone(), config.connect_only_to_boot_nodes)
                 .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network",
                len = peer_store.len(),

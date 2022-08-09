@@ -139,6 +139,29 @@ pub struct Config {
     /// TODO: unskip, once the functionality is implemented.
     #[serde(skip)] // TODO: add a default list.
     pub trusted_stun_servers: Vec<String>,
+    // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
+    // Field names in here can change/disappear at any moment without warning.
+    #[serde(default)]
+    pub experimental: ExperimentalConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExperimentalConfig {
+    // If true - don't allow any inbound connections.
+    #[serde(default)]
+    pub inbound_disabled: bool,
+    // If true - connect only to the boot nodes.
+    #[serde(default)]
+    pub connect_only_to_boot_nodes: bool,
+}
+
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        ExperimentalConfig {
+            inbound_disabled: false,
+            connect_only_to_boot_nodes: false,
+        }
+    }
 }
 
 impl Default for Config {
@@ -163,6 +186,7 @@ impl Default for Config {
             peer_stats_period: default_peer_stats_period(),
             public_addrs: vec![],
             trusted_stun_servers: vec![],
+            experimental: Default::default(),
         }
     }
 }
