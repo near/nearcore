@@ -3,10 +3,10 @@ use crate::network_protocol::{Encoding, PeerMessage};
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
-use crate::types::{FullPeerInfo, PeerStatsResult};
 use arc_swap::ArcSwap;
+use crate::types::FullPeerInfo;
 use near_network_primitives::time;
-use near_network_primitives::types::{ReasonForBan,PeerType,PeerManagerRequest,PeerManagerRequestWithContext};
+use near_network_primitives::types::{PeerInfo, PeerChainInfoV2, PartialEdgeInfo,ReasonForBan,PeerType,PeerManagerRequest,PeerManagerRequestWithContext};
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
@@ -24,33 +24,62 @@ fn update<T:Clone>(p:&ArcSwap<T>, mut f: impl FnMut(&mut T)) {
     });
 }
 
-/// Contains information relevant to a connected peer.
-#[derive(Clone)]
-pub(crate) struct ConnectedPeer {
-    pub addr: actix::Addr<PeerActor>,
-    pub full_peer_info: FullPeerInfo,
+pub(crate) struct Stats {
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
     pub sent_bytes_per_sec: u64,
-    /// Last time requested peers.
-    pub last_time_peer_requested: time::Instant,
-    /// Last time we received a message from this peer.
-    pub last_time_received_message: time::Instant,
-    /// Time where the connection was established.
-    pub connection_established_time: time::Instant,
-    /// Who started connection. Inbound (other) or Outbound (us).
-    pub peer_type: PeerType,
-    /// A helper data structure for limiting reading, reporting stats.
-    pub throttle_controller: ThrottleController,
     /// Encoding used for communication.
     pub encoding: Option<Encoding>,
+}
+
+/// Contains information relevant to a connected peer.
+pub(crate) struct ConnectedPeer {
+    // TODO(gprusak): addr should be internal, so that ConnectedPeer will become an API of the
+    // PeerActor.
+    pub addr: actix::Addr<PeerActor>,
+    
+    pub peer_info: PeerInfo,
+    pub partial_edge_info: PartialEdgeInfo,
+    pub chain_info: ArcSwap<PeerChainInfoV2>,
+
+    /// Who started connection. Inbound (other) or Outbound (us).
+    pub peer_type: PeerType,
+    /// Time where the connection was established.
+    pub connection_established_time: time::Instant,
+    
+    /// Last time requested peers.
+    pub last_time_peer_requested: ArcSwap<time::Instant>,
+    /// Last time we received a message from this peer.
+    pub last_time_received_message: ArcSwap<time::Instant>,
+    /// Connection stats
+    pub stats: ArcSwap<Stats>,
+
+    /// A helper data structure for limiting reading, reporting stats.
+    pub throttle_controller: ThrottleController,
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
-pub(crate) struct ConnectedPeerHandle(ArcSwap<ConnectedPeer>);
+impl std::fmt::Debug for ConnectedPeer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
+        f.debug_struct("ConnectedPeer")
+            .field("peer_info",&self.peer_info)
+            .field("partial_edge_info",&self.partial_edge_info)
+            .field("peer_type",&self.peer_type)
+            .field("connection_established_time",&self.connection_established_time)
+            .finish()
+    }
+}
 
 impl ConnectedPeer {
+    pub fn full_peer_info(&self) -> FullPeerInfo {
+        FullPeerInfo {
+            peer_info: self.peer_info.clone(),
+            chain_info: (**self.chain_info.load()).clone(),
+            partial_edge_info: self.partial_edge_info.clone(),
+        }
+    }
+
     pub fn ban(&self, ban_reason: ReasonForBan) {
         self.addr.do_send(PeerManagerRequestWithContext {
             msg: PeerManagerRequest::BanPeer(ban_reason),
@@ -108,42 +137,17 @@ impl ConnectedPeer {
     }
 }
 
-impl ConnectedPeerHandle {
-    pub fn new(peer:ConnectedPeer) -> Self { Self(ArcSwap::new(Arc::new(peer))) }
-
-    pub fn read(&self) -> Arc<ConnectedPeer> { self.0.load_full() }
-
-    pub fn set_last_time_peer_requested(&self, t: time::Instant) {
-        update(&self.0,|p| p.last_time_peer_requested = t);
-    }
-
-    pub fn set_last_time_received_message(&self, t: time::Instant) {
-        update(&self.0,|p| p.last_time_received_message = t);
-    }
-
-    pub fn set_peer_stats(&self, stats: PeerStatsResult) {
-        update(&self.0,|p| {
-            p.full_peer_info.chain_info = stats.chain_info.clone();
-            p.sent_bytes_per_sec = stats.sent_bytes_per_sec;
-            p.received_bytes_per_sec = stats.received_bytes_per_sec;
-            p.encoding = stats.encoding;
-        });
-    }
-}
-
 #[derive(Default)]
-pub(crate) struct ConnectedPeers(ArcSwap<im::HashMap<PeerId, Arc<ConnectedPeerHandle>>>);
+pub(crate) struct ConnectedPeers(ArcSwap<im::HashMap<PeerId, Arc<ConnectedPeer>>>);
 
 impl ConnectedPeers {
-    pub fn read(&self) -> Arc<im::HashMap<PeerId, Arc<ConnectedPeerHandle>>> {
+    pub fn read(&self) -> Arc<im::HashMap<PeerId, Arc<ConnectedPeer>>> {
         self.0.load_full()
     }
 
-    pub fn insert(&self, peer: ConnectedPeer) -> Arc<ConnectedPeerHandle> {
-        let id = peer.full_peer_info.peer_info.id.clone();
-        let peer = Arc::new(ConnectedPeerHandle::new(peer.clone()));
+    pub fn insert(&self, peer: Arc<ConnectedPeer>) {
+        let id = peer.peer_info.id.clone();
         update(&self.0,|peers|{ peers.insert(id.clone(), peer.clone()); });
-        peer
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
@@ -155,7 +159,7 @@ impl ConnectedPeers {
     pub fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
         let connected_peers = self.read();
         if let Some(peer) = connected_peers.get(&peer_id) {
-            peer.read().send_message(msg);
+            peer.send_message(msg);
             return true;
         }
         tracing::debug!(target: "network",
@@ -171,7 +175,7 @@ impl ConnectedPeers {
     pub fn broadcast_message(&self, msg: Arc<PeerMessage>) {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.msg_variant()]).inc();
         for peer in self.read().values() {
-            peer.read().send_message(msg.clone());
+            peer.send_message(msg.clone());
         }
     }
 }
