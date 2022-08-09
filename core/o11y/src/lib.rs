@@ -242,7 +242,7 @@ fn opentelemetry_error_handler(error: opentelemetry::global::Error) {
         opentelemetry::global::Error::Trace(err) => tracing::warn!(
             target: "opentelemetry",
             err = ?err,
-        "OpenTelemetry trace error"),
+            "OpenTelemetry trace error"),
         opentelemetry::global::Error::Other(err) => tracing::warn!(
             target: "opentelemetry",
             err = ?err,
