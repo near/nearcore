@@ -9,13 +9,16 @@ use near_primitives::views::SignedTransactionView;
 
 use crate::models::AccountIdentifier;
 
-/// A mapping from NEAR transaction or receipt hash to list of receipts hashes,
-/// a mapping from transaction hashes to transactions and a mapping of receipts to predecessor_ids.
-/// transactions map is needed to determine the amount of deposit in a single transaction when
-/// converting blocks to Rosetta transactions. Receipts map is reui
 pub(crate) struct ExecutionToReceipts {
+    /// A mapping from NEAR transaction or receipt hash to list of receipts hashes
     map: HashMap<CryptoHash, Vec<CryptoHash>>,
+    /// A mapping from transaction hashes to transactions
+    /// transactions map is needed to determine the amount of deposit in a single transaction when
+    /// converting blocks to Rosetta transactions.
     transactions: HashMap<CryptoHash, SignedTransactionView>,
+    /// A mapping of receipts to predecessor_ids
+    /// receipts map is needed to determine the initing account of the receipt
+    /// and to determine if a receipt is a refund.
     receipts: HashMap<CryptoHash, AccountId>,
 }
 impl ExecutionToReceipts {

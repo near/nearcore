@@ -779,7 +779,7 @@ impl OperationMetadata {
         predecessor_id: Option<AccountIdentifier>,
     ) -> Option<OperationMetadata> {
         return predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
-            predecessor_id: Some(predecessor_id.clone()),
+            predecessor_id: Some(predecessor_id),
             ..Default::default()
         });
     }
