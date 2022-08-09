@@ -237,6 +237,23 @@ where
     (io_layer, guard)
 }
 
+fn opentelemetry_error_handler(error: opentelemetry::global::Error) {
+    match error.into() {
+        opentelemetry::global::Error::Trace(err) => tracing::warn!(
+            target: "opentelemetry",
+            err = ?err,
+        "OpenTelemetry trace error"),
+        opentelemetry::global::Error::Other(err) => tracing::warn!(
+            target: "opentelemetry",
+            err = ?err,
+            "OpenTelemetry error"),
+        err => tracing::warn!(
+            target: "opentelemetry",
+            err = ?err,
+            "Unknown OpenTelemetry error"),
+    }
+}
+
 /// Run the code with a default subscriber set to the option appropriate for the NEAR code.
 ///
 /// This will override any subscribers set until now, and will be in effect until the value
@@ -274,6 +291,8 @@ pub async fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = subscriber.with(log_layer);
     let subscriber = subscriber.with(make_opentelemetry_layer(options).await);
+
+    opentelemetry::global::set_error_handler(opentelemetry_error_handler).unwrap();
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
