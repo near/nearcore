@@ -20,10 +20,9 @@ use std::collections::HashSet;
 /// Returns delayed receipts with given range of indices.
 fn get_delayed_receipts(
     state: &TrieUpdate,
-    from_index: u64,
-    to_index: u64,
+    indexes: std::ops::Range<u64>,
 ) -> Result<Vec<Receipt>, StorageError> {
-    (from_index..to_index)
+    indexes
         .map(|index| {
             get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
@@ -86,10 +85,7 @@ fn total_accounts_balance(
             None => return Ok(accumulator),
             Some(account) => (account.amount(), account.locked()),
         };
-        Ok(accumulator)
-            .and_then(|accumulator| safe_add_balance(accumulator, amount))
-            .and_then(|accumulator| safe_add_balance(accumulator, locked))
-            .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+        Ok(safe_add_balance_apply!(accumulator, amount, locked))
     })
 }
 
@@ -130,14 +126,13 @@ pub(crate) fn check_balance(
     // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
         initial_state,
-        initial_delayed_receipt_indices.first_index,
-        final_delayed_receipt_indices.first_index,
+        initial_delayed_receipt_indices.first_index..final_delayed_receipt_indices.first_index,
     )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         final_state,
-        initial_delayed_receipt_indices.next_available_index,
-        final_delayed_receipt_indices.next_available_index,
+        initial_delayed_receipt_indices.next_available_index
+            ..final_delayed_receipt_indices.next_available_index,
     )?;
 
     // Accounts
