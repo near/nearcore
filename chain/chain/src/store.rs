@@ -2440,6 +2440,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::CachedContractCode => {
                 unreachable!();
             }
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState => {
+                unreachable!();
+            }
         }
         self.inc_gc(col);
         self.merge(store_update);

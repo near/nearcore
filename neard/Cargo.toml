@@ -63,6 +63,8 @@ protocol_feature_chunk_only_producers = [
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+
 nightly = [
   "nightly_protocol",
   "nearcore/nightly"
