@@ -205,28 +205,21 @@ Cross-crate APIs often form important architectural boundaries affecting the
 whole application, while what happens inside a crate concerns only the crate
 itself.
 
-The difference between `pub` (making items visible to other crates) and `pub(crate)` (making items visible within the crate) is big, while the difference
-between `pub(crate)` and private is relatively small. Be mindful when exposing
-APIs across crates with `pub`.
+The difference between `pub` (making items visible to other crates) and
+`pub(crate)` (making items visible within the crate) is big, while the
+difference between `pub(crate)` and private is relatively small. Be mindful when
+exposing APIs across crates with `pub`.
 
-Use `pub` only for items that must be reachable from outside of the crate, don't rely on effective
-visibility:
+For a top-level item, use `pub` only when it must be reachable from outside of
+the crate, don't rely on effective visibility:
 
 ```rust
 // GOOD
-pub(crate) struct Person {
-    pub(crate) first_name: String,
-}
-
 pub(crate) mod auth {
     pub(crate) check_password(password: &str) -> Result<(), ()>
 }
 
 // BAD
-pub(crate) struct Person {
-    pub first_name: String,
-}
-
 pub(crate) mod auth {
     pub check_password(password: &str) -> Result<(), ()>
 }
@@ -234,6 +227,21 @@ pub(crate) mod auth {
 
 **Rationale:** it's useful to tell at a glance that `pub` items form crate's
 public API without checking all the ancestor modules.
+
+For fields and methods, it's OK to use `pub` even if the type itself is not
+`pub`:
+
+```rust
+// GOOD
+pub(crate) struct Person {
+    pub first_name: String,
+    pub last_name: String,
+}
+
+impl Person {
+    pub fn full_name(&self) -> String;
+}
+```
 
 ## Documentation
 
