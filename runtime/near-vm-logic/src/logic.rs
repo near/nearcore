@@ -20,7 +20,7 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::{AnyError, HostError, VMLogicError};
+use near_vm_errors::{HostError, VMLogicError};
 use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -2791,6 +2791,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ed25519_verify_base + ed25519_verify_byte * num_bytes`
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
         sig_len: u64,
@@ -2799,22 +2800,28 @@ impl<'a> VMLogic<'a> {
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64,
-    ) -> Result<u32> {
+    ) -> Result<u64> {
         use ed25519_dalek::{PublicKey, Signature, Verifier};
 
-        self.gas_counter.pay_base(ed25519_verify_base)?;
-        self.gas_counter.pay_per(ed25519_verify_byte, msg_len + sig_len as u64)?;
-        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
-        let pub_key = PublicKey::from_bytes(&pub_key_array)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
-        let signature = Signature::from_bytes(&signature_array)
-            .map_err(|e| VMLogicError::ExternalError(AnyError::new(e.to_string())))?;
+        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+        self.gas_counter.pay_base(ed25519_verify_base)?;
+        let num_bytes = msg
+            .len()
+            .checked_add(signature_array.len())
+            .ok_or_else(|| VMLogicError::HostError(HostError::IntegerOverflow))?;
+        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
 
+        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
+        let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
+        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
         match pub_key.verify(&msg, &signature) {
             Err(_) => Ok(0 as _),
-            Ok(_) => Ok(1 as _),
+            Ok(()) => Ok(1 as _),
         }
     }
 }

@@ -310,8 +310,10 @@ pub struct ExtCostsConfig {
     pub ripemd160_block: Gas,
 
     /// Cost of getting ed25519 base
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_base: Gas,
     /// Cost of getting ed25519 per byte
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
@@ -457,7 +459,9 @@ impl ExtCostsConfig {
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
             // Cost per byte is 3542227. There are 64 bytes in a block.
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
@@ -527,7 +531,9 @@ impl ExtCostsConfig {
             keccak512_byte: 0,
             ripemd160_base: 0,
             ripemd160_block: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_base: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte: 0,
             ecrecover_base: 0,
             log_base: 0,
@@ -598,7 +604,9 @@ pub enum ExtCosts {
     keccak512_byte,
     ripemd160_base,
     ripemd160_block,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_base,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
     ed25519_verify_byte,
     ecrecover_base,
     log_base,
@@ -681,7 +689,9 @@ impl ExtCosts {
             keccak512_byte => config.keccak512_byte,
             ripemd160_base => config.ripemd160_base,
             ripemd160_block => config.ripemd160_block,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_base => config.ed25519_verify_base,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ed25519_verify_byte => config.ed25519_verify_byte,
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
