@@ -2791,7 +2791,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ed25519_verify_base + ed25519_verify_byte * num_bytes`
-
     pub fn ed25519_verify(
         &mut self,
         sig_len: u64,
