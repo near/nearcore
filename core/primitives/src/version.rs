@@ -167,6 +167,9 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
+    // ed25519 signature verification.
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    Ed25519Verify,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -253,6 +256,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ProtocolFeature::Ed25519Verify => 131,
         }
     }
 }
