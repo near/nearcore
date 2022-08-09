@@ -1,4 +1,4 @@
-#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+#[cfg(feature = "protocol_feature_max_kickout_stake")]
 use num_rational::Rational64;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -8,7 +8,7 @@ use near_cache::SyncLruCache;
 use primitive_types::U256;
 use tracing::{debug, warn};
 
-#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+#[cfg(feature = "protocol_feature_max_kickout_stake")]
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -279,7 +279,8 @@ impl EpochManager {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        let mut _total_stake: Balance = 0;
+        #[allow(unused)]
+        let mut total_stake: Balance = 0;
 
         for (i, v) in epoch_info.validators_iter().enumerate() {
             let account_id = v.account_id();
@@ -297,21 +298,28 @@ impl EpochManager {
                     chunk_stats.produced += stat.produced;
                 }
             }
-            _total_stake += v.stake();
+            total_stake += v.stake();
             validator_block_chunk_stats
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
+        // We want to make sure the total stake of validators that will be kicked out in this epoch doesn't exceed
+        // config.validator_max_kickout_stake_ratio of total stake.
+        // To achieve that, we sort all validators by their average uptime (average of block and chunk
+        // uptime) and add validators to `exempted_validators` one by one, from high uptime to low uptime,
+        // until the total excepted stake exceeds the ratio of total stake that we need to keep.
+        // Later when we perform the check to kick out validators, we don't kick out validators in
+        // exempted_validators.
         #[allow(unused_mut)]
         let mut exempted_validators = HashSet::<&AccountId>::new();
-        #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
+        #[cfg(feature = "protocol_feature_max_kickout_stake")]
         if checked_feature!(
-            "protocol_feature_max_kickout_stake_ratio",
-            MaxKickoutStakeRatio,
+            "protocol_feature_max_kickout_stake",
+            MaxKickoutStake,
             epoch_info.protocol_version()
         ) {
-            let min_keep_stake = _total_stake
-                * (100_u8.checked_sub(config.validator_max_kickout_stake_ratio).unwrap_or_default()
+            let min_keep_stake = total_stake
+                * (100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default()
                     as u128)
                 / 100;
             let mut sorted_validators = validator_block_chunk_stats
@@ -400,7 +408,7 @@ impl EpochManager {
             }
         }
         if all_kicked_out {
-            println!("all kicked out {:?} {:?}", max_validator, validator_kickout);
+            tracing::info!(target:"epoch_manager", "We are about to kick out all validators in the next two epochs, so we are going to save one {:?}", max_validator);
             if let Some(validator) = max_validator {
                 validator_kickout.remove(validator);
             }

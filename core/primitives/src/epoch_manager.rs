@@ -37,8 +37,8 @@ pub struct EpochConfig {
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
     /// Max ratio of validators that we can kick out in an epoch
-    #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
-    pub validator_max_kickout_stake_ratio: u8,
+    #[cfg(feature = "protocol_feature_max_kickout_stake")]
+    pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.

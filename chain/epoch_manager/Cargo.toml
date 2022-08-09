@@ -34,9 +34,9 @@ protocol_feature_chunk_only_producers = [
   "near-chain-configs/protocol_feature_chunk_only_producers",
   "near-chain/protocol_feature_chunk_only_producers",
 ]
-protocol_feature_max_kickout_stake_ratio = [
-  "near-chain-configs/protocol_feature_max_kickout_stake_ratio",
-  "near-primitives/protocol_feature_max_kickout_stake_ratio",
+protocol_feature_max_kickout_stake = [
+  "near-chain-configs/protocol_feature_max_kickout_stake",
+  "near-primitives/protocol_feature_max_kickout_stake",
 ]
 protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
 nightly = [
@@ -44,7 +44,7 @@ nightly = [
   "near-primitives/nightly",
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_max_kickout_stake_ratio"
+  "protocol_feature_max_kickout_stake"
 ]
 mock_node = []
 nightly_protocol = ["near-primitives/nightly_protocol"]

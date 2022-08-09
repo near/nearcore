@@ -2230,8 +2230,8 @@ fn test_protocol_version_switch_with_many_seats() {
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),
         validator_selection_config: Default::default(),
-        #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
-        validator_max_kickout_stake_ratio: 100,
+        #[cfg(feature = "protocol_feature_max_kickout_stake")]
+        validator_max_kickout_stake_perc: 100,
     };
     let config = AllEpochConfig::new(epoch_config, None);
     let amount_staked = 1_000_000;
@@ -2452,8 +2452,10 @@ fn test_chunk_producers() {
     assert_eq!(vec!(String::from("test1"), String::from("test2")), chunk_producers);
 }
 
+/// A sanity test for the compute_kickout_info function, tests that
+/// the validators that don't meet the block/chunk producer kickout threshold is kicked out
 #[test]
-fn test_kickout() {
+fn test_validator_kickout_sanity() {
     let epoch_config =
         epoch_config(5, 2, 4, 0, 90, 80, 0, None).for_protocol_version(PROTOCOL_VERSION).clone();
     let accounts = vec![
@@ -2536,14 +2538,17 @@ fn test_kickout() {
     );
 }
 
-#[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
+    #[allow(unused_mut)]
     let mut epoch_config =
         epoch_config(5, 2, 4, 0, 90, 80, 0, None).for_protocol_version(PROTOCOL_VERSION).clone();
     // At most 50% of total stake can be kicked out
-    epoch_config.validator_max_kickout_stake_ratio = 50;
+    #[cfg(feature = "protocol_feature_max_kickout_stake")]
+    {
+        epoch_config.validator_max_kickout_stake_perc = 50;
+    }
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -2592,6 +2597,7 @@ fn test_max_kickout_stake_ratio() {
         &HashMap::new(),
         &HashMap::new(),
     );
+    #[cfg(feature = "protocol_feature_max_kickout_stake")]
     assert_eq!(
         kickouts,
         // test2 and test4 would have been kicked out too, but it's saved by max_kickout_stake_ratio
@@ -2600,6 +2606,18 @@ fn test_max_kickout_stake_ratio() {
             ("test1".parse().unwrap(), NotEnoughBlocks { produced: 60, expected: 100 }),
         ])
     );
+    #[cfg(not(feature = "protocol_feature_max_kickout_stake"))]
+    assert_eq!(
+        kickouts,
+        // test2 and test4 would have been kicked out too, but it's saved by max_kickout_stake_ratio
+        HashMap::from([
+            ("test0".parse().unwrap(), NotEnoughBlocks { produced: 50, expected: 100 }),
+            ("test1".parse().unwrap(), NotEnoughBlocks { produced: 60, expected: 100 }),
+            ("test2".parse().unwrap(), NotEnoughBlocks { produced: 70, expected: 100 }),
+            ("test4".parse().unwrap(), NotEnoughChunks { produced: 50, expected: 100 }),
+        ])
+    );
+    #[cfg(feature = "protocol_feature_max_kickout_stake")]
     assert_eq!(
         validator_stats,
         HashMap::from([
@@ -2625,5 +2643,16 @@ fn test_max_kickout_stake_ratio() {
                 }
             ),
         ])
+    );
+    #[cfg(not(feature = "protocol_feature_max_kickout_stake"))]
+    assert_eq!(
+        validator_stats,
+        HashMap::from([(
+            "test3".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 0 }
+            }
+        ),])
     );
 }

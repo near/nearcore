@@ -167,8 +167,8 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
-    #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
-    MaxKickoutStakeRatio,
+    #[cfg(feature = "protocol_feature_max_kickout_stake")]
+    MaxKickoutStake,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -255,8 +255,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
-            #[cfg(feature = "protocol_feature_max_kickout_stake_ratio")]
-            ProtocolFeature::MaxKickoutStakeRatio => 131,
+            #[cfg(feature = "protocol_feature_max_kickout_stake")]
+            ProtocolFeature::MaxKickoutStake => 131,
         }
     }
 }
