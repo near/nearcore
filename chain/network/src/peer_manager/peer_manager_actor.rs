@@ -375,8 +375,14 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<Self> {
-        PeerManagerActor::new_with_clock(store, config, client_addr, view_client_addr, genesis_id, time::Clock::real())
-
+        PeerManagerActor::new_with_clock(
+            store,
+            config,
+            client_addr,
+            view_client_addr,
+            genesis_id,
+            time::Clock::real(),
+        )
     }
 
     pub fn new_with_clock(

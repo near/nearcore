@@ -209,3 +209,65 @@ fn components_nonces_are_tracked_in_storage() {
         ],
     );
 }
+
+fn to_odd_number(value: u64) -> u64 {
+    if value % 2 == 1 {
+        return value;
+    }
+    return value + 1;
+}
+
+#[test]
+fn expired_edges() {
+    let mut test = RoutingTableTest::new();
+    let mut actor = test.new_actor();
+    let p1 = test.make_peer();
+    let current_odd_nonce = to_odd_number(test.clock.now_utc().unix_timestamp() as u64);
+
+    let e1 = edge(&test.me(), &p1, current_odd_nonce);
+
+    // Add an active edge.
+    actor.add_verified_edges(vec![e1.clone()]);
+    test.check(&[e1.clone()], &[]);
+
+    // Update RT with pruning. NOOP, since p1 is reachable and node is fresh.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[e1.clone()], &[]);
+
+    // Advance 20 seconds:
+    test.clock.advance(20 * SEC);
+
+    // Now the edge is 'too old' and should be removed.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[], &[]);
+
+    // let's create a removal edge
+    let e1v2 =
+        edge(&test.me(), &p1, to_odd_number(test.clock.now_utc().unix_timestamp() as u64) + 1);
+    actor.add_verified_edges(vec![e1v2.clone()]);
+    test.check(&[e1v2.clone()], &[]);
+
+    actor.update_routing_table(
+        None,
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[e1v2.clone()], &[]);
+
+    // And now it should disappear
+
+    // Advance 20 seconds:
+    test.clock.advance(20 * SEC);
+
+    // Now the edge is 'too old' and should be removed.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[], &[]);
+}
