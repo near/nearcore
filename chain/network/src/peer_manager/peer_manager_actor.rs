@@ -30,7 +30,7 @@ use actix::{
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use near_network_primitives::time;
+use near_network_primitives::time::{self, Utc};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
     NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
@@ -38,7 +38,7 @@ use near_network_primitives::types::{
     RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -72,8 +72,6 @@ const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::milliseconds(6_
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become a connected peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::milliseconds(6_000);
-/// Maximum number an edge can increase between oldest known edge and new proposed edge.
-const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
@@ -107,6 +105,8 @@ const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
+
+const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
@@ -438,9 +438,13 @@ impl PeerManagerActor {
         &self,
         ctx: &mut Context<Self>,
         prune_unreachable_since: Option<time::Instant>,
+        prune_edges_older_than: Option<Utc>,
     ) {
         self.routing_table_addr
-            .send(routing::actor::Message::RoutingTableUpdate { prune_unreachable_since })
+            .send(routing::actor::Message::RoutingTableUpdate {
+                prune_unreachable_since,
+                prune_edges_older_than,
+            })
             .into_actor(self)
             .map(|response, act, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
@@ -494,7 +498,11 @@ impl PeerManagerActor {
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
-        self.update_routing_table(ctx, self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER));
+        self.update_routing_table(
+            ctx,
+            self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
+            self.clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
+        );
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -1861,9 +1869,15 @@ impl PeerManagerActor {
             return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
         }
 
+        /*
         if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
             debug!(target: "network", nonce = msg.other_edge_info.nonce, last_nonce, ?EDGE_NONCE_BUMP_ALLOWED, ?self.my_peer_id, ?msg.peer_info.id, "Too large nonce");
             return RegisterPeerResponse::Reject;
+        }*/
+        if msg.other_edge_info.nonce > EDGE_MIN_TIMESTAMP_NONCE {
+            metrics::EDGE_NEW_NONCE.inc();
+        } else {
+            metrics::EDGE_OLD_NONCE.inc();
         }
 
         let require_response = msg.this_edge_info.is_none();

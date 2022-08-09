@@ -34,7 +34,9 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
-pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
+pub use crate::network_protocol::edge::{
+    Edge, EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network

@@ -7,7 +7,7 @@ use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
-use near_network_primitives::time;
+use near_network_primitives::time::{self, Utc};
 use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
@@ -189,7 +189,11 @@ impl Actor {
     pub fn update_routing_table(
         &mut self,
         mut prune_unreachable_since: Option<time::Instant>,
+        prune_edges_older_than: Option<Utc>,
     ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
+        if let Some(prune_edges_older_than) = prune_edges_older_than {
+            self.graph.write().prune_old_edges(prune_edges_older_than)
+        }
         let next_hops = self.graph.read().next_hops();
         // Update peer_reachable_at.
         let now = self.clock.now();
@@ -239,7 +243,10 @@ pub enum Message {
     /// `signature1` is valid.
     AddVerifiedEdges { edges: Vec<Edge> },
     /// Request routing table update and maybe prune edges.
-    RoutingTableUpdate { prune_unreachable_since: Option<time::Instant> },
+    RoutingTableUpdate {
+        prune_unreachable_since: Option<time::Instant>,
+        prune_edges_older_than: Option<Utc>,
+    },
     /// TEST-ONLY Remove edges.
     AdvRemoveEdges(Vec<Edge>),
 }
@@ -287,8 +294,9 @@ impl actix::Handler<Message> for Actor {
                 Response::AddVerifiedEdgesResponse(self.add_verified_edges(edges))
             }
             // Recalculates the routing table.
-            Message::RoutingTableUpdate { prune_unreachable_since } => {
-                let (next_hops, pruned_edges) = self.update_routing_table(prune_unreachable_since);
+            Message::RoutingTableUpdate { prune_unreachable_since, prune_edges_older_than } => {
+                let (next_hops, pruned_edges) =
+                    self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
                 Response::RoutingTableUpdateResponse {
                     local_edges_to_remove: pruned_edges
                         .iter()

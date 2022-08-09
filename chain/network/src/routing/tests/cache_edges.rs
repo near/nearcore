@@ -99,7 +99,7 @@ fn one_edge() {
     test.check(&[e1.clone()], &[]);
 
     // Update RT with pruning. NOOP, since p1 is reachable.
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[e1.clone()], &[]);
 
     // Override with an inactive edge.
@@ -108,15 +108,15 @@ fn one_edge() {
 
     // After 2s, update RT without pruning.
     test.clock.advance(2 * SEC);
-    actor.update_routing_table(None);
+    actor.update_routing_table(None, None);
     test.check(&[e1v2.clone()], &[]);
 
     // Update RT with pruning unreachable for 3s. NOOP, since p1 is unreachable for 2s.
-    actor.update_routing_table(Some(test.clock.now() - 3 * SEC));
+    actor.update_routing_table(Some(test.clock.now() - 3 * SEC), None);
     test.check(&[e1v2.clone()], &[]);
 
     // Update RT with pruning unreachable for 1s. p1 should be moved to DB.
-    actor.update_routing_table(Some(test.clock.now() - SEC));
+    actor.update_routing_table(Some(test.clock.now() - SEC), None);
     test.check(&[], &[Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }]);
 }
 
@@ -134,7 +134,7 @@ fn load_component() {
     // There is an active edge between p1,p2, but neither is reachable from me().
     // They should be pruned.
     actor.add_verified_edges(vec![e1.clone(), e2.clone(), e3.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[Component {
@@ -145,7 +145,7 @@ fn load_component() {
 
     // Add an active edge from me() to p1. This should trigger loading the whole component from DB.
     actor.add_verified_edges(vec![e1v2.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[e1v2, e2, e3], &[]);
 }
 
@@ -158,7 +158,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p1 = test.make_peer();
     let e1 = edge(&test.me(), &p1, 2);
     actor.add_verified_edges(vec![e1.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[], &[Component { edges: vec![e1.clone()], peers: vec![p1.clone()] }]);
 
     // Add an active unreachable edge, which also should get pruned.
@@ -166,7 +166,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p3 = test.make_peer();
     let e23 = edge(&p2, &p3, 2);
     actor.add_verified_edges(vec![e23.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[
@@ -184,7 +184,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p4 = test.make_peer();
     let e4 = edge(&test.me(), &p4, 2);
     actor.add_verified_edges(vec![e4.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[
@@ -197,7 +197,7 @@ fn components_nonces_are_tracked_in_storage() {
     // Add an active edge between unreachable nodes, which will merge 2 components in DB.
     let e34 = edge(&p3, &p4, 1);
     actor.add_verified_edges(vec![e34.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[

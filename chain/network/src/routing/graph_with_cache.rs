@@ -1,5 +1,6 @@
 use crate::routing;
 use crate::stats::metrics;
+use near_network_primitives::time::Utc;
 use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
@@ -114,5 +115,22 @@ impl GraphWithCache {
             self.remove_edge(edge.key());
         }
         edges
+    }
+
+    pub fn prune_old_edges(&mut self, prune_edges_older_than: Utc) {
+        let old_edges = self
+            .edges
+            .iter()
+            .filter_map(|(edge_key, edge)| {
+                if edge.is_edge_older_than(prune_edges_older_than) {
+                    Some(edge_key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        for edge_key in &old_edges {
+            self.remove_edge(edge_key);
+        }
     }
 }

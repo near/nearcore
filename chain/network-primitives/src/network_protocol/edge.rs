@@ -4,6 +4,10 @@ use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 
+use crate::time::Utc;
+
+pub const EDGE_MIN_TIMESTAMP_NONCE: u64 = 1660000000;
+
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -216,6 +220,14 @@ impl Edge {
         } else {
             None
         }
+    }
+
+    pub fn is_edge_older_than(&self, utc_timestamp: Utc) -> bool {
+        if self.nonce() < EDGE_MIN_TIMESTAMP_NONCE {
+            // old-style nonce - leave for now.
+            return false;
+        }
+        return self.nonce() < utc_timestamp.unix_timestamp() as u64;
     }
 }
 
