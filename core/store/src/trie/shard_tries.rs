@@ -262,6 +262,7 @@ impl ShardTries {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
 
+    // TODO(#7327): consider uniting with `apply_all`
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_changes_to_flat_state(
         &self,
