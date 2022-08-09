@@ -45,7 +45,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -248,12 +248,6 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
-        let msg_type: &str = msg.into();
-        let _span = tracing::trace_span!(
-            target: "network",
-            "send_message_with_encoding",
-            msg_type = msg_type)
-        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -265,12 +259,12 @@ impl PeerActor {
         let bytes = msg.serialize(enc);
         self.tracker.increment_sent(bytes.len() as u64);
         let bytes_len = bytes.len();
-        tracing::trace!(target: "network", msg_len = bytes_len);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
+            let msg_type: &str = msg.into();
             return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
         Ok(())
@@ -593,7 +587,6 @@ impl PeerActor {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
         self.tracker.increment_received(msg_len as u64);
-        tracing::trace!(target: "network", msg_len);
     }
 
     /// Check whenever we exceeded number of transactions we got since last block.
@@ -722,7 +715,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
 
-        tracing::trace!(target: "network", "Received message: {}", peer_msg);
+        trace!(target: "network", "Received message: {}", peer_msg);
 
         self.on_receive_message();
 
@@ -1056,11 +1049,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 .spawn(ctx);
             }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                tracing::trace!(
-                    target: "network",
-                    "Received routed message from {} to {:?}.",
-                    self.peer_info,
-                    routed_message.msg.target);
+                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.msg.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
@@ -1103,7 +1092,7 @@ impl Handler<SendMessage> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
+            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
@@ -1116,7 +1105,7 @@ impl Handler<Arc<SendMessage>> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: Arc<SendMessage>, _: &mut Self::Context) {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
+            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
         span.set_parent(msg.context.clone());
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.as_ref().message);
@@ -1129,7 +1118,7 @@ impl Handler<QueryPeerStats> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler = "QueryPeerStats").entered();
+            tracing::trace_span!(target: "network", "handle", handler="QueryPeerStats").entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "query peer stats".into());
 
@@ -1164,9 +1153,8 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
         msg: PeerManagerRequestWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "PeerManagerRequest")
-                .entered();
+        let span = tracing::trace_span!(target: "network", "handle", handler="PeerManagerRequest")
+            .entered();
         span.set_parent(msg.context);
         let msg = msg.msg;
         let _d =
