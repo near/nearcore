@@ -10,6 +10,7 @@ use crate::testonly::fake_client;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
+use near_network_primitives::time::Clock;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
@@ -111,6 +112,7 @@ pub async fn start(
     store: near_store::Store,
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
+    clock: Clock,
 ) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
@@ -119,12 +121,13 @@ pub async fn start(
         move || {
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            PeerManagerActor::new(
+            PeerManagerActor::new_with_clock(
                 store,
                 cfg,
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 genesis_id,
+                clock,
             )
             .unwrap()
             .with_event_sink(send.sink().compose(Event::PeerManager))

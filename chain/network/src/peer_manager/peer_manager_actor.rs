@@ -106,7 +106,11 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
+// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
+// Don't accept nonces (edges) that are more than this delta from current time.
+// This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might accept the edge and garbage collect it seconds later).
+const EDGE_NONCE_MAX_TIME_DELTA: time::Duration = time::Duration::minutes(20);
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
@@ -371,8 +375,19 @@ impl PeerManagerActor {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<Self> {
+        PeerManagerActor::new_with_clock(store, config, client_addr, view_client_addr, genesis_id, time::Clock::real())
+
+    }
+
+    pub fn new_with_clock(
+        store: near_store::Store,
+        config: config::NetworkConfig,
+        client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
+        genesis_id: GenesisId,
+        clock: time::Clock,
+    ) -> anyhow::Result<Self> {
         let config = config.verify().context("config")?;
-        let clock = time::Clock::real();
         let store = store::Store::from(store);
         let peer_store =
             PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone())
@@ -1869,15 +1884,29 @@ impl PeerManagerActor {
             return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
         }
 
-        /*
-        if msg.other_edge_info.nonce >= Edge::next_nonce(last_nonce) + EDGE_NONCE_BUMP_ALLOWED {
-            debug!(target: "network", nonce = msg.other_edge_info.nonce, last_nonce, ?EDGE_NONCE_BUMP_ALLOWED, ?self.my_peer_id, ?msg.peer_info.id, "Too large nonce");
-            return RegisterPeerResponse::Reject;
-        }*/
         if msg.other_edge_info.nonce > EDGE_MIN_TIMESTAMP_NONCE {
-            metrics::EDGE_NEW_NONCE.inc();
+            // If this is a 'new style' nonce (with timestamp) - make sure that this timestamp is somewhere around the
+            // current one. Otherwise, the edge will get almost immediately garbage collected.
+            if msg.other_edge_info.nonce
+                < self.clock.now_utc().saturating_sub(EDGE_NONCE_MAX_TIME_DELTA).unix_timestamp()
+                    as u64
+            {
+                metrics::EDGE_NONCE.with_label_values(&["error_too_old"]).inc();
+                debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Too old nonce");
+                return RegisterPeerResponse::Reject;
+            }
+
+            if msg.other_edge_info.nonce
+                > self.clock.now_utc().saturating_add(EDGE_NONCE_MAX_TIME_DELTA).unix_timestamp()
+                    as u64
+            {
+                metrics::EDGE_NONCE.with_label_values(&["error_too_new"]).inc();
+                debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Nonce too much in future.");
+                return RegisterPeerResponse::Reject;
+            }
+            metrics::EDGE_NONCE.with_label_values(&["new_style"]).inc();
         } else {
-            metrics::EDGE_OLD_NONCE.inc();
+            metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
         }
 
         let require_response = msg.this_edge_info.is_none();

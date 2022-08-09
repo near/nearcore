@@ -6,7 +6,10 @@ use near_primitives::network::PeerId;
 
 use crate::time::Utc;
 
-pub const EDGE_MIN_TIMESTAMP_NONCE: u64 = 1660000000;
+// We'd treat all nonces that are below this values as 'old style' (without any expiration time).
+// And all nonces above this value as new style (that would expire after some time).
+// This value is also couple days before the FakeClock UTC start (to make it easier in unittests).
+pub const EDGE_MIN_TIMESTAMP_NONCE: u64 = 88108233;
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -222,9 +225,10 @@ impl Edge {
         }
     }
 
+    // Checks if edge was created before a given timestamp.
     pub fn is_edge_older_than(&self, utc_timestamp: Utc) -> bool {
         if self.nonce() < EDGE_MIN_TIMESTAMP_NONCE {
-            // old-style nonce - leave for now.
+            // Old-style nonce - for now, assume that they are always fresh.
             return false;
         }
         return self.nonce() < utc_timestamp.unix_timestamp() as u64;

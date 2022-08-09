@@ -5,7 +5,7 @@ use crate::peer::codec::Codec;
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_manager_actor::NetworkState;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
+use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
@@ -39,6 +39,7 @@ pub struct PeerConfig {
     pub peers: Vec<PeerInfo>,
     pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
+    pub nonce: Option<u64>,
 }
 
 impl PeerConfig {
@@ -68,6 +69,7 @@ pub(crate) enum Event {
     PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
     Peer(peer_actor::Event),
+    Unregister(Unregister),
 }
 
 struct FakePeerManagerActor {
@@ -151,6 +153,10 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 self.event_sink.push(Event::PeersResponse(resp.peers));
                 PeerToManagerMsgResp::Empty
             }
+            PeerToManagerMsg::Unregister(unregister) => {
+                self.event_sink.push(Event::Unregister(unregister));
+                PeerToManagerMsgResp::Empty
+            }
             _ => panic!("unsupported message"),
         }
     }
@@ -175,6 +181,12 @@ impl PeerHandle {
         match self.events.recv().await {
             Event::HandshakeDone(edge) => edge,
             ev => panic!("want HandshakeDone, got {ev:?}"),
+        }
+    }
+    pub async fn fail_handshake(&mut self) {
+        match self.events.recv().await {
+            Event::Unregister(_) => (),
+            ev => panic!("want Unregister, got {ev:?}"),
         }
     }
 
@@ -233,7 +245,9 @@ impl PeerHandle {
                     handshake_timeout,
                     fpm.clone().recipient(),
                     fpm.clone().recipient(),
-                    cfg.start_handshake_with.as_ref().map(|id| cfg.partial_edge_info(id, 1)),
+                    cfg.start_handshake_with
+                        .as_ref()
+                        .map(|id| cfg.partial_edge_info(id, cfg.nonce.unwrap_or(1))),
                     Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,

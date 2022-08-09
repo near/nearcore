@@ -32,7 +32,7 @@ async fn repeated_data_in_sync_routing_table() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone(), clock.clock())
             .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
@@ -40,6 +40,7 @@ async fn repeated_data_in_sync_routing_table() {
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -111,7 +112,7 @@ async fn no_edge_broadcast_after_restart() {
         println!("iteration {i}");
         // Start a PeerManager and connect a peer to it.
         let pm =
-            peer_manager::testonly::start(store.clone(), chain.make_config(rng), chain.clone())
+            peer_manager::testonly::start(store.clone(), chain.make_config(rng), chain.clone(), clock.clock())
                 .await;
         let cfg = peer::testonly::PeerConfig {
             signer: data::make_signer(rng),
@@ -119,6 +120,7 @@ async fn no_edge_broadcast_after_restart() {
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
+            nonce: None,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
@@ -156,6 +158,82 @@ async fn no_edge_broadcast_after_restart() {
     }
 }
 
+// Nonces must be odd (as even ones are reserved for tombstones).
+fn to_odd_nonce(value: u64) -> u64 {
+    if value % 2 == 0 {
+        value + 1
+    } else {
+        value
+    }
+}
+
+// Test connecting to peer manager with timestamp-like nonces.
+#[tokio::test]
+async fn test_nonces() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    //let mut total_edges = vec![];
+    let store = create_test_store();
+
+    // Start a PeerManager and connect a peer to it.
+    let pm =
+        peer_manager::testonly::start(store.clone(), chain.make_config(rng), chain.clone(), clock.clock()).await;
+    // Try to connect with peer with a valid nonce (current timestamp).
+    {
+        let cfg = peer::testonly::PeerConfig {
+            signer: data::make_signer(rng),
+            chain: chain.clone(),
+            peers: vec![],
+            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
+            force_encoding: Some(Encoding::Proto),
+            // Connect with nonce equal to unix timestamp
+            nonce: Some(to_odd_nonce(clock.now_utc().unix_timestamp() as u64)),
+        };
+        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        peer.complete_handshake().await;
+    }
+
+    // Now try the peer with invalid timestamp (in the past)
+    {
+        let cfg = peer::testonly::PeerConfig {
+            signer: data::make_signer(rng),
+            chain: chain.clone(),
+            peers: vec![],
+            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
+            force_encoding: Some(Encoding::Proto),
+            // Connect with nonce equal to unix timestamp
+            nonce: Some(to_odd_nonce(clock.now_utc().checked_sub(time::Duration::days(1)).unwrap().unix_timestamp() as u64)),
+        };
+        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        peer.fail_handshake().await;
+    }
+
+        // Now try the peer with invalid timestamp (in the future)
+        {
+            let cfg = peer::testonly::PeerConfig {
+                signer: data::make_signer(rng),
+                chain: chain.clone(),
+                peers: vec![],
+                start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
+                force_encoding: Some(Encoding::Proto),
+                // Connect with nonce equal to unix timestamp
+                nonce: Some(to_odd_nonce(clock.now_utc().checked_add(time::Duration::days(1)).unwrap().unix_timestamp() as u64)),
+            };
+            let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+            let mut peer =
+                peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+            peer.fail_handshake().await;
+        }
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
@@ -165,7 +243,7 @@ async fn ttl() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone(), clock.clock())
             .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
@@ -173,6 +251,7 @@ async fn ttl() {
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -232,6 +311,7 @@ async fn add_peer(
         peers: vec![],
         start_handshake_with: Some(PeerId::new(cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -258,7 +338,7 @@ async fn accounts_data_broadcast() {
     let clock = &clock;
 
     let mut pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone(), clock.clone())
             .await;
 
     let take_sync = |ev| match ev {
@@ -340,6 +420,7 @@ async fn accounts_data_gradual_epoch_change() {
                 create_test_store(),
                 chain.make_config(rng),
                 chain.clone(),
+                clock.clock(),
             )
             .await,
         );
@@ -408,7 +489,7 @@ async fn accounts_data_rate_limiting() {
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
-        pms.push(peer_manager::testonly::start(create_test_store(), cfg, chain.clone()).await);
+        pms.push(peer_manager::testonly::start(create_test_store(), cfg, chain.clone(), clock.clock()).await);
     }
     // Construct a 4-layer bipartite graph.
     let mut connections = 0;

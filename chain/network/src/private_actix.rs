@@ -95,7 +95,7 @@ pub enum RegisterPeerResponse {
 }
 
 /// Unregister message from Peer to PeerManager.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, PartialEq, Eq, Clone)]
 #[rtype(result = "()")]
 pub(crate) struct Unregister {
     pub peer_id: PeerId,
