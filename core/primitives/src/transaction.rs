@@ -12,7 +12,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::serialize::{base64_format, u128_dec_format_compatible};
+use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use near_primitives_core::profile::ProfileData;
 
@@ -70,8 +70,6 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    StakeChunkOnly(StakeAction),
 }
 
 impl Action {
@@ -131,7 +129,7 @@ pub struct FunctionCallAction {
     #[serde(with = "base64_format")]
     pub args: Vec<u8>,
     pub gas: Gas,
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub deposit: Balance,
 }
 
@@ -155,7 +153,7 @@ impl fmt::Debug for FunctionCallAction {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub deposit: Balance,
 }
 
@@ -170,7 +168,7 @@ impl From<TransferAction> for Action {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of singer_id
     pub public_key: PublicKey,

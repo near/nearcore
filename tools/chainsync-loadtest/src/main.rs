@@ -14,15 +14,28 @@ use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
 use near_chain_configs::Genesis;
-use near_network::test_utils::NetworkRecipient;
+use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
+use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use nearcore::config;
 use nearcore::config::NearConfig;
 
+fn genesis_hash(chain_id: &str) -> CryptoHash {
+    return match chain_id {
+        "mainnet" => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
+        "testnet" => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+        "betanet" => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
+        _ => {
+            return Default::default();
+        }
+    }
+    .parse()
+    .unwrap();
+}
+
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    config.network_config.verify().context("start_with_config")?;
     let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -38,10 +51,13 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),
+            GenesisId {
+                chain_id: config.client_config.chain_id.clone(),
+                hash: genesis_hash(&config.client_config.chain_id),
+            },
         )
         .unwrap()
-    })
-    .recipient();
+    });
     network_adapter.set_recipient(network_actor);
     return Ok(network);
 }
@@ -60,7 +76,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
         near_crypto::InMemorySigner::from_random(account_id, near_crypto::KeyType::ED25519);
     let mut genesis = Genesis::default();
     genesis.config.chain_id = chain_id.to_string();
-    return Ok(NearConfig::new(config, genesis, (&node_signer).into(), None));
+    NearConfig::new(config, genesis, (&node_signer).into(), None)
 }
 
 #[derive(Parser, Debug)]

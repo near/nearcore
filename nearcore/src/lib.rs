@@ -6,10 +6,11 @@ use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
-use near_chain::ChainGenesis;
+use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::test_utils::NetworkRecipient;
+use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -17,7 +18,7 @@ use near_rosetta_rpc::start_rosetta_rpc;
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::db::RocksDB;
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
-use near_store::{DBCol, Store, StoreOpener};
+use near_store::{DBCol, Mode, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -74,7 +75,7 @@ fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result
                     checkpoint_path.display(),
                     path.display());
 
-    let db = RocksDB::open(path, &near_config.config.store, false)?;
+    let db = RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
     let checkpoint = db.checkpoint()?;
     info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
     checkpoint.create_checkpoint(&checkpoint_path)?;
@@ -250,7 +251,12 @@ pub fn start_with_config_and_synchronization(
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_id = GenesisId {
+        chain_id: config.client_config.chain_id.clone(),
+        hash: genesis_block.header().hash().clone(),
+    };
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -279,7 +285,6 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    config.network_config.verify().with_context(|| "start_with_config")?;
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
         let client_actor = client_actor.clone();
         let view_client = view_client.clone();
@@ -289,11 +294,12 @@ pub fn start_with_config_and_synchronization(
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),
+                genesis_id,
             )
             .unwrap()
         }
     });
-    network_adapter.set_recipient(network_actor.clone().recipient());
+    network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
@@ -302,8 +308,6 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            #[cfg(feature = "test_features")]
-            network_actor,
         ));
     }
 
@@ -373,7 +377,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
             .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
-    let src_opener = Store::opener(home_dir, &config.store).read_only(true);
+    let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.get_path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
@@ -441,7 +445,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut total_written: u64 = 0;
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
-        for (key, value) in src_store.iter_raw_bytes(column) {
+        for item in src_store.iter_raw_bytes(column) {
+            let (key, value) = item.with_context(|| format!("scanning column {column:?}"))?;
             store_update.set_raw_bytes(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;

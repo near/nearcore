@@ -9,7 +9,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use std::fmt::Write;
-use std::sync::Arc;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
     let mut xs1 = vec![];
@@ -129,8 +128,8 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let warmup_repeats = config.warmup_iters_per_block;
 
     let store = near_store::test_utils::create_test_store();
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let cache_store = StoreCompiledContractCache::new(&store);
+    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
@@ -211,7 +210,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     if total_raw_with_gas < total_raw_no_gas {
         // This might happen due to experimental error, especially when running
         // without warmup or too few iterations.
-        let mut null_cost = GasCost::zero(gas_metric);
+        let mut null_cost = GasCost::zero();
         null_cost.set_uncertain("NEGATIVE-COST");
         return null_cost;
     }

@@ -142,7 +142,10 @@ impl RouteBackCache {
             self.remove_frequent();
 
             let now = clock.now();
-            let remove_until = now - self.evict_timeout;
+            let remove_until = match now.checked_sub(self.evict_timeout) {
+                Some(t) => t,
+                None => return,
+            };
             let mut remove_empty = vec![];
 
             for (key, value) in self.record_per_target.iter_mut() {

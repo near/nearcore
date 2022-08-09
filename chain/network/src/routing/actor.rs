@@ -76,15 +76,20 @@ impl Actor {
     /// we will try to re-add edges previously removed from disk.
     pub fn add_verified_edges(&mut self, edges: Vec<Edge>) -> Vec<Edge> {
         let total = edges.len();
-        let edges = self.graph.write().update_edges(edges);
+        // load the components BEFORE graph.update_edges
+        // so that result doesn't contain edges we already have in storage.
+        // It is especially important for initial full sync with peers, because
+        // we broadcast all the returned edges to all connected peers.
         for edge in &edges {
             let key = edge.key();
             self.load_component(&key.0);
             self.load_component(&key.1);
         }
+        let edges = self.graph.write().update_edges(edges);
         // Update metrics after edge update
         metrics::EDGE_UPDATES.inc_by(total as u64);
         metrics::EDGE_ACTIVE.set(self.graph.read().total_active_edges() as i64);
+        metrics::EDGE_TOTAL.set(self.graph.read().edges().len() as i64);
         edges
     }
 
@@ -116,7 +121,7 @@ impl Actor {
     /// New component `C_3` will be created.
     /// And mapping from `C` to `C_2` will be overridden by mapping from `C` to `C_3`.
     /// And therefore `C_2` component will become unreachable.
-    /// TODO: this whole algorithm seems to be leaking stuff to storage and never cleaning up.
+    /// TODO(gprusak): this whole algorithm seems to be leaking stuff to storage and never cleaning up.
     /// What is the point of it? What does it actually gives us?
     fn load_component(&mut self, peer_id: &PeerId) {
         if *peer_id == self.my_peer_id || self.peer_reachable_at.contains_key(peer_id) {
@@ -184,12 +189,12 @@ impl Actor {
     pub fn update_routing_table(
         &mut self,
         mut prune_unreachable_since: Option<time::Instant>,
-    ) -> (Arc<routing::RoutingTable>, Vec<Edge>) {
-        let routing_table = self.graph.read().routing_table();
+    ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
+        let next_hops = self.graph.read().next_hops();
         // Update peer_reachable_at.
         let now = self.clock.now();
         self.peer_reachable_at.insert(self.my_peer_id.clone(), now);
-        for peer in routing_table.keys() {
+        for peer in next_hops.keys() {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         // Do not prune if there are edges to validate in flight.
@@ -200,7 +205,7 @@ impl Actor {
             None => vec![],
             Some(t) => self.prune_unreachable_peers(t),
         };
-        (routing_table, pruned_edges)
+        (next_hops, pruned_edges)
     }
 }
 
@@ -248,7 +253,7 @@ pub enum Response {
         /// to remove those edges.
         local_edges_to_remove: Vec<PeerId>,
         /// Active PeerId that are part of the shortest path to each PeerId.
-        routing_table: Arc<routing::RoutingTable>,
+        next_hops: Arc<routing::NextHopTable>,
         /// List of peers to ban for sending invalid edges.
         peers_to_ban: Vec<PeerId>,
     },
@@ -283,15 +288,14 @@ impl actix::Handler<Message> for Actor {
             }
             // Recalculates the routing table.
             Message::RoutingTableUpdate { prune_unreachable_since } => {
-                let (routing_table, pruned_edges) =
-                    self.update_routing_table(prune_unreachable_since);
+                let (next_hops, pruned_edges) = self.update_routing_table(prune_unreachable_since);
                 Response::RoutingTableUpdateResponse {
                     local_edges_to_remove: pruned_edges
                         .iter()
                         .filter_map(|e| e.other(&self.my_peer_id))
                         .cloned()
                         .collect(),
-                    routing_table,
+                    next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
             }

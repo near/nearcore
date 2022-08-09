@@ -16,11 +16,32 @@ pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
         .unwrap()
 });
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully. Measures only the time taken by the successful attempts of block processing")
+    try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing")
+        .unwrap()
+});
+pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_applying_chunks_time",
+        "Time taken to apply chunks per shard",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+pub static BLOCK_PREPROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram("near_block_preprocessing_time", "Time taken to preprocess blocks, only include the time when the preprocessing is successful")
+        .unwrap()
+});
+pub static BLOCK_POSTPROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram("near_block_postprocessing_time", "Time taken to postprocess blocks")
         .unwrap()
 });
 pub static BLOCK_HEIGHT_HEAD: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_block_height_head", "Height of the current head of the blockchain")
+        .unwrap()
+});
+pub static BLOCK_ORDINAL_HEAD: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
         .unwrap()
 });
 pub static VALIDATOR_AMOUNT_STAKED: Lazy<IntGauge> = Lazy::new(|| {
@@ -42,6 +63,13 @@ pub static NUM_ORPHANS: Lazy<IntGauge> =
 pub static HEADER_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_header_head_height", "Height of the header head").unwrap()
 });
+pub static BOOT_TIME_SECONDS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_boot_time_seconds",
+        "Unix timestamp in seconds of the moment the client was started",
+    )
+    .unwrap()
+});
 pub static TAIL_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_tail_height", "Height of tail").unwrap());
 pub static CHUNK_TAIL_HEIGHT: Lazy<IntGauge> =
@@ -50,15 +78,6 @@ pub static FORK_TAIL_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_fork_tail_height", "Height of fork tail").unwrap());
 pub static GC_STOP_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_gc_stop_height", "Target height of gc").unwrap());
-pub static BLOCK_CHUNKS_REQUESTED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_block_chunks_request_delay_seconds",
-        "Delay between receiving a block and requesting its chunks",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
-    )
-    .unwrap()
-});
 pub static CHUNK_RECEIVED_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_receive_delay_seconds",

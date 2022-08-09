@@ -1,7 +1,7 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
-use crate::tx_dump::tx_dump;
+use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
@@ -9,6 +9,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::Error;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManager;
 use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
@@ -23,7 +24,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
-use near_store::{Store, TrieIterator};
+use near_store::Store;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -44,7 +45,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = TrieIterator::new(&trie, state_root).unwrap();
+        let trie = trie.iter(state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
@@ -61,7 +62,7 @@ pub(crate) fn dump_state(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    account_ids: Option<&Vec<AccountId>>,
+    change_config: &GenesisChangeConfig,
 ) {
     let mode = match height {
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
@@ -81,13 +82,13 @@ pub(crate) fn dump_state(
             header,
             &near_config,
             Some(&records_path),
-            account_ids,
+            change_config,
         );
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
         new_near_config.save_to_dir(&output_dir);
     } else {
         let new_near_config =
-            state_dump(runtime, &state_roots, header, &near_config, None, account_ids);
+            state_dump(runtime, &state_roots, header, &near_config, None, change_config);
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
@@ -112,25 +113,32 @@ pub(crate) fn dump_state_redis(
 }
 
 pub(crate) fn dump_tx(
-    height: BlockHeight,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     select_account_ids: Option<&Vec<AccountId>>,
     output_path: Option<String>,
 ) -> Result<(), Error> {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
-    let hash = chain_store.get_block_hash_by_height(height)?;
-    let block = chain_store.get_block(&hash)?;
-    let txs = tx_dump(&mut chain_store, &block, select_account_ids);
+    let mut txs = vec![];
+    for height in start_height..=end_height {
+        let hash_result = chain_store.get_block_hash_by_height(height);
+        if let Ok(hash) = hash_result {
+            let block = chain_store.get_block(&hash)?;
+            txs.extend(dump_tx_from_block(&chain_store, &block, select_account_ids));
+        }
+    }
     let json_path = match output_path {
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(&home_dir).join("tx.json"),
     };
+    println!("Saving tx (height {} to {}) into {}", start_height, end_height, json_path.display(),);
     fs::write(json_path, json!(txs).to_string())
         .expect("Error writing the results to a json file.");
     return Ok(());

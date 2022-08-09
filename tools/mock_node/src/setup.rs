@@ -10,8 +10,8 @@ use near_chain::{
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::EpochManager;
-use near_network::test_utils::NetworkRecipient;
 use near_network::types::NetworkClientMessages;
+use near_network::types::NetworkRecipient;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -106,7 +106,7 @@ pub fn setup_mock_node(
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -167,12 +167,12 @@ pub fn setup_mock_node(
             &config.genesis.config,
         )
         .unwrap();
-        let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
+        let mock_epoch_manager = EpochManager::new_from_genesis_config(
             mock_network_runtime.get_store(),
             &config.genesis.config,
         )
         .unwrap();
-        epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
+        epoch_manager.copy_epoch_info_as_of_block(&hash, &mock_epoch_manager).unwrap();
         tracing::info!(target: "mock_node", "Done preparing epoch info");
 
         // copy state for all shards
@@ -284,7 +284,7 @@ pub fn setup_mock_node(
                 target_height,
             )
         });
-    network_adapter.set_recipient(mock_network_actor.recipient());
+    network_adapter.set_recipient(mock_network_actor);
 
     // for some reason, with "test_features", start_http requires PeerManagerActor,
     // we are not going to run start_mock_network with test_features, so let's disable that for now

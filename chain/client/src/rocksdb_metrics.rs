@@ -1,4 +1,7 @@
-use near_metrics::{try_create_gauge_vec, try_create_int_gauge, GaugeVec, IntGauge};
+use near_metrics::{
+    try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
+    IntGaugeVec,
+};
 use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
@@ -24,8 +27,16 @@ static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
 pub(crate) struct RocksDBMetrics {
     // Contains counters and sums, which are integer statistics in RocksDB.
     int_gauges: HashMap<String, IntGauge>,
+    // Contains integer statistics with labels.
+    int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
+}
+
+/// Returns column's name as name in the DBCol enum without '_' prefix for deprecated columns.
+fn col_verbose_name(col: near_store::DBCol) -> &'static str {
+    let name: &str = col.into();
+    name.strip_prefix("_").unwrap_or(name)
 }
 
 impl RocksDBMetrics {
@@ -34,6 +45,9 @@ impl RocksDBMetrics {
         stats: StoreStatistics,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (stat_name, values) in stats.data {
+            if values.is_empty() {
+                continue;
+            }
             if values.len() == 1 {
                 // A counter stats.
                 // A statistic 'a.b.c' creates the following prometheus metric:
@@ -45,46 +59,60 @@ impl RocksDBMetrics {
                         &stat_name,
                         value,
                     )?;
+                    continue;
                 }
-            } else {
-                // A summary stats.
-                // A statistic 'a.b.c' creates the following prometheus metrics:
-                // - near_a_b_c_sum
-                // - near_a_b_c_count
-                // - near_a_b_c{quantile="0.95"}
-                for stats_value in values {
-                    match stats_value {
-                        StatsValue::Count(value) => {
-                            self.set_int_value(
-                                get_stats_summary_count_key,
-                                get_metric_name_summary_count_gauge,
-                                &stat_name,
-                                value,
-                            )?;
-                        }
-                        StatsValue::Sum(value) => {
-                            self.set_int_value(
-                                get_stats_summary_sum_key,
-                                get_metric_name_summary_sum_gauge,
-                                &stat_name,
-                                value,
-                            )?;
-                        }
-                        StatsValue::Percentile(percentile, value) => {
-                            let key = &stat_name;
+            }
+            for stats_value in values {
+                match stats_value {
+                    StatsValue::Count(value) => {
+                        self.set_int_value(
+                            get_stats_summary_count_key,
+                            get_metric_name_summary_count_gauge,
+                            &stat_name,
+                            value,
+                        )?;
+                    }
+                    StatsValue::Sum(value) => {
+                        self.set_int_value(
+                            get_stats_summary_sum_key,
+                            get_metric_name_summary_sum_gauge,
+                            &stat_name,
+                            value,
+                        )?;
+                    }
+                    StatsValue::Percentile(percentile, value) => {
+                        let key = &stat_name;
 
-                            let gauge = match self.gauges.entry(key.to_string()) {
-                                Entry::Vacant(entry) => entry.insert(try_create_gauge_vec(
-                                    &get_prometheus_metric_name(&stat_name),
-                                    &stat_name,
-                                    &["quantile"],
-                                )?),
-                                Entry::Occupied(entry) => entry.into_mut(),
-                            };
-                            gauge
-                                .with_label_values(&[&format!("{:.2}", percentile as f64 * 0.01)])
-                                .set(value);
-                        }
+                        let gauge = match self.gauges.entry(key.to_string()) {
+                            Entry::Vacant(entry) => entry.insert(try_create_gauge_vec(
+                                &get_prometheus_metric_name(&stat_name),
+                                &stat_name,
+                                &["quantile"],
+                            )?),
+                            Entry::Occupied(entry) => entry.into_mut(),
+                        };
+                        gauge
+                            .with_label_values(&[&format!("{:.2}", percentile as f64 * 0.01)])
+                            .set(value);
+                    }
+                    // Adding rocksdb property as labeled integer gauge metric.
+                    // Label = column's verbose name.
+                    StatsValue::ColumnValue(col, value) => {
+                        let key = &stat_name;
+                        let label = col_verbose_name(col);
+
+                        // Checking for metric to be present.
+                        let gauge = match self.int_vec_gauges.entry(key.to_string()) {
+                            // If not -> creating it.
+                            Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(
+                                &get_prometheus_metric_name(&stat_name),
+                                &stat_name,
+                                &["col"],
+                            )?),
+                            Entry::Occupied(entry) => entry.into_mut(),
+                        };
+                        // Writing value for column.
+                        gauge.with_label_values(&[&label]).set(value);
                     }
                 }
             }
@@ -115,7 +143,7 @@ impl RocksDBMetrics {
 }
 
 fn get_prometheus_metric_name(stat_name: &str) -> String {
-    format!("near_{}", stat_name.replace('.', "_"))
+    format!("near_{}", stat_name.replace(&['.', '-'], "_"))
 }
 
 fn get_metric_name_summary_count_gauge(stat_name: &str) -> String {

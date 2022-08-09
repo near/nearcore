@@ -81,7 +81,7 @@ impl From<HandshakeAutoDes> for Handshake {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub(super) struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,

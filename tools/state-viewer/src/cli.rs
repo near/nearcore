@@ -2,12 +2,12 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::Store;
+use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -70,11 +70,11 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
-            near_store::Store::opener(home_dir, &near_config.config.store).read_only(!readwrite);
+            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
         let store = store_opener.open();
         match self {
             StateViewerSubCommand::Peers => peers(store),
@@ -123,6 +123,11 @@ pub struct DumpStateCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// List of validators to remain validators.
+    /// All other validators will be kicked, but still dumped.
+    /// Their stake will be returned to balance.
+    #[clap(long)]
+    include_validators: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
@@ -134,7 +139,9 @@ impl DumpStateCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(self.account_ids)
+                .with_whitelist_validators(self.include_validators),
         );
     }
 }
@@ -154,9 +161,12 @@ impl DumpStateRedisCmd {
 
 #[derive(Parser)]
 pub struct DumpTxCmd {
-    /// Specify which block to dump transactions for.
+    /// Specify the start block by height to begin dumping transactions from, inclusive.
     #[clap(long)]
-    height: BlockHeight,
+    start_height: BlockHeight,
+    /// Specify the end block by height to stop dumping transactions at, inclusive.
+    #[clap(long)]
+    end_height: BlockHeight,
     /// List of account IDs to dump.
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
@@ -169,7 +179,8 @@ pub struct DumpTxCmd {
 impl DumpTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_tx(
-            self.height,
+            self.start_height,
+            self.end_height,
             home_dir,
             near_config,
             store,

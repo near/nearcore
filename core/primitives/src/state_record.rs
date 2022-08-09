@@ -58,8 +58,7 @@ impl StateRecord {
     /// Most `unwrap()` here are because the implementation of columns and data are internal and
     /// can't be influenced by external calls.
     pub fn from_raw_key_value(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
-        let column = &key[0..1];
-        match column {
+        match key[0] {
             col::ACCOUNT => Some(StateRecord::Account {
                 account_id: parse_account_id_from_account_key(&key).unwrap(),
                 account: Account::try_from_slice(&value).unwrap(),
@@ -162,5 +161,5 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
 }
 
 pub fn is_contract_code_key(key: &[u8]) -> bool {
-    &key[0..1] == col::CONTRACT_CODE
+    key[0] == col::CONTRACT_CODE
 }

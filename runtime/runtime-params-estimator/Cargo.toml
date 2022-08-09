@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.1"
 edition = "2021"
 
 [[bin]]
@@ -22,11 +22,10 @@ borsh = "0.9"
 num-rational = "0.3"
 anyhow = "1"
 chrono = "0.4"
-sha256 = "1.0.2"
 bytesize = "1.1"
+tracing = "0.1"
 tracing-span-tree = "0.1"
-tracing-subscriber = "0.3.11"
-
+tracing-subscriber = { version = "0.3.11", features = ["fmt", "registry"] }
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -35,7 +34,9 @@ near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../../core/store" }
+near-test-contracts = { path = "../near-test-contracts" }
 near-primitives = { path = "../../core/primitives" }
+near-o11y = { path = "../../core/o11y" }
 
 nearcore = { path = "../../nearcore" }
 rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
@@ -63,5 +64,6 @@ wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly = [
     "nightly_protocol",
 ]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = ["near-primitives/nightly_protocol", "near-test-contracts/nightly"]
 sandbox = ["node-runtime/sandbox"]
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]

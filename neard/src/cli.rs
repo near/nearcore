@@ -8,6 +8,7 @@ use near_o11y::{
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
+use near_store::Mode;
 use std::cell::Cell;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -70,7 +71,8 @@ impl NeardCmd {
             NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
 
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.subcmd.run(&home_dir, genesis_validation, cmd.readwrite);
+                let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
+                cmd.subcmd.run(&home_dir, genesis_validation, mode);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {

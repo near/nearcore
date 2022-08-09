@@ -4,18 +4,20 @@
 
 ### Protocol Changes
 
-* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672).
+### Non-protocol Changes
+
+* `network.external_address` field in `config.json` file is
+  deprecated.  In fact it has never been used and only served to
+  confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
+
+## 1.28.0 [2022-07-27]
+
+### Protocol Changes
+
 * Stabilized `alt_bn128_g1_multiexp`, `alt_bn128_g1_sum`, `alt_bn128_pairing_check` host functions [#6813](https://github.com/near/nearcore/pull/6813).
 
 ### Non-protocol Changes
 
-* Added `near_peer_message_received_by_type_bytes` [#6661](https://github.com/near/nearcore/pull/6661) and `near_dropped_message_by_type_and_reason_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
-* Removed `near_<msg-type>_{total,bytes}` [#6661](https://github.com/near/nearcore/pull/6661), `near_<msg-type>_dropped`, `near_drop_message_unknown_account` and `near_dropped_messages_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
-* Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
-* Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
-* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
-* Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
-* Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 * Added `path` option to `StoreConfig` which makes location to the
   RocksDB configurable via `config.json` file (at `store.path` path)
   rather than being hard-coded to `data` directory in neard home
@@ -27,6 +29,25 @@
 * Key files can use `private_key` field instead of `secret_key` now;
   this improves interoperability with near cli which uses the former
   name [#7030](https://github.com/near/nearcore/issues/7030)
+* Latency of network messages is now measured
+  [#7050](https://github.com/near/nearcore/issues/7050)
+
+
+## 1.27.0 [2022-06-22]
+
+### Protocol Changes
+
+* Introduced protobuf encoding as the new network protocol. Borsh support will be removed in two releases as per normal protocol upgrade policies [#6672](https://github.com/near/nearcore/pull/6672)
+
+### Non-protocol Changes
+
+* Added `near_peer_message_received_by_type_bytes` [#6661](https://github.com/near/nearcore/pull/6661) and `near_dropped_message_by_type_and_reason_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
+* Removed `near_<msg-type>_{total,bytes}` [#6661](https://github.com/near/nearcore/pull/6661), `near_<msg-type>_dropped`, `near_drop_message_unknown_account` and `near_dropped_messages_count` [#6678](https://github.com/near/nearcore/pull/6678) metrics.
+* Added `near_action_called_count` metric [#6679]((https://github.com/near/nearcore/pull/6679)
+* Removed `near_action_<action-type>_total` metrics [#6679]((https://github.com/near/nearcore/pull/6679)
+* Added `near_build_info` metric which exports neard’s build information [#6680](https://github.com/near/nearcore/pull/6680)
+* Make it possible to update logging at runtime: [#6665](https://github.com/near/nearcore/pull/6665)
+* Use correct cost in gas profile for adding function call key [#6749](https://github.com/near/nearcore/pull/6749)
 
 ## 1.26.0 [2022-05-18]
 

@@ -12,12 +12,13 @@ import "google/protobuf/timestamp.proto";
 // - an attacker observes M1 signed by A in some context
 // - the attacker then sends M2 with A's signature of M1 (which also matches M2, since
 //   their serialized representations match) to B, effectively impersonating A.
-// NOTE that proto serialization is non-unique, so the message passed around with the signature
+// NOTE: that proto serialization is non-unique, so the message passed around with the signature
 // should be in serialized form.
 // TODO: move to a separate file, probably in a separate package.
 message AccountKeyPayload {
+  reserved 1;
   oneof payload_type {
-    Validator validator = 1;
+    AccountData account_data = 2;
   }
 }
 
@@ -184,20 +185,23 @@ message SocketAddr {
 
 message PeerAddr {
   SocketAddr addr = 1; // required
-  PublicKey peer_id = 2; // optional
+  PublicKey peer_id = 2; // required
 }
 
-message Validator {
-  // account_id of the validator.
+message AccountData {
   string account_id = 1; // required
-  // Either address of the validator node (if it has a public IP),
+  // Either address of the node handling the account (if it has a public IP),
   // or a list of peers known to be connected to the validator.
-  repeated PeerAddr peers = 2; // non-empty, at most 10 elements (this is an arbitrary limit, might be relaxed in the future).
+  // If empty, the validator explicitly declares that it has no public IP
+  // and the P2P routing should be used instead (discouraged, might be disallowed in the future).
+  repeated PeerAddr peers = 2;
 
-  // Epoch for which this Validator message is valid.
+  // Epoch for which this data is valid.
+  // This AccountData should be signed with the account key assigned to
+  // <account_id> for epoch <epoch_id>.
   CryptoHash epoch_id = 3;
-  // If there are multiple signed Validator messages for the same
-  // account_id for the same epoch, the one with most recent timestamp is valid.
+  // If there are multiple signed AccountData messages for the same
+  // account_id for the same epoch, the one with the most recent timestamp is valid.
   google.protobuf.Timestamp timestamp = 4; 
 }
 
@@ -213,13 +217,10 @@ message Validator {
 // Accounts provides a mapping AccountId -> PeerId, providing knowledge
 // about which NEAR peer controls which NEAR account.
 message RoutingTableUpdate {
-  reserved 3;
+  reserved 3,4;
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
-  // Information about the validators to broadcast.
-  // Contains AccountKeyPayload.validator.
-  repeated AccountKeySignedPayload validators = 4;
 }
 
 // TODO: document it.
@@ -230,6 +231,23 @@ message UpdateNonceRequest {
 // TODO: document it.
 message UpdateNonceResponse {
   Edge edge = 1;
+}
+
+// SyncAccountData message can represent:
+// - incremental sync (incremental = true, requesting_full_sync = false)
+// - full sync request (incremental = false, requesting_full_sync = true)
+// - full sync response (incremental = false, requesting_full_sync = false)
+message SyncAccountsData {
+  // Data about the (important) accounts,
+  // which should be broadcasted to the whole network.
+  // Contains AccountKeyPayload.account_data.
+  repeated AccountKeySignedPayload accounts_data = 1;
+  // Indicates whether this message is an incremental sync (true), or
+  // a full sync (false). Useful for tracking time since the last full sync.
+  bool incremental = 2;
+  // Indicates that sender requests a full sync message in return.
+  // Useful for soliciting a full sync periodically.
+  bool requesting_full_sync = 3;
 }
 
 // Request to send a list of known healthy peers
@@ -346,6 +364,8 @@ message PeerMessage {
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
+
+    SyncAccountsData sync_accounts_data = 25;
 
     PeersRequest peers_request = 10;
     PeersResponse peers_response = 11;

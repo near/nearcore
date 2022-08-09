@@ -17,7 +17,7 @@ static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
+pub(crate) fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
     for ((pt, enc), v) in values {
         PEER_CONNECTIONS
             .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
@@ -25,17 +25,14 @@ pub fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) 
     }
 }
 
-#[cfg(feature = "test_features")]
-use std::sync::{Arc, Mutex};
-
-pub static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
 });
-pub static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
+pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
-pub static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_bytes",
         "Total data received from peers by message types",
@@ -43,14 +40,14 @@ pub static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(
     )
     .unwrap()
 });
-pub static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_peer_message_received_total",
         "Number of messages received from peers",
     )
     .unwrap()
 });
-pub static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_total",
         "Number of messages received from peers, by message types",
@@ -58,22 +55,23 @@ pub static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(
     )
     .unwrap()
 });
-pub static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_peer_client_message_received_total",
         "Number of messages for client received from peers",
     )
     .unwrap()
 });
-pub static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_peer_client_message_received_by_type_total",
-        "Number of messages for client received from peers, by message types",
-        &["type"],
-    )
-    .unwrap()
-});
-pub static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_peer_client_message_received_by_type_total",
+            "Number of messages for client received from peers, by message types",
+            &["type"],
+        )
+        .unwrap()
+    });
+pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_requests_count_by_type_total",
         "Number of network requests we send out, by message types",
@@ -83,26 +81,38 @@ pub static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 // Routing table metrics
-pub static ROUTING_TABLE_RECALCULATIONS: Lazy<IntCounter> = Lazy::new(|| {
+pub(crate) static ROUTING_TABLE_RECALCULATIONS: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_routing_table_recalculations_total",
         "Number of times routing table have been recalculated from scratch",
     )
     .unwrap()
 });
-pub static ROUTING_TABLE_RECALCULATION_HISTOGRAM: Lazy<Histogram> = Lazy::new(|| {
+pub(crate) static ROUTING_TABLE_RECALCULATION_HISTOGRAM: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
         "near_routing_table_recalculation_seconds",
         "Time spent recalculating routing table",
     )
     .unwrap()
 });
-pub static EDGE_UPDATES: Lazy<IntCounter> =
+pub(crate) static EDGE_UPDATES: Lazy<IntCounter> =
     Lazy::new(|| try_create_int_counter("near_edge_updates", "Unique edge updates").unwrap());
-pub static EDGE_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static EDGE_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_edge_active", "Total edges active between peers").unwrap()
 });
-pub static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
+pub(crate) static EDGE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_edge_total", "Total edges between peers (including removed ones).")
+        .unwrap()
+});
+pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_peer_unreliable",
+        "Total peers that are behind and will not be used to route messages",
+    )
+    .unwrap()
+});
+
+pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
         "Total peers such that there is a path potentially through other peers",
@@ -125,7 +135,7 @@ static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
+pub(crate) static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
         "partial_encoded_chunk_request_delay",
         "Delay between when a partial encoded chunk request is sent from ClientActor and when it is received by PeerManagerActor",
@@ -133,7 +143,7 @@ pub static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
         .unwrap()
 });
 
-static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
+pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     near_metrics::try_create_int_counter_vec(
         "near_broadcast_msg",
         "Broadcasted messages",
@@ -172,31 +182,5 @@ impl MessageDropped {
     fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
-    }
-}
-
-#[derive(Clone, Debug, Default, actix::MessageResponse)]
-pub struct NetworkMetrics {
-    // sent messages (broadcast style)
-    #[cfg(feature = "test_features")]
-    broadcast_messages: Arc<Mutex<HashMap<&'static str, u64>>>,
-}
-
-impl NetworkMetrics {
-    pub fn inc_broadcast(&self, message_name: &'static str) {
-        BROADCAST_MESSAGES.with_label_values(&[message_name]).inc();
-
-        #[cfg(feature = "test_features")]
-        {
-            let mut map = self.broadcast_messages.lock().unwrap();
-            let count = map.entry(message_name).or_insert(0);
-            *count += 1;
-        }
-    }
-
-    #[cfg(feature = "test_features")]
-    pub fn get_broadcast_count(&self, msg_type: &'static str) -> u64 {
-        let hm = self.broadcast_messages.lock().unwrap();
-        hm.get(msg_type).map_or(0, |v| *v)
     }
 }

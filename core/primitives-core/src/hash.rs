@@ -15,6 +15,10 @@ use crate::serialize::{from_base, to_base};
 pub struct CryptoHash(pub [u8; 32]);
 
 impl CryptoHash {
+    pub const fn new() -> Self {
+        Self([0; 32])
+    }
+
     pub fn hash_bytes(bytes: &[u8]) -> CryptoHash {
         CryptoHash(sha2::Sha256::digest(bytes).into())
     }
@@ -32,7 +36,7 @@ impl CryptoHash {
 
 impl Default for CryptoHash {
     fn default() -> Self {
-        CryptoHash(Default::default())
+        Self::new()
     }
 }
 

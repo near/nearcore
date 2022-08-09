@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.62.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
@@ -22,7 +22,9 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-client-primitives = { path = "../client-primitives" }
+near-client-primitives = { path = "../client-primitives", optional = true }
 
 [features]
+full = ["debug_types"]
+debug_types = ["near-client-primitives"]
 test_features = []

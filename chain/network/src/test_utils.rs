@@ -1,9 +1,9 @@
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
@@ -12,7 +12,7 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
@@ -219,23 +219,6 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-/// `GetBroadcastMessageCount` gets `NetworkMetrics` from `PeerManager`.
-#[cfg(feature = "test_features")]
-#[derive(Message)]
-#[rtype(result = "u64")]
-pub struct GetBroadcastMessageCount {
-    pub msg_type: &'static str,
-}
-
-#[cfg(feature = "test_features")]
-impl Handler<GetBroadcastMessageCount> for PeerManagerActor {
-    type Result = u64;
-
-    fn handle(&mut self, msg: GetBroadcastMessageCount, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network_metrics.get_broadcast_count(msg.msg_type)
-    }
-}
-
 // `StopSignal is used to stop PeerManagerActor for unit tests
 #[derive(Message, Default)]
 #[rtype(result = "()")]
@@ -293,7 +276,7 @@ pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl PeerManagerAdapter for MockPeerManagerAdapter {
+impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(
         &self,
         msg: PeerManagerMessageRequest,
@@ -308,6 +291,13 @@ impl PeerManagerAdapter for MockPeerManagerAdapter {
     }
 }
 
+impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+        async { Ok(()) }.boxed()
+    }
+    fn do_send(&self, _msg: SetChainInfo) {}
+}
+
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
@@ -315,14 +305,13 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
-    use near_network_primitives::types::{
-        NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    };
+    use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -336,7 +325,7 @@ pub mod test_features {
     // Make peer manager for unit tests
     pub fn make_peer_manager(
         store: Store,
-        mut config: NetworkConfig,
+        mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
     ) -> PeerManagerActor {
@@ -360,46 +349,18 @@ pub mod test_features {
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),
                     )))
                 }
-                NetworkViewClientMessages::GetChainInfo => {
-                    Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId::default(),
-                        height: 1,
-                        tracked_shards: vec![],
-                        archival: false,
-                    }))
-                }
                 _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
             }
         }))
         .start();
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap()
-    }
-}
-
-#[derive(Default)]
-pub struct NetworkRecipient {
-    peer_manager_recipient: OnceCell<Recipient<PeerManagerMessageRequest>>,
-}
-
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        self.peer_manager_recipient
-            .set(peer_manager_recipient)
-            .expect("can't `set_recipient` twice");
-    }
-}
-
-impl PeerManagerAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient.wait().send(msg).boxed()
-    }
-
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self.peer_manager_recipient.wait().do_send(msg);
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
+        )
+        .unwrap()
     }
 }
 
@@ -407,17 +368,5 @@ impl PeerManagerAdapter for NetworkRecipient {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
-    pub disable_edge_signature_verification: Option<bool>,
-    pub disable_edge_propagation: Option<bool>,
-    pub disable_edge_pruning: Option<bool>,
     pub set_max_peers: Option<u64>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<near_network_primitives::types::Edge>>,
-    pub remove_edges: Option<Vec<near_network_primitives::types::SimpleEdge>>,
-    pub prune_edges: Option<bool>,
 }

@@ -3,6 +3,7 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -10,7 +11,7 @@ use std::{fmt, io};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
@@ -26,7 +27,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    serialize::{u128_dec_format, u128_dec_format_compatible},
+    serialize::dec_format,
     state_record::StateRecord,
     types::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
@@ -37,28 +38,28 @@ use near_primitives::{
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
-fn default_online_min_threshold() -> Rational {
-    Rational::new(90, 100)
+fn default_online_min_threshold() -> Rational32 {
+    Rational32::new(90, 100)
 }
 
-fn default_online_max_threshold() -> Rational {
-    Rational::new(99, 100)
+fn default_online_max_threshold() -> Rational32 {
+    Rational32::new(99, 100)
 }
 
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
 
-fn default_protocol_upgrade_stake_threshold() -> Rational {
-    Rational::new(8, 10)
+fn default_protocol_upgrade_stake_threshold() -> Rational32 {
+    Rational32::new(8, 10)
 }
 
 fn default_shard_layout() -> ShardLayout {
     ShardLayout::v0_single_shard()
 }
 
-fn default_minimum_stake_ratio() -> Rational {
-    Rational::new(160, 1_000_000)
+fn default_minimum_stake_ratio() -> Rational32 {
+    Rational32::new(160, 1_000_000)
 }
 
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -107,8 +108,8 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
-    #[default(Rational::new(8, 10))]
-    pub protocol_upgrade_stake_threshold: Rational,
+    #[default(Rational32::new(8, 10))]
+    pub protocol_upgrade_stake_threshold: Rational32,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
@@ -116,9 +117,9 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
@@ -127,27 +128,27 @@ pub struct GenesisConfig {
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
-    #[default(Rational::new(90, 100))]
-    pub online_min_threshold: Rational,
+    #[default(Rational32::new(90, 100))]
+    pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
     #[serde(default = "default_online_max_threshold")]
-    #[default(Rational::new(99, 100))]
-    pub online_max_threshold: Rational,
+    #[default(Rational32::new(99, 100))]
+    pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    #[default(Rational::from_integer(0))]
-    pub gas_price_adjustment_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub gas_price_adjustment_rate: Rational32,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    #[default(Rational::from_integer(0))]
-    pub protocol_reward_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
-    #[default(Rational::from_integer(0))]
-    pub max_inflation_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -155,7 +156,7 @@ pub struct GenesisConfig {
     #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     #[serde(default = "default_minimum_stake_divisor")]
@@ -179,8 +180,8 @@ pub struct GenesisConfig {
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
     #[serde(default = "default_minimum_stake_ratio")]
-    #[default(Rational::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational,
+    #[default(Rational32::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational32,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -280,12 +281,6 @@ pub struct Genesis {
     pub records_file: PathBuf,
 }
 
-impl AsRef<GenesisConfig> for &Genesis {
-    fn as_ref(&self) -> &GenesisConfig {
-        &self.config
-    }
-}
-
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
     ///
@@ -322,14 +317,8 @@ impl GenesisConfig {
             .map(|account_info| {
                 ValidatorStake::new(
                     account_info.account_id.clone(),
-                    account_info
-                        .public_key
-                        .clone()
-                        .try_into()
-                        .expect("Failed to deserialize validator public key"),
+                    account_info.public_key.clone(),
                     account_info.amount,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )
             })
             .collect()
@@ -580,6 +569,31 @@ impl Genesis {
     }
 }
 
+/// Config for changes applied to state dump.
+#[derive(Debug, Default)]
+pub struct GenesisChangeConfig {
+    pub select_account_ids: Option<Vec<AccountId>>,
+    pub whitelist_validators: Option<HashSet<AccountId>>,
+}
+
+impl GenesisChangeConfig {
+    pub fn with_select_account_ids(mut self, select_account_ids: Option<Vec<AccountId>>) -> Self {
+        self.select_account_ids = select_account_ids;
+        self
+    }
+
+    pub fn with_whitelist_validators(
+        mut self,
+        whitelist_validators: Option<Vec<AccountId>>,
+    ) -> Self {
+        self.whitelist_validators = match whitelist_validators {
+            None => None,
+            Some(whitelist) => Some(whitelist.into_iter().collect::<HashSet<AccountId>>()),
+        };
+        self
+    }
+}
+
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
@@ -603,41 +617,41 @@ pub struct ProtocolConfigView {
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    pub protocol_upgrade_stake_threshold: Rational,
+    pub protocol_upgrade_stake_threshold: Rational32,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational,
+    pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational,
+    pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: Rational,
+    pub gas_price_adjustment_rate: Rational32,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    pub protocol_reward_rate: Rational,
+    pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
-    pub max_inflation_rate: Rational,
+    pub max_inflation_rate: Rational32,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,

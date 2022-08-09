@@ -1,3 +1,5 @@
+mod validator_schedule;
+
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -6,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::sandbox_state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
-use num_rational::Rational;
+use num_rational::Ratio;
 use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
@@ -14,6 +16,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Block;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -45,16 +48,58 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
+use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
     ValidatorInfoIdentifier,
 };
-use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
+use near_primitives::utils::MaybeValidated;
+
+pub use self::validator_schedule::ValidatorSchedule;
+
+/// Wait for all blocks that started processing to be ready for postprocessing
+/// Returns true if there are new blocks that are ready
+pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+    chain.blocks_in_processing.wait_for_all_blocks()
+}
+
+pub fn wait_for_block_in_processing(
+    chain: &mut Chain,
+    hash: &CryptoHash,
+) -> Result<(), BlockNotInPoolError> {
+    chain.blocks_in_processing.wait_for_block(hash)
+}
+
+/// Unlike Chain::start_process_block_async, this function blocks until the processing of this block
+/// finishes
+pub fn process_block_sync(
+    chain: &mut Chain,
+    me: &Option<AccountId>,
+    block: MaybeValidated<Block>,
+    provenance: Provenance,
+    block_processing_artifacts: &mut BlockProcessingArtifact,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let block_hash = block.hash().clone();
+    chain.start_process_block_async(
+        me,
+        block,
+        provenance,
+        block_processing_artifacts,
+        Arc::new(|_| {}),
+    )?;
+    wait_for_block_in_processing(chain, &block_hash).unwrap();
+    let (accepted_blocks, errors) =
+        chain.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {}));
+    // This is in test, we should never get errors when postprocessing blocks
+    debug_assert!(errors.is_empty());
+    Ok(accepted_blocks)
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -66,12 +111,28 @@ struct KVState {
     tx_nonces: HashSet<AccountNonce>,
 }
 
+/// Stores the validator information in an epoch.
+/// Block producers are specified by `block_producers`
+/// Chunk producers have two types, validators who are also block producers and chunk only producers.
+/// Block producers are assigned to shards via `validator_groups`.
+/// Each shard will have `block_producers.len() / validator_groups` of validators who are also block
+/// producers
+struct EpochValidatorSet {
+    block_producers: Vec<ValidatorStake>,
+    /// index of this list is shard_id
+    chunk_producers: Vec<Vec<ValidatorStake>>,
+}
+
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
-    validators: Vec<Vec<ValidatorStake>>,
-    validator_groups: u64,
+    /// A pre determined list of validator sets. We rotate validator set in this list.
+    /// Epoch i uses validators from `validators_by_valset[i % validators_by_valset.len()]`.
+    validators_by_valset: Vec<EpochValidatorSet>,
+    /// Maps from account id to validator stake for all validators, both block producers and
+    /// chunk producers
+    validators: HashMap<AccountId, ValidatorStake>,
     num_shards: NumShards,
     epoch_length: u64,
     no_gc: bool,
@@ -84,6 +145,7 @@ pub struct KeyValueRuntime {
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_next_epoch_approvals_req: RwLock<HashMap<CryptoHash, bool>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
+    /// Maps EpochId to index of `validators_by_valset` to determine validators for an epoch
     hash_to_valset: RwLock<HashMap<EpochId, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
@@ -112,83 +174,104 @@ fn create_receipt_nonce(
 
 impl KeyValueRuntime {
     pub fn new(store: Store, epoch_length: u64) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".parse().unwrap()]], 1, 1, epoch_length)
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        Self::new_with_validators(store, vs, epoch_length)
     }
 
-    pub fn new_with_validators(
-        store: Store,
-        validators: Vec<Vec<AccountId>>,
-        validator_groups: u64,
-        num_shards: NumShards,
-        epoch_length: u64,
-    ) -> Self {
-        Self::new_with_validators_and_no_gc(
-            store,
-            validators,
-            validator_groups,
-            num_shards,
-            epoch_length,
-            false,
-        )
+    pub fn new_with_validators(store: Store, vs: ValidatorSchedule, epoch_length: u64) -> Self {
+        Self::new_with_validators_and_no_gc(store, vs, epoch_length, false)
     }
 
     pub fn new_with_validators_and_no_gc(
         store: Store,
-        validators: Vec<Vec<AccountId>>,
-        validator_groups: u64,
-        num_shards: NumShards,
+        vs: ValidatorSchedule,
         epoch_length: u64,
         no_gc: bool,
     ) -> Self {
-        let tries = ShardTries::test(store.clone(), num_shards);
+        let tries = ShardTries::test(store.clone(), vs.num_shards);
         let mut initial_amounts = HashMap::new();
-        for (i, validator) in validators.iter().flatten().enumerate() {
+        for (i, validator) in vs.block_producers.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
 
-        let mut map_with_default_hash1 = HashMap::new();
-        map_with_default_hash1.insert(CryptoHash::default(), EpochId::default());
-        let mut map_with_default_hash2 = HashMap::new();
-        map_with_default_hash2.insert(CryptoHash::default(), 0);
-        let mut map_with_default_hash3 = HashMap::new();
-        map_with_default_hash3.insert(EpochId::default(), 0);
+        let map_with_default_hash1 = HashMap::from([(CryptoHash::default(), EpochId::default())]);
+        let map_with_default_hash2 = HashMap::from([(CryptoHash::default(), 0)]);
+        let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
-        let mut state = HashMap::new();
         let kv_state = KVState {
             amounts: initial_amounts,
             receipt_nonces: HashSet::default(),
             tx_nonces: HashSet::default(),
         };
-        let mut state_size = HashMap::new();
         let data = kv_state.try_to_vec().unwrap();
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
-        state.insert(StateRoot::default(), kv_state);
-        state_size.insert(StateRoot::default(), data_len);
+        let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
+        let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
+
+        let mut validators = HashMap::new();
+        #[allow(unused_mut)]
+        let mut validators_by_valset: Vec<EpochValidatorSet> = vs
+            .block_producers
+            .iter()
+            .map(|account_ids| {
+                let block_producers: Vec<ValidatorStake> = account_ids
+                    .iter()
+                    .map(|account_id| {
+                        let stake = ValidatorStake::new(
+                            account_id.clone(),
+                            SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
+                                .public_key(),
+                            1_000_000,
+                        );
+                        validators.insert(account_id.clone(), stake.clone());
+                        stake
+                    })
+                    .collect();
+
+                let validators_per_shard = block_producers.len() as ShardId / vs.validator_groups;
+                let coef = block_producers.len() as ShardId / vs.num_shards;
+
+                let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
+                    .map(|shard_id| {
+                        let offset = (shard_id * coef / validators_per_shard * validators_per_shard)
+                            as usize;
+                        block_producers[offset..offset + validators_per_shard as usize].to_vec()
+                    })
+                    .collect();
+
+                EpochValidatorSet { block_producers, chunk_producers }
+            })
+            .collect();
+
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        if !vs.chunk_only_producers.is_empty() {
+            assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
+            for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
+                for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
+                    for account_id in shard_cops {
+                        let stake = ValidatorStake::new(
+                            account_id.clone(),
+                            SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
+                                .public_key(),
+                            1_000_000,
+                        );
+                        let prev = validators.insert(account_id, stake.clone());
+                        assert!(prev.is_none(), "chunk only produced is also a block producer");
+                        validators_by_valset[epoch_idx].chunk_producers[shard_idx].push(stake)
+                    }
+                }
+            }
+        }
+
         KeyValueRuntime {
             store,
             tries,
-            validators: validators
-                .iter()
-                .map(|account_ids| {
-                    account_ids
-                        .iter()
-                        .map(|account_id| {
-                            ValidatorStake::new(
-                                account_id.clone(),
-                                SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
-                                    .public_key(),
-                                1_000_000,
-                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                                false,
-                            )
-                        })
-                        .collect()
-                })
-                .collect(),
-            validator_groups,
-            num_shards,
+            validators,
+            validators_by_valset,
+            num_shards: vs.num_shards,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -282,7 +365,15 @@ impl KeyValueRuntime {
         hash_to_valset.insert(next_epoch.clone(), valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
-        Ok((epoch, valset as usize % self.validators.len(), next_epoch))
+        Ok((epoch, valset as usize % self.validators_by_valset.len(), next_epoch))
+    }
+
+    fn get_block_producers(&self, valset: usize) -> &[ValidatorStake] {
+        &self.validators_by_valset[valset].block_producers
+    }
+
+    fn get_chunk_producers(&self, valset: usize, shard_id: ShardId) -> Vec<ValidatorStake> {
+        self.validators_by_valset[valset].chunk_producers[shard_id as usize].clone()
     }
 
     fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
@@ -294,13 +385,25 @@ impl KeyValueRuntime {
             .unwrap()
             .get(epoch_id)
             .ok_or_else(|| Error::EpochOutOfBounds(epoch_id.clone()))? as usize
-            % self.validators.len())
+            % self.validators_by_valset.len())
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    pub fn get_chunk_only_producers_for_shard(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+    ) -> Result<Vec<&ValidatorStake>, Error> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        let block_producers = &self.validators_by_valset[valset].block_producers;
+        let chunk_producers = &self.validators_by_valset[valset].chunk_producers[shard_id as usize];
+        Ok(chunk_producers.iter().filter(|it| !block_producers.contains(it)).collect())
     }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
+        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
     }
 
     fn get_store(&self) -> Store {
@@ -350,9 +453,9 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validators = &self.validators[self.get_epoch_and_valset(*header.prev_hash())?.1];
-        let validator = &validators[(header.height() as usize) % validators.len()];
-        Ok(header.verify_block_producer(validator.public_key()))
+        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
+        let validator_stake = &self.validators[&validator];
+        Ok(header.verify_block_producer(validator_stake.public_key()))
     }
 
     fn verify_chunk_signature_with_header_parts(
@@ -386,7 +489,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<(), Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
         let message_to_sign = Approval::get_data_for_sig(
             &if prev_block_height + 1 == block_height {
                 ApprovalInner::Endorsement(*prev_block_hash)
@@ -416,7 +519,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
         Ok(validators.iter().map(|x| (x.clone(), false)).collect())
     }
 
@@ -425,14 +528,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
         let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
-        let mut validators = self.validators[cur_valset]
+        let mut validators = self
+            .get_block_producers(cur_valset)
             .iter()
             .map(|x| x.get_approval_stake(false))
             .collect::<Vec<_>>();
         if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
             let validators_copy = validators.clone();
             validators.extend(
-                self.validators[self.get_valset_for_epoch(&next_epoch)?]
+                self.get_block_producers(self.get_valset_for_epoch(&next_epoch)?)
                     .iter()
                     .filter(|x| {
                         !validators_copy.iter().any(|entry| &entry.account_id == x.account_id())
@@ -443,13 +547,16 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
         Ok(validators)
     }
+    fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
+        todo!()
+    }
 
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
         Ok(validators[(height as usize) % validators.len()].account_id().clone())
     }
 
@@ -459,14 +566,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        assert_eq!((validators.len() as u64) % self.num_shards, 0);
-        assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards;
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
-        Ok(validators[offset + delta].account_id().clone())
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        let chunk_producers = self.get_chunk_producers(valset, shard_id);
+        let index = (shard_id + height + 1) as usize % chunk_producers.len();
+        Ok(chunk_producers[index].account_id().clone())
     }
 
     fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
@@ -522,12 +625,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+        let validators =
+            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].account_id().clone())
+        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
 
     fn cares_about_shard(
@@ -541,15 +645,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let validators = &self.validators[epoch_valset.1];
-        assert_eq!((validators.len() as u64) % self.num_shards, 0);
-        assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards;
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        assert!(offset + validators_per_shard as usize <= validators.len());
+        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_id);
         if let Some(account_id) = account_id {
-            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+            for validator in chunk_producers {
                 if validator.account_id() == account_id {
                     return true;
                 }
@@ -569,14 +667,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
-        assert_eq!((validators.len() as u64) % self.num_shards, 0);
-        assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards;
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
+        let chunk_producers = self
+            .get_chunk_producers((epoch_valset.1 + 1) % self.validators_by_valset.len(), shard_id);
         if let Some(account_id) = account_id {
-            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+            for validator in chunk_producers {
                 if validator.account_id() == account_id {
                     return true;
                 }
@@ -786,21 +880,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         metadata: ExecutionMetadata::V1,
                     },
                 });
-            }
-        }
-
-        let mut new_balances = vec![];
-        for validator in self.validators.iter().flatten() {
-            let mut seen = false;
-            for (key, value) in state.amounts.iter() {
-                if key == validator.account_id() {
-                    assert!(!seen);
-                    seen = true;
-                    new_balances.push(*value);
-                }
-            }
-            if !seen {
-                new_balances.push(0);
             }
         }
 
@@ -1154,8 +1233,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         _last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        for validator_stake in validators.iter() {
+        let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
+        for validator_stake in validators.block_producers.iter() {
+            if validator_stake.account_id() == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));
             }
@@ -1252,7 +1337,7 @@ pub fn setup_with_tx_validity_period(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
             protocol_version: PROTOCOL_VERSION,
@@ -1271,26 +1356,18 @@ pub fn setup_with_tx_validity_period(
 }
 
 pub fn setup_with_validators(
-    validators: Vec<AccountId>,
-    validator_groups: u64,
-    num_shards: NumShards,
+    vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
-    let signers = validators
-        .iter()
+    let signers = vs
+        .all_block_producers()
         .map(|x| {
             Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
         })
         .collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        vec![validators],
-        validator_groups,
-        num_shards,
-        epoch_length,
-    ));
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
@@ -1300,7 +1377,7 @@ pub fn setup_with_validators(
             min_gas_price: 100,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: tx_validity_period,
             epoch_length,
             protocol_version: PROTOCOL_VERSION,
@@ -1329,7 +1406,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader) {
+    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader).map(Result::unwrap) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -1416,11 +1493,11 @@ impl ChainGenesis {
         ChainGenesis {
             time: Clock::utc(),
             height: 0,
-            gas_limit: 1_000_000,
+            gas_limit: 10u64.pow(15),
             min_gas_price: 0,
             max_gas_price: 1_000_000_000,
             total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
+            gas_price_adjustment_rate: Ratio::from_integer(0),
             transaction_validity_period: 100,
             epoch_length: 5,
             protocol_version: PROTOCOL_VERSION,
