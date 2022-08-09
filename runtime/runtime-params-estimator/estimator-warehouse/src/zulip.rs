@@ -3,7 +3,7 @@ use std::env;
 use anyhow::Context;
 use reqwest::blocking::Client;
 
-use crate::check::{Notice, RelativeChange, Status};
+use crate::check::{Notice, RelativeChange, Status, UncertainChange};
 
 const ZULIP_SERVER: &str = "near.zulipchat.com";
 
@@ -19,6 +19,7 @@ pub(crate) struct ZulipReport {
     before: String,
     after: String,
     changes: Vec<RelativeChange>,
+    changes_uncertain: Vec<UncertainChange>,
 }
 
 impl ZulipEndpoint {
@@ -66,12 +67,13 @@ impl ZulipEndpoint {
 
 impl ZulipReport {
     pub(crate) fn new(before: String, after: String) -> Self {
-        Self { status: Status::Ok, before, after, changes: vec![] }
+        Self { status: Status::Ok, before, after, changes: vec![], changes_uncertain: vec![] }
     }
     pub(crate) fn add(&mut self, warning: Notice, status: Status) {
         self.status = std::cmp::max(self.status, status);
         match warning {
             Notice::RelativeChange(change) => self.changes.push(change),
+            Notice::UncertainChange(change) => self.changes_uncertain.push(change),
         }
     }
 
@@ -99,6 +101,18 @@ impl std::fmt::Display for ZulipReport {
                     format_gas(change.after),
                     if percent_change >= 0.0 { "+" } else { "" },
                     percent_change,
+                )?;
+            }
+            writeln!(f, "```")?;
+        }
+        writeln!(f, "### Gas estimator uncertain changes: {}", self.changes_uncertain.len())?;
+        if self.changes_uncertain.len() > 0 {
+            writeln!(f, "```")?;
+            for change in &self.changes_uncertain {
+                writeln!(
+                    f,
+                    "{:<40} {:>32} ➜ {:<32}",
+                    change.estimation, change.before, change.after,
                 )?;
             }
             writeln!(f, "```")?;
