@@ -238,6 +238,8 @@ impl Parameter {
             Parameter::WasmRipemd160Base,
             Parameter::WasmRipemd160Block,
             Parameter::WasmEcrecoverBase,
+            Parameter::WasmEd25519VerifyBase,
+            Parameter::WasmEd25519VerifyByte,
             Parameter::WasmLogBase,
             Parameter::WasmLogByte,
             Parameter::WasmStorageWriteBase,

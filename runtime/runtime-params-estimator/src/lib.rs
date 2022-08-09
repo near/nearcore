@@ -158,6 +158,7 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
     (Cost::Ed25519VerifyBase, ed25519_verify_base),
+    (Cost::Ed25519VerifyByte, ed25519_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -917,6 +918,10 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_base, 10_000)
+}
+
+fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 10_000)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
