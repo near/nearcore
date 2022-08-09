@@ -13,21 +13,27 @@ fn rand_bytes() -> Vec<u8> {
 }
 
 fn trie_lookup(bench: &mut Bencher) {
-    let tries = create_tries();
-    let mut trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
-    let mut changes = vec![];
-    for _ in 0..100 {
-        changes.push((rand_bytes(), Some(rand_bytes())));
-    }
-    let other_changes = changes.clone();
-    let trie_changes = trie.update(changes.drain(..)).unwrap();
-    let (state_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
-    state_update.commit().expect("Failed to commit");
-    trie.set_root(root);
+    let (changed_keys, trie) = {
+        let tries = create_tries();
+
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
+        let mut changes = vec![];
+        for _ in 0..100 {
+            changes.push((rand_bytes(), Some(rand_bytes())));
+        }
+        let changed_keys =
+            changes.iter().map(|(key, _value)| key.clone()).collect::<Vec<Vec<u8>>>();
+        let trie_changes = trie.update(changes.into_iter()).unwrap();
+        let (state_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
+        state_update.commit().expect("Failed to commit");
+
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+        (changed_keys, trie)
+    };
 
     bench.iter(|| {
         for _ in 0..1 {
-            for (key, _) in other_changes.iter() {
+            for key in changed_keys.iter() {
                 trie.get(key).unwrap();
             }
         }

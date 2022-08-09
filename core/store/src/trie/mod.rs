@@ -514,12 +514,6 @@ impl Trie {
         &self.root
     }
 
-    /// Sets state root of current Trie to given value.  Used only in tests.
-    #[doc(hidden)]
-    pub fn set_root(&mut self, root: StateRoot) {
-        self.root = root;
-    }
-
     #[cfg(test)]
     fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
         if self.storage.as_recording_storage().is_some() {
@@ -798,13 +792,15 @@ mod tests {
         shard_uid: ShardUId,
         changes: TrieChanges,
     ) -> CryptoHash {
-        let mut trie = tries.get_trie_for_shard(shard_uid, root.clone());
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let trie_changes = trie.update(other_delete_changes.drain(..)).unwrap();
+        let trie_changes = tries
+            .get_trie_for_shard(shard_uid, root.clone())
+            .update(other_delete_changes.drain(..))
+            .unwrap();
         let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
-        trie.set_root(root.clone());
+        let trie = tries.get_trie_for_shard(shard_uid, root.clone());
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&key), Ok(None));
@@ -979,17 +975,19 @@ mod tests {
         ];
         let tries = create_tries();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
-        let mut trie = tries.get_trie_for_shard(ShardUId::single_shard(), root.clone());
-        for r in trie.iter().unwrap() {
-            r.unwrap();
-        }
+        tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()).iter().unwrap().for_each(
+            |result| {
+                result.unwrap();
+            },
+        );
 
         let changes = vec![(vec![1, 2, 3], None)];
         let root = test_populate_trie(&tries, &root, ShardUId::single_shard(), changes);
-        trie.set_root(root);
-        for r in trie.iter().unwrap() {
-            r.unwrap();
-        }
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
+            |result| {
+                result.unwrap();
+            },
+        );
     }
 
     #[test]
@@ -1045,15 +1043,19 @@ mod tests {
             let num_iterations = rng.gen_range(1, 20);
             let tries = create_tries();
             let mut state_root = Trie::EMPTY_ROOT;
-            let mut trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root.clone());
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
                 state_root =
                     test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
-                trie.set_root(state_root.clone());
-                println!("New memory_usage: {}", trie.retrieve_root_node().unwrap().memory_usage);
+                let memory_usage = tries
+                    .get_trie_for_shard(ShardUId::single_shard(), state_root.clone())
+                    .retrieve_root_node()
+                    .unwrap()
+                    .memory_usage;
+                println!("New memory_usage: {memory_usage}");
             }
 
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root.clone());
             let trie_changes = trie
                 .iter()
                 .unwrap()
