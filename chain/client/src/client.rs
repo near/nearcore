@@ -119,10 +119,6 @@ pub struct Client {
     pub block_production_info: BlockProductionTracker,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
-
-    /// Cached precomputed set of TIER1 accounts.
-    /// See send_network_chain_info().
-    tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
 }
 
 // Debug information about the upcoming block.
@@ -243,7 +239,6 @@ impl Client {
             last_time_head_progress_made: Clock::instant(),
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
-            tier1_accounts_cache: None,
         })
     }
 
@@ -1963,15 +1958,10 @@ impl Client {
     /// and the next epoch, so that the PeerManager can establish the priority connections
     /// in advance (before the epoch starts and they are actually needed).
     ///
-    /// The result of the last call to get_tier1_accounts() is cached, so that it is not recomputed
-    /// if the current epoch didn't change since the last call. In particular SetChainInfo is send
-    /// after every block is processed (order of seconds), while the epoch changes way less
-    /// frequently (order of hours).
+    /// get_tier1_accounts() is expected to be called for each new chain head.
+    /// evaluation cost of this call is negligible to block processing time, so there is no
+    /// need to cache it.
     fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
-        match &self.tier1_accounts_cache {
-            Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
-            _ => {}
-        }
         let info = self
             .runtime_adapter
             .get_validator_info(ValidatorInfoIdentifier::BlockHash(tip.last_block_hash))?;
@@ -1986,9 +1976,7 @@ impl Client {
                 .into_iter()
                 .map(|v| ((tip.next_epoch_id.clone(), v.account_id), v.public_key)),
         );
-        let accounts = Arc::new(accounts);
-        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
-        Ok(accounts)
+        Ok(Arc::new(accounts))
     }
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.

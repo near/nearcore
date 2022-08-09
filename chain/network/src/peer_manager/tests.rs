@@ -7,13 +7,14 @@ use crate::peer::peer_actor;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
-use crate::testonly::{make_rng, AsSet as _, Rng};
+use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
 use near_network_primitives::types::{Ping, RoutedMessageBody};
 use near_primitives::network::PeerId;
+use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
@@ -30,7 +31,9 @@ async fn repeated_data_in_sync_routing_table() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
+    let pm =
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+            .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -89,6 +92,70 @@ async fn repeated_data_in_sync_routing_table() {
     }
 }
 
+// After each handshake a full sync of routing table is performed with the peer.
+// After a restart, all the edges reside in storage. The node shouldn't broadcast
+// edges which it learned about before the restart.
+// This test takes ~6s because of delays enforced in the PeerManager.
+#[tokio::test]
+async fn no_edge_broadcast_after_restart() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut total_edges = vec![];
+    let store = create_test_store();
+
+    for i in 0..3 {
+        println!("iteration {i}");
+        // Start a PeerManager and connect a peer to it.
+        let pm =
+            peer_manager::testonly::start(store.clone(), chain.make_config(rng), chain.clone())
+                .await;
+        let cfg = peer::testonly::PeerConfig {
+            signer: data::make_signer(rng),
+            chain: chain.clone(),
+            peers: vec![],
+            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
+            force_encoding: Some(Encoding::Proto),
+        };
+        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        let edge = peer.complete_handshake().await;
+
+        // Create a bunch of fresh unreachable edges, then send all the edges created so far.
+        let fresh_edges = vec![
+            data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
+            data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
+            data::make_edge_tombstone(&data::make_signer(rng), &data::make_signer(rng)),
+        ];
+        total_edges.extend(fresh_edges.clone());
+        peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+            edges: total_edges.clone(),
+            accounts: vec![],
+        }))
+        .await;
+
+        // Expect just the fresh edges (and the pm <-> peer edge) to be broadcasted back.
+        let mut edges_want = fresh_edges.clone();
+        edges_want.push(edge);
+        let mut edges_got = vec![];
+
+        while edges_got != edges_want {
+            match peer.events.recv().await {
+                peer::testonly::Event::RoutingTable(got) => {
+                    edges_got.extend(got.edges);
+                    assert_is_superset(&edges_want.as_set(), &edges_got.as_set());
+                }
+                // Ignore other messages.
+                _ => {}
+            }
+        }
+    }
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
@@ -97,7 +164,9 @@ async fn ttl() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let mut pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
+    let mut pm =
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+            .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -188,7 +257,9 @@ async fn accounts_data_broadcast() {
     let clock = clock.clock();
     let clock = &clock;
 
-    let mut pm = peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await;
+    let mut pm =
+        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
+            .await;
 
     let take_sync = |ev| match ev {
         peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
@@ -262,18 +333,23 @@ async fn accounts_data_gradual_epoch_change() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    // It is an array [_;3] which allows compiler to borrow
-    // each position separately. If it was a Vec, the rest
-    // of the test would be way harder to express.
-    let mut pms = [
-        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
-        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
-        peer_manager::testonly::start(chain.make_config(rng), chain.clone()).await,
-    ];
+    let mut pms = vec![];
+    for _ in 0..3 {
+        pms.push(
+            peer_manager::testonly::start(
+                create_test_store(),
+                chain.make_config(rng),
+                chain.clone(),
+            )
+            .await,
+        );
+    }
 
     // 0 <-> 1 <-> 2
-    pms[0].connect_to(&pms[1].peer_info()).await;
-    pms[1].connect_to(&pms[2].peer_info()).await;
+    let pm1 = pms[1].peer_info();
+    let pm2 = pms[2].peer_info();
+    pms[0].connect_to(&pm1).await;
+    pms[1].connect_to(&pm2).await;
 
     // Validator configs.
     let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
@@ -332,7 +408,7 @@ async fn accounts_data_rate_limiting() {
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
-        pms.push(peer_manager::testonly::start(cfg, chain.clone()).await);
+        pms.push(peer_manager::testonly::start(create_test_store(), cfg, chain.clone()).await);
     }
     // Construct a 4-layer bipartite graph.
     let mut connections = 0;
