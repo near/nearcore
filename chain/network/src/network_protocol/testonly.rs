@@ -1,12 +1,11 @@
 use super::*;
 
-use crate::types::{Handshake, RoutingTableUpdate};
+use crate::config;
+use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
-use near_network_primitives::types::NetworkConfig;
 use near_network_primitives::types::{
-    AccountKeys, AccountOrPeerIdOrHash, ChainInfo, Edge, PartialEdgeInfo, PeerInfo,
-    RawRoutedMessage, RoutedMessageBody,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -137,6 +136,10 @@ pub fn make_edge(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
     let nonce = 1; // Make it an active edge.
     let hash = Edge::build_hash(&ap, &bp, nonce);
     Edge::new(ap, bp, nonce, a.secret_key.sign(hash.as_ref()), b.secret_key.sign(hash.as_ref()))
+}
+
+pub fn make_edge_tombstone(a: &InMemorySigner, b: &InMemorySigner) -> Edge {
+    make_edge(a, b).remove_edge(PeerId::new(a.public_key.clone()), &a.secret_key)
 }
 
 pub fn make_routing_table<R: Rng>(rng: &mut R) -> RoutingTableUpdate {
@@ -299,23 +302,34 @@ impl Chain {
         self.blocks.iter().map(|b| b.header().clone()).collect()
     }
 
-    pub fn make_config(&self, port: u16) -> NetworkConfig {
-        // TODO(gprusak): make config generation rng-based,
-        // rather than using a seed.
-        NetworkConfig::from_seed("test1", port)
+    pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
+        let port = crate::test_utils::open_port();
+        let seed = &rng.gen::<u64>().to_string();
+        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        // Currently, in unit tests PeerManagerActor is not allowed to try to establish
+        // connections on its own.
+        cfg.outbound_disabled = true;
+        cfg
     }
 
     pub fn make_tier1_data<R: Rng>(
         &self,
         rng: &mut R,
         clock: &time::Clock,
-    ) -> Vec<SignedAccountData> {
+    ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
             .map(|(epoch_id, v)| {
-                make_account_data(rng, clock.now_utc(), epoch_id.clone(), v.validator_id().clone())
+                Arc::new(
+                    make_account_data(
+                        rng,
+                        clock.now_utc(),
+                        epoch_id.clone(),
+                        v.validator_id().clone(),
+                    )
                     .sign(v)
-                    .unwrap()
+                    .unwrap(),
+                )
             })
             .collect()
     }
@@ -359,7 +373,7 @@ pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
 }
 
 pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
-    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: Some(make_peer_id(rng)) }
+    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: make_peer_id(rng) }
 }
 
 pub fn make_account_data(

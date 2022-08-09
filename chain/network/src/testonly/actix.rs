@@ -12,7 +12,12 @@ impl Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        self.0.take().unwrap().join().unwrap().unwrap();
+        let res = self.0.take().unwrap().join();
+        // Panic, unless we are in test and are already panicking.
+        // A double panic prevents "cargo test" from displaying error message.
+        if !std::thread::panicking() {
+            res.unwrap().unwrap();
+        }
     }
 }
 

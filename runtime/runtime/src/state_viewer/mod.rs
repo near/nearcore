@@ -12,7 +12,6 @@ use near_primitives::{
         apply_state::ApplyState,
         migration_data::{MigrationData, MigrationFlags},
     },
-    serialize::to_base64,
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
     types::{AccountId, EpochInfoProvider, Gas},
@@ -151,8 +150,8 @@ impl TrieViewer {
                 break;
             }
             values.push(StateItem {
-                key: to_base64(&key[acc_sep_len..]),
-                value: to_base64(&value),
+                key: key[acc_sep_len..].to_vec(),
+                value: value,
                 proof: vec![],
             });
         }

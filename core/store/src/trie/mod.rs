@@ -9,8 +9,11 @@ use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::types::{StateRoot, StateRootNode};
 
+use crate::flat_state::FlatState;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -403,7 +406,8 @@ impl RawTrieNodeWithSize {
 }
 
 pub struct Trie {
-    pub(crate) storage: Box<dyn TrieStorage>,
+    pub storage: Box<dyn TrieStorage>,
+    pub flat_state: Option<FlatState>,
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -468,8 +472,8 @@ pub struct ApplyStatePartResult {
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
-    pub fn new(store: Box<dyn TrieStorage>) -> Self {
-        Trie { storage: store }
+    pub fn new(storage: Box<dyn TrieStorage>, flat_state: Option<FlatState>) -> Self {
+        Trie { storage, flat_state }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -480,7 +484,7 @@ impl Trie {
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage) }
+        Trie { storage: Box::new(storage), flat_state: None }
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -499,6 +503,7 @@ impl Trie {
                 recorded_storage,
                 visited_nodes: Default::default(),
             }),
+            flat_state: None,
         }
     }
 
@@ -611,7 +616,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice<'_>,
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = *root;
         loop {
             let node = match self.retrieve_raw_node(&hash)? {
@@ -621,7 +626,7 @@ impl Trie {
             match node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some((value_length, value_hash)));
+                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
                     } else {
                         return Ok(None);
                     }
@@ -639,7 +644,10 @@ impl Trie {
                     if key.is_empty() {
                         match value {
                             Some((value_length, value_hash)) => {
-                                return Ok(Some((value_length, value_hash)));
+                                return Ok(Some(ValueRef {
+                                    length: value_length,
+                                    hash: value_hash,
+                                }));
                             }
                             None => return Ok(None),
                         }
@@ -657,18 +665,20 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
-        let key = NibbleSlice::new(key);
-        self.lookup(root, key)
+    pub fn get_ref(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        let is_delayed = is_delayed_receipt_key(key);
+        match &self.flat_state {
+            Some(flat_state) if !is_delayed => flat_state.get_ref(root, &key),
+            _ => {
+                let key = NibbleSlice::new(key);
+                self.lookup(root, key)
+            }
+        }
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => {
+            Some(ValueRef { hash, .. }) => {
                 self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
             }
             None => Ok(None),
