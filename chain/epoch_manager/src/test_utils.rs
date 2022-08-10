@@ -151,6 +151,8 @@ pub fn epoch_config(
         minimum_stake_divisor: 1,
         validator_selection_config: Default::default(),
         shard_layout: ShardLayout::v0(num_shards, 0),
+        #[cfg(feature = "protocol_feature_max_kickout_stake")]
+        validator_max_kickout_stake_perc: 100,
     };
     AllEpochConfig::new(epoch_config, simple_nightshade_shard_config)
 }
