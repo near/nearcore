@@ -109,10 +109,10 @@ impl ActorHandler {
 }
 
 pub async fn start(
+    clock: Clock,
     store: near_store::Store,
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
-    clock: Clock,
 ) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({

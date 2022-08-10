@@ -80,8 +80,20 @@ impl GraphWithCache {
 
     /// Removes an edge by key. O(1).
     pub fn remove_edge(&mut self, key: &EdgeKey) {
-        if self.edges.remove(key).is_some() {
-            self.graph.remove_edge(&key.0, &key.1);
+        self.remove_edges(&vec![key])
+    }
+
+    // Removes mutiple edges.
+    // The main benefit is that we take the cached_next_hops lock only once.
+    fn remove_edges(&mut self, edge_keys: &Vec<&EdgeKey>) {
+        let mut removed = false;
+        for key in edge_keys {
+            if self.edges.remove(key).is_some() {
+                self.graph.remove_edge(&key.0, &key.1);
+                removed = true;
+            }
+        }
+        if removed {
             *self.cached_next_hops.lock() = None;
         }
     }
@@ -111,26 +123,23 @@ impl GraphWithCache {
             })
             .cloned()
             .collect();
-        for edge in &edges {
-            self.remove_edge(edge.key());
-        }
+        self.remove_edges(&edges.iter().map(|edge| edge.key()).collect::<Vec<_>>());
         edges
     }
 
     pub fn prune_old_edges(&mut self, prune_edges_older_than: time::Utc) {
         let old_edges = self
-            .edges
+            .edges()
             .iter()
             .filter_map(|(edge_key, edge)| {
                 if edge.is_edge_older_than(prune_edges_older_than) {
-                    Some(edge_key.clone())
+                    Some(edge_key)
                 } else {
                     None
                 }
             })
+            .cloned()
             .collect::<Vec<_>>();
-        for edge_key in &old_edges {
-            self.remove_edge(edge_key);
-        }
+        self.remove_edges(&old_edges.iter().map(|key| key).collect::<Vec<_>>());
     }
 }

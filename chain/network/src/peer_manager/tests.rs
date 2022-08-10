@@ -32,10 +32,10 @@ async fn repeated_data_in_sync_routing_table() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = peer_manager::testonly::start(
+        clock.clock(),
         create_test_store(),
         chain.make_config(rng),
         chain.clone(),
-        clock.clock(),
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
@@ -116,10 +116,10 @@ async fn no_edge_broadcast_after_restart() {
         println!("iteration {i}");
         // Start a PeerManager and connect a peer to it.
         let pm = peer_manager::testonly::start(
+            clock.clock(),
             store.clone(),
             chain.make_config(rng),
             chain.clone(),
-            clock.clock(),
         )
         .await;
         let cfg = peer::testonly::PeerConfig {
@@ -190,14 +190,23 @@ async fn test_nonces() {
 
     // Start a PeerManager and connect a peer to it.
     let pm = peer_manager::testonly::start(
+        clock.clock(),
         store.clone(),
         chain.make_config(rng),
         chain.clone(),
-        clock.clock(),
     )
     .await;
-    // Try to connect with peer with a valid nonce (current timestamp).
-    {
+
+    let test_cases = [
+        // Try to connect with peer with a valid nonce (current timestamp).
+        (Some(to_active_nonce(clock.now_utc())), true),
+        // Now try the peer with invalid timestamp (in the past)
+        (Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))), false),
+        // Now try the peer with invalid timestamp (in the future)
+        (Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))), false),
+    ];
+
+    for test in test_cases {
         let cfg = peer::testonly::PeerConfig {
             signer: data::make_signer(rng),
             chain: chain.clone(),
@@ -205,47 +214,18 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_active_nonce(clock.now_utc())),
+            nonce: test.0,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
-        peer.complete_handshake().await;
+        if test.1 {
+            peer.complete_handshake().await;
+        } else {
+            peer.fail_handshake().await;
+        }
     }
 
-    // Now try the peer with invalid timestamp (in the past)
-    {
-        let cfg = peer::testonly::PeerConfig {
-            signer: data::make_signer(rng),
-            chain: chain.clone(),
-            peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
-            force_encoding: Some(Encoding::Proto),
-            // Connect with nonce equal to unix timestamp
-            nonce: Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))),
-        };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
-        peer.fail_handshake().await;
-    }
-
-    // Now try the peer with invalid timestamp (in the future)
-    {
-        let cfg = peer::testonly::PeerConfig {
-            signer: data::make_signer(rng),
-            chain: chain.clone(),
-            peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
-            force_encoding: Some(Encoding::Proto),
-            // Connect with nonce equal to unix timestamp
-            nonce: Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))),
-        };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
-        peer.fail_handshake().await;
-    }
 }
 
 // test that TTL is handled property.
@@ -257,10 +237,10 @@ async fn ttl() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm = peer_manager::testonly::start(
+        clock.clock(),
         create_test_store(),
         chain.make_config(rng),
         chain.clone(),
-        clock.clock(),
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
@@ -356,10 +336,10 @@ async fn accounts_data_broadcast() {
     let clock = &clock;
 
     let mut pm = peer_manager::testonly::start(
+        clock.clone(),
         create_test_store(),
         chain.make_config(rng),
         chain.clone(),
-        clock.clone(),
     )
     .await;
 
@@ -439,10 +419,10 @@ async fn accounts_data_gradual_epoch_change() {
     for _ in 0..3 {
         pms.push(
             peer_manager::testonly::start(
+                clock.clock(),
                 create_test_store(),
                 chain.make_config(rng),
                 chain.clone(),
-                clock.clock(),
             )
             .await,
         );
@@ -512,7 +492,7 @@ async fn accounts_data_rate_limiting() {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
         pms.push(
-            peer_manager::testonly::start(create_test_store(), cfg, chain.clone(), clock.clock())
+            peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone())
                 .await,
         );
     }
