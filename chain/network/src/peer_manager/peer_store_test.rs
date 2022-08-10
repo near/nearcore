@@ -80,10 +80,10 @@ fn test_unconnected_peer_only_boot_nodes() {
         let mut peer_store =
             PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
         //peer_store.peer_connected(&clock.clock(), &peer_in_store).unwrap();
-        peer_store.add_peer(&clock.clock(), peer_in_store, TrustLevel::Direct).unwrap();
+        peer_store.add_peer(&clock.clock(), peer_in_store.clone(), TrustLevel::Direct).unwrap();
         peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
 
-        assert!(peer_store.unconnected_peer(|_| false).is_some());
+        assert_eq!(peer_store.unconnected_peer(|_| false), Some(peer_in_store));
     }
 }
 
