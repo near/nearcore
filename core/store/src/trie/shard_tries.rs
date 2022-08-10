@@ -91,18 +91,19 @@ impl ShardTries {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
-    pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid)), state_root)
+    pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
     }
 
-    pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid)), state_root)
+    pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
     }
 
     #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
+        state_root: StateRoot,
         is_view: bool,
         use_flat_state: bool,
     ) -> Trie {
@@ -125,19 +126,23 @@ impl ShardTries {
             #[cfg(not(feature = "protocol_feature_flat_state"))]
             None
         };
-        Trie::new(storage, flat_state)
+        Trie::new(storage, state_root, flat_state)
     }
 
-    pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, false, false)
+    pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, false)
     }
 
-    pub fn get_trie_with_flat_state_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, false, true)
+    pub fn get_trie_with_flat_state_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+    ) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, true)
     }
 
-    pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, true, false)
+    pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, true, false)
     }
 
     pub fn get_store(&self) -> Store {
