@@ -140,14 +140,17 @@ impl ViewClientActor {
         })
     }
 
-    fn maybe_block_id_to_block_hash(
+    fn maybe_block_id_to_block_header(
         &mut self,
         block_id: MaybeBlockId,
-    ) -> Result<CryptoHash, near_chain::Error> {
+    ) -> Result<BlockHeader, near_chain::Error> {
         match block_id {
-            None => Ok(self.chain.head()?.last_block_hash),
-            Some(BlockId::Height(height)) => Ok(*self.chain.get_header_by_height(height)?.hash()),
-            Some(BlockId::Hash(block_hash)) => Ok(block_hash),
+            None => {
+                let block_hash = self.chain.head()?.last_block_hash;
+                self.chain.get_block_header(&block_hash)
+            }
+            Some(BlockId::Height(height)) => self.chain.get_header_by_height(height),
+            Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
         }
     }
 
@@ -696,16 +699,13 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
-        Ok(self
-            .maybe_block_id_to_block_hash(msg.block_id)
-            .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h))
-            .and_then(|header| {
-                get_epoch_block_producers_view(
-                    header.epoch_id(),
-                    header.prev_hash(),
-                    &*self.runtime_adapter,
-                )
-            })?)
+        Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
+            get_epoch_block_producers_view(
+                header.epoch_id(),
+                header.prev_hash(),
+                &*self.runtime_adapter,
+            )
+        })?)
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
@@ -1307,9 +1307,7 @@ impl Handler<GetGasPrice> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
-        let header = self
-            .maybe_block_id_to_block_hash(msg.block_id)
-            .and_then(|block_hash| self.chain.get_block_header(&block_hash));
+        let header = self.maybe_block_id_to_block_header(msg.block_id);
         Ok(GasPriceView { gas_price: header?.gas_price() })
     }
 }
