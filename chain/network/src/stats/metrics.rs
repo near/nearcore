@@ -97,6 +97,9 @@ pub(crate) static ROUTING_TABLE_RECALCULATION_HISTOGRAM: Lazy<Histogram> = Lazy:
 });
 pub(crate) static EDGE_UPDATES: Lazy<IntCounter> =
     Lazy::new(|| try_create_int_counter("near_edge_updates", "Unique edge updates").unwrap());
+pub(crate) static EDGE_NONCE: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_edge_nonce", "Edge nonce types", &["type"]).unwrap()
+});
 pub(crate) static EDGE_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_edge_active", "Total edges active between peers").unwrap()
 });
