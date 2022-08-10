@@ -196,7 +196,7 @@ mod tests {
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(initial_epoch_config, simple_nightshade_shard_config),
+            AllEpochConfig::new(false, initial_epoch_config, simple_nightshade_shard_config),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
@@ -367,7 +367,7 @@ mod tests {
                 let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
                 let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
                 for account_id in tracked_accounts.iter() {
-                    total_tracked_shards.insert(account_id_to_shard_id(account_id, shard_layout));
+                    total_tracked_shards.insert(account_id_to_shard_id(account_id, &shard_layout));
                 }
                 shard_layout.num_shards()
             };
