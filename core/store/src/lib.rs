@@ -556,9 +556,7 @@ pub fn get_code<R: TrieReader>(
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
     let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie
-        .get(&key.to_vec())
-        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    trie.get(&key.to_vec()).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.

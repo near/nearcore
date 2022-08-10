@@ -411,7 +411,14 @@ pub struct Trie {
     pub flat_state: Option<FlatState>,
 }
 
+/// Trait for reading data from a trie.
 pub trait TrieReader {
+    /// Retrieves node with given key from the trie.
+    ///
+    /// In principle, this does not allow reads data from different chunks (be
+    /// it from different shards or different blocks).  In practice it might be
+    /// possible to retrieve nodes which don’t belong to a trie this reader is
+    /// meant for, but this must not be relied upon.
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
