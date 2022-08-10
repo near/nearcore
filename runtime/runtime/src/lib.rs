@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
@@ -1151,17 +1151,13 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        state_patch: Option<SandboxStatePatch>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
             num_transactions = transactions.len())
         .entered();
-
-        if state_patch.is_some() && !cfg!(feature = "sandbox") {
-            panic!("Can only patch state in sandbox mode");
-        }
 
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
@@ -1349,11 +1345,7 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-
-        if let Some(patch) = state_patch {
-            self.apply_state_patch(&mut state_update, patch);
-        }
-
+        self.apply_state_patch(&mut state_update, state_patch);
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
@@ -1405,7 +1397,10 @@ impl Runtime {
     }
 
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
-        for record in state_patch.into_records() {
+        if state_patch.is_empty() {
+            return;
+        }
+        for record in state_patch {
             match record {
                 StateRecord::Account { account_id, account } => {
                     set_account(state_update, account_id, &account);
@@ -1603,7 +1598,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1633,7 +1628,7 @@ mod tests {
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1662,7 +1657,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1705,7 +1700,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1756,7 +1751,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1816,7 +1811,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1919,7 +1914,7 @@ mod tests {
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -1968,7 +1963,7 @@ mod tests {
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2009,7 +2004,7 @@ mod tests {
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2058,7 +2053,7 @@ mod tests {
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2092,7 +2087,7 @@ mod tests {
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
@@ -2131,7 +2126,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2191,7 +2186,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2261,7 +2256,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2298,7 +2293,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2340,7 +2335,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2376,7 +2371,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, _) =

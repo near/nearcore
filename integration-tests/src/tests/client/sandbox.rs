@@ -6,7 +6,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::Account;
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,

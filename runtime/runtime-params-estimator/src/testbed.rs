@@ -104,7 +104,7 @@ impl RuntimeTestbed {
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 

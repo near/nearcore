@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
@@ -608,7 +608,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        state_patch: Option<SandboxStatePatch>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -657,7 +657,7 @@ pub trait RuntimeAdapter: Send + Sync {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        state_patch: Option<SandboxStatePatch>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
