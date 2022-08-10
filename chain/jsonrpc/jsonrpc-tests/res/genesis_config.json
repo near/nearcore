@@ -66,5 +66,6 @@
     1,
     6250
   ],
+  "use_production_config": false,
   "records": []
 }
