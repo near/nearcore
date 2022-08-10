@@ -264,26 +264,29 @@ impl Actor for PeerManagerActor {
             let peer_manager_addr = ctx.address();
             let event_sink = self.event_sink.clone();
 
-            actix::spawn(async move {
-                let listener = match TcpListener::bind(server_addr).await {
-                    Ok(it) => it,
-                    Err(e) => {
-                        panic!(
-                            "failed to start listening on server_addr={:?} e={:?}",
-                            server_addr, e
-                        );
-                    }
-                };
-                event_sink.push(Event::ServerStarted);
-                loop {
-                    if let Ok((conn, client_addr)) = listener.accept().await {
-                        peer_manager_addr.do_send(PeerToManagerMsg::InboundTcpConnect(
-                            InboundTcpConnect::new(conn),
-                        ));
-                        debug!(target: "network", from = ?client_addr, "got new connection");
+            ctx.spawn(
+                async move {
+                    let listener = match TcpListener::bind(server_addr).await {
+                        Ok(it) => it,
+                        Err(e) => {
+                            panic!(
+                                "failed to start listening on server_addr={:?} e={:?}",
+                                server_addr, e
+                            );
+                        }
+                    };
+                    event_sink.push(Event::ServerStarted);
+                    loop {
+                        if let Ok((conn, client_addr)) = listener.accept().await {
+                            peer_manager_addr.do_send(PeerToManagerMsg::InboundTcpConnect(
+                                InboundTcpConnect::new(conn),
+                            ));
+                            debug!(target: "network", from = ?client_addr, "got new connection");
+                        }
                     }
                 }
-            });
+                .into_actor(self),
+            );
         }
 
         // Periodically push network information to client.
@@ -300,18 +303,25 @@ impl Actor for PeerManagerActor {
 
         // Periodically recompute PEER_CONNECTIONS metric.
         let network_state = self.state.clone();
-        let period = self.config.peer_stats_period.try_into().unwrap();
-        actix::spawn(async move {
-            loop {
-                let mut m = HashMap::new();
-                let connected_peers = network_state.connected_peers.read();
-                for p in connected_peers.values() {
-                    *m.entry((p.peer_type, p.stats.load().encoding)).or_insert(0) += 1;
+        let mut interval =
+            tokio::time::interval(network_state.config.peer_stats_period.try_into().unwrap());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ctx.spawn(
+            async move {
+                loop {
+                    interval.tick().await;
+                    let mut m = HashMap::new();
+                    let connected_peers = network_state.connected_peers.read();
+                    for p in connected_peers.values() {
+                        // TODO(gprusak): remove the encoding from the metric together with Borsh
+                        // support.
+                        *m.entry((p.peer_type, None)).or_insert(0) += 1;
+                    }
+                    metrics::set_peer_connections(m);
                 }
-                metrics::set_peer_connections(m);
-                tokio::time::sleep(period).await;
             }
-        });
+            .into_actor(self),
+        );
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);

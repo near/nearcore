@@ -848,7 +848,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                self.connection_state = Some(Arc::new(ConnectedPeer {
+                let connection_state = Arc::new(ConnectedPeer {
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
                     initial_chain_info: handshake.sender_chain_info.clone(),
@@ -858,7 +858,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     stats: ArcSwap::new(Arc::new(Stats {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
-                        encoding: None,
                     })),
                     last_time_peer_requested: ArcSwap::new(Arc::new(self.clock.now())),
                     last_time_received_message: ArcSwap::new(Arc::new(self.clock.now())),
@@ -867,14 +866,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     send_accounts_data_demux: demux::Demux::new(
                         self.network_state.send_accounts_data_rl,
                     ),
-                }));
+                });
+                self.connection_state = Some(connection_state.clone());
 
-                let connection_state = self.connection_state.clone().unwrap();
                 let tracker = self.tracker.clone();
                 let clock = self.clock.clone();
-                let period = self.network_state.config.peer_stats_period.try_into().unwrap();
-                actix::spawn(async move {
+                let mut interval = tokio::time::interval(
+                    self.network_state.config.peer_stats_period.try_into().unwrap(),
+                );
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                ctx.spawn(async move {
                     loop {
+                        interval.tick().await;
                         let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                         let received = tracker.lock().received_bytes.minute_stats(&clock);
                         // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
@@ -883,9 +886,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         connection_state.stats.store(Arc::new(Stats {
                             received_bytes_per_sec: received.bytes_per_min / 60,
                             sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            // TODO(gprusak): deprecated, remove together with the Borsh encoding
-                            // support.
-                            encoding: None,
                         }));
                         // Whether the peer is considered abusive due to sending too many messages.
                         // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
@@ -901,9 +901,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
                             // }
                         }
-                        tokio::time::sleep(period).await;
                     }
-                });
+                }.into_actor(self));
 
                 self.peer_manager_addr
                     .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {

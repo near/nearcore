@@ -1,5 +1,5 @@
 use crate::concurrency::demux;
-use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
@@ -14,6 +14,7 @@ use near_network_primitives::types::{
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
+use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -33,8 +34,6 @@ pub(crate) struct Stats {
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
     pub sent_bytes_per_sec: u64,
-    /// Encoding used for communication.
-    pub encoding: Option<Encoding>,
 }
 
 /// Contains information relevant to a connected peer.
@@ -65,8 +64,8 @@ pub(crate) struct ConnectedPeer {
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
-impl std::fmt::Debug for ConnectedPeer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Debug for ConnectedPeer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.debug_struct("ConnectedPeer")
             .field("peer_info", &self.peer_info)
             .field("partial_edge_info", &self.partial_edge_info)
