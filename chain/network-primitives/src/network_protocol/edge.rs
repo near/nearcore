@@ -36,6 +36,10 @@ impl PartialEdgeInfo {
     }
 }
 
+pub enum InvalidNonceError {
+    NonceOutOfBoundsError,
+}
+
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
@@ -230,23 +234,28 @@ impl Edge {
 
     // Checks if edge was created before a given timestamp.
     pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
-        if let Ok(nonce_as_i64) = i64::try_from(self.nonce()) {
-            if let Some(nonce_timestamp) = Edge::nonce_to_utc(nonce_as_i64) {
-                nonce_timestamp < utc_timestamp
-            } else {
-                // Old-style nonce - for now, assume that they are always fresh.
-                false
-            }
-        } else {
-            // Nonce that is overflowing i64. For now, let's keep it in memory (we'll remove it together with Old-style nonces).
-            false
-        }
+        Edge::nonce_to_utc(self.nonce()).map_or(false, |maybe_timestamp| {
+            // Old-style nonce - for now, assume that they are always fresh.
+            maybe_timestamp.map_or(false, |nonce_timestamp| nonce_timestamp < utc_timestamp)
+        })
     }
 
-    pub fn nonce_to_utc(nonce_as_i64: i64) -> Option<time::Utc> {
-        time::Utc::from_unix_timestamp(nonce_as_i64).ok().filter(|timestamp| {
-            timestamp > *EDGE_MIN_TIMESTAMP_NONCE
-        })
+    pub fn nonce_to_utc(nonce: u64) -> Result<Option<time::Utc>, InvalidNonceError> {
+        if let Ok(nonce_as_i64) = i64::try_from(nonce) {
+            time::Utc::from_unix_timestamp(nonce_as_i64)
+                .map(
+                    |nonce_ts| {
+                        if nonce_ts > *EDGE_MIN_TIMESTAMP_NONCE {
+                            Some(nonce_ts)
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .map_err(|_| InvalidNonceError::NonceOutOfBoundsError)
+        } else {
+            Err(InvalidNonceError::NonceOutOfBoundsError)
+        }
     }
 }
 

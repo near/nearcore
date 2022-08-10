@@ -208,6 +208,13 @@ async fn test_nonces() {
             false,
             "future timestamp",
         ),
+        (Some(u64::MAX), false, "u64 max"),
+        (Some(i64::MAX as u64), false, "i64 max"),
+        (Some((i64::MAX - 1) as u64), false, "i64 max - 1"),
+        (Some(253402300799), false, "Max time"),
+        (Some(253402300799 + 2), false, "Over max time"),
+        (Some(0), false, "Nonce 0"),
+        (Some(1), true, "Nonce 1"),
     ];
 
     for test in test_cases {
