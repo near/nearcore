@@ -65,7 +65,7 @@ pub struct ShardConfig {
 }
 
 impl ShardConfig {
-    pub fn new(epoch_config: &EpochConfig) -> Self {
+    pub fn new(epoch_config: EpochConfig) -> Self {
         Self {
             num_block_producer_seats_per_shard: epoch_config
                 .num_block_producer_seats_per_shard
@@ -78,37 +78,77 @@ impl ShardConfig {
     }
 }
 
+/// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
+/// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
+/// and returns the EpochConfig that should be used for this protocol version.
 #[derive(Clone)]
 pub struct AllEpochConfig {
+    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
+    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
+    use_production_config: bool,
+    /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
-    simple_nightshade_epoch_config: EpochConfig,
+    /// ShardConfig for the simple nightshade upgrade. Also a temporary implementation that allow us
+    /// to upgrade sharding configuration on mainnet and testnet
+    simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
 impl AllEpochConfig {
     pub fn new(
+        use_production_config: bool,
         genesis_epoch_config: EpochConfig,
         simple_nightshade_shard_config: Option<ShardConfig>,
     ) -> Self {
-        let mut config = genesis_epoch_config.clone();
-        if let Some(ShardConfig {
-            num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard,
-            shard_layout,
-        }) = simple_nightshade_shard_config
-        {
-            config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
-            config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
-            config.shard_layout = shard_layout;
-        }
-        Self { genesis_epoch_config, simple_nightshade_epoch_config: config }
+        Self { use_production_config, genesis_epoch_config, simple_nightshade_shard_config }
     }
 
-    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
+        // if SimpleNightshade is enabled, we override genesis shard config with
+        // the simple nightshade shard config
+        let mut config = self.genesis_epoch_config.clone();
         if checked_feature!("stable", SimpleNightshade, protocol_version) {
-            &self.simple_nightshade_epoch_config
-        } else {
-            &self.genesis_epoch_config
+            if let Some(ShardConfig {
+                num_block_producer_seats_per_shard,
+                avg_hidden_validator_seats_per_shard,
+                shard_layout,
+            }) = &self.simple_nightshade_shard_config
+            {
+                config.num_block_producer_seats_per_shard =
+                    num_block_producer_seats_per_shard.clone();
+                config.avg_hidden_validator_seats_per_shard =
+                    avg_hidden_validator_seats_per_shard.clone();
+                config.shard_layout = shard_layout.clone();
+            }
         }
+        if self.use_production_config {
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            if checked_feature!(
+                "protocol_feature_chunk_only_producers",
+                ChunkOnlyProducers,
+                protocol_version
+            ) {
+                // On testnet, genesis config set num_block_producer_seats to 200
+                // This is to bring it back to 100 to be the same as on mainnet
+                config.num_block_producer_seats = 100;
+                // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
+                // We still set it here just in case
+                config.num_block_producer_seats_per_shard =
+                    vec![100; config.shard_layout.num_shards() as usize];
+                config.block_producer_kickout_threshold = 80;
+                config.chunk_producer_kickout_threshold = 80;
+                config.validator_selection_config.num_chunk_only_producer_seats = 200;
+            }
+
+            #[cfg(feature = "protocol_feature_max_kickout_stake")]
+            if checked_feature!(
+                "protocol_feature_max_kickout_stake",
+                MaxKickoutStake,
+                protocol_version
+            ) {
+                config.validator_max_kickout_stake_perc = 30;
+            }
+        }
+        config
     }
 }
 

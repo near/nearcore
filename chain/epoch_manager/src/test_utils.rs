@@ -154,7 +154,7 @@ pub fn epoch_config(
         #[cfg(feature = "protocol_feature_max_kickout_stake")]
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(epoch_config, simple_nightshade_shard_config)
+    AllEpochConfig::new(false, epoch_config, simple_nightshade_shard_config)
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {

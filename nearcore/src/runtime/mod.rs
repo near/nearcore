@@ -418,8 +418,8 @@ impl NightshadeRuntime {
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        let shard_id = account_id_to_shard_id(account_id, shard_layout);
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
+        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
     /// Processes state update.
@@ -1133,7 +1133,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
         let epoch_manager = self.epoch_manager.read();
         let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
-        Ok(ShardConfig::new(&epoch_config))
+        Ok(ShardConfig::new(epoch_config))
     }
 
     fn get_prev_shard_ids(
@@ -1174,7 +1174,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
     fn num_total_parts(&self) -> usize {
@@ -1202,7 +1202,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<ShardId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(account_id_to_shard_id(account_id, shard_layout))
+        Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {

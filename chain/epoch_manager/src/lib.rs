@@ -141,7 +141,7 @@ impl EpochManager {
             let genesis_epoch_config =
                 epoch_manager.config.for_protocol_version(genesis_protocol_version);
             let epoch_info = proposals_to_epoch_info(
-                genesis_epoch_config,
+                &genesis_epoch_config,
                 [0; 32],
                 &EpochInfo::default(),
                 validators,
@@ -535,7 +535,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
         let (kickout, validator_block_chunk_stats) = Self::compute_kickout_info(
-            config,
+            &config,
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
@@ -601,7 +601,7 @@ impl EpochManager {
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_version);
         let next_next_epoch_info = match proposals_to_epoch_info(
-            next_next_epoch_config,
+            &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
             all_proposals,
@@ -627,11 +627,12 @@ impl EpochManager {
             Err(err) => return Err(err),
         };
         let next_next_epoch_id = EpochId(*last_block_hash);
-        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?}",
+        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?} config: {:?}",
                next_next_epoch_info.epoch_height(),
                &next_next_epoch_id,
                next_next_epoch_info.protocol_version(),
-               self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout);
+               self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
+            self.config.for_protocol_version(next_next_epoch_info.protocol_version()));
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
@@ -1403,14 +1404,14 @@ impl EpochManager {
         Ok(ShardConfig::new(epoch_config))
     }
 
-    pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<&EpochConfig, EpochError> {
+    pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         Ok(self.config.for_protocol_version(protocol_version))
     }
 
-    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<&ShardLayout, EpochError> {
+    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
+        let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
     }
 

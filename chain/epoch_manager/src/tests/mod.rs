@@ -2180,15 +2180,12 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         new_protocol_version - 1
     );
-    assert_eq!(
-        *epoch_manager.get_shard_layout(&epochs[1]).unwrap(),
-        ShardLayout::v0_single_shard(),
-    );
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::v0_single_shard(),);
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
         new_protocol_version
     );
-    assert_eq!(*epoch_manager.get_shard_layout(&epochs[2]).unwrap(), shard_layout);
+    assert_eq!(epoch_manager.get_shard_layout(&epochs[2]).unwrap(), shard_layout);
 
     // Check split shards
     // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
@@ -2233,7 +2230,7 @@ fn test_protocol_version_switch_with_many_seats() {
         #[cfg(feature = "protocol_feature_max_kickout_stake")]
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(epoch_config, None);
+    let config = AllEpochConfig::new(false, epoch_config, None);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
