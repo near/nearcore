@@ -95,7 +95,7 @@ impl GraphWithCache {
 
     // Removes mutiple edges.
     // The main benefit is that we take the cached_next_hops lock only once.
-    fn remove_edges(&mut self, edge_keys: &Vec<&EdgeKey>) {
+    fn remove_edges(&mut self, edge_keys: &[&EdgeKey]) {
         let mut removed = false;
         for key in edge_keys {
             if self.edges.remove(key).is_some() {
