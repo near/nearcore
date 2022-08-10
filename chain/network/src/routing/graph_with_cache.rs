@@ -151,6 +151,6 @@ impl GraphWithCache {
             })
             .cloned()
             .collect::<Vec<_>>();
-        self.remove_edges(&old_edges.iter().map(|key| key).collect::<Vec<_>>());
+        self.remove_edges(&old_edges.iter().collect::<Vec<_>>());
     }
 }
