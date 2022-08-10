@@ -1,4 +1,5 @@
 use std::io;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 use borsh::BorshSerialize;
@@ -91,11 +92,11 @@ impl ShardTries {
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(std::rc::Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
     }
 
     pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(std::rc::Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
     }
 
     #[allow(unused_variables)]
