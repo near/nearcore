@@ -181,7 +181,7 @@ impl NetworkState {
         let now = clock.now();
         let msg = Arc::new(PeerMessage::PeersRequest);
         for peer in self.connected_peers.read().values() {
-            if now > **peer.last_time_peer_requested.load() + REQUEST_PEERS_INTERVAL {
+            if now > peer.last_time_peer_requested.load() + REQUEST_PEERS_INTERVAL {
                 peer.send_message(msg.clone());
             }
         }
@@ -613,7 +613,6 @@ impl PeerManagerActor {
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
-    #[allow(clippy::too_many_arguments)]
     fn register_peer(
         &mut self,
         connection_state: Arc<ConnectedPeer>,
@@ -1027,21 +1026,21 @@ impl PeerManagerActor {
             return;
         }
         // Add whitelisted nodes to the safe set.
-        safe_set.extend(whitelisted_peers.into_iter());
+        safe_set.extend(whitelisted_peers);
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
         if outbound_peers.len() + self.outgoing_peers.len()
             <= self.config.minimum_outbound_peers as usize
         {
-            safe_set.extend(outbound_peers.into_iter());
+            safe_set.extend(outbound_peers);
         }
 
         // If there is not enough archival peers, add them to the safe set.
         if self.config.archive {
             let archival_peers = filter_peers(&|p| p.initial_chain_info.archival);
             if archival_peers.len() <= self.config.archival_peer_connections_lower_bound as usize {
-                safe_set.extend(archival_peers.into_iter());
+                safe_set.extend(archival_peers);
             }
         }
 
@@ -1050,7 +1049,7 @@ impl PeerManagerActor {
         let mut active_peers: Vec<Arc<ConnectedPeer>> = connected_peers
             .values()
             .filter(|p| {
-                now - **p.last_time_received_message.load() < self.config.peer_recent_time_window
+                now - p.last_time_received_message.load() < self.config.peer_recent_time_window
             })
             .cloned()
             .collect();
@@ -1338,8 +1337,8 @@ impl PeerManagerActor {
                         full_peer_info: cp.full_peer_info(),
                         received_bytes_per_sec: stats.received_bytes_per_sec,
                         sent_bytes_per_sec: stats.sent_bytes_per_sec,
-                        last_time_peer_requested: **cp.last_time_peer_requested.load(),
-                        last_time_received_message: **cp.last_time_received_message.load(),
+                        last_time_peer_requested: cp.last_time_peer_requested.load(),
+                        last_time_received_message: cp.last_time_received_message.load(),
                         connection_established_time: cp.connection_established_time,
                         peer_type: cp.peer_type,
                     }

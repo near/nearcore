@@ -18,6 +18,7 @@ use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -34,6 +35,21 @@ pub(crate) struct Stats {
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
     pub sent_bytes_per_sec: u64,
+}
+
+// AtomicCell narrows down a Mutex API to load/store calls.
+pub(crate) struct AtomicCell<T>(Mutex<T>);
+
+impl<T: Clone> AtomicCell<T> {
+    pub fn new(v: T) -> Self {
+        Self(Mutex::new(v))
+    }
+    pub fn load(&self) -> T {
+        self.0.lock().unwrap().clone()
+    }
+    pub fn store(&self, v: T) {
+        *self.0.lock().unwrap() = v;
+    }
 }
 
 /// Contains information relevant to a connected peer.
@@ -53,9 +69,9 @@ pub(crate) struct ConnectedPeer {
     pub connection_established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: ArcSwap<time::Instant>,
+    pub last_time_peer_requested: AtomicCell<time::Instant>,
     /// Last time we received a message from this peer.
-    pub last_time_received_message: ArcSwap<time::Instant>,
+    pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
     pub stats: ArcSwap<Stats>,
 
@@ -103,12 +119,7 @@ impl ConnectedPeer {
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        // Sending may fail in case a peer connection is closed in the meantime.
-        if let Err(err) =
-            self.addr.try_send(SendMessage { message: msg, context: Span::current().context() })
-        {
-            tracing::warn!("peer mailbox error: {err}");
-        }
+        self.addr.do_send(SendMessage { message: msg, context: Span::current().context() });
     }
 
     pub fn send_accounts_data(

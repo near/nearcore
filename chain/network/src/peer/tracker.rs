@@ -62,8 +62,6 @@ impl Default for Tracker {
     }
 }
 
-// TODO: these functions take directly the system time.
-// Consider migrating them to a fakeable clock.
 impl Tracker {
     pub(crate) fn increment_received(&mut self, clock: &time::Clock, size: u64) {
         self.received_bytes.record(clock, size);

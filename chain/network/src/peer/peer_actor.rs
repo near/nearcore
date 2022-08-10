@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connected_peers::{ConnectedPeer, Stats};
+use crate::peer_manager::connected_peers::{AtomicCell, ConnectedPeer, Stats};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -240,7 +240,7 @@ impl PeerActor {
                 .as_mut()
                 .unwrap()
                 .last_time_peer_requested
-                .store(Arc::new(self.clock.now()));
+                .store(self.clock.now());
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -581,8 +581,7 @@ impl PeerActor {
     /// Hook called on every valid message received from this peer from the network.
     fn on_receive_message(&mut self) {
         if let Some(cs) = &self.connection_state {
-            let now = self.clock.now();
-            cs.last_time_received_message.store(Arc::new(now));
+            cs.last_time_received_message.store(self.clock.now());
         }
     }
 
@@ -859,8 +858,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
                     })),
-                    last_time_peer_requested: ArcSwap::new(Arc::new(self.clock.now())),
-                    last_time_received_message: ArcSwap::new(Arc::new(self.clock.now())),
+                    last_time_peer_requested: AtomicCell::new(self.clock.now()),
+                    last_time_received_message: AtomicCell::new(self.clock.now()),
                     connection_established_time: self.clock.now(),
                     throttle_controller: self.throttle_controller.clone(),
                     send_accounts_data_demux: demux::Demux::new(
