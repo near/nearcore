@@ -263,8 +263,8 @@ mod tests {
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
-    use near_store::set_account;
     use near_store::test_utils::create_tries;
+    use near_store::{set_account, Trie};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use crate::near_primitives::shard_layout::ShardUId;
@@ -316,24 +316,50 @@ mod tests {
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
     }
 
+    fn prepare_state_change(
+        initial_state: impl FnOnce(&mut TrieUpdate),
+        final_state: impl FnOnce(&mut TrieUpdate),
+    ) -> TrieUpdate {
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+
+        // Commit initial state
+        let root = {
+            let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
+            initial_state(&mut trie_update);
+            trie_update.commit(StateChangeCause::NotWritableToDisk);
+            let trie_changes = trie_update.finalize().unwrap().0;
+            let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+            store_update.commit().unwrap();
+            root
+        };
+
+        // Prepare final state
+        {
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), root);
+            final_state(&mut trie_update);
+            trie_update.commit(StateChangeCause::NotWritableToDisk);
+            trie_update
+        }
+    }
+
     #[test]
     fn test_check_balance_refund() {
-        let tries = create_tries();
-        let root = MerkleHash::default();
         let account_id = alice_account();
 
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let initial_account = account_new(initial_balance, hash(&[]));
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        initial_state.commit(StateChangeCause::NotWritableToDisk);
-
-        let mut final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let final_account = account_new(initial_balance + refund_balance, hash(&[]));
-        set_account(&mut final_state, account_id.clone(), &final_account);
-        final_state.commit(StateChangeCause::NotWritableToDisk);
+        let final_state = prepare_state_change(
+            |trie_update| {
+                let initial_account = account_new(initial_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &initial_account);
+            },
+            |trie_update| {
+                let final_account = account_new(initial_balance + refund_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &final_account);
+            },
+        );
 
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
@@ -351,8 +377,6 @@ mod tests {
 
     #[test]
     fn test_check_balance_tx_to_receipt() {
-        let tries = create_tries();
-        let root = MerkleHash::default();
         let account_id = alice_account();
 
         let initial_balance = TESTING_INIT_BALANCE / 2;
@@ -366,19 +390,21 @@ mod tests {
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let initial_account = account_new(initial_balance, hash(&[]));
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let final_account = account_new(
-            initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
-                + contract_reward,
-            hash(&[]),
+        let final_state = prepare_state_change(
+            |trie_update| {
+                let initial_account = account_new(initial_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &initial_account);
+            },
+            |trie_update| {
+                let final_account = account_new(
+                    initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
+                        + contract_reward,
+                    hash(&[]),
+                );
+                set_account(trie_update, account_id.clone(), &final_account);
+            },
         );
-        set_account(&mut final_state, account_id.clone(), &final_account);
-        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
