@@ -418,16 +418,23 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self
+            .tries
+            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self.tries.get_view_trie_for_shard(
+            ShardUId { version: 0, shard_id: shard_id as u32 },
+            state_root,
+        ))
     }
 
     fn verify_block_vrf(

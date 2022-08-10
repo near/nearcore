@@ -1145,7 +1145,6 @@ impl Runtime {
     pub fn apply(
         &self,
         trie: Trie,
-        root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
@@ -1160,8 +1159,8 @@ impl Runtime {
         .entered();
 
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let initial_state = TrieUpdate::new(trie.clone());
+        let mut state_update = TrieUpdate::new(trie.clone());
 
         let mut stats = ApplyStats::default();
 
@@ -1248,7 +1247,7 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie.get_trie_nodes_count(),
+                node_counter = ?state_update.trie().get_trie_nodes_count(),
                 predecessor = %receipt.predecessor_id,
                 receiver = %receipt.receiver_id,
                 id = %receipt.receipt_id,
@@ -1263,7 +1262,7 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = ?state_update.trie.get_trie_nodes_count());
+            tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
@@ -1409,7 +1408,7 @@ impl Runtime {
                     state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(state_update, account_id, &code);
@@ -1591,8 +1590,7 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &[],
@@ -1621,8 +1619,7 @@ mod tests {
 
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &Some(validator_accounts_update),
                 &apply_state,
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
@@ -1650,8 +1647,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1693,8 +1689,7 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1744,8 +1739,7 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1804,8 +1798,7 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
@@ -1907,8 +1900,7 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[0..2],
@@ -1956,8 +1948,7 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[2..3],
@@ -1997,8 +1988,7 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[3..4],
@@ -2046,8 +2036,7 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[4..5],
@@ -2080,8 +2069,7 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[5..6],
@@ -2119,8 +2107,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2179,8 +2166,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2249,8 +2235,7 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2286,8 +2271,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2328,8 +2312,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
@@ -2364,8 +2347,7 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,

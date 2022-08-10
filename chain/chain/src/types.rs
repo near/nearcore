@@ -263,13 +263,19 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
     /// `shard_id` is at.
-    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error>;
+    fn get_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: StateRoot,
+    ) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
         prev_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
     fn verify_block_vrf(

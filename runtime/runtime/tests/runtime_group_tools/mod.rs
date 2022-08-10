@@ -117,8 +117,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard()),
-                self.root,
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
                 &None,
                 &self.apply_state,
                 receipts,

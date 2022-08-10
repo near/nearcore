@@ -426,7 +426,6 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
-        state_root: CryptoHash,
         shard_id: ShardId,
         block_height: BlockHeight,
         block_hash: &CryptoHash,
@@ -556,7 +555,6 @@ impl NightshadeRuntime {
             .runtime
             .apply(
                 trie,
-                state_root,
                 &validator_accounts_update,
                 &apply_state,
                 receipts,
@@ -718,18 +716,24 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     // TODO (#7327): Make usage of flat state conditional on prev_hash and call `get_trie_for_shard` if this is not the
     // case. Current implementation never creates flat state if `protocol_feature_flat_state` is not enabled.
-    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
+    fn get_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: StateRoot,
+    ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_with_flat_state_for_shard(shard_uid))
+        Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
     }
 
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
         prev_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_view_trie_for_shard(shard_uid))
+        Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
     fn verify_block_vrf(
@@ -1424,7 +1428,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
+        let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root.clone())?;
 
         // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
         if generate_storage_proof {
@@ -1433,7 +1437,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
-            *state_root,
             shard_id,
             height,
             block_hash,
@@ -1477,10 +1480,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage);
+        let trie = Trie::from_recorded_storage(partial_storage, state_root.clone());
         self.process_state_update(
             trie,
-            *state_root,
             shard_id,
             height,
             block_hash,
@@ -1656,8 +1658,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<u8>, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie = self.tries.get_view_trie_for_shard(shard_uid);
-        let result = match trie.get_trie_nodes_for_part(part_id, state_root) {
+        let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());
+        let result = match trie.get_trie_nodes_for_part(part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
@@ -1721,7 +1723,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let trie = self.tries.get_view_trie_for_shard(shard_uid);
+        let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
             .get_split_shard_uids(shard_id)
@@ -1743,12 +1745,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             new_shard_uid
         };
 
-        let state_root_node = trie.retrieve_root_node(state_root)?;
+        let state_root_node = trie.retrieve_root_node()?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
-            let trie_items =
-                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), state_root)?;
+            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
@@ -1796,8 +1797,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         self.tries
-            .get_view_trie_for_shard(shard_uid)
-            .retrieve_root_node(state_root)
+            .get_view_trie_for_shard(shard_uid, state_root.clone())
+            .retrieve_root_node()
             .map_err(Into::into)
     }
 
@@ -3492,10 +3493,14 @@ mod test {
     #[test]
     fn test_flat_state_usage() {
         let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
-        let trie = env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
+        let trie =
+            env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT).unwrap();
         assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
 
-        let trie = env.runtime.get_view_trie_for_shard(0, &env.head.prev_block_hash).unwrap();
+        let trie = env
+            .runtime
+            .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
+            .unwrap();
         assert!(trie.flat_state.is_none());
     }
 
@@ -3531,16 +3536,17 @@ mod test {
         // - using view state, which should never use flat state
         let head_prev_block_hash = env.head.prev_block_hash;
         let state_root = env.state_roots[0];
-        let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash).unwrap();
-        let view_state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash).unwrap();
+        let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+        let view_state =
+            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
         let trie_key = TrieKey::Account { account_id: validators[1].clone() };
         let key = trie_key.to_vec();
 
-        let state_value = state.get(&state_root, &key).unwrap().unwrap();
+        let state_value = state.get(&key).unwrap().unwrap();
         let account = Account::try_from_slice(&state_value).unwrap();
         assert_eq!(account.amount(), TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 10);
 
-        let view_state_value = view_state.get(&state_root, &key).unwrap().unwrap();
+        let view_state_value = view_state.get(&key).unwrap().unwrap();
         assert_eq!(state_value, view_state_value);
     }
 }
