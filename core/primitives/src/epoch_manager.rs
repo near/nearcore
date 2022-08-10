@@ -37,7 +37,6 @@ pub struct EpochConfig {
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
     /// Max ratio of validators that we can kick out in an epoch
-    #[cfg(feature = "protocol_feature_max_kickout_stake")]
     pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
@@ -156,10 +155,8 @@ impl AllEpochConfig {
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     #[default(Rational32::new(160, 1_000_000))]
@@ -866,25 +863,23 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed = if checked_feature!(
-                        "stable",
-                        SynchronizeBlockChunkProduction,
-                        protocol_version
-                    ) && !checked_feature!(
-                        "protocol_feature_chunk_only_producers",
-                        ChunkOnlyProducers,
-                        protocol_version
-                    ) {
-                        // This is same seed that used for determining block producer
-                        Self::block_produce_seed(height, &v3.rng_seed)
-                    } else {
-                        // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
-                        let mut buffer = [0u8; 48];
-                        buffer[0..32].copy_from_slice(&v3.rng_seed);
-                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                        buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-                        hash(&buffer).0
-                    };
+                    let seed =
+                        if checked_feature!(
+                            "stable",
+                            SynchronizeBlockChunkProduction,
+                            protocol_version
+                        ) && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
+                        {
+                            // This is same seed that used for determining block producer
+                            Self::block_produce_seed(height, &v3.rng_seed)
+                        } else {
+                            // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+                            let mut buffer = [0u8; 48];
+                            buffer[0..32].copy_from_slice(&v3.rng_seed);
+                            buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+                            hash(&buffer).0
+                        };
                     let shard_id = shard_id as usize;
                     v3.chunk_producers_settlement[shard_id]
                         [v3.chunk_producers_sampler[shard_id].sample(seed)]

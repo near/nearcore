@@ -2712,7 +2712,6 @@ mod test {
 
     // Test that chunk parts are forwarded to chunk only producers iff they are the next chunk producer
     // Also test that chunk only producers wait for forwarded chunks iff they are the next chunk producer
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[test]
     fn test_chunk_forward_chunk_only_producers() {
         init_test_logger();

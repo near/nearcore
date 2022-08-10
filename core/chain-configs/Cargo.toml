@@ -26,5 +26,3 @@ near-primitives = { path = "../primitives" }
 
 [features]
 default = []
-protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
-protocol_feature_max_kickout_stake = ["near-primitives/protocol_feature_max_kickout_stake"]

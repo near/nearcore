@@ -1,4 +1,3 @@
-#[cfg(feature = "protocol_feature_max_kickout_stake")]
 use num_rational::Rational64;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -8,7 +7,6 @@ use near_cache::SyncLruCache;
 use primitive_types::U256;
 use tracing::{debug, warn};
 
-#[cfg(feature = "protocol_feature_max_kickout_stake")]
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -40,7 +38,6 @@ use near_primitives::shard_layout::ShardLayout;
 
 mod proposals;
 mod reward_calculator;
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod shard_assignment;
 pub mod test_utils;
 #[cfg(test)]
@@ -274,12 +271,7 @@ impl EpochManager {
         // exempted_validators.
         #[allow(unused_mut)]
         let mut exempted_validators = HashSet::new();
-        #[cfg(feature = "protocol_feature_max_kickout_stake")]
-        if checked_feature!(
-            "protocol_feature_max_kickout_stake",
-            MaxKickoutStake,
-            epoch_info.protocol_version()
-        ) {
+        if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
             let mut sorted_validators = validator_block_chunk_stats
                 .iter()
@@ -390,11 +382,8 @@ impl EpochManager {
                 .insert(account_id.clone(), BlockChunkValidatorStats { block_stats, chunk_stats });
         }
 
-        #[cfg(feature = "protocol_feature_max_kickout_stake")]
         let exempt_perc =
             100_u8.checked_sub(config.validator_max_kickout_stake_perc).unwrap_or_default();
-        #[cfg(not(feature = "protocol_feature_max_kickout_stake"))]
-        let exempt_perc = 0;
         let exempted_validators = Self::compute_exempted_kickout(
             epoch_info,
             &validator_block_chunk_stats,
