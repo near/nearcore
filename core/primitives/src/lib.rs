@@ -18,7 +18,7 @@ pub mod network;
 pub mod rand;
 pub mod receipt;
 pub mod runtime;
-pub mod sandbox_state_patch;
+pub mod sandbox;
 pub mod shard_layout;
 pub mod sharding;
 pub mod state;

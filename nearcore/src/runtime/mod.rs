@@ -28,7 +28,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
@@ -440,7 +440,7 @@ impl NightshadeRuntime {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        state_patch: Option<SandboxStatePatch>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -1426,7 +1426,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: Option<SandboxStatePatch>,
+        states_to_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root.clone())?;
 
@@ -1497,7 +1497,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             random_value,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            None,
+            Default::default(),
         )
     }
 
@@ -2081,7 +2081,7 @@ mod test {
                     CryptoHash::default(),
                     true,
                     false,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

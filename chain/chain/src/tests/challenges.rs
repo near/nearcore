@@ -51,7 +51,7 @@ fn challenges_new_head_prev() {
         &Provenance::NONE,
         &mut vec![],
         Clock::instant(),
-        None,
+        Default::default(),
     ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {

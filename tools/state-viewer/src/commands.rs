@@ -435,7 +435,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                None,
+                Default::default(),
             )
             .unwrap()
     } else {
@@ -459,7 +459,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 false,
                 false,
-                None,
+                Default::default(),
             )
             .unwrap()
     };
