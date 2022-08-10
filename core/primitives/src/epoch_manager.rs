@@ -78,10 +78,18 @@ impl ShardConfig {
     }
 }
 
+/// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
+/// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
+/// and returns the EpochConfig that should be used for this protocol version.
 #[derive(Clone)]
 pub struct AllEpochConfig {
+    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
+    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
     use_production_config: bool,
+    /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
+    /// ShardConfig for the simple nightshade upgrade. Also a temporary implementation that allow us
+    /// to upgrade sharding configuration on mainnet and testnet
     simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
@@ -95,6 +103,8 @@ impl AllEpochConfig {
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
+        // if SimpleNightshade is enabled, we override genesis shard config with
+        // the simple nightshade shard config
         let mut config = self.genesis_epoch_config.clone();
         if checked_feature!("stable", SimpleNightshade, protocol_version) {
             if let Some(ShardConfig {
@@ -111,6 +121,7 @@ impl AllEpochConfig {
             }
         }
         if self.use_production_config {
+            // If chunk only producers
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             if checked_feature!(
                 "protocol_feature_chunk_only_producers",
@@ -136,7 +147,7 @@ impl AllEpochConfig {
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    #[default(200)]
+    #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(1)]

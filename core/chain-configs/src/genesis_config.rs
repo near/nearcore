@@ -69,7 +69,7 @@ fn default_minimum_validators_per_shard() -> u64 {
 
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
-    200
+    300
 }
 
 fn default_use_production_config() -> bool {
@@ -179,7 +179,7 @@ pub struct GenesisConfig {
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(200)]
+    #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -197,6 +197,9 @@ pub struct GenesisConfig {
     pub minimum_stake_ratio: Rational32,
     #[serde(default = "default_use_production_config")]
     #[default(false)]
+    /// This is only for test purposes. We hard code some configs for mainnet and testnet
+    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
+    /// If set to true, the node will use the same config override path as mainnet and testnet.
     pub use_production_config: bool,
 }
 
