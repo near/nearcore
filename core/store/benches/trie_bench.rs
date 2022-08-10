@@ -23,7 +23,7 @@ fn trie_lookup(bench: &mut Bencher) {
         }
         let changed_keys =
             changes.iter().map(|(key, _value)| key.clone()).collect::<Vec<Vec<u8>>>();
-        let trie_changes = trie.update(changes.into_iter()).unwrap();
+        let trie_changes = trie.update(changes).unwrap();
         let (state_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
         state_update.commit().expect("Failed to commit");
 
@@ -49,8 +49,7 @@ fn trie_update(bench: &mut Bencher) {
     }
 
     bench.iter(|| {
-        let mut this_changes = changes.clone();
-        let _ = trie.update(this_changes.drain(..));
+        let _ = trie.update(changes.iter().cloned());
     });
 }
 
