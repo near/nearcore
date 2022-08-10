@@ -123,8 +123,8 @@ fn do_fork(
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
-            let trie = tries.get_trie_for_shard(shard_uid);
-            let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
+            let trie = tries.get_trie_for_shard(shard_uid, state_root.clone());
+            let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
@@ -170,7 +170,6 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut rng = rand::thread_rng();
     let shard_to_check_trie = rng.gen_range(0, num_shards);
     let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
-    let trie1 = tries1.get_trie_for_shard(shard_uid);
     let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![];
     states1.push((
@@ -194,11 +193,12 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    chain1.clear_data(tries1, &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
+    chain1
+        .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
+        .unwrap();
 
     let mut chain2 = get_chain(num_shards);
     let tries2 = chain2.runtime_adapter.get_tries();
-    let trie2 = tries2.get_trie_for_shard(shard_uid);
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 51;
@@ -227,15 +227,16 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        assert!(trie1.iter(&state_root1).is_ok());
+        tries1.get_trie_for_shard(shard_uid, state_root1.clone()).iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
             let mut store_update2 = chain2.mut_store().store_update();
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
-            let trie_changes2 = trie2
-                .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
+            let trie_changes2 = tries2
+                .get_trie_for_shard(shard_uid, state_root2.clone())
+                .update(changes1[shard_to_check_trie as usize].iter().cloned())
                 .unwrap();
             // i == gc_height is the only height should be processed here
             if block1.header().height() > gc_height || i == gc_height {
@@ -283,15 +284,15 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                     block1.hash(),
                     block1.header().height()
                 );
-                assert!(trie1.iter(&state_root1).is_ok());
-                assert!(trie2.iter(&state_root1).is_ok());
-                let a = trie1
-                    .iter(&state_root1)
+                let a = tries1
+                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
-                let b = trie2
-                    .iter(&state_root1)
+                let b = tries2
+                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();

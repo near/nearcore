@@ -46,10 +46,10 @@ fn process_blocks_with_storage_usage_fix(
         let trie = Rc::new(
             env.clients[0]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash())
+                .get_trie_for_shard(0, block.header().prev_hash(), root)
                 .unwrap(),
         );
-        let state_update = TrieUpdate::new(trie.clone(), root);
+        let state_update = TrieUpdate::new(trie.clone());
         use near_primitives::account::Account;
         let mut account_test1_raw = state_update
             .get(&TrieKey::Account { account_id: "test1".parse().unwrap() })
