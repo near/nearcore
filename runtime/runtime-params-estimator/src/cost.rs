@@ -354,7 +354,7 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-    /// Estimates `ed25519_verify_base`, which covers the full cost of the host
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
     /// function `ed25519_verify` to verify an ED25519 signatures.
     Ed25519VerifyBase,
     /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
