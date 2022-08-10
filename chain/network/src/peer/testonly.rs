@@ -106,16 +106,17 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
             PeerToManagerMsg::RegisterPeer(msg) => {
                 let this_edge_info = match &msg.this_edge_info {
                     Some(info) => info.clone(),
-                    None => {
-                        self.cfg.partial_edge_info(&msg.peer_info.id, msg.other_edge_info.nonce)
-                    }
+                    None => self.cfg.partial_edge_info(
+                        &msg.connection_state.peer_info.id,
+                        msg.connection_state.partial_edge_info.nonce,
+                    ),
                 };
                 let edge = Edge::new(
                     self.cfg.id(),
-                    msg.peer_info.id.clone(),
+                    msg.connection_state.peer_info.id.clone(),
                     this_edge_info.nonce,
                     this_edge_info.signature.clone(),
-                    msg.other_edge_info.signature,
+                    msg.connection_state.partial_edge_info.signature.clone(),
                 );
                 self.event_sink.push(Event::HandshakeDone(edge.clone()));
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept(
@@ -172,7 +173,7 @@ impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
-            .send(SendMessage { message, context: Span::current().context() })
+            .send(SendMessage { message: Arc::new(message), context: Span::current().context() })
             .await
             .unwrap();
     }

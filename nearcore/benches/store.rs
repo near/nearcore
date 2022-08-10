@@ -41,12 +41,13 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
 
-        let state_root = state_roots[shard_id];
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = trie.iter(&state_root).unwrap();
-
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_roots[shard_id])
+            .unwrap();
         let start = Instant::now();
         let num_items_read = trie
+            .iter()
+            .unwrap()
             .enumerate()
             .map(|(i, _)| {
                 if i % 500 == 0 {

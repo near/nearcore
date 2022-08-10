@@ -53,6 +53,7 @@ protocol_feature_chunk_only_producers = [
   "near-chain-configs/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
