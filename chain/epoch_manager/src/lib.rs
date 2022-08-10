@@ -535,7 +535,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(epoch_info.protocol_version());
         // Compute kick outs for validators who are offline.
         let (kickout, validator_block_chunk_stats) = Self::compute_kickout_info(
-            config,
+            &config,
             &epoch_info,
             &block_validator_tracker,
             &chunk_validator_tracker,
