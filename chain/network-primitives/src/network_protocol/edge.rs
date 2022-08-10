@@ -244,12 +244,8 @@ impl Edge {
     }
 
     pub fn nonce_to_utc(nonce_as_i64: i64) -> Option<time::Utc> {
-        time::Utc::from_unix_timestamp(nonce_as_i64).ok().and_then(|timestamp| {
-            if timestamp > *EDGE_MIN_TIMESTAMP_NONCE {
-                Some(timestamp)
-            } else {
-                None
-            }
+        time::Utc::from_unix_timestamp(nonce_as_i64).ok().filter(|timestamp| {
+            timestamp > *EDGE_MIN_TIMESTAMP_NONCE
         })
     }
 }
