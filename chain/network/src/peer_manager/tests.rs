@@ -12,7 +12,7 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
-use near_network_primitives::types::{Ping, RoutedMessageBody};
+use near_network_primitives::types::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
@@ -182,7 +182,7 @@ async fn test_nonces() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
+    let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     //let mut total_edges = vec![];

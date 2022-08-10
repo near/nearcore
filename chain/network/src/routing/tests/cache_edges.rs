@@ -5,6 +5,7 @@ use crate::store::testonly::Component;
 use crate::testonly::make_rng;
 use near_crypto::Signature;
 use near_network_primitives::time;
+use near_network_primitives::types::EDGE_MIN_TIMESTAMP_NONCE;
 use near_network_primitives::types::Edge;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
@@ -210,7 +211,7 @@ fn components_nonces_are_tracked_in_storage() {
     );
 }
 
-fn to_odd_number(value: u64) -> u64 {
+fn to_active_nonce(value: u64) -> u64 {
     if value % 2 == 1 {
         return value;
     }
@@ -220,9 +221,10 @@ fn to_odd_number(value: u64) -> u64 {
 #[test]
 fn expired_edges() {
     let mut test = RoutingTableTest::new();
+    test.clock.set_utc(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let mut actor = test.new_actor();
     let p1 = test.make_peer();
-    let current_odd_nonce = to_odd_number(test.clock.now_utc().unix_timestamp() as u64);
+    let current_odd_nonce = to_active_nonce(test.clock.now_utc().unix_timestamp() as u64);
 
     let e1 = edge(&test.me(), &p1, current_odd_nonce);
 
@@ -249,7 +251,7 @@ fn expired_edges() {
 
     // let's create a removal edge
     let e1v2 =
-        edge(&test.me(), &p1, to_odd_number(test.clock.now_utc().unix_timestamp() as u64) + 1);
+        edge(&test.me(), &p1, to_active_nonce(test.clock.now_utc().unix_timestamp() as u64) + 1);
     actor.add_verified_edges(vec![e1v2.clone()]);
     test.check(&[e1v2.clone()], &[]);
 

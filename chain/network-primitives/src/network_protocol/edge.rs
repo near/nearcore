@@ -3,13 +3,15 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use once_cell::sync::Lazy;
+
 
 use crate::time;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
-// This value is also couple days before the FakeClock UTC start (to make it easier in unittests).
-pub const EDGE_MIN_TIMESTAMP_NONCE: u64 = 88108233;
+// This value is set to August 8, 2022.
+pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> = Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -227,20 +229,28 @@ impl Edge {
 
     // Checks if edge was created before a given timestamp.
     pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
-        if self.nonce() < EDGE_MIN_TIMESTAMP_NONCE {
-            // Old-style nonce - for now, assume that they are always fresh.
-            return false;
+        if let Ok(nonce_as_i64) = i64::try_from(self.nonce()) {
+            if let Some(nonce_timestamp) = Edge::nonce_to_utc(nonce_as_i64) {
+                nonce_timestamp < utc_timestamp
+            } else {
+                // Old-style nonce - for now, assume that they are always fresh.
+                false
+            }
+        } else {
+            // Nonce that is overflowing i64. For now, let's keep it in memory (we'll remove it together with Old-style nonces).
+            false 
         }
-        return self.nonce() < utc_timestamp.unix_timestamp() as u64;
     }
 
 
     pub fn nonce_to_utc(nonce_as_i64: i64) -> Option<time::Utc> {
-        if nonce_as_i64 > (EDGE_MIN_TIMESTAMP_NONCE as i64) {
-            time::Utc::from_unix_timestamp(nonce_as_i64).ok()
-        } else {
-            None
-        }
+        time::Utc::from_unix_timestamp(nonce_as_i64).ok().and_then(|timestamp| {
+            if timestamp > *EDGE_MIN_TIMESTAMP_NONCE {
+                Some(timestamp)
+            } else {
+                None
+            }
+        })
     }
 
 }
