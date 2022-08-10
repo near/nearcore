@@ -317,7 +317,8 @@ pub fn start_with_config_and_synchronization(
             "Rosetta RPC",
             start_rosetta_rpc(
                 rosetta_rpc_config,
-                Arc::new(config.genesis.clone()),
+                config.genesis.clone(),
+                genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client.clone(),
             ),
