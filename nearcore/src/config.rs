@@ -1225,6 +1225,7 @@ pub fn load_config(
         let signer = InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
             format!("Failed initializing validator signer from {}", validator_file.display())
         })?;
+        assert!(!config.tracked_shards.is_empty(), "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
         Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)
     } else {
         None
