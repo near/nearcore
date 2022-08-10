@@ -91,8 +91,9 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(ShardUId::single_shard()),
-                    client.state_root,
+                    client
+                        .tries
+                        .get_trie_for_shard(ShardUId::single_shard(), client.state_root.clone()),
                     &None,
                     &apply_state,
                     &receipts,

@@ -44,9 +44,10 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = trie.iter(state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                 println!("{}", state_record);
@@ -220,12 +221,14 @@ pub(crate) fn dump_account_storage(
     let (runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(state_root, &key.to_vec());
+        let item = trie.get(&key.to_vec());
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
