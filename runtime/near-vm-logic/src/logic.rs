@@ -2788,6 +2788,10 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Verify an ED25519 signature given a message and a public key.
+    /// # Returns
+    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
+    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
+    ///
     /// # Cost
     ///
     /// `ed25519_verify_base + read_register_byte * (num_bytes_signature + num_bytes_message)`
