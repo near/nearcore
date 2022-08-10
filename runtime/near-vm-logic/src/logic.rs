@@ -2790,7 +2790,7 @@ impl<'a> VMLogic<'a> {
     /// Verify an ED25519 signature given a message and a public key.
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + ed25519_verify_base + ed25519_verify_byte * num_bytes`
+    /// `ed25519_verify_base + read_register_byte * (num_bytes_signature + num_bytes_message)`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,

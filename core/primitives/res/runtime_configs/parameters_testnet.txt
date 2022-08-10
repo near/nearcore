@@ -90,6 +90,7 @@ wasm_keccak512_byte: 36_649_701
 wasm_ripemd160_base: 853_675_086
 wasm_ripemd160_block: 680_107_584
 wasm_ecrecover_base: 3_365_369_625_000
+# both ed25519_verify_base and ed25519_verify_byte have NON-FINAL numbers (needs fine tuning)
 wasm_ed25519_verify_base: 3_365_369_625_000
 wasm_ed25519_verify_byte: 291_580_479
 wasm_log_base: 3_543_313_050

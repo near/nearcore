@@ -61,7 +61,7 @@ extern "C" {
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64,
-    ) -> u32;
+    ) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
