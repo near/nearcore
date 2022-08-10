@@ -141,7 +141,7 @@ impl ViewClientActor {
     }
 
     fn maybe_block_id_to_block_header(
-        &mut self,
+        &self,
         block_id: MaybeBlockId,
     ) -> Result<BlockHeader, near_chain::Error> {
         match block_id {
