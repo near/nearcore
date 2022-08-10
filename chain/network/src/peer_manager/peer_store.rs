@@ -101,7 +101,7 @@ impl PeerStore {
         for (peer_id, peer_state) in store.list_peer_states()? {
             // If it’s already banned, keep it banned.  Otherwise, it’s not connected.
             let status = if peer_state.status.is_banned() {
-                if !connect_only_to_boot_nodes && boot_nodes_set.contains(&peer_id) {
+                if connect_only_to_boot_nodes && boot_nodes_set.contains(&peer_id) {
                     // Give boot node another chance.
                     KnownPeerStatus::NotConnected    
                 } else {

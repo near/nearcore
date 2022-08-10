@@ -66,6 +66,27 @@ fn test_unconnected_peer() {
     }
 }
 
+#[test]
+fn test_unconnected_peer_only_boot_nodes() {
+    let clock = time::FakeClock::default();
+    let (_tmp_dir, opener) = Store::test_opener();
+    let peer_info_a = gen_peer_info(0);
+    
+    let peer_in_store = gen_peer_info(3);
+
+    let boot_nodes = vec![peer_info_a.clone()];
+    {
+        let store = store::Store::from(opener.open());
+        let mut peer_store =
+            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
+        //peer_store.peer_connected(&clock.clock(), &peer_in_store).unwrap();
+        peer_store.add_peer(&clock.clock(), peer_in_store, TrustLevel::Direct).unwrap();
+        peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
+
+        assert!(peer_store.unconnected_peer(|_| false).is_some());
+    }
+}
+
 fn check_exist(
     peer_store: &PeerStore,
     peer_id: &PeerId,
