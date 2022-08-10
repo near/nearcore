@@ -23,6 +23,8 @@ pub struct GraphWithCache {
     /// Peers of this node, which are on any shortest path to the given node.
     /// Derived from graph.
     cached_next_hops: Mutex<Option<Arc<NextHopTable>>>,
+    // Don't allow edges that are before this time (if set)
+    prune_edges_before: Option<time::Utc>
 }
 
 impl GraphWithCache {
@@ -31,6 +33,7 @@ impl GraphWithCache {
             graph: routing::Graph::new(my_peer_id),
             edges: Default::default(),
             cached_next_hops: Default::default(),
+            prune_edges_before: None,
         }
     }
 
@@ -61,6 +64,13 @@ impl GraphWithCache {
         if self.has(&edge) {
             return false;
         }
+        if let Some(edge_limit) = self.prune_edges_before {
+            // Don't add edges that are older than the limit.
+            if edge.is_edge_older_than(edge_limit) {
+                return false;
+            }
+        }
+
         let key = edge.key();
         // Add the edge.
         match edge.edge_type() {
@@ -128,6 +138,7 @@ impl GraphWithCache {
     }
 
     pub fn prune_old_edges(&mut self, prune_edges_older_than: time::Utc) {
+        self.prune_edges_before = Some(prune_edges_older_than);
         let old_edges = self
             .edges()
             .iter()

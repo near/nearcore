@@ -224,20 +224,33 @@ fn expired_edges() {
     test.clock.set_utc(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let mut actor = test.new_actor();
     let p1 = test.make_peer();
+    let p2 = test.make_peer();
     let current_odd_nonce = to_active_nonce(test.clock.now_utc().unix_timestamp() as u64);
 
     let e1 = edge(&test.me(), &p1, current_odd_nonce);
 
-    // Add an active edge.
-    actor.add_verified_edges(vec![e1.clone()]);
-    test.check(&[e1.clone()], &[]);
+    let old_e2 = edge(&test.me(), &p2, current_odd_nonce - 100);
+    let still_old_e2 = edge(&test.me(), &p2, current_odd_nonce - 90);
+    let fresh_e2 = edge(&test.me(), &p2, current_odd_nonce);
 
-    // Update RT with pruning. NOOP, since p1 is reachable and node is fresh.
+    // Add an active edge.
+    actor.add_verified_edges(vec![e1.clone(), old_e2.clone()]);
+    test.check(&[e1.clone(), old_e2.clone()], &[]);
+
+    // Update RT with pruning. e1 should stay - as it is fresh, but old_e2 should be removed.
     actor.update_routing_table(
         Some(test.clock.now()),
         Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
     );
     test.check(&[e1.clone()], &[]);
+
+    // Adding 'still old' edge to e2 should fail (as it is older than the last prune_edges_older_than)
+    actor.add_verified_edges(vec![still_old_e2.clone()]);
+    test.check(&[e1.clone()], &[]);
+
+    // But adding the fresh edge should work.
+    actor.add_verified_edges(vec![fresh_e2.clone()]);
+    test.check(&[e1.clone(), fresh_e2.clone()], &[]);
 
     // Advance 20 seconds:
     test.clock.advance(20 * SEC);
