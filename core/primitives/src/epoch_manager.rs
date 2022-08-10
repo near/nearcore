@@ -137,6 +137,15 @@ impl AllEpochConfig {
                 config.chunk_producer_kickout_threshold = 80;
                 config.validator_selection_config.num_chunk_only_producer_seats = 200;
             }
+
+            #[cfg(feature = "protocol_feature_max_kickout_stake")]
+            if checked_feature!(
+                "protocol_feature_max_kickout_stake",
+                ChunkOnlyProducers,
+                protocol_version
+            ) {
+                config.validator_max_kickout_stake_perc = 30;
+            }
         }
         config
     }

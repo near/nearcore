@@ -78,7 +78,7 @@ fn default_use_production_config() -> bool {
 
 #[cfg(feature = "protocol_feature_max_kickout_stake")]
 fn default_max_kickout_stake_threshold() -> u8 {
-    30
+    100
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
@@ -188,7 +188,8 @@ pub struct GenesisConfig {
     pub minimum_validators_per_shard: NumSeats,
     #[cfg(feature = "protocol_feature_max_kickout_stake")]
     #[serde(default = "default_max_kickout_stake_threshold")]
-    #[default(30)]
+    #[default(100)]
+    /// Max stake percentage of the validators we will kick out.
     pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
