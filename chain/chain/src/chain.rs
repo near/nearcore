@@ -446,8 +446,8 @@ pub struct Chain {
     /// meantime.
     ///
     /// Note that without `sandbox` feature enabled, `SandboxStatePatch` is
-    /// a unit type.  All methods of the type are no-ops which behave as if the
-    /// object was empty and could not hold any records (which it cannot).  It’s
+    /// a ZST.  All methods of the type are no-ops which behave as if the object
+    /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
 }
