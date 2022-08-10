@@ -160,7 +160,8 @@ impl Cache {
     pub fn set_keys(&self, keys: Arc<AccountKeys>) -> bool {
         let mut inner = self.inner.write();
         // Skip further processing if the key set didn't change.
-        if Arc::ptr_eq(&keys, &inner.keys) || keys == inner.keys {
+        // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
+        if keys == inner.keys {
             return false;
         }
         inner.data.retain(|k, _| keys.contains_key(k));
