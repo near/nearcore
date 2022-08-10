@@ -259,7 +259,7 @@ impl PeerActor {
         let _span = tracing::trace_span!(
             target: "network",
             "send_message_with_encoding",
-            msg_type = msg_type)
+            msg_type)
         .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
@@ -596,6 +596,7 @@ impl PeerActor {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
         self.tracker.increment_received(msg_len as u64);
+        tracing::trace!(target: "network", msg_len);
     }
 
     /// Check whenever we exceeded number of transactions we got since last block.
