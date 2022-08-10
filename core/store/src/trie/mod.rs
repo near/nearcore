@@ -100,7 +100,7 @@ pub struct TrieNodeWithSize {
 
 impl TrieNodeWithSize {
     fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
-        TrieNodeWithSize { node: TrieNode::new(rc_node.node), memory_usage: rc_node.memory_usage }
+        TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
     }
 
     fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
@@ -606,10 +606,9 @@ impl Trie {
     pub fn retrieve_root_node(&self, root: &StateRoot) -> Result<StateRootNode, StorageError> {
         match self.retrieve_raw_node(root)? {
             None => Ok(StateRootNode::empty()),
-            Some((bytes, node)) => Ok(StateRootNode {
-                data: bytes.to_vec(),
-                memory_usage: TrieNodeWithSize::from_raw(node).memory_usage,
-            }),
+            Some((bytes, node)) => {
+                Ok(StateRootNode { data: bytes.to_vec(), memory_usage: node.memory_usage })
+            }
         }
     }
 
