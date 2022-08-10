@@ -7,7 +7,7 @@ use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
-use near_network_primitives::time::{self, Utc};
+use near_network_primitives::time;
 use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
@@ -189,7 +189,7 @@ impl Actor {
     pub fn update_routing_table(
         &mut self,
         mut prune_unreachable_since: Option<time::Instant>,
-        prune_edges_older_than: Option<Utc>,
+        prune_edges_older_than: Option<time::Utc>,
     ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
         if let Some(prune_edges_older_than) = prune_edges_older_than {
             self.graph.write().prune_old_edges(prune_edges_older_than)
@@ -245,7 +245,7 @@ pub enum Message {
     /// Request routing table update and maybe prune edges.
     RoutingTableUpdate {
         prune_unreachable_since: Option<time::Instant>,
-        prune_edges_older_than: Option<Utc>,
+        prune_edges_older_than: Option<time::Utc>,
     },
     /// TEST-ONLY Remove edges.
     AdvRemoveEdges(Vec<Edge>),

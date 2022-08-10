@@ -10,6 +10,7 @@ use crate::time;
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
 // This value is set to August 8, 2022.
+// TODO: Remove this in Dec 2022 - once we finish migration to new nonces.
 pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
     Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 

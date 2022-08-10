@@ -199,14 +199,19 @@ async fn test_nonces() {
 
     let test_cases = [
         // Try to connect with peer with a valid nonce (current timestamp).
-        (Some(to_active_nonce(clock.now_utc())), true),
+        (Some(to_active_nonce(clock.now_utc())), true, "current timestamp"),
         // Now try the peer with invalid timestamp (in the past)
-        (Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))), false),
+        (Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))), false, "past timestamp"),
         // Now try the peer with invalid timestamp (in the future)
-        (Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))), false),
+        (
+            Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))),
+            false,
+            "future timestamp",
+        ),
     ];
 
     for test in test_cases {
+        println!("Running test {:?}", test.2);
         let cfg = peer::testonly::PeerConfig {
             signer: data::make_signer(rng),
             chain: chain.clone(),
