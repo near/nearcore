@@ -225,7 +225,6 @@ async fn test_nonces() {
             peer.fail_handshake().await;
         }
     }
-
 }
 
 // test that TTL is handled property.
