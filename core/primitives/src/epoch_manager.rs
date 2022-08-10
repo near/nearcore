@@ -121,7 +121,6 @@ impl AllEpochConfig {
             }
         }
         if self.use_production_config {
-            // If chunk only producers
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             if checked_feature!(
                 "protocol_feature_chunk_only_producers",
@@ -141,7 +140,7 @@ impl AllEpochConfig {
             #[cfg(feature = "protocol_feature_max_kickout_stake")]
             if checked_feature!(
                 "protocol_feature_max_kickout_stake",
-                ChunkOnlyProducers,
+                MaxKickoutStake,
                 protocol_version
             ) {
                 config.validator_max_kickout_stake_perc = 30;
