@@ -629,7 +629,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
-                    near_primitives::sandbox_state_patch::SandboxStatePatch::new(state),
+                    near_primitives::sandbox::state_patch::SandboxStatePatch::new(state),
                 );
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
