@@ -120,12 +120,7 @@ impl AllEpochConfig {
             }
         }
         if self.use_production_config {
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            if checked_feature!(
-                "protocol_feature_chunk_only_producers",
-                ChunkOnlyProducers,
-                protocol_version
-            ) {
+            if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
                 // On testnet, genesis config set num_block_producer_seats to 200
                 // This is to bring it back to 100 to be the same as on mainnet
                 config.num_block_producer_seats = 100;
@@ -138,12 +133,7 @@ impl AllEpochConfig {
                 config.validator_selection_config.num_chunk_only_producer_seats = 200;
             }
 
-            #[cfg(feature = "protocol_feature_max_kickout_stake")]
-            if checked_feature!(
-                "protocol_feature_max_kickout_stake",
-                MaxKickoutStake,
-                protocol_version
-            ) {
+            if checked_feature!("stable", MaxKickoutStake, protocol_version) {
                 config.validator_max_kickout_stake_perc = 30;
             }
         }

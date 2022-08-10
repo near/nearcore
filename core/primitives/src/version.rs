@@ -244,14 +244,10 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
-            ProtocolFeature::ChunkOnlyProducers => 56,
-            #[cfg(not(feature = "shardnet"))]
-            ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
 
             // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
             // shardnet
-            #[cfg(feature = "shardnet")]
-            ProtocolFeature::MaxKickoutStake => 101,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
