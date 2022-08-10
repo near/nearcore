@@ -6,24 +6,83 @@ use near_metrics::{
 };
 use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 
-static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
-        "near_peer_connections",
-        "Number of connected peers",
-        &["peer_type", "encoding"],
-    )
-    .unwrap()
-});
+/// Labels represents a schema of an IntGaugeVec metric.
+pub trait Labels: 'static {
+    /// Names of the gauge vector labels.
+    fn names() -> Vec<&'static str>;
+    /// Converts self to a list of label values.
+    /// values().len() should be always equal to names().len().
+    fn values(&self) -> Vec<&'static str>;
+}
 
-pub(crate) fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
-    for ((pt, enc), v) in values {
-        PEER_CONNECTIONS
-            .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
-            .set(v);
+/// Type-safe wrapper of IntGaugeVec.
+pub struct Gauge<L: Labels> {
+    inner: IntGaugeVec,
+    _labels: std::marker::PhantomData<L>,
+}
+
+pub struct GaugePoint<L: Labels> {
+    gauge: &'static Gauge<L>,
+    point: IntGauge,
+}
+
+impl<L: Labels> Gauge<L> {
+    /// Constructs a new prometheus Gauge with schema `L`.
+    pub fn new(name: &str, help: &str) -> Self {
+        Self {
+            inner: near_metrics::try_create_int_gauge_vec(name, help, &L::names()).unwrap(),
+            _labels: std::marker::PhantomData,
+        }
+    }
+
+    /// Adds a point represented by `labels` to the gauge.
+    /// Returns a guard of the point - when the guard is dropped
+    /// the point is removed from the gauge.
+    pub fn new_point(&'static self, labels: &L) -> GaugePoint<L> {
+        GaugePoint { gauge: self, point: self.inc(labels) }
+    }
+
+    fn inc(&self, labels: &L) -> IntGauge {
+        let point = self.inner.with_label_values(&labels.values());
+        point.inc();
+        point
     }
 }
+
+impl<L: Labels> GaugePoint<L> {
+    /// Updates the label values.
+    /// It decrements the gauge for the old label value,
+    /// and increments gauge for the new label value.
+    #[allow(dead_code)]
+    pub fn update(&mut self, labels: &L) {
+        self.point.dec();
+        self.point = self.gauge.inc(labels);
+    }
+}
+
+impl<L: Labels> Drop for GaugePoint<L> {
+    fn drop(&mut self) {
+        self.point.dec();
+    }
+}
+
+pub struct Connection {
+    pub type_: PeerType,
+    pub encoding: Option<Encoding>,
+}
+
+impl Labels for Connection {
+    fn names() -> Vec<&'static str> {
+        vec!["peer_type", "encoding"]
+    }
+    fn values(&self) -> Vec<&'static str> {
+        vec![self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+    }
+}
+
+pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
+    Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers"));
 
 pub(crate) static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()

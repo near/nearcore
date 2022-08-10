@@ -858,6 +858,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
                     })),
+                    _metric_point: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+                        type_: self.peer_type,
+                        encoding: self.encoding(),
+                    }),
                     last_time_peer_requested: AtomicCell::new(self.clock.now()),
                     last_time_received_message: AtomicCell::new(self.clock.now()),
                     connection_established_time: self.clock.now(),

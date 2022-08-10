@@ -305,28 +305,6 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        // Periodically recompute PEER_CONNECTIONS metric.
-        let network_state = self.state.clone();
-        let mut interval =
-            tokio::time::interval(network_state.config.peer_stats_period.try_into().unwrap());
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ctx.spawn(
-            async move {
-                loop {
-                    interval.tick().await;
-                    let mut m = HashMap::new();
-                    let connected_peers = network_state.connected_peers.read();
-                    for p in connected_peers.values() {
-                        // TODO(gprusak): remove the encoding from the metric together with Borsh
-                        // support.
-                        *m.entry((p.peer_type, None)).or_insert(0) += 1;
-                    }
-                    metrics::set_peer_connections(m);
-                }
-            }
-            .into_actor(self),
-        );
-
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
 
