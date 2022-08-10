@@ -716,7 +716,7 @@ impl Trie {
 
     pub fn update<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
     where
-        I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+        I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         let mut memory = NodesStorage::new();
         let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
@@ -793,15 +793,12 @@ mod tests {
     ) -> CryptoHash {
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
-        let mut other_delete_changes = delete_changes.clone();
-        let trie_changes = tries
-            .get_trie_for_shard(shard_uid, root.clone())
-            .update(other_delete_changes.drain(..))
-            .unwrap();
+        let trie_changes =
+            tries.get_trie_for_shard(shard_uid, root.clone()).update(delete_changes).unwrap();
         let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
         let trie = tries.get_trie_for_shard(shard_uid, root.clone());
         store_update.commit().unwrap();
-        for (key, _) in delete_changes {
+        for (key, _) in changes {
             assert_eq!(trie.get(&key), Ok(None));
         }
         root
@@ -1152,7 +1149,7 @@ mod tests {
             let trie2 =
                 tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
-            trie2.update(updates.into_iter()).unwrap();
+            trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
         }
@@ -1161,7 +1158,7 @@ mod tests {
             let trie2 =
                 tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()).recording_reads();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
-            trie2.update(updates.into_iter()).unwrap();
+            trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
         }

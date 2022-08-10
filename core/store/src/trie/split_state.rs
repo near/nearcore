@@ -152,9 +152,8 @@ impl ShardTries {
         let mut store_update = StoreUpdate::new_with_tries(self.clone());
         for (shard_uid, changes) in changes_by_shard {
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
-            let trie_changes = self
-                .get_trie_for_shard(shard_uid, state_roots[&shard_uid])
-                .update(changes.into_iter())?;
+            let trie_changes =
+                self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
             let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             store_update.merge(update);
