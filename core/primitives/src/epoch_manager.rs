@@ -127,6 +127,8 @@ impl AllEpochConfig {
                 ChunkOnlyProducers,
                 protocol_version
             ) {
+                // On testnet, genesis config set num_block_producer_seats to 200
+                // This is to bring it back to 100 to be the same as on mainnet
                 config.num_block_producer_seats = 100;
                 // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
                 // We still set it here just in case
