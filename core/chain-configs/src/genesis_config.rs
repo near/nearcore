@@ -69,7 +69,11 @@ fn default_minimum_validators_per_shard() -> u64 {
 
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
-    300
+    200
+}
+
+fn default_use_production_config() -> bool {
+    false
 }
 
 #[cfg(feature = "protocol_feature_max_kickout_stake")]
@@ -175,7 +179,7 @@ pub struct GenesisConfig {
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(300)]
+    #[default(200)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -191,6 +195,15 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    #[serde(default = "default_use_production_config")]
+    #[default(false)]
+    pub use_production_config: bool,
+}
+
+impl GenesisConfig {
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -254,7 +267,11 @@ impl From<&GenesisConfig> for AllEpochConfig {
             info!(target: "genesis", "no simple nightshade");
             None
         };
-        let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
+        let epoch_config = Self::new(
+            genesis_config.use_production_config(),
+            initial_epoch_config.clone(),
+            shard_config,
+        );
         assert_eq!(
             initial_epoch_config,
             epoch_config.for_protocol_version(genesis_config.protocol_version).clone()

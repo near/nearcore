@@ -60,7 +60,7 @@ impl ShardTracker {
                 let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
                     let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
                     for account_id in tracked_accounts {
-                        let shard_id = account_id_to_shard_id(account_id, shard_layout);
+                        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
                         *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
                     }
                     tracking_mask
