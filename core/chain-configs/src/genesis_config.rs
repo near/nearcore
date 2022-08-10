@@ -272,10 +272,6 @@ impl From<&GenesisConfig> for AllEpochConfig {
             initial_epoch_config.clone(),
             shard_config,
         );
-        assert_eq!(
-            initial_epoch_config,
-            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
-        );
         epoch_config
     }
 }
