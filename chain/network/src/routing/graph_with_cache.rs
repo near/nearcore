@@ -24,7 +24,7 @@ pub struct GraphWithCache {
     /// Derived from graph.
     cached_next_hops: Mutex<Option<Arc<NextHopTable>>>,
     // Don't allow edges that are before this time (if set)
-    prune_edges_before: Option<time::Utc>
+    prune_edges_before: Option<time::Utc>,
 }
 
 impl GraphWithCache {
