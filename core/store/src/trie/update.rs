@@ -73,6 +73,7 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
+
         self.trie.get_ref(&key).map(|option| {
             option.map(|ValueRef { length, hash }| {
                 TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
@@ -81,18 +82,15 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        self.get_impl(&key.to_vec())
-    }
-
-    fn get_impl(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        if let Some(key_value) = self.prospective.get(key) {
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(key) {
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        self.trie.get(key)
+        self.trie.get(&key)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -138,22 +136,6 @@ impl TrieUpdate {
                 (k, data)
             }))?;
         Ok((trie_changes, state_changes))
-    }
-
-    pub fn finalize_genesis(self) -> Result<TrieChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, committed, .. } = self;
-        let trie_changes =
-            trie.update(committed.into_iter().map(|(k, changes_with_trie_key)| {
-                let data = changes_with_trie_key
-                    .changes
-                    .into_iter()
-                    .last()
-                    .expect("Committed entry should have at least one change")
-                    .data;
-                (k, data)
-            }))?;
-        Ok(trie_changes)
     }
 
     /// Returns Error if the underlying storage fails
