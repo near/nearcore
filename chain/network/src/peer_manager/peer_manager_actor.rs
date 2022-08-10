@@ -1891,7 +1891,6 @@ impl PeerManagerActor {
             return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
         }
 
-
         if let Ok(nonce) = i64::try_from(msg.other_edge_info.nonce) {
             if let Some(nonce_timestamp) = Edge::nonce_to_utc(nonce) {
                 if (self.clock.now_utc() - nonce_timestamp).abs() < EDGE_NONCE_MAX_TIME_DELTA {
@@ -1901,7 +1900,6 @@ impl PeerManagerActor {
                     debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Nonce too much in future.");
                     return RegisterPeerResponse::Reject;
                 }
-
             } else {
                 metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
             }

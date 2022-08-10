@@ -5,13 +5,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use once_cell::sync::Lazy;
 
-
 use crate::time;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
 // This value is set to August 8, 2022.
-pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> = Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
+pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
+    Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -238,10 +238,9 @@ impl Edge {
             }
         } else {
             // Nonce that is overflowing i64. For now, let's keep it in memory (we'll remove it together with Old-style nonces).
-            false 
+            false
         }
     }
-
 
     pub fn nonce_to_utc(nonce_as_i64: i64) -> Option<time::Utc> {
         time::Utc::from_unix_timestamp(nonce_as_i64).ok().and_then(|timestamp| {
@@ -252,7 +251,6 @@ impl Edge {
             }
         })
     }
-
 }
 
 /// An `Edge` represents a direct connection between two peers in Near Protocol P2P network.

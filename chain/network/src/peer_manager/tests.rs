@@ -222,10 +222,7 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_active_nonce(
-                clock.now_utc() - time::Duration::days(1)
-                    ,
-            )),
+            nonce: Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))),
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
@@ -242,9 +239,7 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_active_nonce(
-                clock.now_utc() + time::Duration::days(1)
-            )),
+            nonce: Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))),
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
