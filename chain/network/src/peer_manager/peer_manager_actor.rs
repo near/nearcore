@@ -30,7 +30,7 @@ use actix::{
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use near_network_primitives::time::{self, Utc};
+use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
     NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
@@ -38,7 +38,7 @@ use near_network_primitives::types::{
     RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -368,6 +368,7 @@ impl Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
+    // TODO(pompon) - migrate 'new' to use the clock as parameter.
     pub fn new(
         store: near_store::Store,
         config: config::NetworkConfig,
@@ -376,22 +377,22 @@ impl PeerManagerActor {
         genesis_id: GenesisId,
     ) -> anyhow::Result<Self> {
         PeerManagerActor::new_with_clock(
+            time::Clock::real(),
             store,
             config,
             client_addr,
             view_client_addr,
             genesis_id,
-            time::Clock::real(),
         )
     }
 
     pub fn new_with_clock(
+        clock: time::Clock,
         store: near_store::Store,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
-        clock: time::Clock,
     ) -> anyhow::Result<Self> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
@@ -459,7 +460,7 @@ impl PeerManagerActor {
         &self,
         ctx: &mut Context<Self>,
         prune_unreachable_since: Option<time::Instant>,
-        prune_edges_older_than: Option<Utc>,
+        prune_edges_older_than: Option<time::Utc>,
     ) {
         self.routing_table_addr
             .send(routing::actor::Message::RoutingTableUpdate {
@@ -1890,29 +1891,23 @@ impl PeerManagerActor {
             return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
         }
 
-        if msg.other_edge_info.nonce > EDGE_MIN_TIMESTAMP_NONCE {
-            // If this is a 'new style' nonce (with timestamp) - make sure that this timestamp is somewhere around the
-            // current one. Otherwise, the edge will get almost immediately garbage collected.
-            if msg.other_edge_info.nonce
-                < self.clock.now_utc().saturating_sub(EDGE_NONCE_MAX_TIME_DELTA).unix_timestamp()
-                    as u64
-            {
-                metrics::EDGE_NONCE.with_label_values(&["error_too_old"]).inc();
-                debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Too old nonce");
-                return RegisterPeerResponse::Reject;
-            }
 
-            if msg.other_edge_info.nonce
-                > self.clock.now_utc().saturating_add(EDGE_NONCE_MAX_TIME_DELTA).unix_timestamp()
-                    as u64
-            {
-                metrics::EDGE_NONCE.with_label_values(&["error_too_new"]).inc();
-                debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Nonce too much in future.");
-                return RegisterPeerResponse::Reject;
+        if let Ok(nonce) = i64::try_from(msg.other_edge_info.nonce) {
+            if let Some(nonce_timestamp) = Edge::nonce_to_utc(nonce) {
+                if (self.clock.now_utc() - nonce_timestamp).abs() < EDGE_NONCE_MAX_TIME_DELTA {
+                    metrics::EDGE_NONCE.with_label_values(&["new_style"]).inc();
+                } else {
+                    metrics::EDGE_NONCE.with_label_values(&["error_timestamp_too_distant"]).inc();
+                    debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Nonce too much in future.");
+                    return RegisterPeerResponse::Reject;
+                }
+
+            } else {
+                metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
             }
-            metrics::EDGE_NONCE.with_label_values(&["new_style"]).inc();
         } else {
-            metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
+            debug!(target: "network", nonce = msg.other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?msg.peer_info.id, "Nonce is overflowing i64.");
+            return RegisterPeerResponse::Reject;
         }
 
         let require_response = msg.this_edge_info.is_none();

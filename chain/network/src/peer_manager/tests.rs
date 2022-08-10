@@ -167,7 +167,8 @@ async fn no_edge_broadcast_after_restart() {
 }
 
 // Nonces must be odd (as even ones are reserved for tombstones).
-fn to_odd_nonce(value: u64) -> u64 {
+fn to_active_nonce(timestamp: time::Utc) -> u64 {
+    let value = timestamp.unix_timestamp() as u64;
     if value % 2 == 0 {
         value + 1
     } else {
@@ -204,7 +205,7 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_odd_nonce(clock.now_utc().unix_timestamp() as u64)),
+            nonce: Some(to_active_nonce(clock.now_utc())),
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
@@ -221,9 +222,9 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_odd_nonce(
-                clock.now_utc().checked_sub(time::Duration::days(1)).unwrap().unix_timestamp()
-                    as u64,
+            nonce: Some(to_active_nonce(
+                clock.now_utc() - time::Duration::days(1)
+                    ,
             )),
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
@@ -241,9 +242,8 @@ async fn test_nonces() {
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
-            nonce: Some(to_odd_nonce(
-                clock.now_utc().checked_add(time::Duration::days(1)).unwrap().unix_timestamp()
-                    as u64,
+            nonce: Some(to_active_nonce(
+                clock.now_utc() + time::Duration::days(1)
             )),
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();

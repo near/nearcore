@@ -122,12 +122,12 @@ pub async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             PeerManagerActor::new_with_clock(
+                clock,
                 store,
                 cfg,
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 genesis_id,
-                clock,
             )
             .unwrap()
             .with_event_sink(send.sink().compose(Event::PeerManager))

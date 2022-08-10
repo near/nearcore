@@ -4,7 +4,7 @@ use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 
-use crate::time::Utc;
+use crate::time;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
@@ -226,13 +226,23 @@ impl Edge {
     }
 
     // Checks if edge was created before a given timestamp.
-    pub fn is_edge_older_than(&self, utc_timestamp: Utc) -> bool {
+    pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
         if self.nonce() < EDGE_MIN_TIMESTAMP_NONCE {
             // Old-style nonce - for now, assume that they are always fresh.
             return false;
         }
         return self.nonce() < utc_timestamp.unix_timestamp() as u64;
     }
+
+
+    pub fn nonce_to_utc(nonce_as_i64: i64) -> Option<time::Utc> {
+        if nonce_as_i64 > (EDGE_MIN_TIMESTAMP_NONCE as i64) {
+            time::Utc::from_unix_timestamp(nonce_as_i64).ok()
+        } else {
+            None
+        }
+    }
+
 }
 
 /// An `Edge` represents a direct connection between two peers in Near Protocol P2P network.
