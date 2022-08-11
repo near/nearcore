@@ -62,14 +62,20 @@ fn default_minimum_stake_ratio() -> Rational32 {
     Rational32::new(160, 1_000_000)
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_validators_per_shard() -> u64 {
     1
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
     300
+}
+
+fn default_use_production_config() -> bool {
+    false
+}
+
+fn default_max_kickout_stake_threshold() -> u8 {
+    100
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
@@ -168,20 +174,34 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
+    #[serde(default = "default_max_kickout_stake_threshold")]
+    #[default(100)]
+    /// Max stake percentage of the validators we will kick out.
+    pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    #[serde(default = "default_use_production_config")]
+    #[default(false)]
+    /// This is only for test purposes. We hard code some configs for mainnet and testnet
+    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
+    /// If set to true, the node will use the same config override path as mainnet and testnet.
+    pub use_production_config: bool,
+}
+
+impl GenesisConfig {
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -203,12 +223,11 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },
+            validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
     }
 }
@@ -243,10 +262,10 @@ impl From<&GenesisConfig> for AllEpochConfig {
             info!(target: "genesis", "no simple nightshade");
             None
         };
-        let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
-        assert_eq!(
-            initial_epoch_config,
-            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
+        let epoch_config = Self::new(
+            genesis_config.use_production_config(),
+            initial_epoch_config.clone(),
+            shard_config,
         );
         epoch_config
     }

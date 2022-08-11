@@ -246,7 +246,6 @@ impl KeyValueRuntime {
             })
             .collect();
 
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         if !vs.chunk_only_producers.is_empty() {
             assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
             for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
@@ -388,7 +387,6 @@ impl KeyValueRuntime {
             % self.validators_by_valset.len())
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub fn get_chunk_only_producers_for_shard(
         &self,
         epoch_id: &EpochId,
@@ -1246,7 +1244,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));
