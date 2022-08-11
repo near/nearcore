@@ -633,7 +633,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
             actor = "ClientActor",
             handler = "SandboxMessage",
             msg = msg.as_ref())
-            .entered();
+        .entered();
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -673,8 +673,8 @@ impl Handler<Status> for ClientActor {
             target: "client",
             "handle",
             actor = "ClientActor",
-            handler = "Status",
-            .entered();
+            handler = "Status")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -826,7 +826,7 @@ impl Handler<ApplyChunksDoneMessage> for ClientActor {
             "handle",
             actor = "ClientActor",
             handler = "ApplyChunksDoneMessage")
-            .entered();
+        .entered();
         self.try_process_unfinished_blocks();
     }
 }
