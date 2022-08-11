@@ -6,6 +6,7 @@ use crate::testonly::make_rng;
 use near_crypto::Signature;
 use near_network_primitives::time;
 use near_network_primitives::types::Edge;
+use near_network_primitives::types::EDGE_MIN_TIMESTAMP_NONCE;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use parking_lot::RwLock;
@@ -99,7 +100,7 @@ fn one_edge() {
     test.check(&[e1.clone()], &[]);
 
     // Update RT with pruning. NOOP, since p1 is reachable.
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[e1.clone()], &[]);
 
     // Override with an inactive edge.
@@ -108,15 +109,15 @@ fn one_edge() {
 
     // After 2s, update RT without pruning.
     test.clock.advance(2 * SEC);
-    actor.update_routing_table(None);
+    actor.update_routing_table(None, None);
     test.check(&[e1v2.clone()], &[]);
 
     // Update RT with pruning unreachable for 3s. NOOP, since p1 is unreachable for 2s.
-    actor.update_routing_table(Some(test.clock.now() - 3 * SEC));
+    actor.update_routing_table(Some(test.clock.now() - 3 * SEC), None);
     test.check(&[e1v2.clone()], &[]);
 
     // Update RT with pruning unreachable for 1s. p1 should be moved to DB.
-    actor.update_routing_table(Some(test.clock.now() - SEC));
+    actor.update_routing_table(Some(test.clock.now() - SEC), None);
     test.check(&[], &[Component { edges: vec![e1v2.clone()], peers: vec![p1.clone()] }]);
 }
 
@@ -134,7 +135,7 @@ fn load_component() {
     // There is an active edge between p1,p2, but neither is reachable from me().
     // They should be pruned.
     actor.add_verified_edges(vec![e1.clone(), e2.clone(), e3.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[Component {
@@ -145,7 +146,7 @@ fn load_component() {
 
     // Add an active edge from me() to p1. This should trigger loading the whole component from DB.
     actor.add_verified_edges(vec![e1v2.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[e1v2, e2, e3], &[]);
 }
 
@@ -158,7 +159,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p1 = test.make_peer();
     let e1 = edge(&test.me(), &p1, 2);
     actor.add_verified_edges(vec![e1.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(&[], &[Component { edges: vec![e1.clone()], peers: vec![p1.clone()] }]);
 
     // Add an active unreachable edge, which also should get pruned.
@@ -166,7 +167,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p3 = test.make_peer();
     let e23 = edge(&p2, &p3, 2);
     actor.add_verified_edges(vec![e23.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[
@@ -184,7 +185,7 @@ fn components_nonces_are_tracked_in_storage() {
     let p4 = test.make_peer();
     let e4 = edge(&test.me(), &p4, 2);
     actor.add_verified_edges(vec![e4.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[
@@ -197,7 +198,7 @@ fn components_nonces_are_tracked_in_storage() {
     // Add an active edge between unreachable nodes, which will merge 2 components in DB.
     let e34 = edge(&p3, &p4, 1);
     actor.add_verified_edges(vec![e34.clone()]);
-    actor.update_routing_table(Some(test.clock.now()));
+    actor.update_routing_table(Some(test.clock.now()), None);
     test.check(
         &[],
         &[
@@ -208,4 +209,80 @@ fn components_nonces_are_tracked_in_storage() {
             },
         ],
     );
+}
+
+fn to_active_nonce(value: u64) -> u64 {
+    if value % 2 == 1 {
+        return value;
+    }
+    return value + 1;
+}
+
+#[test]
+fn expired_edges() {
+    let mut test = RoutingTableTest::new();
+    test.clock.set_utc(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
+    let mut actor = test.new_actor();
+    let p1 = test.make_peer();
+    let p2 = test.make_peer();
+    let current_odd_nonce = to_active_nonce(test.clock.now_utc().unix_timestamp() as u64);
+
+    let e1 = edge(&test.me(), &p1, current_odd_nonce);
+
+    let old_e2 = edge(&test.me(), &p2, current_odd_nonce - 100);
+    let still_old_e2 = edge(&test.me(), &p2, current_odd_nonce - 90);
+    let fresh_e2 = edge(&test.me(), &p2, current_odd_nonce);
+
+    // Add an active edge.
+    actor.add_verified_edges(vec![e1.clone(), old_e2.clone()]);
+    test.check(&[e1.clone(), old_e2.clone()], &[]);
+
+    // Update RT with pruning. e1 should stay - as it is fresh, but old_e2 should be removed.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[e1.clone()], &[]);
+
+    // Adding 'still old' edge to e2 should fail (as it is older than the last prune_edges_older_than)
+    actor.add_verified_edges(vec![still_old_e2.clone()]);
+    test.check(&[e1.clone()], &[]);
+
+    // But adding the fresh edge should work.
+    actor.add_verified_edges(vec![fresh_e2.clone()]);
+    test.check(&[e1.clone(), fresh_e2.clone()], &[]);
+
+    // Advance 20 seconds:
+    test.clock.advance(20 * SEC);
+
+    // Now the edge is 'too old' and should be removed.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[], &[]);
+
+    // let's create a removal edge
+    let e1v2 =
+        edge(&test.me(), &p1, to_active_nonce(test.clock.now_utc().unix_timestamp() as u64) + 1);
+    actor.add_verified_edges(vec![e1v2.clone()]);
+    test.check(&[e1v2.clone()], &[]);
+
+    actor.update_routing_table(
+        None,
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[e1v2.clone()], &[]);
+
+    // And now it should disappear
+
+    // Advance 20 seconds:
+    test.clock.advance(20 * SEC);
+
+    // Now the edge is 'too old' and should be removed.
+    actor.update_routing_table(
+        Some(test.clock.now()),
+        Some(test.clock.now_utc().checked_sub(time::Duration::seconds(10)).unwrap()),
+    );
+    test.check(&[], &[]);
 }

@@ -16,7 +16,6 @@ use strum::IntoEnumIterator;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
 
@@ -116,21 +115,15 @@ async fn network_status(
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
     let genesis_hash =
         genesis_hash.map_err(|err| errors::ErrorKind::InternalInvariantError(err.to_string()))?;
-    let genesis_block_identifier = models::BlockIdentifier {
-        index: genesis_height.try_into().unwrap(),
-        hash: genesis_hash.to_base(),
-    };
+    let genesis_block_identifier = models::BlockIdentifier::new(genesis_height, &genesis_hash);
     let oldest_block_identifier: models::BlockIdentifier = earliest_block
         .ok()
-        .map(|block| (&block.header).into())
+        .map(|block| (&block).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
     let final_block = crate::utils::get_final_block(&view_client_addr).await?;
     Ok(Json(models::NetworkStatusResponse {
-        current_block_identifier: models::BlockIdentifier {
-            index: final_block.header.height.try_into().unwrap(),
-            hash: final_block.header.hash.to_base(),
-        },
+        current_block_identifier: (&final_block).into(),
         current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec / 1_000_000)
             .unwrap(),
         genesis_block_identifier,
@@ -219,7 +212,7 @@ async fn block_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let block_identifier: models::BlockIdentifier = (&block.header).into();
+    let block_identifier: models::BlockIdentifier = (&block).into();
 
     let parent_block_identifier = if block.header.prev_hash == Default::default() {
         // According to Rosetta API genesis block should have the parent block
@@ -232,19 +225,11 @@ async fn block_details(
             ))
             .await?
             .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-
-        models::BlockIdentifier {
-            index: parent_block.header.height.try_into().unwrap(),
-            hash: parent_block.header.hash.to_base(),
-        }
+        (&parent_block).into()
     };
 
-    let transactions = crate::adapters::collect_transactions(
-        Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?;
+    let transactions =
+        crate::adapters::collect_transactions(&genesis, view_client_addr.get_ref(), &block).await?;
 
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
@@ -298,15 +283,12 @@ async fn block_transaction_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let transaction = crate::adapters::collect_transactions(
-        Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?
-    .into_iter()
-    .find(|transaction| transaction.transaction_identifier == transaction_identifier)
-    .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
+    let transaction =
+        crate::adapters::collect_transactions(&genesis, view_client_addr.get_ref(), &block)
+            .await?
+            .into_iter()
+            .find(|transaction| transaction.transaction_identifier == transaction_identifier)
+            .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
@@ -397,10 +379,7 @@ async fn account_balance(
         None
     };
     Ok(Json(models::AccountBalanceResponse {
-        block_identifier: models::BlockIdentifier {
-            hash: block_hash.to_base(),
-            index: block_height.try_into().unwrap(),
-        },
+        block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
         balances: vec![models::Amount::from_yoctonear(balance)],
         metadata: nonces,
     }))
@@ -549,7 +528,7 @@ async fn construction_metadata(
 
     Ok(Json(models::ConstructionMetadataResponse {
         metadata: models::ConstructionMetadata {
-            recent_block_hash: block_hash.to_base(),
+            recent_block_hash: block_hash.to_string(),
             signer_public_access_key_nonce: access_key.nonce.saturating_add(1),
         },
     }))

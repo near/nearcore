@@ -1313,11 +1313,8 @@ pub mod validator_stake_view {
     use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use crate::serialize::dec_format;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_crypto::PublicKey;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_primitives_core::types::Balance;
 
     pub use super::ValidatorStakeViewV1;
@@ -1351,7 +1348,6 @@ pub mod validator_stake_view {
         }
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,

@@ -3,13 +3,15 @@ use std::iter::Peekable;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
+    RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    TrieCacheMode,
 };
 
 use crate::trie::TrieChanges;
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::state::ValueRef;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 
@@ -23,9 +25,9 @@ pub struct TrieKeyValueUpdate {
 pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 
 /// Provides a way to access Storage and record changes with future commit.
+/// TODO (#7327): rename to StateUpdate
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
-    root: CryptoHash,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -54,25 +56,12 @@ impl<'a> TrieUpdateValuePtr<'a> {
 }
 
 impl TrieUpdate {
-    pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
-        TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
+    pub fn new(trie: Rc<Trie>) -> Self {
+        TrieUpdate { trie, committed: Default::default(), prospective: Default::default() }
     }
 
-    pub fn trie(&self) -> &Trie {
-        self.trie.as_ref()
-    }
-
-    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(<Vec<u8>>::clone));
-            }
-        }
-
-        self.trie.get(&self.root, &key)
+    pub fn trie(&self) -> &Rc<Trie> {
+        &self.trie
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
@@ -84,9 +73,24 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
-        self.trie.get_ref(&self.root, &key).map(|option| {
-            option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
+
+        self.trie.get_ref(&key).map(|option| {
+            option.map(|ValueRef { length, hash }| {
+                TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
+            })
         })
+    }
+
+    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(key_value) = self.prospective.get(&key) {
+            return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.as_ref().map(<Vec<u8>>::clone));
+            }
+        }
+        self.trie.get(&key)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -118,11 +122,10 @@ impl TrieUpdate {
 
     pub fn finalize(self) -> Result<(TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, root, committed, .. } = self;
+        let TrieUpdate { trie, committed, .. } = self;
         let mut state_changes = Vec::with_capacity(committed.len());
-        let trie_changes = trie.update(
-            &root,
-            committed.into_iter().map(|(k, changes_with_trie_key)| {
+        let trie_changes =
+            trie.update(committed.into_iter().map(|(k, changes_with_trie_key)| {
                 let data = changes_with_trie_key
                     .changes
                     .last()
@@ -131,27 +134,8 @@ impl TrieUpdate {
                     .clone();
                 state_changes.push(changes_with_trie_key);
                 (k, data)
-            }),
-        )?;
+            }))?;
         Ok((trie_changes, state_changes))
-    }
-
-    pub fn finalize_genesis(self) -> Result<TrieChanges, StorageError> {
-        assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
-        let TrieUpdate { trie, root, committed, .. } = self;
-        let trie_changes = trie.update(
-            &root,
-            committed.into_iter().map(|(k, changes_with_trie_key)| {
-                let data = changes_with_trie_key
-                    .changes
-                    .into_iter()
-                    .last()
-                    .expect("Committed entry should have at least one change")
-                    .data;
-                (k, data)
-            }),
-        )?;
-        Ok(trie_changes)
     }
 
     /// Returns Error if the underlying storage fails
@@ -168,8 +152,8 @@ impl TrieUpdate {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
-    pub fn get_root(&self) -> CryptoHash {
-        self.root
+    pub fn get_root(&self) -> &StateRoot {
+        self.trie.get_root()
     }
 
     pub fn set_trie_cache_mode(&self, state: TrieCacheMode) {
@@ -223,7 +207,7 @@ impl<'a> TrieUpdateIterator<'a> {
         start: &[u8],
         end: Option<&[u8]>,
     ) -> Result<Self, StorageError> {
-        let mut trie_iter = state_update.trie.iter(&state_update.root)?;
+        let mut trie_iter = state_update.trie.iter()?;
         let mut start_offset = prefix.to_vec();
         start_offset.extend_from_slice(start);
         let end_offset = match end {
