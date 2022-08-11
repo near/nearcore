@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Received new peers from another peer.
 #[derive(Debug, Clone)]
@@ -43,6 +45,19 @@ pub(crate) enum PeerToManagerMsg {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
+}
+
+#[derive(actix::Message)]
+#[rtype(result = "PeerToManagerMsgResp")]
+pub(crate) struct PeerToManagerMsgWithContext {
+    pub msg: PeerToManagerMsg,
+    pub context: opentelemetry::Context,
+}
+
+impl PeerToManagerMsgWithContext {
+    pub fn new(msg: PeerToManagerMsg) -> Self {
+        Self { msg, context: Span::current().context() }
+    }
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.

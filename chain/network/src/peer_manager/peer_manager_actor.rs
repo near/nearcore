@@ -7,8 +7,8 @@ use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, StopMsg, Unregister,
-    ValidateEdgeList,
+    PeerRequestResult, PeerToManagerMsgWithContext, PeersRequest, RegisterPeer,
+    RegisterPeerResponse, StopMsg, Unregister, ValidateEdgeList,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
@@ -19,8 +19,9 @@ use crate::stats::metrics;
 use crate::store;
 use crate::types::{
     ChainInfo, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerMessage, RoutingTableUpdate, SetChainInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageRequestWithContext, PeerManagerMessageResponse, PeerMessage,
+    RoutingTableUpdate, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -59,6 +60,7 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -282,8 +284,8 @@ impl Actor for PeerManagerActor {
                     event_sink.push(Event::ServerStarted);
                     loop {
                         if let Ok((conn, client_addr)) = listener.accept().await {
-                            peer_manager_addr.do_send(PeerToManagerMsg::InboundTcpConnect(
-                                InboundTcpConnect::new(conn),
+                            peer_manager_addr.do_send(PeerToManagerMsgWithContext::new(
+                                PeerToManagerMsg::InboundTcpConnect(InboundTcpConnect::new(conn)),
                             ));
                             debug!(target: "network", from = ?client_addr, "got new connection");
                         }
@@ -1141,9 +1143,9 @@ impl PeerManagerActor {
                 }
 
                 self.outgoing_peers.insert(peer_info.id.clone());
-                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                    peer_info,
-                }));
+                ctx.notify(PeerManagerMessageRequestWithContext::new(
+                    PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect { peer_info }),
+                ));
             } else {
                 self.state.ask_for_more_peers(&self.clock);
             }
@@ -2099,12 +2101,12 @@ impl PeerManagerActor {
 impl Handler<GetNetworkInfo> for PeerManagerActor {
     type Result = NetworkInfo;
     fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
-        let _span =
-            tracing::trace_span!(
+        let _span = tracing::trace_span!(
                 target: "network",
                 "handle",
                 actor = "PeerManagerActor",
-                handler = "GetNetworkInfo").entered();
+                handler = "GetNetworkInfo")
+        .entered();
         self.get_network_info()
     }
 }
@@ -2112,12 +2114,12 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
-        let _span =
-            tracing::trace_span!(
+        let _span = tracing::trace_span!(
                 target: "network",
                 "handle",
                 actor = "PeerManagerActor",
-                handler = "SetChainInfo").entered();
+                handler = "SetChainInfo")
+        .entered();
         let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
@@ -2203,25 +2205,26 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
+impl Handler<ActixMessageWrapper<PeerToManagerMsgWithContext>> for PeerManagerActor {
     type Result = ActixMessageResponse<PeerToManagerMsgResp>;
 
     fn handle(
         &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
+        msg: ActixMessageWrapper<PeerToManagerMsgWithContext>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let _span = tracing::trace_span!(
+        let span = tracing::trace_span!(
             target: "network",
             "handle",
             actor = "PeerManagerActor",
             handler = "PeerToManagerMsg")
-            .entered();
+        .entered();
         // Unpack throttle controller
         let (msg, throttle_token) = msg.take();
+        span.set_parent(msg.context);
 
         let throttle_controller = throttle_token.throttle_controller().cloned();
-        let result = self.handle_peer_to_manager_msg(msg, ctx, throttle_controller);
+        let result = self.handle_peer_to_manager_msg(msg.msg, ctx, throttle_controller);
 
         // TODO(#5155) Add support for DeepSizeOf to result
         ActixMessageResponse::new(
@@ -2231,27 +2234,38 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
     }
 }
 
-impl Handler<PeerToManagerMsg> for PeerManagerActor {
+impl Handler<PeerToManagerMsgWithContext> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
-        let _span = tracing::trace_span!(
+    fn handle(
+        &mut self,
+        msg: PeerToManagerMsgWithContext,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let span = tracing::trace_span!(
             target: "network",
             "handle",
             actor = "PeerManagerActor",
             handler = "PeerToManagerMsg")
-            .entered();
-        self.handle_peer_to_manager_msg(msg, ctx, None)
+        .entered();
+        span.set_parent(msg.context);
+        self.handle_peer_to_manager_msg(msg.msg, ctx, None)
     }
 }
 
-impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
+impl Handler<PeerManagerMessageRequestWithContext> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
-        let _span = tracing::trace_span!(
+    fn handle(
+        &mut self,
+        msg: PeerManagerMessageRequestWithContext,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let span = tracing::trace_span!(
             target: "network",
             "handle",
             actor = "PeerManagerActor",
-            handler = "PeerManagerMessageRequest").entered();
-        self.handle_peer_manager_message(msg, ctx, None)
+            handler = "PeerManagerMessageRequest")
+        .entered();
+        span.set_parent(msg.context);
+        self.handle_peer_manager_message(msg.msg, ctx, None)
     }
 }
