@@ -1,5 +1,6 @@
 use actix::Addr;
 
+use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 
 use validated_operations::ValidatedOperation;
@@ -15,12 +16,12 @@ mod validated_operations;
 /// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
-    genesis: &crate::GenesisWithIdentifier,
+    genesis: &Genesis,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
-    genesis.genesis.for_each_record(|record| {
+    genesis.for_each_record(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             genesis_account_ids.insert(account_id.clone());
         }
@@ -171,7 +172,7 @@ pub(crate) async fn convert_block_to_transactions(
 }
 
 pub(crate) async fn collect_transactions(
-    genesis: &crate::GenesisWithIdentifier,
+    genesis: &Genesis,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {

@@ -229,7 +229,7 @@ async fn block_details(
     };
 
     let transactions = crate::adapters::collect_transactions(
-        genesis.as_ref(),
+        &genesis.genesis,
         Addr::clone(&view_client_addr),
         &block,
     )
@@ -288,7 +288,7 @@ async fn block_transaction_details(
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
     let transaction = crate::adapters::collect_transactions(
-        genesis.as_ref(),
+        &genesis.genesis,
         Addr::clone(&view_client_addr),
         &block,
     )
