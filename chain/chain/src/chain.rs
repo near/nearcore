@@ -708,9 +708,9 @@ impl Chain {
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
             let ret = chain_store.get_block_header(header.last_final_block())?;
-            let two_ahead = chain_store.get_header_by_height(ret.height() + 2)?;
+            let two_ahead = chain_store.get_block_header_by_height(ret.height() + 2)?;
             if two_ahead.epoch_id() != ret.epoch_id() {
-                let one_ahead = chain_store.get_header_by_height(ret.height() + 1)?;
+                let one_ahead = chain_store.get_block_header_by_height(ret.height() + 1)?;
                 if one_ahead.epoch_id() != ret.epoch_id() {
                     let new_final_hash = *ret.last_final_block();
                     chain_store.get_block_header(&new_final_hash)?
@@ -1701,7 +1701,7 @@ impl Chain {
 
     /// Returns if given block header is on the current chain.
     pub fn is_on_current_chain(&self, header: &BlockHeader) -> Result<(), Error> {
-        let chain_header = self.get_header_by_height(header.height())?;
+        let chain_header = self.get_block_header_by_height(header.height())?;
         if chain_header.hash() == header.hash() {
             Ok(())
         } else {
@@ -1713,7 +1713,7 @@ impl Chain {
     pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(hash) {
-                if let Ok(header_at_height) = self.get_header_by_height(header.height()) {
+                if let Ok(header_at_height) = self.get_block_header_by_height(header.height()) {
                     if header.hash() == header_at_height.hash() {
                         return Some(header);
                     }
@@ -2539,7 +2539,7 @@ impl Chain {
         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
+            self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
 
         // Collecting the `prev` state.
         let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
@@ -2767,7 +2767,7 @@ impl Chain {
         }
 
         let block_header =
-            self.get_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+            self.get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
@@ -3979,18 +3979,18 @@ impl Chain {
 
     /// Returns block header from the canonical chain for given height if present.
     #[inline]
-    pub fn get_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
-        self.store.get_header_by_height(height)
+    pub fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+        self.store.get_block_header_by_height(height)
     }
 
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
     #[inline]
-    pub fn get_header_on_chain_by_height(
+    pub fn get_block_header_on_chain_by_height(
         &self,
         sync_hash: &CryptoHash,
         height: BlockHeight,
     ) -> Result<BlockHeader, Error> {
-        self.store.get_header_on_chain_by_height(sync_hash, height)
+        self.store.get_block_header_on_chain_by_height(sync_hash, height)
     }
 
     /// Get previous block header.
@@ -4210,7 +4210,7 @@ impl Chain {
         let max_height = max_height.unwrap_or(header_head_height);
         // TODO: this may be inefficient if there are a lot of skipped blocks.
         for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.get_header_by_height(h) {
+            if let Ok(header) = self.get_block_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= max_headers_returned as usize {
                     break;
@@ -4963,7 +4963,7 @@ impl<'a> ChainUpdate<'a> {
 
         let block_header = self
             .chain_store_update
-            .get_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
@@ -5058,7 +5058,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<bool, Error> {
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize_on_height").entered();
         let block_header_result =
-            self.chain_store_update.get_header_on_chain_by_height(&sync_hash, height);
+            self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
         if let Err(_) = block_header_result {
             // No such height, go ahead.
             return Ok(true);

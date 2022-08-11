@@ -1492,7 +1492,7 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_header_by_height(*parent_height) {
+                match self.chain.get_block_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
