@@ -112,7 +112,10 @@ protocol_feature_chunk_only_producers = [
   "near-rosetta-rpc/protocol_feature_chunk_only_producers",
   "near-primitives/protocol_feature_chunk_only_producers",
 ]
-
+protocol_feature_max_kickout_stake = [
+  "near-primitives/protocol_feature_max_kickout_stake",
+  "near-epoch-manager/protocol_feature_max_kickout_stake"
+]
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -131,6 +134,7 @@ nightly = [
   "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_max_kickout_stake"
 ]
 nightly_protocol = [
   "near-primitives/nightly_protocol",

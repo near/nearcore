@@ -12,7 +12,7 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
-use near_network_primitives::types::{Ping, RoutedMessageBody};
+use near_network_primitives::types::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
@@ -31,15 +31,20 @@ async fn repeated_data_in_sync_routing_table() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
-            .await;
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        create_test_store(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -110,15 +115,20 @@ async fn no_edge_broadcast_after_restart() {
     for i in 0..3 {
         println!("iteration {i}");
         // Start a PeerManager and connect a peer to it.
-        let pm =
-            peer_manager::testonly::start(store.clone(), chain.make_config(rng), chain.clone())
-                .await;
+        let pm = peer_manager::testonly::start(
+            clock.clock(),
+            store.clone(),
+            chain.make_config(rng),
+            chain.clone(),
+        )
+        .await;
         let cfg = peer::testonly::PeerConfig {
             signer: data::make_signer(rng),
             chain: chain.clone(),
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
+            nonce: None,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
         let mut peer =
@@ -156,6 +166,79 @@ async fn no_edge_broadcast_after_restart() {
     }
 }
 
+// Nonces must be odd (as even ones are reserved for tombstones).
+fn to_active_nonce(timestamp: time::Utc) -> u64 {
+    let value = timestamp.unix_timestamp() as u64;
+    if value % 2 == 0 {
+        value + 1
+    } else {
+        value
+    }
+}
+
+// Test connecting to peer manager with timestamp-like nonces.
+#[tokio::test]
+async fn test_nonces() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    //let mut total_edges = vec![];
+    let store = create_test_store();
+
+    // Start a PeerManager and connect a peer to it.
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        store.clone(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let test_cases = [
+        // Try to connect with peer with a valid nonce (current timestamp).
+        (Some(to_active_nonce(clock.now_utc())), true, "current timestamp"),
+        // Now try the peer with invalid timestamp (in the past)
+        (Some(to_active_nonce(clock.now_utc() - time::Duration::days(1))), false, "past timestamp"),
+        // Now try the peer with invalid timestamp (in the future)
+        (
+            Some(to_active_nonce(clock.now_utc() + time::Duration::days(1))),
+            false,
+            "future timestamp",
+        ),
+        (Some(u64::MAX), false, "u64 max"),
+        (Some(i64::MAX as u64), false, "i64 max"),
+        (Some((i64::MAX - 1) as u64), false, "i64 max - 1"),
+        (Some(253402300799), false, "Max time"),
+        (Some(253402300799 + 2), false, "Over max time"),
+        (Some(0), false, "Nonce 0"),
+        (Some(1), true, "Nonce 1"),
+    ];
+
+    for test in test_cases {
+        println!("Running test {:?}", test.2);
+        let cfg = peer::testonly::PeerConfig {
+            signer: data::make_signer(rng),
+            chain: chain.clone(),
+            peers: vec![],
+            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
+            force_encoding: Some(Encoding::Proto),
+            // Connect with nonce equal to unix timestamp
+            nonce: test.0,
+        };
+        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        if test.1 {
+            peer.complete_handshake().await;
+        } else {
+            peer.fail_handshake().await;
+        }
+    }
+}
+
 // test that TTL is handled property.
 #[tokio::test]
 async fn ttl() {
@@ -164,15 +247,20 @@ async fn ttl() {
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let mut pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
-            .await;
+    let mut pm = peer_manager::testonly::start(
+        clock.clock(),
+        create_test_store(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -232,6 +320,7 @@ async fn add_peer(
         peers: vec![],
         start_handshake_with: Some(PeerId::new(cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
+        nonce: None,
     };
     let stream = TcpStream::connect(cfg.node_addr.unwrap()).await.unwrap();
     let mut peer =
@@ -257,9 +346,13 @@ async fn accounts_data_broadcast() {
     let clock = clock.clock();
     let clock = &clock;
 
-    let mut pm =
-        peer_manager::testonly::start(create_test_store(), chain.make_config(rng), chain.clone())
-            .await;
+    let mut pm = peer_manager::testonly::start(
+        clock.clone(),
+        create_test_store(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
 
     let take_sync = |ev| match ev {
         peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
@@ -337,6 +430,7 @@ async fn accounts_data_gradual_epoch_change() {
     for _ in 0..3 {
         pms.push(
             peer_manager::testonly::start(
+                clock.clock(),
                 create_test_store(),
                 chain.make_config(rng),
                 chain.clone(),
@@ -408,7 +502,10 @@ async fn accounts_data_rate_limiting() {
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
-        pms.push(peer_manager::testonly::start(create_test_store(), cfg, chain.clone()).await);
+        pms.push(
+            peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone())
+                .await,
+        );
     }
     // Construct a 4-layer bipartite graph.
     let mut connections = 0;
