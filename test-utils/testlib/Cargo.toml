@@ -19,13 +19,3 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
 default = []
-protocol_feature_chunk_only_producers = [
-    "near-chain-configs/protocol_feature_chunk_only_producers",
-    "near-chain/protocol_feature_chunk_only_producers",
-    "near-primitives/protocol_feature_chunk_only_producers",
-]
-nightly = [
-  "nightly_protocol",
-  "protocol_feature_chunk_only_producers",
-]
-nightly_protocol = []

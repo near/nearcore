@@ -62,12 +62,10 @@ fn default_minimum_stake_ratio() -> Rational32 {
     Rational32::new(160, 1_000_000)
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_validators_per_shard() -> u64 {
     1
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
@@ -76,7 +74,6 @@ fn default_use_production_config() -> bool {
     false
 }
 
-#[cfg(feature = "protocol_feature_max_kickout_stake")]
 fn default_max_kickout_stake_threshold() -> u8 {
     100
 }
@@ -177,16 +174,13 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
-    #[cfg(feature = "protocol_feature_max_kickout_stake")]
     #[serde(default = "default_max_kickout_stake_threshold")]
     #[default(100)]
     /// Max stake percentage of the validators we will kick out.
@@ -229,13 +223,10 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },
-            #[cfg(feature = "protocol_feature_max_kickout_stake")]
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
     }

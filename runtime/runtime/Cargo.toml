@@ -36,11 +36,6 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_chunk_only_producers = [
-  "near-primitives/protocol_feature_chunk_only_producers",
-  "near-store/protocol_feature_chunk_only_producers",
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 

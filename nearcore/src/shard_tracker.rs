@@ -181,7 +181,6 @@ mod tests {
             protocol_upgrade_num_epochs: 2,
             shard_layout: ShardLayout::v0(num_shards, 0),
             validator_selection_config: Default::default(),
-            #[cfg(feature = "protocol_feature_max_kickout_stake")]
             validator_max_kickout_stake_perc: 100,
         };
         let reward_calculator = RewardCalculator {
