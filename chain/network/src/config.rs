@@ -109,12 +109,16 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+    // Flag to disable inbound connections. When true, all the incoming handshake/connection requests will be rejected.
+    pub inbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
+    // If true - connect only to the bootnodes.
+    pub connect_only_to_boot_nodes: bool,
 }
 
 impl NetworkConfig {
@@ -207,6 +211,8 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             features,
+            inbound_disabled: cfg.experimental.inbound_disabled,
+            connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
         };
         Ok(this)
     }
@@ -258,6 +264,8 @@ impl NetworkConfig {
             push_info_period: time::Duration::milliseconds(100),
             blacklist: Blacklist::default(),
             outbound_disabled: false,
+            inbound_disabled: false,
+            connect_only_to_boot_nodes: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
