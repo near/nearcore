@@ -1167,7 +1167,7 @@ impl Handler<SendMessage> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
+            tracing::trace_span!(target: "network", "handle", actor = "PeerActor", handler = "SendMessage").entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
@@ -1184,7 +1184,7 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler = "PeerManagerRequest")
+            tracing::trace_span!(target: "network", "handle", actor = "PeerActor", handler = "PeerManagerRequest")
                 .entered();
         span.set_parent(msg.context);
         let msg = msg.msg;

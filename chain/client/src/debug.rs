@@ -149,6 +149,7 @@ impl Handler<DebugStatus> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: DebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
+        let _span = tracing::debug_span!(target: "debug", "handle", actor = "ClientActor", handler = "DebugStatus").entered();
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))

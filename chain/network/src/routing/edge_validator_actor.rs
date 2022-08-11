@@ -32,6 +32,7 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
 
     #[perf]
     fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
+        let _span = tracing::debug_span!(target: "network", "handle", actor = "EdgeValidatorActor", handler = "ValidateEdgeList").entered();
         for edge in msg.edges {
             let key = edge.key();
             if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)

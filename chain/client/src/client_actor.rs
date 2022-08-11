@@ -261,8 +261,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages",
-            msg=msg.as_ref())
+            actor = "ClientActor",
+            handler = "NetworkClientMessages",
+            msg = msg.as_ref())
         .entered();
 
         self.check_triggers(ctx);
@@ -626,6 +627,13 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
         msg: near_client_primitives::types::SandboxMessage,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            actor = "ClientActor",
+            handler = "SandboxMessage",
+            msg = msg.as_ref())
+            .entered();
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -661,7 +669,12 @@ impl Handler<Status> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler = "Status").entered();
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            actor = "ClientActor",
+            handler = "Status",
+            .entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -778,7 +791,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
         let _span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="GetNetworkInfo")
+            actor = "ClientActor",
+            handler = "GetNetworkInfo")
         .entered();
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
@@ -807,6 +821,12 @@ impl Handler<ApplyChunksDoneMessage> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, _msg: ApplyChunksDoneMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let _span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            actor = "ClientActor",
+            handler = "ApplyChunksDoneMessage")
+            .entered();
         self.try_process_unfinished_blocks();
     }
 }
@@ -1863,7 +1883,7 @@ impl Handler<ApplyStatePartsRequest> for SyncJobsActor {
 
     fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
         let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsRequest")
+            tracing::debug_span!(target: "client", "handle", actor = "SyncJobsActor", handler = "ApplyStatePartsRequest")
                 .entered();
         let result = self.apply_parts(&msg);
 
@@ -1880,7 +1900,7 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
 
     fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
         let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsResponse")
+            tracing::debug_span!(target: "client", "handle", actor = "ClientActor", handler = "ApplyStatePartsResponse")
                 .entered();
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
@@ -1896,7 +1916,7 @@ impl Handler<BlockCatchUpRequest> for SyncJobsActor {
 
     fn handle(&mut self, msg: BlockCatchUpRequest, _: &mut Self::Context) -> Self::Result {
         let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "BlockCatchUpRequest")
+            tracing::debug_span!(target: "client", "handle", actor = "SyncJobsActor", handler = "BlockCatchUpRequest")
                 .entered();
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
@@ -1912,6 +1932,9 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: BlockCatchUpResponse, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", actor = "ClientActor", handler = "BlockCatchUpResponse")
+                .entered();
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1927,7 +1950,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler = "StateSplitRequest")
+        let _span = tracing::debug_span!(target: "client", "handle", actor = "SyncJobsActor", handler = "StateSplitRequest")
             .entered();
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
@@ -1947,6 +1970,8 @@ impl Handler<StateSplitResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: StateSplitResponse, _: &mut Self::Context) -> Self::Result {
+        let _span = tracing::debug_span!(target: "client", "handle", actor = "ClientActor", handler = "StateSplitResponse")
+            .entered();
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
