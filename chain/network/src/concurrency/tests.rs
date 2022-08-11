@@ -10,7 +10,7 @@ async fn test_demux() {
             handles.push(tokio::spawn(async move {
                 let j = demux
                     .call(i, |is: Vec<u64>| async { is.into_iter().map(|i| i + 1).collect() })
-                    .await;
+                    .await.unwrap();
                 assert_eq!(i + 1, j);
             }));
         }
