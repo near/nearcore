@@ -918,7 +918,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             }
                         }
                     }
-                        .into_actor(self),
+                    .into_actor(self),
                 );
 
                 self.peer_manager_addr
