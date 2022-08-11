@@ -458,6 +458,7 @@ impl PeerStore {
         clock: &time::Clock,
         peer_info: PeerInfo,
     ) -> anyhow::Result<()> {
+        let _span = tracing::trace_span!(target: "network", "add_direct_peer").entered();
         self.add_peer(clock, peer_info, TrustLevel::Direct)
     }
 

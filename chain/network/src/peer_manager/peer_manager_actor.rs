@@ -1266,6 +1266,7 @@ impl PeerManagerActor {
     /// Route message to target peer.
     /// Return whether the message is sent or not.
     fn send_message_to_peer(&mut self, msg: RawRoutedMessage) -> bool {
+        let _span = tracing::trace_span!(target: "network", "send_message_to_peer").entered();
         let msg = self.sign_routed_message(msg, self.my_peer_id.clone());
         self.send_signed_message_to_peer(msg)
     }
@@ -1327,6 +1328,7 @@ impl PeerManagerActor {
     }
 
     fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+        let _span = tracing::trace_span!(target: "network", "propose_edge").entered();
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
@@ -1656,6 +1658,8 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
+        let _span =
+            tracing::trace_span!(target: "network", "handle_msg_inbound_tcp_connect").entered();
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
         if self.is_inbound_allowed()
             || msg
@@ -1725,6 +1729,9 @@ impl PeerManagerActor {
         msg: RegisterPeer,
         ctx: &mut Context<Self>,
     ) -> RegisterPeerResponse {
+        let _span = tracing::trace_span!(
+            target: "network", "handle_msg_register_peer")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         let peer_info = &msg.connection_state.peer_info;
@@ -1820,18 +1827,21 @@ impl PeerManagerActor {
 
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister) {
+        let _span = tracing::trace_span!(target: "network", "handle_msg_unregister").entered();
         let _d = delay_detector::DelayDetector::new(|| "unregister".into());
         self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 
     #[perf]
     fn handle_msg_ban(&mut self, msg: Ban) {
+        let _span = tracing::trace_span!(target: "network", "handle_msg_ban").entered();
         let _d = delay_detector::DelayDetector::new(|| "ban".into());
         self.ban_peer(&msg.peer_id, msg.ban_reason);
     }
 
     #[perf]
     fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
+        let _span = tracing::trace_span!(target: "network", "handle_msg_peers_request").entered();
         let _d = delay_detector::DelayDetector::new(|| "peers request".into());
         PeerRequestResult {
             peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
@@ -1839,6 +1849,7 @@ impl PeerManagerActor {
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
+        let _span = tracing::trace_span!(target: "network", "handle_msg_peers_response").entered();
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
         if let Err(err) = self.peer_store.add_indirect_peers(
             &self.clock,
@@ -1891,9 +1902,13 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> PeerToManagerMsgResp {
-        let msg_type: &'static str = msg.into();
+        let msg_type: &'static str = (&msg).into();
         let _span = tracing::trace_span!(
-            target: "network", "handle_peer_to_manager_msg", msg_type = msg_type).entered();
+            target: "network", "handle_peer_to_manager_msg", msg_type = msg_type)
+        .entered();
+        let _timer = metrics::PEER_TO_MANAGER_MESSAGE_HANDLING_LATENCY
+            .with_label_values(&[msg_type])
+            .start_timer();
         match msg {
             PeerToManagerMsg::RoutedMessageFrom(msg) => {
                 PeerToManagerMsgResp::RoutedMessageFrom(self.handle_msg_routed_from(msg))
@@ -1942,6 +1957,9 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::RequestUpdateNonce(peer_id, edge_info) => {
+                let _span =
+                    tracing::trace_span!(target: "network", "handle_msg_request_update_nonce")
+                        .entered();
                 if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
                     if let Some(cur_edge) = self.routing_table_view.get_local_edge(&peer_id) {
                         if cur_edge.edge_type() == EdgeState::Active
@@ -1966,6 +1984,9 @@ impl PeerManagerActor {
                 }
             }
             PeerToManagerMsg::ResponseUpdateNonce(edge) => {
+                let _span =
+                    tracing::trace_span!(target: "network", "handle_msg_response_update_nonce")
+                        .entered();
                 if let Some(other_peer) = edge.other(&self.my_peer_id) {
                     if edge.verify() {
                         // This happens in case, we get an edge, in `RoutingTableActor`,
@@ -1993,6 +2014,9 @@ impl PeerManagerActor {
                 }
             }
             PeerToManagerMsg::SyncRoutingTable { peer_id, routing_table_update } => {
+                let _span =
+                    tracing::trace_span!(target: "network", "handle_msg_sync_routing_table")
+                        .entered();
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
                 let edges = routing_table_update.edges;
                 let accounts = routing_table_update.accounts;
@@ -2046,6 +2070,9 @@ impl PeerManagerActor {
     /// "Return" true if this message is for this peer and should be sent to the client.
     /// Otherwise try to route this message to the final receiver and return false.
     fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
+        let _span = tracing::trace_span!(
+            target: "network", "handle_msg_routed_from")
+        .entered();
         let _d = delay_detector::DelayDetector::new(|| {
             format!("routed message from {}", msg.msg.body_variant()).into()
         });
