@@ -56,7 +56,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument};
@@ -376,9 +375,14 @@ impl PeerManagerActor {
     ) -> anyhow::Result<Self> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store =
-            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone(), config.connect_only_to_boot_nodes)
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store = PeerStore::new(
+            &clock,
+            store.clone(),
+            &config.boot_nodes,
+            config.blacklist.clone(),
+            config.connect_only_to_boot_nodes,
+        )
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.boot_nodes.len(),
@@ -897,7 +901,8 @@ impl PeerManagerActor {
 
     fn is_inbound_allowed(&self) -> bool {
         self.state.connected_peers.read().len() + self.outgoing_peers.len()
-            < self.max_num_peers as usize && !self.config.inbound_disabled
+            < self.max_num_peers as usize
+            && !self.config.inbound_disabled
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.

@@ -157,10 +157,7 @@ pub struct ExperimentalConfig {
 
 impl Default for ExperimentalConfig {
     fn default() -> Self {
-        ExperimentalConfig {
-            inbound_disabled: false,
-            connect_only_to_boot_nodes: false,
-        }
+        ExperimentalConfig { inbound_disabled: false, connect_only_to_boot_nodes: false }
     }
 }
 

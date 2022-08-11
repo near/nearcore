@@ -8,9 +8,9 @@ use near_network_primitives::types::{
 use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::collections::HashSet;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::ops::Not;
 use tracing::{debug, error, info};
@@ -55,7 +55,7 @@ pub struct PeerStore {
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
     blacklist: Blacklist,
     boot_nodes: HashSet<PeerId>,
-    connect_only_to_boot_nodes: bool
+    connect_only_to_boot_nodes: bool,
 }
 
 impl PeerStore {
@@ -66,7 +66,7 @@ impl PeerStore {
         blacklist: Blacklist,
         connect_only_to_boot_nodes: bool,
     ) -> anyhow::Result<Self> {
-        let boot_nodes_set : HashSet<PeerId> = boot_nodes.iter().map(|it|  it.id.clone()).collect();
+        let boot_nodes_set: HashSet<PeerId> = boot_nodes.iter().map(|it| it.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
         let mut peerid_2_state = HashMap::default();
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
@@ -103,7 +103,7 @@ impl PeerStore {
             let status = if peer_state.status.is_banned() {
                 if connect_only_to_boot_nodes && boot_nodes_set.contains(&peer_id) {
                     // Give boot node another chance.
-                    KnownPeerStatus::NotConnected    
+                    KnownPeerStatus::NotConnected
                 } else {
                     peer_state.status
                 }
@@ -152,8 +152,14 @@ impl PeerStore {
             }
         }
 
-        let mut peer_store =
-            PeerStore { store, peer_states: peerid_2_state, addr_peers: addr_2_peer, blacklist , boot_nodes: boot_nodes_set, connect_only_to_boot_nodes};
+        let mut peer_store = PeerStore {
+            store,
+            peer_states: peerid_2_state,
+            addr_peers: addr_2_peer,
+            blacklist,
+            boot_nodes: boot_nodes_set,
+            connect_only_to_boot_nodes,
+        };
         peer_store.delete_peers(&peers_to_delete)?;
         Ok(peer_store)
     }
