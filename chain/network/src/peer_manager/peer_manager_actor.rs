@@ -1535,7 +1535,7 @@ impl PeerManagerActor {
                 // Make two attempts to send the message. First following the preference of `prefer_peer`,
                 // and if it fails, against the preference.
                 for prefer_peer in &[target.prefer_peer, !target.prefer_peer] {
-                    trace!(target: "network", prefer_peer);
+                    tracing::trace!(target: "network", prefer_peer);
                     if !prefer_peer {
                         if let Some(account_id) = target.account_id.as_ref() {
                             if self.send_message_to_account(
