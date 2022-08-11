@@ -75,7 +75,7 @@ pub(crate) struct ConnectedPeer {
     /// Connection stats
     pub stats: ArcSwap<Stats>,
     /// prometheus gauge point guard.
-    pub _metric_point: metrics::GaugePoint<metrics::Connection>,
+    pub _peer_connections_metric: metrics::GaugePoint,
 
     /// A helper data structure for limiting reading, reporting stats.
     pub throttle_controller: ThrottleController,

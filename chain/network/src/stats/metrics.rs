@@ -12,7 +12,7 @@ pub trait Labels: 'static {
     /// Array should be [&'static str;N], where N is the number of labels.
     type Array: AsRef<[&'static str]>;
     /// Names of the gauge vector labels.
-    fn names() -> Self::Array;
+    const NAMES: Self::Array;
     /// Converts self to a list of label values.
     /// values().len() should be always equal to names().len().
     fn values(&self) -> Self::Array;
@@ -24,16 +24,13 @@ pub struct Gauge<L: Labels> {
     _labels: std::marker::PhantomData<L>,
 }
 
-pub struct GaugePoint<L: Labels> {
-    gauge: &'static Gauge<L>,
-    point: IntGauge,
-}
+pub struct GaugePoint(IntGauge);
 
 impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
     pub fn new(name: &str, help: &str) -> Result<Self, near_metrics::prometheus::Error> {
         Ok(Self {
-            inner: near_metrics::try_create_int_gauge_vec(name, help, L::names().as_ref())?,
+            inner: near_metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
             _labels: std::marker::PhantomData,
         })
     }
@@ -41,31 +38,16 @@ impl<L: Labels> Gauge<L> {
     /// Adds a point represented by `labels` to the gauge.
     /// Returns a guard of the point - when the guard is dropped
     /// the point is removed from the gauge.
-    pub fn new_point(&'static self, labels: &L) -> GaugePoint<L> {
-        GaugePoint { gauge: self, point: self.inc(labels) }
-    }
-
-    fn inc(&self, labels: &L) -> IntGauge {
+    pub fn new_point(&'static self, labels: &L) -> GaugePoint {
         let point = self.inner.with_label_values(labels.values().as_ref());
         point.inc();
-        point
+        GaugePoint(point)
     }
 }
 
-impl<L: Labels> GaugePoint<L> {
-    /// Updates the label values.
-    /// It decrements the gauge for the old label value,
-    /// and increments gauge for the new label value.
-    #[allow(dead_code)]
-    pub fn update(&mut self, labels: &L) {
-        self.point.dec();
-        self.point = self.gauge.inc(labels);
-    }
-}
-
-impl<L: Labels> Drop for GaugePoint<L> {
+impl Drop for GaugePoint {
     fn drop(&mut self) {
-        self.point.dec();
+        self.0.dec();
     }
 }
 
@@ -76,9 +58,7 @@ pub struct Connection {
 
 impl Labels for Connection {
     type Array = [&'static str; 2];
-    fn names() -> Self::Array {
-        ["peer_type", "encoding"]
-    }
+    const NAMES: Self::Array = ["peer_type", "encoding"];
     fn values(&self) -> Self::Array {
         [self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
     }
