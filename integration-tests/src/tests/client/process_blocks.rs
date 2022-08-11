@@ -4107,10 +4107,10 @@ mod contract_precompilation_tests {
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash())
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
                 .unwrap(),
         );
-        let state_update = TrieUpdate::new(trie, state_root);
+        let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
         let view_state = ViewApplyState {

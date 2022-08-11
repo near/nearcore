@@ -91,14 +91,15 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(ShardUId::single_shard()),
-                    client.state_root,
+                    client
+                        .tries
+                        .get_trie_for_shard(ShardUId::single_shard(), client.state_root.clone()),
                     &None,
                     &apply_state,
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {

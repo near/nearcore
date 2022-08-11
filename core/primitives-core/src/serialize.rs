@@ -24,19 +24,6 @@ pub fn from_base_buf(
     }
 }
 
-pub trait BaseEncode {
-    fn to_base(&self) -> String;
-}
-
-impl<T> BaseEncode for T
-where
-    for<'a> &'a T: Into<Vec<u8>>,
-{
-    fn to_base(&self) -> String {
-        to_base(&self.into())
-    }
-}
-
 pub mod base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};

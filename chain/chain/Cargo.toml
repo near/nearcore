@@ -49,14 +49,10 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
-protocol_feature_chunk_only_producers = [
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
-  "protocol_feature_chunk_only_producers",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",

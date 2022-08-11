@@ -44,9 +44,10 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = trie.iter(state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                 println!("{}", state_record);
@@ -220,12 +221,14 @@ pub(crate) fn dump_account_storage(
     let (runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(state_root, &key.to_vec());
+        let item = trie.get(&key.to_vec());
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
@@ -432,7 +435,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                None,
+                Default::default(),
             )
             .unwrap()
     } else {
@@ -456,7 +459,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 false,
                 false,
-                None,
+                Default::default(),
             )
             .unwrap()
     };
@@ -549,7 +552,7 @@ pub(crate) fn view_chain(
     let mut chunks = vec![];
     for (i, chunk_header) in block.chunks().iter().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
             chunk_extras
                 .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
@@ -561,7 +564,7 @@ pub(crate) fn view_chain(
         .enumerate()
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
-                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
                 Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap()))
             } else {
                 None
