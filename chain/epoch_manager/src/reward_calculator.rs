@@ -108,11 +108,8 @@ impl RewardCalculator {
             let online_min_numer = U256::from(*self.online_min_threshold.numer() as u64);
             let online_min_denom = U256::from(*self.online_min_threshold.denom() as u64);
             // If average of produced blocks below online min threshold, validator gets 0 reward.
-            let chunk_only_producers_enabled = checked_feature!(
-                "protocol_feature_chunk_only_producers",
-                ChunkOnlyProducers,
-                protocol_version
-            );
+            let chunk_only_producers_enabled =
+                checked_feature!("stable", ChunkOnlyProducers, protocol_version);
             let reward = if average_produced_numer * online_min_denom
                 < online_min_numer * average_produced_denom
                 || (chunk_only_producers_enabled
@@ -341,7 +338,6 @@ mod tests {
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
         // test1 with 94.5% online gets 50% because of linear between (0.99-0.9) online.
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         {
             assert_eq!(
                 result.0,
@@ -354,20 +350,6 @@ mod tests {
                 ])
             );
             assert_eq!(result.1, 5_000_000u128);
-        }
-        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-        {
-            assert_eq!(
-                result.0,
-                HashMap::from([
-                    ("near".parse().unwrap(), 0),
-                    ("test1".parse().unwrap(), 1_250_000u128),
-                    ("test2".parse().unwrap(), 0u128),
-                    ("test3".parse().unwrap(), 0u128),
-                    ("test4".parse().unwrap(), 0u128)
-                ])
-            );
-            assert_eq!(result.1, 1_250_000u128);
         }
     }
 

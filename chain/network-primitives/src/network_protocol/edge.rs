@@ -3,6 +3,16 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use once_cell::sync::Lazy;
+
+use crate::time;
+
+// We'd treat all nonces that are below this values as 'old style' (without any expiration time).
+// And all nonces above this value as new style (that would expire after some time).
+// This value is set to August 8, 2022.
+// TODO: Remove this in Dec 2022 - once we finish migration to new nonces.
+pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
+    Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -24,6 +34,10 @@ impl PartialEdgeInfo {
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
+}
+
+pub enum InvalidNonceError {
+    NonceOutOfBoundsError,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -215,6 +229,32 @@ impl Edge {
             Some(&self.key().0)
         } else {
             None
+        }
+    }
+
+    // Checks if edge was created before a given timestamp.
+    pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
+        Edge::nonce_to_utc(self.nonce()).map_or(false, |maybe_timestamp| {
+            // Old-style nonce - for now, assume that they are always fresh.
+            maybe_timestamp.map_or(false, |nonce_timestamp| nonce_timestamp < utc_timestamp)
+        })
+    }
+
+    pub fn nonce_to_utc(nonce: u64) -> Result<Option<time::Utc>, InvalidNonceError> {
+        if let Ok(nonce_as_i64) = i64::try_from(nonce) {
+            time::Utc::from_unix_timestamp(nonce_as_i64)
+                .map(
+                    |nonce_ts| {
+                        if nonce_ts > *EDGE_MIN_TIMESTAMP_NONCE {
+                            Some(nonce_ts)
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .map_err(|_| InvalidNonceError::NonceOutOfBoundsError)
+        } else {
+            Err(InvalidNonceError::NonceOutOfBoundsError)
         }
     }
 }

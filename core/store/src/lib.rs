@@ -641,7 +641,11 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
-        update.insert(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        // We intentionally use `.set` here, rather than `.insert`. We don't yet
+        // guarantee deterministic compilation, so, if we happen to compile the
+        // same contract concurrently on two threads, the `value`s might differ,
+        // but this doesn't matter.
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
         self.db.write(update)
     }
 

@@ -60,7 +60,7 @@ impl ShardTracker {
                 let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
                     let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
                     for account_id in tracked_accounts {
-                        let shard_id = account_id_to_shard_id(account_id, shard_layout);
+                        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
                         *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
                     }
                     tracking_mask
@@ -181,6 +181,7 @@ mod tests {
             protocol_upgrade_num_epochs: 2,
             shard_layout: ShardLayout::v0(num_shards, 0),
             validator_selection_config: Default::default(),
+            validator_max_kickout_stake_perc: 100,
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Ratio::from_integer(0),
@@ -194,7 +195,7 @@ mod tests {
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(initial_epoch_config, simple_nightshade_shard_config),
+            AllEpochConfig::new(false, initial_epoch_config, simple_nightshade_shard_config),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
@@ -365,7 +366,7 @@ mod tests {
                 let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
                 let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
                 for account_id in tracked_accounts.iter() {
-                    total_tracked_shards.insert(account_id_to_shard_id(account_id, shard_layout));
+                    total_tracked_shards.insert(account_id_to_shard_id(account_id, &shard_layout));
                 }
                 shard_layout.num_shards()
             };

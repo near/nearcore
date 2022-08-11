@@ -6,24 +6,66 @@ use near_metrics::{
 };
 use near_network_primitives::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 
-static PEER_CONNECTIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
-        "near_peer_connections",
-        "Number of connected peers",
-        &["peer_type", "encoding"],
-    )
-    .unwrap()
-});
+/// Labels represents a schema of an IntGaugeVec metric.
+pub trait Labels: 'static {
+    /// Array should be [&'static str;N], where N is the number of labels.
+    type Array: AsRef<[&'static str]>;
+    /// Names of the gauge vector labels.
+    const NAMES: Self::Array;
+    /// Converts self to a list of label values.
+    /// values().len() should be always equal to names().len().
+    fn values(&self) -> Self::Array;
+}
 
-pub(crate) fn set_peer_connections(values: HashMap<(PeerType, Option<Encoding>), i64>) {
-    for ((pt, enc), v) in values {
-        PEER_CONNECTIONS
-            .with_label_values(&[pt.into(), enc.map(|e| e.into()).unwrap_or("unknown")])
-            .set(v);
+/// Type-safe wrapper of IntGaugeVec.
+pub struct Gauge<L: Labels> {
+    inner: IntGaugeVec,
+    _labels: std::marker::PhantomData<L>,
+}
+
+pub struct GaugePoint(IntGauge);
+
+impl<L: Labels> Gauge<L> {
+    /// Constructs a new prometheus Gauge with schema `L`.
+    pub fn new(name: &str, help: &str) -> Result<Self, near_metrics::prometheus::Error> {
+        Ok(Self {
+            inner: near_metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
+            _labels: std::marker::PhantomData,
+        })
+    }
+
+    /// Adds a point represented by `labels` to the gauge.
+    /// Returns a guard of the point - when the guard is dropped
+    /// the point is removed from the gauge.
+    pub fn new_point(&'static self, labels: &L) -> GaugePoint {
+        let point = self.inner.with_label_values(labels.values().as_ref());
+        point.inc();
+        GaugePoint(point)
     }
 }
+
+impl Drop for GaugePoint {
+    fn drop(&mut self) {
+        self.0.dec();
+    }
+}
+
+pub struct Connection {
+    pub type_: PeerType,
+    pub encoding: Option<Encoding>,
+}
+
+impl Labels for Connection {
+    type Array = [&'static str; 2];
+    const NAMES: Self::Array = ["peer_type", "encoding"];
+    fn values(&self) -> Self::Array {
+        [self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+    }
+}
+
+pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
+    Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
 
 pub(crate) static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
@@ -97,6 +139,9 @@ pub(crate) static ROUTING_TABLE_RECALCULATION_HISTOGRAM: Lazy<Histogram> = Lazy:
 });
 pub(crate) static EDGE_UPDATES: Lazy<IntCounter> =
     Lazy::new(|| try_create_int_counter("near_edge_updates", "Unique edge updates").unwrap());
+pub(crate) static EDGE_NONCE: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_edge_nonce", "Edge nonce types", &["type"]).unwrap()
+});
 pub(crate) static EDGE_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_edge_active", "Total edges active between peers").unwrap()
 });
