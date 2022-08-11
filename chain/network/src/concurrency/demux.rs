@@ -106,18 +106,24 @@ type Stream<Arg, Res> = mpsc::UnboundedSender<Call<Arg, Res>>;
 #[derive(Clone)]
 pub struct Demux<Arg, Res>(Stream<Arg, Res>);
 
+#[derive(thiserror::Error, Debug)]
+#[error("tokio::Runtime running the demux service has been stopped")]
+pub struct ServiceStoppedError;
+
 impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
     pub fn call(
         &self,
         arg: Arg,
         f: impl AsyncFn<Vec<Arg>, Vec<Res>>,
-    ) -> impl std::future::Future<Output = Res> {
+    ) -> impl std::future::Future<Output = Result<Res, ServiceStoppedError>> {
         let stream = self.0.clone();
         async move {
             let (send, recv) = oneshot::channel();
             // ok().unwrap(), because DemuxCall doesn't implement Debug.
-            stream.send(Call { arg, out: send, handler: f.wrap() }).ok().unwrap();
-            recv.await.unwrap()
+            stream
+                .send(Call { arg, out: send, handler: f.wrap() })
+                .map_err(|_| ServiceStoppedError)?;
+            recv.await.map_err(|_| ServiceStoppedError)
         }
     }
 
@@ -126,6 +132,9 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
     pub fn new(rl: RateLimit) -> Demux<Arg, Res> {
         rl.validate().unwrap();
         let (send, mut recv): (Stream<Arg, Res>, _) = mpsc::unbounded_channel();
+        // TODO(gprusak): this task should be running as long as Demux object exists.
+        // "Current" runtime can have a totally different lifespan, so we shouldn't spawn on it.
+        // Find a way to express "runtime lifetime > Demux lifetime".
         tokio::spawn(async move {
             let mut calls = vec![];
             let mut closed = false;
@@ -161,6 +170,7 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
                     // cancellation. Once we add cancellation support, this task could accept a context sum:
                     // the sum is valid iff any context is valid.
                     let calls = std::mem::take(&mut calls);
+                    // TODO(gprusak): don't spawn on the "current" runtime. See one of the previous TODOs.
                     tokio::spawn(async move {
                         let mut args = vec![];
                         let mut outs = vec![];
