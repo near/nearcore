@@ -184,7 +184,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    130
+    131
 } else if cfg!(feature = "shardnet") {
     // For shardnet, enable `ChunkOnlyProducers` but nothing else.
     100

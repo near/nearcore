@@ -927,7 +927,7 @@ fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 // TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 10_000)
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
