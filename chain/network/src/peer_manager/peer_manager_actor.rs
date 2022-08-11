@@ -305,28 +305,6 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        // Periodically recompute PEER_CONNECTIONS metric.
-        let network_state = self.state.clone();
-        let mut interval =
-            tokio::time::interval(network_state.config.peer_stats_period.try_into().unwrap());
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ctx.spawn(
-            async move {
-                loop {
-                    interval.tick().await;
-                    let mut m = HashMap::new();
-                    let connected_peers = network_state.connected_peers.read();
-                    for p in connected_peers.values() {
-                        // TODO(gprusak): remove the encoding from the metric together with Borsh
-                        // support.
-                        *m.entry((p.peer_type, None)).or_insert(0) += 1;
-                    }
-                    metrics::set_peer_connections(m);
-                }
-            }
-            .into_actor(self),
-        );
-
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
 
@@ -375,9 +353,14 @@ impl PeerManagerActor {
     ) -> anyhow::Result<Self> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store =
-            PeerStore::new(&clock, store.clone(), &config.boot_nodes, config.blacklist.clone())
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store = PeerStore::new(
+            &clock,
+            store.clone(),
+            &config.boot_nodes,
+            config.blacklist.clone(),
+            config.connect_only_to_boot_nodes,
+        )
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.boot_nodes.len(),
@@ -897,6 +880,7 @@ impl PeerManagerActor {
     fn is_inbound_allowed(&self) -> bool {
         self.state.connected_peers.read().len() + self.outgoing_peers.len()
             < self.max_num_peers as usize
+            && !self.config.inbound_disabled
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.

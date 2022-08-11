@@ -2227,7 +2227,6 @@ fn test_protocol_version_switch_with_many_seats() {
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),
         validator_selection_config: Default::default(),
-        #[cfg(feature = "protocol_feature_max_kickout_stake")]
         validator_max_kickout_stake_perc: 100,
     };
     let config = AllEpochConfig::new(false, epoch_config, None);
@@ -2437,16 +2436,10 @@ fn test_chunk_producers() {
         .collect::<Vec<_>>();
     chunk_producers.sort();
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    {
-        assert_eq!(
-            vec!(String::from("chunk_only"), String::from("test1"), String::from("test2")),
-            chunk_producers
-        );
-        println!("! Testing feature");
-    }
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    assert_eq!(vec!(String::from("test1"), String::from("test2")), chunk_producers);
+    assert_eq!(
+        vec!(String::from("chunk_only"), String::from("test1"), String::from("test2")),
+        chunk_producers
+    );
 }
 
 /// A sanity test for the compute_kickout_info function, tests that
@@ -2541,11 +2534,6 @@ fn test_max_kickout_stake_ratio() {
     #[allow(unused_mut)]
     let mut epoch_config =
         epoch_config(5, 2, 4, 0, 90, 80, 0, None).for_protocol_version(PROTOCOL_VERSION).clone();
-    // At most 50% of total stake can be kicked out
-    #[cfg(feature = "protocol_feature_max_kickout_stake")]
-    {
-        epoch_config.validator_max_kickout_stake_perc = 40;
-    }
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -2565,49 +2553,41 @@ fn test_max_kickout_stake_ratio() {
         HashMap::new(),
         0,
     );
+    let block_stats = HashMap::from([
+        (0, ValidatorStats { produced: 50, expected: 100 }),
+        // here both test1 and test2 produced the most number of blocks, we made that intentionally
+        // to test the algorithm to pick one deterministically to save in this case.
+        (1, ValidatorStats { produced: 70, expected: 100 }),
+        (2, ValidatorStats { produced: 70, expected: 100 }),
+        // validator 3 doesn't need to produce any block or chunk
+        (3, ValidatorStats { produced: 0, expected: 0 }),
+    ]);
+    let chunk_stats = HashMap::from([
+        (
+            0,
+            HashMap::from([
+                (0, ValidatorStats { produced: 0, expected: 100 }),
+                (1, ValidatorStats { produced: 0, expected: 100 }),
+            ]),
+        ),
+        (
+            1,
+            HashMap::from([
+                (2, ValidatorStats { produced: 100, expected: 100 }),
+                (4, ValidatorStats { produced: 50, expected: 100 }),
+            ]),
+        ),
+    ]);
+    let prev_validator_kickout =
+        HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
     let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
         &epoch_config,
         &epoch_info,
-        &HashMap::from([
-            (0, ValidatorStats { produced: 50, expected: 100 }),
-            // here both test1 and test2 produced the most number of blocks, we made that intentionally
-            // to test the algorithm to pick one deterministically to save in this case.
-            (1, ValidatorStats { produced: 70, expected: 100 }),
-            (2, ValidatorStats { produced: 70, expected: 100 }),
-            // validator 3 doesn't need to produce any block or chunk
-            (3, ValidatorStats { produced: 0, expected: 0 }),
-        ]),
-        &HashMap::from([
-            (
-                0,
-                HashMap::from([
-                    (0, ValidatorStats { produced: 0, expected: 100 }),
-                    (1, ValidatorStats { produced: 0, expected: 100 }),
-                ]),
-            ),
-            (
-                1,
-                HashMap::from([
-                    (2, ValidatorStats { produced: 100, expected: 100 }),
-                    (4, ValidatorStats { produced: 50, expected: 100 }),
-                ]),
-            ),
-        ]),
+        &block_stats,
+        &chunk_stats,
         &HashMap::new(),
-        &HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]),
+        &prev_validator_kickout,
     );
-    #[cfg(feature = "protocol_feature_max_kickout_stake")]
-    assert_eq!(
-        kickouts,
-        // We would have kicked out test0, test1, test2 and test4, but
-        // test1, test2, and test4 are exempted. Note that test3 can't be exempted because it
-        // is in prev_valdiator_kickout.
-        HashMap::from([(
-            "test0".parse().unwrap(),
-            NotEnoughBlocks { produced: 50, expected: 100 }
-        ),])
-    );
-    #[cfg(not(feature = "protocol_feature_max_kickout_stake"))]
     assert_eq!(
         kickouts,
         // We would have kicked out test0, test1, test2 and test4, but test3 was kicked out
@@ -2620,7 +2600,45 @@ fn test_max_kickout_stake_ratio() {
             ("test4".parse().unwrap(), NotEnoughChunks { produced: 50, expected: 100 }),
         ])
     );
-    #[cfg(feature = "protocol_feature_max_kickout_stake")]
+    assert_eq!(
+        validator_stats,
+        HashMap::from([
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 0, expected: 0 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
+                }
+            ),
+            (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 70, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
+                }
+            ),
+        ])
+    );
+    // At most 50% of total stake can be kicked out
+    epoch_config.validator_max_kickout_stake_perc = 40;
+    let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
+        &epoch_config,
+        &epoch_info,
+        &block_stats,
+        &chunk_stats,
+        &HashMap::new(),
+        &prev_validator_kickout,
+    );
+    assert_eq!(
+        kickouts,
+        // We would have kicked out test0, test1, test2 and test4, but
+        // test1, test2, and test4 are exempted. Note that test3 can't be exempted because it
+        // is in prev_valdiator_kickout.
+        HashMap::from([(
+            "test0".parse().unwrap(),
+            NotEnoughBlocks { produced: 50, expected: 100 }
+        ),])
+    );
     assert_eq!(
         validator_stats,
         HashMap::from([
@@ -2650,26 +2668,6 @@ fn test_max_kickout_stake_ratio() {
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
                     chunk_stats: ValidatorStats { produced: 50, expected: 100 }
-                }
-            ),
-        ])
-    );
-    #[cfg(not(feature = "protocol_feature_max_kickout_stake"))]
-    assert_eq!(
-        validator_stats,
-        HashMap::from([
-            (
-                "test3".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
-                }
-            ),
-            (
-                "test1".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
                 }
             ),
         ])

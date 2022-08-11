@@ -42,7 +42,6 @@ impl ValidatorSchedule {
     /// The full set of chunk-producers is composed from chunk_only producers
     /// and some subset of block_producers (this is controlled by
     /// `validator_groups`).
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub fn chunk_only_producers_per_epoch_per_shard(
         mut self,
         chunk_only_producers: Vec<Vec<Vec<AccountId>>>,

@@ -12,8 +12,6 @@ use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
-#[cfg(feature = "rosetta_rpc")]
-use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::db::RocksDB;
@@ -315,9 +313,10 @@ pub fn start_with_config_and_synchronization(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         rpc_servers.push((
             "Rosetta RPC",
-            start_rosetta_rpc(
+            near_rosetta_rpc::start_rosetta_rpc(
                 rosetta_rpc_config,
-                Arc::new(config.genesis.clone()),
+                config.genesis,
+                genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client.clone(),
             ),
