@@ -9,11 +9,13 @@ use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
 pub trait Labels: 'static {
+    /// Array should be [&'static str;N], where N is the number of labels.
+    type Array: AsRef<[&'static str]>;
     /// Names of the gauge vector labels.
-    fn names() -> Vec<&'static str>;
+    fn names() -> Self::Array;
     /// Converts self to a list of label values.
     /// values().len() should be always equal to names().len().
-    fn values(&self) -> Vec<&'static str>;
+    fn values(&self) -> Self::Array;
 }
 
 /// Type-safe wrapper of IntGaugeVec.
@@ -29,11 +31,11 @@ pub struct GaugePoint<L: Labels> {
 
 impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
-    pub fn new(name: &str, help: &str) -> Self {
-        Self {
-            inner: near_metrics::try_create_int_gauge_vec(name, help, &L::names()).unwrap(),
+    pub fn new(name: &str, help: &str) -> Result<Self, near_metrics::prometheus::Error> {
+        Ok(Self {
+            inner: near_metrics::try_create_int_gauge_vec(name, help, L::names().as_ref())?,
             _labels: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Adds a point represented by `labels` to the gauge.
@@ -44,7 +46,7 @@ impl<L: Labels> Gauge<L> {
     }
 
     fn inc(&self, labels: &L) -> IntGauge {
-        let point = self.inner.with_label_values(&labels.values());
+        let point = self.inner.with_label_values(labels.values().as_ref());
         point.inc();
         point
     }
@@ -73,16 +75,17 @@ pub struct Connection {
 }
 
 impl Labels for Connection {
-    fn names() -> Vec<&'static str> {
-        vec!["peer_type", "encoding"]
+    type Array = [&'static str; 2];
+    fn names() -> Self::Array {
+        ["peer_type", "encoding"]
     }
-    fn values(&self) -> Vec<&'static str> {
-        vec![self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+    fn values(&self) -> Self::Array {
+        [self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
     }
 }
 
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
-    Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers"));
+    Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
 
 pub(crate) static PEER_CONNECTIONS_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_peer_connections_total", "Number of connected peers").unwrap()
