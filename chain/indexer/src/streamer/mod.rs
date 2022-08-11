@@ -19,8 +19,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_hash, fetch_block_by_height, fetch_block_chunks, fetch_latest_block,
-    fetch_outcomes, fetch_state_changes, fetch_status,
+    fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
@@ -155,7 +155,7 @@ async fn build_streamer_message(
                     if prev_block_tried > 1000 {
                         panic!("Failed to find local receipt in 1000 prev blocks");
                     }
-                    let prev_block = match fetch_block_by_hash(&client, prev_block_hash).await {
+                    let prev_block = match fetch_block(&client, prev_block_hash).await {
                         Ok(block) => block,
                         Err(err) => panic!("Unable to get previous block: {:?}", err),
                     };
