@@ -49,18 +49,16 @@ pub(crate) struct MinuteStats {
 impl TransferStats {
     /// Record event at current time `now` with `bytes` bytes.
     /// Time in `now` should be monotonically increasing.
-    pub(crate) fn record(&mut self, bytes: u64, now: time::Instant) {
+    pub(crate) fn record(&mut self, clock: &time::Clock, bytes: u64) {
+        let now = clock.now();
         self.remove_old_entries(now);
-
-        debug_assert!(self.events.back().map(|e| e.instant).unwrap_or(now) <= now);
-
         self.total_bytes_in_events += bytes;
         self.events.push_back(Event { instant: now, bytes });
     }
 
     /// Get stats stored in `MinuteStats` struct.
-    pub(crate) fn minute_stats(&mut self, now: time::Instant) -> MinuteStats {
-        self.remove_old_entries(now);
+    pub(crate) fn minute_stats(&mut self, clock: &time::Clock) -> MinuteStats {
+        self.remove_old_entries(clock.now());
         MinuteStats { bytes_per_min: self.total_bytes_in_events, count_per_min: self.events.len() }
     }
 
@@ -84,32 +82,42 @@ mod tests {
     #[test]
     fn test_transfer_stats() {
         let mut ts = TransferStats::default();
-        let now = time::Instant::now();
-        assert_eq!(ts.minute_stats(now), MinuteStats { bytes_per_min: 0, count_per_min: 0 });
-
-        ts.record(10, now);
-
-        assert_eq!(ts.minute_stats(now), MinuteStats { bytes_per_min: 10, count_per_min: 1 });
-
-        ts.record(100, now + time::Duration::seconds(45));
+        let clock = time::FakeClock::default();
         assert_eq!(
-            ts.minute_stats(now + time::Duration::seconds(45)),
+            ts.minute_stats(&clock.clock()),
+            MinuteStats { bytes_per_min: 0, count_per_min: 0 }
+        );
+
+        ts.record(&clock.clock(), 10);
+
+        assert_eq!(
+            ts.minute_stats(&clock.clock()),
+            MinuteStats { bytes_per_min: 10, count_per_min: 1 }
+        );
+
+        clock.advance(time::Duration::seconds(45));
+        ts.record(&clock.clock(), 100);
+        assert_eq!(
+            ts.minute_stats(&clock.clock()),
             MinuteStats { bytes_per_min: 110, count_per_min: 2 }
         );
 
-        ts.record(1000, now + time::Duration::seconds(59));
+        clock.advance(time::Duration::seconds(14));
+        ts.record(&clock.clock(), 1000);
         assert_eq!(
-            ts.minute_stats(now + time::Duration::seconds(59)),
+            ts.minute_stats(&clock.clock()),
             MinuteStats { bytes_per_min: 1110, count_per_min: 3 }
         );
 
+        clock.advance(time::Duration::seconds(2));
         assert_eq!(
-            ts.minute_stats(now + time::Duration::seconds(61)),
+            ts.minute_stats(&clock.clock()),
             MinuteStats { bytes_per_min: 1100, count_per_min: 2 }
         );
 
+        clock.advance(time::Duration::seconds(60));
         assert_eq!(
-            ts.minute_stats(now + time::Duration::seconds(121)),
+            ts.minute_stats(&clock.clock()),
             MinuteStats { bytes_per_min: 0, count_per_min: 0 }
         );
     }

@@ -134,7 +134,7 @@ pub(crate) fn apply_chunk(
             hash("random seed".as_ref()),
             true,
             is_first_block_with_chunk_of_version,
-            None,
+            Default::default(),
         )?,
         chunk_header.gas_limit(),
     ))

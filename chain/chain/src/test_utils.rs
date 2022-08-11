@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
 use tracing::debug;
@@ -246,7 +246,6 @@ impl KeyValueRuntime {
             })
             .collect();
 
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         if !vs.chunk_only_producers.is_empty() {
             assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
             for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
@@ -388,7 +387,6 @@ impl KeyValueRuntime {
             % self.validators_by_valset.len())
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub fn get_chunk_only_producers_for_shard(
         &self,
         epoch_id: &EpochId,
@@ -418,16 +416,23 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self
+            .tries
+            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self.tries.get_view_trie_for_shard(
+            ShardUId { version: 0, shard_id: shard_id as u32 },
+            state_root,
+        ))
     }
 
     fn verify_block_vrf(
@@ -750,7 +755,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         generate_storage_proof: bool,
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
-        _state_patch: Option<SandboxStatePatch>,
+        _state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -1239,7 +1244,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));

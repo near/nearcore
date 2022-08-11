@@ -127,14 +127,6 @@ impl FromStr for PeerInfo {
     }
 }
 
-impl TryFrom<&str> for PeerInfo {
-    type Error = ParsePeerInfoError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
-    }
-}
-
 /// Peer chain information.
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -221,6 +213,21 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+}
+
+impl RoutedMessageBody {
+    // Return whether this message is important.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are
+    // lost
+    pub fn is_important(&self) -> bool {
+        match self {
+            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // are only sent by the original node and if they are lost, the receiver node doesn't
+            // know to request them.
+            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
