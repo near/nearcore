@@ -317,8 +317,8 @@ mod tests {
     }
 
     fn prepare_state_change(
-        initial_state: impl FnOnce(&mut TrieUpdate),
-        final_state: impl FnOnce(&mut TrieUpdate),
+        set_initial_state: impl FnOnce(&mut TrieUpdate),
+        set_final_state: impl FnOnce(&mut TrieUpdate),
     ) -> TrieUpdate {
         let tries = create_tries();
         let shard_uid = ShardUId::single_shard();
@@ -326,7 +326,7 @@ mod tests {
         // Commit initial state
         let root = {
             let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
-            initial_state(&mut trie_update);
+            set_initial_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
             let trie_changes = trie_update.finalize().unwrap().0;
             let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
@@ -337,7 +337,7 @@ mod tests {
         // Prepare final state
         {
             let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), root);
-            final_state(&mut trie_update);
+            set_final_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
             trie_update
         }
