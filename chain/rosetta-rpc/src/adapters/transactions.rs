@@ -20,7 +20,7 @@ impl ExecutionToReceipts {
     /// transaction or receipt causing the execution to list of created
     /// receipts’ hashes.
     pub(crate) async fn for_block(
-        view_client_addr: Addr<near_client::ViewClientActor>,
+        view_client_addr: &Addr<near_client::ViewClientActor>,
         block_hash: CryptoHash,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
