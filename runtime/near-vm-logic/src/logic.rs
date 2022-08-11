@@ -2794,8 +2794,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `read_register_base + read_memory_base + read_memory_bytes * (num_bytes_signature + num_bytes_message) +
-    ///  ed25519_verify_base + read_register_byte * (num_bytes_signature + num_bytes_message)`
+    /// read_memory can be either `read_memory_base + read_memory_bytes` if chunk of memory is bigger
+    /// than u64::MAX, otherwise it's `read_register_base + read_register_byte`
+    /// `read_memory * (num_bytes_signature + num_bytes_message, num_bytes_public_key) +
+    ///  ed25519_verify_base + ed25519_verify_byte * (num_bytes_signature + num_bytes_message)`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
