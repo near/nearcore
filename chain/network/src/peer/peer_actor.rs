@@ -47,7 +47,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -255,6 +255,12 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
+        let msg_type: &str = msg.into();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "send_message_with_encoding",
+            msg_type)
+        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -266,12 +272,12 @@ impl PeerActor {
         let bytes = msg.serialize(enc);
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
+        tracing::trace!(target: "network", msg_len = bytes_len);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            let msg_type: &str = msg.into();
             return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
         Ok(())
@@ -589,6 +595,7 @@ impl PeerActor {
     fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+        tracing::trace!(target: "network", msg_len);
         self.tracker.lock().increment_received(&self.clock, msg_len as u64);
     }
 
@@ -718,7 +725,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
 
-        trace!(target: "network", "Received message: {}", peer_msg);
+        tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
         self.on_receive_message();
 
@@ -874,34 +881,42 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     self.network_state.config.peer_stats_period.try_into().unwrap(),
                 );
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                ctx.spawn(async move {
-                    loop {
-                        interval.tick().await;
-                        let sent = tracker.lock().sent_bytes.minute_stats(&clock);
-                        let received = tracker.lock().received_bytes.minute_stats(&clock);
-                        // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
-                        // expected to change. Rest of the content of chain_info is not relevant
-                        // after handshake.
-                        connection_state.stats.store(Arc::new(Stats {
-                            received_bytes_per_sec: received.bytes_per_min / 60,
-                            sent_bytes_per_sec: sent.bytes_per_min / 60,
-                        }));
-                        // Whether the peer is considered abusive due to sending too many messages.
-                        // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                        // some day be less than `u64::MAX`.
-                        let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                            || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                        if is_abusive {
-                            trace!(target: "network", peer_id=?connection_state.peer_info.id, sent = sent.count_per_min, recv = received.count_per_min, "Banning peer for abuse");
-                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                            //  network traffic that flags honest peers.
-                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                            // }
+                ctx.spawn(
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            let sent = tracker.lock().sent_bytes.minute_stats(&clock);
+                            let received = tracker.lock().received_bytes.minute_stats(&clock);
+                            // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
+                            // expected to change. Rest of the content of chain_info is not relevant
+                            // after handshake.
+                            connection_state.stats.store(Arc::new(Stats {
+                                received_bytes_per_sec: received.bytes_per_min / 60,
+                                sent_bytes_per_sec: sent.bytes_per_min / 60,
+                            }));
+                            // Whether the peer is considered abusive due to sending too many messages.
+                            // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+                            // some day be less than `u64::MAX`.
+                            let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
+                                || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
+                            if is_abusive {
+                                tracing::trace!(
+                                target: "network",
+                                peer_id = ?connection_state.peer_info.id,
+                                sent = sent.count_per_min,
+                                recv = received.count_per_min,
+                                "Banning peer for abuse");
+                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                                //  network traffic that flags honest peers.
+                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                                // }
+                            }
                         }
                     }
-                }.into_actor(self));
+                    .into_actor(self),
+                );
 
                 self.peer_manager_addr
                     .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
@@ -1102,7 +1117,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 .spawn(ctx);
             }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.msg.target);
+                tracing::trace!(
+                    target: "network",
+                    "Received routed message from {} to {:?}.",
+                    self.peer_info,
+                    routed_message.msg.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
@@ -1145,7 +1164,7 @@ impl Handler<SendMessage> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
+            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
@@ -1161,8 +1180,9 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
         msg: PeerManagerRequestWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let span = tracing::trace_span!(target: "network", "handle", handler="PeerManagerRequest")
-            .entered();
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler = "PeerManagerRequest")
+                .entered();
         span.set_parent(msg.context);
         let msg = msg.msg;
         let _d =

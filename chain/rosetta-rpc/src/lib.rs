@@ -228,12 +228,9 @@ async fn block_details(
         (&parent_block).into()
     };
 
-    let transactions = crate::adapters::collect_transactions(
-        &genesis.genesis,
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?;
+    let transactions =
+        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
+            .await?;
 
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
@@ -287,15 +284,12 @@ async fn block_transaction_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let transaction = crate::adapters::collect_transactions(
-        &genesis.genesis,
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?
-    .into_iter()
-    .find(|transaction| transaction.transaction_identifier == transaction_identifier)
-    .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
+    let transaction =
+        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
+            .await?
+            .into_iter()
+            .find(|transaction| transaction.transaction_identifier == transaction_identifier)
+            .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
