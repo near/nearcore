@@ -1891,6 +1891,9 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> PeerToManagerMsgResp {
+        let msg_type: &'static str = msg.into();
+        let _span = tracing::trace_span!(
+            target: "network", "handle_peer_to_manager_msg", msg_type = msg_type).entered();
         match msg {
             PeerToManagerMsg::RoutedMessageFrom(msg) => {
                 PeerToManagerMsgResp::RoutedMessageFrom(self.handle_msg_routed_from(msg))
