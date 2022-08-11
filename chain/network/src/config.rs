@@ -144,8 +144,8 @@ impl NetworkConfig {
         }
         let this = Self {
             node_key,
-            validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
-                signer: signer.clone(),
+            validator: validator_signer.map(|signer| ValidatorConfig {
+                signer,
                 endpoints: if cfg.public_addrs.len() > 0 {
                     ValidatorEndpoints::PublicAddrs(cfg.public_addrs)
                 } else {
@@ -161,27 +161,25 @@ impl NetworkConfig {
             } else {
                 cfg.boot_nodes
                     .split(',')
-                    .map(|chunk| chunk.try_into())
+                    .map(|chunk| chunk.parse())
                     .collect::<Result<_, _>>()
                     .context("boot_nodes")?
             },
-            whitelist_nodes: (|| -> anyhow::Result<Vec<_>> {
-                let w = &cfg.whitelist_nodes;
-                if w.is_empty() {
-                    return Ok(vec![]);
-                }
-                let mut peers = vec![];
-                for peer in w.split(',') {
-                    let peer: PeerInfo = peer.try_into().context("whitelist_nodes")?;
-                    if peer.addr.is_none() {
-                        anyhow::bail!(
+            whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
+                vec![]
+            } else {
+                cfg.whitelist_nodes
+                    .split(',')
+                    .map(|peer| match peer.parse::<PeerInfo>() {
+                        Ok(peer) if peer.addr.is_none() => anyhow::bail!(
                             "whitelist_nodes are required to specify both PeerId and IP:port"
-                        );
-                    }
-                    peers.push(peer);
-                }
-                Ok(peers)
-            }())?,
+                        ),
+                        Ok(peer) => Ok(peer),
+                        Err(err) => Err(err.into()),
+                    })
+                    .collect::<anyhow::Result<_>>()
+                    .context("whitelist_nodes")?
+            },
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             reconnect_delay: cfg.reconnect_delay.try_into()?,
             bootstrap_peers_period: time::Duration::seconds(60),
