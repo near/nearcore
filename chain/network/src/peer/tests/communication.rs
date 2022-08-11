@@ -32,6 +32,7 @@ async fn test_peer_communication(
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
+        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         signer: data::make_signer(&mut rng),
@@ -39,6 +40,7 @@ async fn test_peer_communication(
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: Some(inbound_cfg.id()),
+        nonce: None,
     };
 
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
@@ -197,6 +199,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
+        nonce: None,
     };
     let outbound_cfg = PeerConfig {
         signer: data::make_signer(&mut rng),
@@ -204,6 +207,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: None,
+        nonce: None,
     };
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
     let inbound =

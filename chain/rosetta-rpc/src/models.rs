@@ -773,6 +773,19 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor_id: Option<AccountIdentifier>,
+}
+
+impl OperationMetadata {
+    pub(crate) fn from_predecessor(
+        predecessor_id: Option<AccountIdentifier>,
+    ) -> Option<OperationMetadata> {
+        return predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
+            predecessor_id: Some(predecessor_id),
+            ..Default::default()
+        });
+    }
 }
 
 /// Operations contain all balance-changing information within a transaction.

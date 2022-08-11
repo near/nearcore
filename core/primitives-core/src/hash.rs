@@ -150,38 +150,26 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 mod tests {
     use super::*;
 
+    use std::str::FromStr;
+
     #[derive(Deserialize, Serialize)]
     struct Struct {
         hash: CryptoHash,
     }
 
     #[test]
-    fn test_serialize_success() {
-        let hash = hash(&[0, 1, 2]);
-        let s = Struct { hash };
-        let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
-    }
+    fn test_base58_successes() {
+        for (encoded, hash) in [
+            ("11111111111111111111111111111111", CryptoHash::new()),
+            ("CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf", hash(&[0, 1, 2])),
+        ] {
+            assert_eq!(encoded, hash.to_string());
+            assert_eq!(hash, CryptoHash::from_str(encoded).unwrap());
 
-    #[test]
-    fn test_serialize_default() {
-        let s = Struct { hash: CryptoHash::default() };
-        let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
-    }
-
-    #[test]
-    fn test_deserialize_default() {
-        let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
-        let decoded: Struct = serde_json::from_str(encoded).unwrap();
-        assert_eq!(decoded.hash, CryptoHash::default());
-    }
-
-    #[test]
-    fn test_deserialize_success() {
-        let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
-        let decoded: Struct = serde_json::from_str(encoded).unwrap();
-        assert_eq!(decoded.hash, hash(&[0, 1, 2]));
+            let json = format!("\"{}\"", encoded);
+            assert_eq!(json, serde_json::to_string(&hash).unwrap());
+            assert_eq!(hash, serde_json::from_str::<CryptoHash>(&json).unwrap());
+        }
     }
 
     #[test]
