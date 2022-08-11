@@ -132,14 +132,12 @@ pub trait Database: Sync + Send {
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
-    assert_eq!(
-        value, old_value,
+    assert!(
+        value == old_value,
         "\
 write once column overwritten
 col: {col}
 key: {key:?}
-old value: {old_value:?}
-new value: {value:?}
 "
     )
 }
