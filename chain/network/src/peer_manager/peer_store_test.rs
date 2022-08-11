@@ -37,7 +37,7 @@ fn ban_store() {
     {
         let store = store::Store::from(opener.open());
         let mut peer_store =
-            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
         assert_eq!(peer_store.healthy_peers(3).len(), 2);
         peer_store.peer_ban(&clock.clock(), &peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
         assert_eq!(peer_store.healthy_peers(3).len(), 1);
@@ -45,7 +45,8 @@ fn ban_store() {
     {
         let store_new = store::Store::from(opener.open());
         let peer_store_new =
-            PeerStore::new(&clock.clock(), store_new, &boot_nodes, Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store_new, &boot_nodes, Default::default(), false)
+                .unwrap();
         assert_eq!(peer_store_new.healthy_peers(3).len(), 1);
     }
 }
@@ -60,9 +61,60 @@ fn test_unconnected_peer() {
     {
         let store = store::Store::from(opener.open());
         let peer_store =
-            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
         assert!(peer_store.unconnected_peer(|_| false).is_some());
         assert!(peer_store.unconnected_peer(|_| true).is_none());
+    }
+}
+
+#[test]
+fn test_unconnected_peer_only_boot_nodes() {
+    let clock = time::FakeClock::default();
+    let peer_info_a = gen_peer_info(0);
+    let peer_in_store = gen_peer_info(3);
+    let boot_nodes = vec![peer_info_a.clone()];
+
+    // 1 boot node (peer_info_a) that we're already connected to.
+    // 1 non-boot (peer_in_store) node peer that is in the store.
+    // we should connect to peer_in_store
+    {
+        let (_tmp_dir, opener) = Store::test_opener();
+        let store = store::Store::from(opener.open());
+        let mut peer_store =
+            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
+        peer_store.add_peer(&clock.clock(), peer_in_store.clone(), TrustLevel::Direct).unwrap();
+        peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
+        assert_eq!(peer_store.unconnected_peer(|_| false), Some(peer_in_store.clone()));
+    }
+
+    // 1 boot node (peer_info_a) that we're already connected to.
+    // 1 non-boot (peer_in_store) node peer that is in the store.
+    // connect to only boot nodes is enabled - we should not find any peer to connect to.
+    {
+        let (_tmp_dir, opener) = Store::test_opener();
+        let store = store::Store::from(opener.open());
+        let mut peer_store =
+            PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), true).unwrap();
+        peer_store.add_peer(&clock.clock(), peer_in_store.clone(), TrustLevel::Direct).unwrap();
+        peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
+        assert_eq!(peer_store.unconnected_peer(|_| false), None);
+    }
+
+    // 1 boot node (peer_info_a) is in the store.
+    // we should connect to it - no matter what the setting is.
+    for connect_to_boot_nodes in [true, false] {
+        let (_tmp_dir, opener) = Store::test_opener();
+        let store = store::Store::from(opener.open());
+        let mut peer_store = PeerStore::new(
+            &clock.clock(),
+            store,
+            &boot_nodes,
+            Default::default(),
+            connect_to_boot_nodes,
+        )
+        .unwrap();
+        peer_store.add_peer(&clock.clock(), peer_info_a.clone(), TrustLevel::Direct).unwrap();
+        assert_eq!(peer_store.unconnected_peer(|_| false), Some(peer_info_a.clone()));
     }
 }
 
@@ -109,7 +161,8 @@ fn check_integrity(peer_store: &PeerStore) -> bool {
 fn handle_peer_id_change() {
     let clock = time::FakeClock::default();
     let store = store::Store::from(create_test_store());
-    let mut peer_store = PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+    let mut peer_store =
+        PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
 
     let peers_id = (0..2).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
     let addr = get_addr(0);
@@ -133,7 +186,8 @@ fn handle_peer_id_change() {
 fn dont_handle_address_change() {
     let clock = time::FakeClock::default();
     let store = store::Store::from(create_test_store());
-    let mut peer_store = PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+    let mut peer_store =
+        PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
 
     let peers_id = (0..1).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
     let addrs = (0..2).map(get_addr).collect::<Vec<_>>();
@@ -153,7 +207,7 @@ fn check_add_peers_overriding() {
     let clock = time::FakeClock::default();
     let store = store::Store::from(create_test_store());
     let mut peer_store =
-        PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+        PeerStore::new(&clock.clock(), store.clone(), &[], Default::default(), false).unwrap();
 
     // Five peers: A, B, C, D, X, T
     let peers_id = (0..6).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
@@ -228,7 +282,8 @@ fn check_add_peers_overriding() {
     assert!(check_integrity(&peer_store));
 
     // Check we are able to recover from store previous signed connection
-    let peer_store_2 = PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+    let peer_store_2 =
+        PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
     assert!(check_exist(&peer_store_2, &peers_id[0], Some((addrs[0], TrustLevel::Indirect))));
     assert!(check_integrity(&peer_store_2));
 }
@@ -250,7 +305,7 @@ fn check_ignore_blacklisted_peers() {
     // Populate store with three peers.
     {
         let mut peer_store =
-            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default(), false).unwrap();
         peer_store
             .add_indirect_peers(
                 &clock.clock(),
@@ -269,7 +324,7 @@ fn check_ignore_blacklisted_peers() {
     // correctly.
     {
         let peer_store =
-            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store.clone(), &[], Default::default(), false).unwrap();
         assert_peers(&peer_store, &[&ids[1], &ids[2]]);
     }
 
@@ -277,7 +332,7 @@ fn check_ignore_blacklisted_peers() {
     {
         let blacklist: Blacklist =
             ["127.0.0.1:2", "127.0.0.1:5"].iter().map(|e| e.parse().unwrap()).collect();
-        let mut peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist).unwrap();
+        let mut peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist, false).unwrap();
         // Peer 127.0.0.1:2 is removed since it's blacklisted.
         assert_peers(&peer_store, &[&ids[1]]);
 
@@ -313,7 +368,7 @@ fn remove_blacklisted_peers_from_store() {
     {
         let store = store::Store::from(opener.open());
         let mut peer_store =
-            PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
         peer_store.add_indirect_peers(&clock.clock(), peer_infos.clone().into_iter()).unwrap();
     }
     assert_peers_in_store(&opener, &peer_ids);
@@ -323,7 +378,7 @@ fn remove_blacklisted_peers_from_store() {
         let store = store::Store::from(opener.open());
         let blacklist: Blacklist =
             [BlacklistEntry::from_addr(peer_infos[2].addr.unwrap())].into_iter().collect();
-        let _peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist).unwrap();
+        let _peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist, false).unwrap();
     }
     assert_peers_in_store(&opener, &peer_ids[0..2]);
 }
@@ -368,7 +423,7 @@ fn test_delete_peers() {
     {
         let store = store::Store::from(opener.open());
         let mut peer_store =
-            PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
         peer_store.add_indirect_peers(&clock.clock(), peer_infos.into_iter()).unwrap();
     }
     assert_peers_in_store(&opener, &peer_ids);
@@ -376,7 +431,7 @@ fn test_delete_peers() {
     {
         let store = store::Store::from(opener.open());
         let mut peer_store =
-            PeerStore::new(&clock.clock(), store, &[], Default::default()).unwrap();
+            PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
         assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
         peer_store.delete_peers(&peer_ids).unwrap();
         assert_peers_in_cache(&peer_store, &[], &[]);
