@@ -1930,6 +1930,7 @@ impl ShardsManager {
             // Technically, here we should check if the block producer actually cares about the shard.
             // We don't because with the current implementation, we force all validators to track all
             // shards by making their config tracking all shards.
+            // See https://github.com/near/nearcore/issues/7388
             self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedChunkForward {
                     account_id: bp_account_id,
