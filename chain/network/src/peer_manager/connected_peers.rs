@@ -128,34 +128,40 @@ impl ConnectedPeer {
     ) -> impl Future<Output = ()> {
         let this = self.clone();
         async move {
-            let res = this.send_accounts_data_demux.call(data, {
-                let this = this.clone();
-                |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
-                    let res = ds.iter().map(|_| ()).collect();
-                    let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
-                    for d in ds.into_iter().flatten() {
-                        match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
-                            Entry::Occupied(mut x) => {
-                                if x.get().timestamp < d.timestamp {
+            let res = this
+                .send_accounts_data_demux
+                .call(data, {
+                    let this = this.clone();
+                    |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                        let res = ds.iter().map(|_| ()).collect();
+                        let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                        for d in ds.into_iter().flatten() {
+                            match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                                Entry::Occupied(mut x) => {
+                                    if x.get().timestamp < d.timestamp {
+                                        x.insert(d);
+                                    }
+                                }
+                                Entry::Vacant(x) => {
                                     x.insert(d);
                                 }
                             }
-                            Entry::Vacant(x) => {
-                                x.insert(d);
-                            }
                         }
+                        let msg = Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+                            incremental: true,
+                            requesting_full_sync: false,
+                            accounts_data: sum.into_values().collect(),
+                        }));
+                        this.send_message(msg);
+                        res
                     }
-                    let msg = Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
-                        incremental: true,
-                        requesting_full_sync: false,
-                        accounts_data: sum.into_values().collect(),
-                    }));
-                    this.send_message(msg);
-                    res
-                }
-            }).await;
+                })
+                .await;
             if res.is_err() {
-                tracing::info!("peer {} disconnected, while sencing SyncAccountsData",this.peer_info.id);
+                tracing::info!(
+                    "peer {} disconnected, while sencing SyncAccountsData",
+                    this.peer_info.id
+                );
             }
         }
     }
