@@ -44,9 +44,7 @@ impl CryptoHash {
         // enough.
         let mut buffer = [0u8; 45];
         let len = bs58::encode(self).into(&mut buffer[..]).unwrap();
-        // SAFETY: buffer[0..len] is all ASCII characters from the base58
-        // alphabet.
-        let value = unsafe { std::str::from_utf8_unchecked(&buffer[..len]) };
+        let value = std::str::from_utf8(&buffer[..len]).unwrap();
         visitor(value)
     }
 }
