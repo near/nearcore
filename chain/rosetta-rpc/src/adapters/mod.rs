@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use actix::Addr;
 
 use near_chain_configs::Genesis;
@@ -18,8 +16,8 @@ mod validated_operations;
 /// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
@@ -114,7 +112,7 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
@@ -175,8 +173,8 @@ pub(crate) async fn convert_block_to_transactions(
 }
 
 pub(crate) async fn collect_transactions(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
