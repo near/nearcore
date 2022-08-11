@@ -32,7 +32,7 @@ use near_client_primitives::types::{
 use near_chain::ChainStoreAccess;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest, PeerManagerMessageRequestWithContext,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
@@ -316,10 +316,11 @@ impl ClientActor {
                             }
                             let block = block.expect("block should exist after produced");
                             info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                            self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
+                            self.network_adapter.do_send(
                                 PeerManagerMessageRequest::NetworkRequests(
                                     NetworkRequests::Block { block: block.clone() },
-                                )));
+                                ),
+                            );
                             let _ =
                                 self.client.start_process_block(block.into(), Provenance::PRODUCED, self.get_apply_chunks_done_callback());
                             blocks_produced += 1;
@@ -632,7 +633,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
             actor = "ClientActor",
             handler = "SandboxMessage",
             msg = msg.as_ref())
-        .entered();
+            .entered();
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -672,8 +673,8 @@ impl Handler<Status> for ClientActor {
             target: "client",
             "handle",
             actor = "ClientActor",
-            handler = "Status")
-        .entered();
+            handler = "Status",
+            .entered();
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -825,7 +826,7 @@ impl Handler<ApplyChunksDoneMessage> for ClientActor {
             "handle",
             actor = "ClientActor",
             handler = "ApplyChunksDoneMessage")
-        .entered();
+            .entered();
         self.try_process_unfinished_blocks();
     }
 }
@@ -874,15 +875,13 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
-                    AnnounceAccount {
-                        account_id: validator_signer.validator_id().clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    },
-                )),
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
             ));
         }
     }
@@ -1305,10 +1304,8 @@ impl ClientActor {
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.as_ref().into_inner().clone(),
-                }),
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
             ));
             // If we produced it, we don’t need to validate it.  Mark the block
             // as valid.
@@ -1333,11 +1330,11 @@ impl ClientActor {
                     }
                 }
                 Err(e) if e.is_bad_data() => {
-                    self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
-                        PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BanPeer {
+                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::BanPeer {
                             peer_id: peer_id.clone(),
                             ban_reason: ReasonForBan::BadBlockHeader,
-                        }),
+                        },
                     ));
                     return Err(e);
                 }
@@ -1445,11 +1442,8 @@ impl ClientActor {
     fn request_block(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
-                self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
-                        hash,
-                        peer_id,
-                    }),
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id },
                 ));
             }
             Ok(true) => {

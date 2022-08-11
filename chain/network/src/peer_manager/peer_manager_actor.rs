@@ -2100,7 +2100,11 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
     type Result = NetworkInfo;
     fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
         let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "GetNetworkInfo").entered();
+            tracing::trace_span!(
+                target: "network",
+                "handle",
+                actor = "PeerManagerActor",
+                handler = "GetNetworkInfo").entered();
         self.get_network_info()
     }
 }
@@ -2109,7 +2113,11 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
         let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
+            tracing::trace_span!(
+                target: "network",
+                "handle",
+                actor = "PeerManagerActor",
+                handler = "SetChainInfo").entered();
         let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
@@ -2203,7 +2211,11 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
         msg: ActixMessageWrapper<PeerToManagerMsg>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle",
+            actor = "PeerManagerActor",
+            handler = "PeerToManagerMsg")
             .entered();
         // Unpack throttle controller
         let (msg, throttle_token) = msg.take();
@@ -2222,7 +2234,11 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
 impl Handler<PeerToManagerMsg> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
     fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle",
+            actor = "PeerManagerActor",
+            handler = "PeerToManagerMsg")
             .entered();
         self.handle_peer_to_manager_msg(msg, ctx, None)
     }
@@ -2231,7 +2247,11 @@ impl Handler<PeerToManagerMsg> for PeerManagerActor {
 impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "handle",
+            actor = "PeerManagerActor",
+            handler = "PeerManagerMessageRequest").entered();
         self.handle_peer_manager_message(msg, ctx, None)
     }
 }
