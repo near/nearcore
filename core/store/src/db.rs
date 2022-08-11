@@ -55,10 +55,12 @@ impl DBTransaction {
     }
 
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_insert_only(), "can't insert: {col:?}");
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
     pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_rc(), "can't update refcount: {col:?}");
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
@@ -132,14 +134,12 @@ pub trait Database: Sync + Send {
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
-    assert_eq!(
-        value, old_value,
+    assert!(
+        value == old_value,
         "\
 write once column overwritten
 col: {col}
 key: {key:?}
-old value: {old_value:?}
-new value: {value:?}
 "
     )
 }
