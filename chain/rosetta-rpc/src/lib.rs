@@ -16,7 +16,6 @@ use strum::IntoEnumIterator;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::state_record::StateRecord;
 
 pub use config::RosettaRpcConfig;
 
@@ -35,12 +34,6 @@ pub const BLOCKCHAIN: &str = "nearprotocol";
 struct GenesisWithIdentifier {
     genesis: Genesis,
     block_id: models::BlockIdentifier,
-}
-
-impl GenesisWithIdentifier {
-    fn for_each_record(&self, callback: impl FnMut(&StateRecord)) {
-        self.genesis.for_each_record(callback)
-    }
 }
 
 /// Verifies that network identifier provided by the user is what we expect.

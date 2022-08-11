@@ -20,7 +20,7 @@ async fn convert_genesis_records_to_transaction(
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
-    genesis.for_each_record(|record| {
+    genesis.genesis.for_each_record(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             genesis_account_ids.insert(account_id.clone());
         }
