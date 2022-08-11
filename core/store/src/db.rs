@@ -55,10 +55,12 @@ impl DBTransaction {
     }
 
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_insert_only(), "can't insert: {col:?}");
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
     pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_rc(), "can't update refcount: {col:?}");
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
