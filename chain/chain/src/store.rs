@@ -3315,7 +3315,7 @@ mod tests {
             DBCol::ChunkExtra,
         ];
         for col in DBCol::iter() {
-            println!("current column is {:?}", col);
+            println!("current column is {col}");
             if gced_cols.contains(&col) {
                 // only genesis block includes new chunk.
                 let count = if col == DBCol::OutcomeIds { Some(1) } else { Some(8) };

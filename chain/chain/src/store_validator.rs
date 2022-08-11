@@ -30,11 +30,6 @@ use near_primitives::time::Clock;
 
 mod validate;
 
-fn to_string<T: std::fmt::Debug>(v: &T) -> String {
-    format!("{:?}", v)
-}
-
-#[derive(Debug)]
 pub struct StoreValidatorCache {
     head: BlockHeight,
     header_head: BlockHeight,
@@ -125,11 +120,11 @@ impl StoreValidator {
             if col.is_gc() && self.inner.gc_count[col] == 0 {
                 if col.is_gc_optional() {
                     res.push((
-                        to_string(&col) + " (skipping is acceptable)",
+                        format!("{col} (skipping is acceptable)"),
                         self.inner.gc_count[col],
                     ))
                 } else {
-                    res.push((to_string(&col), self.inner.gc_count[col]))
+                    res.push((col.to_string(), self.inner.gc_count[col]))
                 }
             }
         }
@@ -143,7 +138,7 @@ impl StoreValidator {
         self.tests
     }
     fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
-        self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
+        self.errors.push(ErrorMessage { key: format!("{key:?}"), col: col.to_string(), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
         for item in self.store.clone().iter_raw_bytes(col) {

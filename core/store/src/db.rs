@@ -144,7 +144,7 @@ new value: {value:?}
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StatsValue {
     Count(i64),
     Sum(i64),
