@@ -5,6 +5,7 @@ pub use crate::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF;
 
 mod accounts_data;
 mod concurrency;
+mod multimap;
 mod network_protocol;
 mod peer;
 mod peer_manager;

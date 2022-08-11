@@ -28,6 +28,7 @@ use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
 use near_o11y::log_assert;
+use near_primitives::network::{PeerId};
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -35,6 +36,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use crate::multimap::OrdMultiMap;
 
 #[cfg(test)]
 mod tests;
@@ -119,6 +121,9 @@ struct CacheInner {
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
     data: HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
+    /// Indices on data.
+    peers_by_account: OrdMultiMap<AccountId,PeerId>,
+    accounts_by_peer: OrdMultiMap<PeerId,AccountId>,
 }
 
 impl CacheInner {
@@ -130,12 +135,21 @@ impl CacheInner {
                 _ => true,
             }
     }
+    fn add_to_index(&mut self, d:&SignedAccountData, n:i64) {
+        for p in &d.peers {
+            self.peers_by_account.add(d.account_id.clone(),p.peer_id.clone(),n);
+            self.accounts_by_peer.add(p.peer_id.clone(),d.account_id.clone(),n);
+        }
+    }
     fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
         let id = (d.epoch_id.clone(), d.account_id.clone());
-        self.data.insert(id, d.clone());
+        self.add_to_index(&*d,1); 
+        if let Some(old) = self.data.insert(id, d.clone()) {
+            self.add_to_index(&*old,-1);
+        }
         Some(d)
     }
 }
@@ -150,6 +164,8 @@ impl Cache {
             inner: RwLock::new(CacheInner {
                 keys: Arc::new(AccountKeys::default()),
                 data: HashMap::new(),
+                peers_by_account: OrdMultiMap::default(),
+                accounts_by_peer: OrdMultiMap::default(),
             }),
         }
     }
@@ -164,7 +180,13 @@ impl Cache {
         if keys == inner.keys {
             return false;
         }
-        inner.data.retain(|k, _| keys.contains_key(k));
+        for (k,v) in std::mem::take(&mut inner.data) {
+            if keys.contains_key(&k) {
+                inner.data.insert(k,v);
+            } else {
+                inner.add_to_index(&*v,-1);
+            }
+        }
         inner.keys = keys;
         true
     }
