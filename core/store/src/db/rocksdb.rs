@@ -365,8 +365,9 @@ fn rocksdb_block_based_options(
         || col == DBCol::HeaderHashesByHeight
         || col == DBCol::BlockPerHeight
         || col == DBCol::BlockRefCount {
+        // num_shards_bits = 0 will lead to LRU cache having (1 << 0) = 1 shards.
         block_opts
-            .set_block_cache(&Cache::new_lru_cache_with_shard_bits(cache_size.as_u64().try_into().unwrap(), -1).unwrap());
+            .set_block_cache(&Cache::new_lru_cache_with_shard_bits(cache_size.as_u64().try_into().unwrap(), /*num_shard_bits */0).unwrap());
     } else {
         block_opts
             .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
