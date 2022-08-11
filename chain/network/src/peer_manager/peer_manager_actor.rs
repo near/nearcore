@@ -418,6 +418,47 @@ impl PeerManagerActor {
         self
     }
 
+    /// HACK: "override" `<PeerManager as actix::Actor>::start_in_arbiter` so
+    /// that we can instrument `ContextFut` (that is, the actual body of the
+    /// actor's event loop).
+    pub fn start_in_arbiter<F>(wrk: &actix::ArbiterHandle, f: F) -> Addr<Self>
+    where
+        Self: Actor<Context = Context<Self>>,
+        F: FnOnce(&mut Context<Self>) -> Self + Send + 'static,
+    {
+        pin_project_lite::pin_project! {
+            #[derive(Debug, Clone)]
+            pub struct Fut<T> {
+                #[pin]
+                inner: T,
+            }
+        }
+        impl<T: std::future::Future> std::future::Future for Fut<T> {
+            type Output = T::Output;
+
+            fn poll(
+                self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Self::Output> {
+                let this = self.project();
+                let _guard = tracing::trace_span!(target: "network", "PeerManagerEventLoopTurn");
+                this.inner.poll(cx)
+            }
+        }
+
+        let (tx, rx) = actix::dev::channel::channel(16);
+
+        // create actor
+        wrk.spawn_fn(move || {
+            let mut ctx = Context::with_receiver(rx);
+            let act = f(&mut ctx);
+            let fut = ctx.into_future(act);
+            actix::spawn(Fut { inner: fut });
+        });
+
+        Addr::new(tx)
+    }
+
     fn update_routing_table(
         &self,
         ctx: &mut Context<Self>,
