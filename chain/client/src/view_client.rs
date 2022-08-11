@@ -19,13 +19,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
-    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
-    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -546,31 +545,6 @@ impl Handler<GetBlock> for ViewClientActor {
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
 
         Ok(BlockView::from_author_block(block_author, block))
-    }
-}
-
-/// Handles retrieving block header from the chain.
-impl Handler<GetBlockHash> for ViewClientActor {
-    type Result = Result<CryptoHash, GetBlockError>;
-
-    #[perf]
-    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
-        match msg.0 {
-            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_hash_by_height(height)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                // Fetch block header to confirm that the block exists.  This is
-                // only done so that we can get an error if the hash does not
-                // correspond to a known block.
-                self.chain.get_block_header(&hash).map(|_| hash)
-            }
-            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
-                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                .ok_or(GetBlockError::NotSyncedYet)?),
-        }
-        .map_err(std::convert::Into::into)
     }
 }
 

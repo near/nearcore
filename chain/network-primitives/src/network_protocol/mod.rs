@@ -127,14 +127,6 @@ impl FromStr for PeerInfo {
     }
 }
 
-impl TryFrom<&str> for PeerInfo {
-    type Error = ParsePeerInfoError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
-    }
-}
-
 /// Peer chain information.
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
