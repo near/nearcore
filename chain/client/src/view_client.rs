@@ -26,7 +26,10 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    PeerManagerMessageRequestWithContext,
+};
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::{
@@ -348,8 +351,10 @@ impl ViewClientActor {
                         .chain
                         .find_validator_for_forwarding(dst_shard_id)
                         .map_err(|e| TxStatusError::ChainError(e))?;
-                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ReceiptOutComeRequest(validator, receipt_id),
+                    self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::ReceiptOutComeRequest(validator, receipt_id),
+                        ),
                     ));
                 }
             }
@@ -450,8 +455,12 @@ impl ViewClientActor {
                     .find_validator_for_forwarding(target_shard_id)
                     .map_err(|e| TxStatusError::ChainError(e))?;
 
-                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
+                self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
+                        validator,
+                        signer_account_id,
+                        tx_hash,
+                    )),
                 ));
             }
         }

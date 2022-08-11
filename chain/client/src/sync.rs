@@ -1,23 +1,22 @@
-use near_chain::{check_known, near_chain_primitives, ChainStoreAccess, Error};
-use std::cmp::min;
-use std::collections::{HashMap, HashSet};
-use std::ops::Add;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration as TimeDuration;
-
 use ansi_term::Color::{Purple, Yellow};
 use chrono::{DateTime, Duration};
 use futures::{future, FutureExt};
-use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{thread_rng, Rng};
-use tracing::{debug, error, info, warn};
-
+use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::{check_known, near_chain_primitives, ChainStoreAccess, Error};
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
+use near_client_primitives::types::{
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
+};
+use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{
+    FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    PeerManagerMessageRequestWithContext,
+};
+use near_network_primitives::types::AccountOrPeerIdOrHash;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::time::{Clock, Utc};
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -25,14 +24,15 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
 };
 use near_primitives::utils::to_timestamp;
-
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
-use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
-};
-use near_network::types::PeerManagerMessageRequest;
-use near_network_primitives::types::AccountOrPeerIdOrHash;
-use near_primitives::shard_layout::ShardUId;
+use rand::seq::{IteratorRandom, SliceRandom};
+use rand::{thread_rng, Rng};
+use std::cmp::min;
+use std::collections::{HashMap, HashSet};
+use std::ops::Add;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration as TimeDuration;
+use tracing::{debug, error, info, warn};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -271,14 +271,13 @@ impl HeaderSync {
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
                                         peer.peer_info, peer.chain_info.height);
-                                    self.network_adapter.do_send(
+                                    self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
                                                 ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
                                             },
-                                        ),
-                                    );
+                                        )));
                                     // This peer is fraudulent, let's skip this beat and wait for
                                     // the next one when this peer is not in the list anymore.
                                     self.syncing_peer = None;
@@ -317,11 +316,11 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::BlockHeadersRequest {
+            self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockHeadersRequest {
                     hashes: locator,
                     peer_id: peer.peer_info.id.clone(),
-                },
+                }),
             ));
             return Some(peer);
         }
@@ -574,8 +573,11 @@ impl BlockSync {
             if let Some(peer) = peer {
                 debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
                        chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
-                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
+                self.network_adapter.do_send(PeerManagerMessageRequestWithContext::new(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                        hash,
+                        peer_id: peer.peer_info.id.clone(),
+                    }),
                 ));
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
@@ -1116,8 +1118,10 @@ impl StateSync {
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
-                        .send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                        .send(PeerManagerMessageRequestWithContext::new(
+                            PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                            ),
                         ))
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) =
@@ -1154,13 +1158,15 @@ impl StateSync {
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         self.network_adapter
-                            .send(PeerManagerMessageRequest::NetworkRequests(
-                                NetworkRequests::StateRequestPart {
-                                    shard_id,
-                                    sync_hash,
-                                    part_id: part_id as u64,
-                                    target: target.clone(),
-                                },
+                            .send(PeerManagerMessageRequestWithContext::new(
+                                PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::StateRequestPart {
+                                        shard_id,
+                                        sync_hash,
+                                        part_id: part_id as u64,
+                                        target: target.clone(),
+                                    },
+                                ),
                             ))
                             .then(move |result| {
                                 if let Ok(NetworkResponses::RouteNotFound) =

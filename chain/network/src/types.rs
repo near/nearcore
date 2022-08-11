@@ -28,6 +28,8 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
@@ -77,6 +79,19 @@ pub enum PeerManagerMessageRequest {
         nonce: u64,
         target: PeerId,
     },
+}
+
+#[derive(actix::Message)]
+#[rtype(result = "PeerManagerMessageResponse")]
+pub struct PeerManagerMessageRequestWithContext {
+    pub msg: PeerManagerMessageRequest,
+    pub context: opentelemetry::Context,
+}
+
+impl PeerManagerMessageRequestWithContext {
+    pub fn new(msg: PeerManagerMessageRequest) -> Self {
+        Self { msg, context: Span::current().context() }
+    }
 }
 
 impl PeerManagerMessageRequest {
@@ -419,11 +434,11 @@ where
 }
 
 pub trait PeerManagerAdapter:
-    MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>
+    MsgRecipient<PeerManagerMessageRequestWithContext> + MsgRecipient<SetChainInfo>
 {
 }
-impl<A: MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>> PeerManagerAdapter
-    for A
+impl<A: MsgRecipient<PeerManagerMessageRequestWithContext> + MsgRecipient<SetChainInfo>>
+    PeerManagerAdapter for A
 {
 }
 

@@ -1,5 +1,5 @@
 use crate::types::{
-    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
+    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequestWithContext,
     PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
@@ -273,20 +273,20 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
-    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
+    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequestWithContext>>>,
 }
 
-impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
+impl MsgRecipient<PeerManagerMessageRequestWithContext> for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: PeerManagerMessageRequest,
+        msg: PeerManagerMessageRequestWithContext,
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.do_send(msg);
         future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
             .boxed()
     }
 
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
+    fn do_send(&self, msg: PeerManagerMessageRequestWithContext) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
@@ -299,7 +299,7 @@ impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
 }
 
 impl MockPeerManagerAdapter {
-    pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
+    pub fn pop(&self) -> Option<PeerManagerMessageRequestWithContext> {
         self.requests.write().unwrap().pop_front()
     }
 }

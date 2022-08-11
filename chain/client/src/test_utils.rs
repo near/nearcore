@@ -26,6 +26,7 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    PeerManagerMessageRequestWithContext,
 };
 use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
@@ -67,7 +68,7 @@ use near_primitives::utils::MaybeValidated;
 pub struct PeerManagerMock {
     handle: Box<
         dyn FnMut(
-            PeerManagerMessageRequest,
+            PeerManagerMessageRequestWithContext,
             &mut actix::Context<Self>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -77,7 +78,7 @@ impl PeerManagerMock {
     fn new(
         f: impl 'static
             + FnMut(
-                PeerManagerMessageRequest,
+                PeerManagerMessageRequestWithContext,
                 &mut actix::Context<Self>,
             ) -> PeerManagerMessageResponse,
     ) -> Self {
@@ -89,9 +90,13 @@ impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+impl actix::Handler<PeerManagerMessageRequestWithContext> for PeerManagerMock {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: PeerManagerMessageRequestWithContext,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
         (self.handle)(msg, ctx)
     }
 }
@@ -381,7 +386,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let client_addr1 = client_addr.clone();
 
     let network_actor =
-        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg.msg, ctx, client_addr1.clone()))
             .start();
 
     network_adapter.set_recipient(network_actor);
@@ -607,6 +612,7 @@ pub fn setup_mock_all_validators(
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::new(move |msg, _ctx| {
+                let msg = msg.msg;
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();
@@ -1353,6 +1359,7 @@ impl TestEnv {
         for network_adapter in network_adapters {
             // process partial encoded chunks
             while let Some(request) = network_adapter.pop() {
+                let request = request.msg;
                 if let PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id,
@@ -1375,7 +1382,7 @@ impl TestEnv {
     /// `id`: id for the client
     pub fn process_partial_encoded_chunks_requests(&mut self, id: usize) {
         while let Some(request) = self.network_adapters[id].pop() {
-            self.process_partial_encoded_chunk_request(id, request);
+            self.process_partial_encoded_chunk_request(id, request.msg);
         }
     }
 
@@ -1411,7 +1418,7 @@ impl TestEnv {
             client.chain.mut_store(),
             &mut client.rs,
         );
-        let response = self.network_adapters[id].pop().unwrap();
+        let response = self.network_adapters[id].pop().unwrap().msg;
         if let PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
         ) = response
