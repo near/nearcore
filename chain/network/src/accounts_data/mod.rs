@@ -30,13 +30,14 @@ use crate::types::AccountKeys;
 use near_o11y::log_assert;
 use near_primitives::network::{PeerId};
 use near_primitives::types::{AccountId, EpochId};
-use parking_lot::RwLock;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use crate::multimap::OrdMultiMap;
+use arc_swap::ArcSwap;
+use std::sync::Mutex;
 
 #[cfg(test)]
 mod tests;
@@ -114,19 +115,20 @@ pub(crate) enum Error {
     SingleAccountMultipleData,
 }
 
-struct CacheInner {
-    keys: Arc<AccountKeys>,
+#[derive(Clone)]
+pub struct Snapshot {
+    pub keys: Arc<AccountKeys>,
     /// Current state of knowledge about an account.
     /// key is the public key of the account in the given epoch.
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
-    data: HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
+    pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
     /// Indices on data.
-    peers_by_account: OrdMultiMap<AccountId,PeerId>,
-    accounts_by_peer: OrdMultiMap<PeerId,AccountId>,
+    pub peers_by_account: OrdMultiMap<AccountId,PeerId>,
+    pub accounts_by_peer: OrdMultiMap<PeerId,AccountId>,
 }
 
-impl CacheInner {
+impl Snapshot {
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)
@@ -154,41 +156,59 @@ impl CacheInner {
     }
 }
 
-pub(crate) struct Cache {
-    inner: RwLock<CacheInner>,
+/// Mutex which only synchronizes on writes.
+/// Reads always succeed and return the latest written version. 
+pub struct WriteMutex<T> {
+    value: ArcSwap<T>,
+    mutex: Mutex<()>,
 }
+
+impl<T:Clone> WriteMutex<T> {
+    pub fn new(v:T) -> Self { Self { value: ArcSwap::new(Arc::new(v)), mutex: Mutex::new(()) } }
+    // non-blocking
+    pub fn load(&self) -> Arc<T> { self.value.load_full() }
+    // blocking
+    pub fn update<R>(&self, f:impl FnOnce(&mut T) -> R) -> R {
+        let _guard = self.mutex.lock().unwrap();
+        let mut value = self.value.load().as_ref().clone();
+        let res = f(&mut value);
+        self.value.store(Arc::new(value));
+        res
+    }
+}
+
+pub(crate) struct Cache(WriteMutex<Snapshot>);
 
 impl Cache {
     pub fn new() -> Self {
-        Self {
-            inner: RwLock::new(CacheInner {
-                keys: Arc::new(AccountKeys::default()),
-                data: HashMap::new(),
-                peers_by_account: OrdMultiMap::default(),
-                accounts_by_peer: OrdMultiMap::default(),
-            }),
-        }
+        Self(WriteMutex::new(Snapshot {
+            keys: Arc::new(AccountKeys::default()),
+            data: im::HashMap::new(),
+            peers_by_account: OrdMultiMap::default(),
+            accounts_by_peer: OrdMultiMap::default(),
+        }))
     }
 
     /// Updates the set of important accounts and their public keys.
     /// The AccountData which is no longer important is dropped.
     /// Returns true iff the set of accounts actually changed.
     pub fn set_keys(&self, keys: Arc<AccountKeys>) -> bool {
-        let mut inner = self.inner.write();
-        // Skip further processing if the key set didn't change.
-        // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
-        if keys == inner.keys {
-            return false;
-        }
-        for (k,v) in std::mem::take(&mut inner.data) {
-            if keys.contains_key(&k) {
-                inner.data.insert(k,v);
-            } else {
-                inner.add_to_index(&*v,-1);
+        self.0.update(|inner| {
+            // Skip further processing if the key set didn't change.
+            // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
+            if keys==inner.keys {
+                return false;
             }
-        }
-        inner.keys = keys;
-        true
+            for (k,v) in std::mem::take(&mut inner.data) {
+                if keys.contains_key(&k) {
+                    inner.data.insert(k,v);
+                } else {
+                    inner.add_to_index(&*v,-1);
+                }
+            }
+            inner.keys = keys;
+            true
+        })
     }
 
     /// Selects new data and verifies the signatures.
@@ -203,7 +223,7 @@ impl Cache {
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
         let mut data_and_keys = HashMap::new();
-        let inner = self.inner.read();
+        let inner = self.0.load();
         for d in data {
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
@@ -228,7 +248,6 @@ impl Cache {
             };
             data_and_keys.insert(id, (d, key));
         }
-        drop(inner);
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
@@ -255,13 +274,13 @@ impl Cache {
         // Execute verification on the rayon threadpool.
         let (data, err) = rayon_spawn(move || this.verify(data)).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let mut inner = self.inner.write();
+        let inserted = self.0.update(|inner| {
+            data.into_iter().filter_map(|d| inner.try_insert(d)).collect()
+        });
         // Return the inserted data.
-        (data.into_iter().filter_map(|d| inner.try_insert(d)).collect(), err)
+        (inserted, err)
     }
 
-    /// Copies and returns all the AccountData in the cache.
-    pub fn dump(&self) -> Vec<Arc<SignedAccountData>> {
-        self.inner.read().data.values().cloned().collect()
-    }
+    /// Loads the current cache snapshot. 
+    pub fn load(&self) -> Arc<Snapshot> { self.0.load() }
 }

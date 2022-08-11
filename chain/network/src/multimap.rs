@@ -1,19 +1,18 @@
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry;
 
-struct OrdMultiSet<V>(BTreeMap<V,i64>);
+#[derive(Clone)]
+struct OrdMultiSet<V>(im::OrdMap<V,i64>);
 
 impl<V> Default for OrdMultiSet<V> {
-    fn default() -> Self { Self(BTreeMap::new()) }
+    fn default() -> Self { Self(im::OrdMap::new()) }
 }
 
-impl<V:Ord> OrdMultiSet<V> {
+impl<V:Ord+Clone> OrdMultiSet<V> {
     /// adds `n` copies of `v` to the multiset.
     /// Number of copies never goes below 0.
     pub fn add(&mut self, v:V, n:i64) {
         match self.0.entry(v) {
-            Entry::Vacant(e) => if n>0 { e.insert(n); },
-            Entry::Occupied(mut e) => {
+            im::ordmap::Entry::Vacant(e) => if n>0 { e.insert(n); },
+            im::ordmap::Entry::Occupied(mut e) => {
                 *e.get_mut() += n;
                 if *e.get() <= 0 {
                     e.remove_entry();
@@ -28,52 +27,30 @@ impl<V:Ord> OrdMultiSet<V> {
     }
 }
 
-#[derive(Eq,PartialEq)]
-enum Prefix<K:Eq,V:Eq> {
-    Key(K),
-    KeyValue(K,V),
-}
-
-impl<K:Eq,V:Eq> Prefix<K,V> {
-    fn pair(&self) -> (&K,Option<&V>) {
-        match self {
-            Prefix::Key(k) => (k,None),
-            Prefix::KeyValue(k,v) => (k,Some(v)),
-        }
-    }
-}
-
-impl<K:Ord,V:Ord> std::cmp::PartialOrd for Prefix<K,V> {
-    fn partial_cmp(&self, other:&Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<K:Ord,V:Ord> std::cmp::Ord for Prefix<K,V> {
-    fn cmp(&self, other:&Self) -> std::cmp::Ordering {
-        // Note that None < Some(_) and pairs are compared lexicographically.
-        self.pair().cmp(&other.pair())
-    }
-}
+// The derived order is lexographic and None < Some(_).
+// TODO(gprusak): test it.
+#[derive(Clone,PartialEq,Eq,PartialOrd,Ord)]
+struct Prefix<K:Ord+Clone,V:Ord+Clone>(K,Option<V>);
 
 /// A MultiMap which supports (key,value) duplicates.
-pub struct OrdMultiMap<K:Eq,V:Eq>(OrdMultiSet<Prefix<K,V>>);
+#[derive(Clone)]
+pub struct OrdMultiMap<K:Ord+Clone,V:Ord+Clone>(OrdMultiSet<Prefix<K,V>>);
 
-impl<K:Eq,V:Eq> Default for OrdMultiMap<K,V> {
+impl<K:Ord+Clone,V:Ord+Clone> Default for OrdMultiMap<K,V> {
     fn default() -> Self { Self(OrdMultiSet::default()) }
 }
 
-impl<K:Ord+Clone,V:Ord> OrdMultiMap<K,V> {
+impl<K:Ord+Clone,V:Ord+Clone> OrdMultiMap<K,V> {
     /// adds `n` copies of `(k,v)` to the multimap.
     pub fn add(&mut self, k:K,v:V,n:i64) {
-        self.0.add(Prefix::KeyValue(k,v),n);
+        self.0.add(Prefix(k,Some(v)),n);
     }
 
     /// Iterates over values associated with key `k`, ignoring duplicates.
     pub fn iter_once_at(&self, start:K) -> impl Iterator<Item=&V> {
-        self.0.range_once(Prefix::Key(start.clone())..).map_while(move |p|match p {
-            Prefix::KeyValue(k,v) => if k==&start { Some(v) } else { None }
-            Prefix::Key(_) => unreachable!(""),
+        self.0.range_once(Prefix(start.clone(),None)..).map_while(move |Prefix(k,v)| {
+            debug_assert!(v.is_some());
+            if k==&start { v.as_ref() } else { None }
         })
     }
 }
