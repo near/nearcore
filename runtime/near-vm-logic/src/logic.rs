@@ -2794,7 +2794,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `ed25519_verify_base + read_register_byte * (num_bytes_signature + num_bytes_message)`
+    /// `read_register_base + read_memory_base + read_memory_bytes * (num_bytes_signature + num_bytes_message) +
+    ///  ed25519_verify_base + read_register_byte * (num_bytes_signature + num_bytes_message)`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,

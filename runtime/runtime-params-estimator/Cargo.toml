@@ -64,7 +64,12 @@ wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly = [
     "nightly_protocol",
 ]
-nightly_protocol = ["near-primitives/nightly_protocol", "near-test-contracts/nightly"]
+nightly_protocol = [
+  "near-primitives/nightly_protocol",
+  "near-test-contracts/nightly",
+  "near-vm-logic/protocol_feature_ed25519_verify",
+  "protocol_feature_ed25519_verify"
+]
 sandbox = ["node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
-protocol_feature_ed25519_verify = ["near-primitives/protocol_feature_ed25519_verify"]
+protocol_feature_ed25519_verify = []
