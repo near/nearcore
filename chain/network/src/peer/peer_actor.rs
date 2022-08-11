@@ -881,34 +881,42 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     self.network_state.config.peer_stats_period.try_into().unwrap(),
                 );
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                ctx.spawn(async move {
-                    loop {
-                        interval.tick().await;
-                        let sent = tracker.lock().sent_bytes.minute_stats(&clock);
-                        let received = tracker.lock().received_bytes.minute_stats(&clock);
-                        // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
-                        // expected to change. Rest of the content of chain_info is not relevant
-                        // after handshake.
-                        connection_state.stats.store(Arc::new(Stats {
-                            received_bytes_per_sec: received.bytes_per_min / 60,
-                            sent_bytes_per_sec: sent.bytes_per_min / 60,
-                        }));
-                        // Whether the peer is considered abusive due to sending too many messages.
-                        // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                        // some day be less than `u64::MAX`.
-                        let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                            || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                        if is_abusive {
-                            trace!(target: "network", peer_id=?connection_state.peer_info.id, sent = sent.count_per_min, recv = received.count_per_min, "Banning peer for abuse");
-                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                            //  network traffic that flags honest peers.
-                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                            // }
+                ctx.spawn(
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            let sent = tracker.lock().sent_bytes.minute_stats(&clock);
+                            let received = tracker.lock().received_bytes.minute_stats(&clock);
+                            // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
+                            // expected to change. Rest of the content of chain_info is not relevant
+                            // after handshake.
+                            connection_state.stats.store(Arc::new(Stats {
+                                received_bytes_per_sec: received.bytes_per_min / 60,
+                                sent_bytes_per_sec: sent.bytes_per_min / 60,
+                            }));
+                            // Whether the peer is considered abusive due to sending too many messages.
+                            // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+                            // some day be less than `u64::MAX`.
+                            let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
+                                || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
+                            if is_abusive {
+                                tracing::trace!(
+                                target: "network",
+                                peer_id = ?connection_state.peer_info.id,
+                                sent = sent.count_per_min,
+                                recv = received.count_per_min,
+                                "Banning peer for abuse");
+                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                                //  network traffic that flags honest peers.
+                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                                // }
+                            }
                         }
                     }
-                }.into_actor(self));
+                    .into_actor(self),
+                );
 
                 self.peer_manager_addr
                     .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
