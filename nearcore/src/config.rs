@@ -825,6 +825,7 @@ pub fn init_configs(
     }
 
     let mut config = Config::default();
+    config.tracked_shards = vec![0];
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
         .unwrap_or_else(random_chain_id);
