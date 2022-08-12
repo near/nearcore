@@ -667,13 +667,13 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         new_edge: Edge,
     ) {
-        let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
+        // let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_FOR_SYNC_DELAY.try_into().unwrap(),
             move |act, _ctx| {
-                let _guard = run_later_span.enter();
+                // let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
                 let known_edges = act.network_graph.read().edges().values().cloned().collect();
@@ -2047,7 +2047,7 @@ impl PeerManagerActor {
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
                     .send(NetworkViewClientMessages::AnnounceAccount(accounts))
-                    .in_current_span()
+                    // .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {
                         let _span = tracing::trace_span!(target: "network", "announce_account").entered();
