@@ -80,7 +80,7 @@ test_features = [
   "near-network-primitives/test_features",
 ]
 
-skip_sending_tombstones = []
+shardnet = []
 
 [[bench]]
 name = "graph"
