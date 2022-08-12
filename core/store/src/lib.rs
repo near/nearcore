@@ -414,9 +414,7 @@ impl fmt::Debug for StoreUpdate {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base(key))?,
                 DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", to_base(key))?
-                }
+                DBOp::UpdateRefcount { col, key, .. } => writeln!(f, "  ± {col} {}", to_base(key))?,
                 DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }

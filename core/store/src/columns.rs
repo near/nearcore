@@ -359,8 +359,8 @@ impl DBCol {
 }
 
 impl fmt::Display for DBCol {
-    fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmtr.write_str(<&str>::from(self))
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
     }
 }
 

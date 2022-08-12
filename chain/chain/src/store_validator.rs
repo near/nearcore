@@ -119,10 +119,7 @@ impl StoreValidator {
         for col in DBCol::iter() {
             if col.is_gc() && self.inner.gc_count[col] == 0 {
                 if col.is_gc_optional() {
-                    res.push((
-                        format!("{col} (skipping is acceptable)"),
-                        self.inner.gc_count[col],
-                    ))
+                    res.push((format!("{col} (skipping is acceptable)"), self.inner.gc_count[col]))
                 } else {
                     res.push((col.to_string(), self.inner.gc_count[col]))
                 }
