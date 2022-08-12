@@ -406,6 +406,7 @@ class LocalNode(BaseNode):
             'consensus': {
                 'min_num_peers': int(not single_node)
             },
+            'tracked_shards': [0],
         })
 
         atexit.register(atexit_cleanup, self)
