@@ -148,7 +148,7 @@ impl ViewClientActor {
                 let block_hash = self.chain.head()?.last_block_hash;
                 self.chain.get_block_header(&block_hash)
             }
-            Some(BlockId::Height(height)) => self.chain.get_header_by_height(height),
+            Some(BlockId::Height(height)) => self.chain.get_block_header_by_height(height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
         }
     }
@@ -191,7 +191,7 @@ impl ViewClientActor {
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = match msg.block_reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_header_by_height(block_height)
+                self.chain.get_block_header_by_height(block_height)
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
                 self.chain.get_block_header(&block_hash)
@@ -643,7 +643,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
                     BlockId::Hash(h) => self.chain.get_block_header(&h)?,
-                    BlockId::Height(h) => self.chain.get_header_by_height(h)?,
+                    BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
                 };
                 let next_block_hash =
                     self.chain.store().get_next_block_hash(block_header.hash())?;
@@ -952,7 +952,7 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height)
+                self.chain.get_block_header_by_height(height)
             }
             BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
