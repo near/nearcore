@@ -212,7 +212,7 @@ pub(crate) static PEER_TO_MANAGER_MESSAGE_HANDLING_LATENCY: Lazy<HistogramVec> =
         "near_peer_to_manager_message_handling_latency",
         "Latency of handlng PeerToManagerMsg",
         &["msg_type"],
-        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.0001, 1.6, 40).unwrap()),
     )
     .unwrap()
 });
