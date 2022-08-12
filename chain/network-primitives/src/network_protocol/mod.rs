@@ -228,6 +228,14 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
+
+    pub fn log_if_ping_pong(&self) {
+        if let Self::Ping(_) = self {
+            tracing::info!(target: "ping", body = ?self, "this is a ping");
+        } else if let Self::Pong(_) = self {
+            tracing::info!(target: "ping", body = ?self, "this is a pong");
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {

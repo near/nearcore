@@ -298,6 +298,12 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
+    pub fn log_if_ping_pong(&self) {
+        if let Self::Routed(routed) = self {
+            routed.msg.body.log_if_ping_pong();
+        }
+    }
+
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),

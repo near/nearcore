@@ -679,7 +679,7 @@ impl WriteHandler<io::Error> for PeerActor {}
 impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
+        let _span = tracing::trace_span!(target: "network", "handle", actor = "PeerActor", handler = "bytes").entered();
         let msg = match msg {
             Ok(msg) => msg,
             Err(ban_reason) => {
@@ -698,6 +698,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 return;
             }
         };
+        peer_msg.log_if_ping_pong();
 
         if self.should_we_drop_msg(&peer_msg) {
             return;

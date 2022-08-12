@@ -2093,12 +2093,13 @@ impl PeerManagerActor {
             // i.e. Return false in case of Ping and Pong
             match &msg.msg.body {
                 RoutedMessageBody::Ping(ping) => {
-                    info!(target: "network", "received ping, sending pong");
+                    info!(target: "ping", "received ping, sending pong");
                     self.send_pong(ping.nonce as usize, msg.hash());
                     self.event_sink.push(Event::Ping(ping.clone()));
                     false
                 }
                 RoutedMessageBody::Pong(pong) => {
+                    info!(target: "ping", "received pong");
                     self.event_sink.push(Event::Pong(pong.clone()));
                     false
                 }
