@@ -112,7 +112,7 @@ impl Default for StoreConfig {
 /// Typical usage:
 ///
 /// ```ignore
-/// let store = Store::opener(&near_config.config.store)
+/// let store = NodeStorage::opener(&near_config.config.store)
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
@@ -120,7 +120,7 @@ pub struct StoreOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`Store::opener`].
+    /// passed to [`NodeStorage::opener`].
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
@@ -173,7 +173,7 @@ impl<'a> StoreOpener<'a> {
     ///
     /// Panics on failure.
     // TODO(mina86): Change it to return Result.
-    pub fn open(&self) -> crate::Store {
+    pub fn open(&self) -> crate::NodeStorage {
         if self.check_if_exists() {
             tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
         } else if matches!(self.mode, Mode::ReadOnly) {
@@ -184,6 +184,6 @@ impl<'a> StoreOpener<'a> {
         }
         let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
             .expect("Failed to open the database");
-        crate::Store::new(std::sync::Arc::new(db))
+        crate::NodeStorage::new(std::sync::Arc::new(db))
     }
 }

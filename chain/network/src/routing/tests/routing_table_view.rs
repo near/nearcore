@@ -1,11 +1,10 @@
 use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::routing::routing_table_view::*;
-use crate::store;
+use crate::test_utils::create_test_peer_store;
 use crate::testonly::make_rng;
 use near_network_primitives::time;
 use near_network_primitives::types::PeerIdOrHash;
-use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 
@@ -14,8 +13,7 @@ fn find_route() {
     let mut rng = make_rng(385305732);
     let clock = time::FakeClock::default();
     let rng = &mut rng;
-    let store = create_test_store();
-    let store = store::Store::from(&store);
+    let store = create_test_peer_store();
 
     // Create a sample NextHopTable.
     let peers: Vec<_> = (0..10).map(|_| data::make_peer_id(rng)).collect();

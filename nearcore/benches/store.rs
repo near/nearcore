@@ -6,7 +6,7 @@ use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_logger_utils::init_integration_logger;
 use near_primitives::types::StateRoot;
-use near_store::Mode;
+use near_store::{Mode, Temperature};
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
@@ -28,8 +28,10 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store =
-            near_store::Store::opener(&home_dir, &near_config.config.store).mode(mode).open();
+        let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store)
+            .mode(mode)
+            .open()
+            .get_store(Temperature::Hot);
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);

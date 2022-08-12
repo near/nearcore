@@ -333,7 +333,7 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     // TODO(pompon) - migrate 'new' to use the clock as parameter.
     pub fn new(
-        store: near_store::Store,
+        store: near_store::NodeStorage,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
@@ -351,7 +351,7 @@ impl PeerManagerActor {
 
     pub fn new_with_clock(
         clock: time::Clock,
-        store: near_store::Store,
+        store: near_store::NodeStorage,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,

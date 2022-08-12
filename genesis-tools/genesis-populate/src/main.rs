@@ -25,7 +25,9 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::Store::opener(home_dir, &near_config.config.store).open();
+    let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
+        .open()
+        .get_store(near_store::Temperature::Hot);
     GenesisBuilder::from_config_and_store(home_dir, near_config, store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())

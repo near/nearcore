@@ -47,8 +47,9 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let (tempdir, opener) = near_store::Store::test_opener();
-            (Some(tempdir), opener.open())
+            let (tempdir, opener) = near_store::NodeStorage::test_opener();
+            let store = opener.open().get_store(near_store::Temperature::Hot);
+            (Some(tempdir), store)
         };
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))

@@ -78,7 +78,7 @@ where
 }
 
 pub fn migrate_28_to_29(store_opener: &StoreOpener) {
-    let store = store_opener.open();
+    let store = store_opener.open().get_store(crate::Temperature::Hot);
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_NextBlockWithNewChunk);
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
@@ -99,7 +99,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     };
     use std::collections::BTreeMap;
 
-    let store = store_opener.open();
+    let store = store_opener.open().get_store(crate::Temperature::Hot);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
