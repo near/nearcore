@@ -119,7 +119,6 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 // network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
-#[cfg(feature = "skip_sending_tombstones")]
 const SKIP_TOMBSTONES_AFTER_STARTUP_TIME: time::Duration = time::Duration::seconds(120);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -308,8 +307,17 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
+        let skip_tombstones = if self.config.skip_sending_tombstones {
+            Some(self.clock.now() + SKIP_TOMBSTONES_AFTER_STARTUP_TIME)
+        } else {
+            None
+        };
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
-        self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL, time::Instant::now());
+        self.broadcast_validated_edges_trigger(
+            ctx,
+            BROADCAST_VALIDATED_EDGES_INTERVAL,
+            skip_tombstones,
+        );
 
         // Periodically updates routing table and prune edges that are no longer reachable.
         self.update_routing_table_trigger(ctx, UPDATE_ROUTING_TABLE_INTERVAL);
@@ -550,7 +558,8 @@ impl PeerManagerActor {
         &mut self,
         ctx: &mut Context<Self>,
         interval: time::Duration,
-        start_time: time::Instant,
+        // If set, don't push any tombstones until this time.
+        skip_tombstones_until: Option<time::Instant>,
     ) {
         let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
@@ -601,17 +610,18 @@ impl PeerManagerActor {
                     .entered();
 
                     match response {
-                        Ok(routing::actor::Response::AddVerifiedEdgesResponse(filtered_edges)) => {
-                            #[allow(unused_mut)]
-                            #[cfg(feature = "skip_sending_tombstones")]
-                            let mut filtered_edges = filtered_edges.clone();
+                        Ok(routing::actor::Response::AddVerifiedEdgesResponse(
+                            mut filtered_edges,
+                        )) => {
                             // Don't send tombstones during the initial time.
                             // Most of the network is created during this time, which results
                             // in us sending a lot of tombstones to peers.
                             // Later, the amount of new edges is a lot smaller.
-                            #[cfg(feature = "skip_sending_tombstones")]
-                            if start_time.elapsed() < SKIP_TOMBSTONES_AFTER_STARTUP_TIME {
-                                filtered_edges.retain(|edge| edge.removal_info().is_none());
+                            if let Some(skip_tombstones_until) = skip_tombstones_until {
+                                if act.clock.now() < skip_tombstones_until {
+                                    filtered_edges.retain(|edge| edge.removal_info().is_none());
+                                    metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                                }
                             }
                             // Broadcast new edges to all other peers.
                             act.state.connected_peers.broadcast_message(Arc::new(
@@ -630,7 +640,7 @@ impl PeerManagerActor {
             ctx,
             interval.try_into().unwrap(),
             move |act, ctx| {
-                act.broadcast_validated_edges_trigger(ctx, interval, start_time);
+                act.broadcast_validated_edges_trigger(ctx, interval, skip_tombstones_until);
             },
         );
     }
@@ -689,10 +699,12 @@ impl PeerManagerActor {
                 let _guard = run_later_span.enter();
                 // Start syncing network point of view. Wait until both parties are connected before start
                 // sending messages.
-                #[allow(unused_mut)]
-                let mut known_edges: Vec<Edge> = act.network_graph.read().edges().values().cloned().collect();
-                #[cfg(feature = "skip_sending_tombstones")]
-                known_edges.retain(|edge| edge.removal_info().is_none());
+                let mut known_edges: Vec<Edge> =
+                    act.network_graph.read().edges().values().cloned().collect();
+                if act.config.skip_sending_tombstones {
+                    known_edges.retain(|edge| edge.removal_info().is_none());
+                    metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                }
                 let known_accounts = act.routing_table_view.get_announce_accounts();
                 peer.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                     RoutingTableUpdate::new(known_edges, known_accounts.cloned().collect()),

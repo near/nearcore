@@ -44,6 +44,12 @@ fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
 }
 
+// If true - we'll skip sending tombstones during initial sync.
+fn default_skip_tombstones() -> bool {
+    // Enable by default in shardnet only.
+    cfg!(feature = "shardnet")
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     /// Local address to listen for incoming connections.
@@ -153,11 +159,17 @@ pub struct ExperimentalConfig {
     // If true - connect only to the boot nodes.
     #[serde(default)]
     pub connect_only_to_boot_nodes: bool,
+    #[serde(default = "default_skip_tombstones")]
+    pub skip_sending_tombstones: bool,
 }
 
 impl Default for ExperimentalConfig {
     fn default() -> Self {
-        ExperimentalConfig { inbound_disabled: false, connect_only_to_boot_nodes: false }
+        ExperimentalConfig {
+            inbound_disabled: false,
+            connect_only_to_boot_nodes: false,
+            skip_sending_tombstones: default_skip_tombstones(),
+        }
     }
 }
 
