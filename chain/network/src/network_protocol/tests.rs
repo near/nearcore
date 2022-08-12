@@ -27,6 +27,7 @@ fn bad_account_data_size() {
             .collect(),
         account_id: signer.validator_id().clone(),
         epoch_id: data::make_epoch_id(&mut rng),
+        peer_id: Some(data::make_peer_id(&mut rng)),
         timestamp: clock.now_utc(),
     };
     assert!(ad.sign(&signer).is_err());

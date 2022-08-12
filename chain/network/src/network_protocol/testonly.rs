@@ -320,12 +320,14 @@ impl Chain {
         self.tier1_accounts
             .iter()
             .map(|(epoch_id, v)| {
+                let peer_id = make_peer_id(rng);
                 Arc::new(
                     make_account_data(
                         rng,
                         clock.now_utc(),
                         epoch_id.clone(),
                         v.validator_id().clone(),
+                        peer_id,
                     )
                     .sign(v)
                     .unwrap(),
@@ -381,6 +383,7 @@ pub fn make_account_data(
     timestamp: time::Utc,
     epoch_id: EpochId,
     account_id: AccountId,
+    peer_id: PeerId,
 ) -> AccountData {
     AccountData {
         peers: vec![
@@ -399,6 +402,7 @@ pub fn make_account_data(
                 make_peer_addr(rng, ip)
             },
         ],
+        peer_id: Some(peer_id),
         account_id,
         epoch_id,
         timestamp,
@@ -408,7 +412,8 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let epoch_id = make_epoch_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
+    let peer_id = make_peer_id(rng);
+    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone(), peer_id)
         .sign(&signer)
         .unwrap()
 }

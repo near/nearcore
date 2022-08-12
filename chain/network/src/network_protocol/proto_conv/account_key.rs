@@ -12,6 +12,8 @@ use protobuf::{Message as _, MessageField as MF};
 pub enum ParseAccountDataError {
     #[error("bad payload type")]
     BadPayloadType,
+    #[error("peer_id: {0}")]
+    PeerId(ParsePeerIdError),
     #[error("account_id: {0}")]
     AccountId(ParseAccountError),
     #[error("peers: {0}")]
@@ -29,6 +31,7 @@ impl From<&AccountData> for proto::AccountKeyPayload {
     fn from(x: &AccountData) -> Self {
         Self {
             payload_type: Some(ProtoPT::AccountData(proto::AccountData {
+                peer_id: x.peer_id.as_ref().map(Into::into).into(),
                 account_id: x.account_id.to_string(),
                 peers: x.peers.iter().map(Into::into).collect(),
                 epoch_id: MF::some((&x.epoch_id.0).into()),
@@ -49,6 +52,7 @@ impl TryFrom<&proto::AccountKeyPayload> for AccountData {
             _ => return Err(Self::Error::BadPayloadType),
         };
         Ok(Self {
+            peer_id: try_from_optional(&x.peer_id).map_err(Self::Error::PeerId)?,
             account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
             peers: try_from_slice(&x.peers).map_err(Self::Error::Peers)?,
             epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),

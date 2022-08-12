@@ -189,6 +189,10 @@ message PeerAddr {
 }
 
 message AccountData {
+  // PeerId of the node owning the account_id.
+  // Inbound connections from this peer_id should be accepted by every node.
+  PublicKey peer_id = 5; // optional, will be required eventually.
+  
   string account_id = 1; // required
   // Either address of the node handling the account (if it has a public IP),
   // or a list of peers known to be connected to the validator.

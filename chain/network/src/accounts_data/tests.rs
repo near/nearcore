@@ -29,11 +29,13 @@ struct Signer {
 
 impl Signer {
     fn make_account_data(&self, rng: &mut Rng, timestamp: time::Utc) -> SignedAccountData {
+        let peer_id = data::make_peer_id(rng);
         data::make_account_data(
             rng,
             timestamp,
             self.epoch_id.clone(),
             self.signer.validator_id().clone(),
+            peer_id,
         )
         .sign(&self.signer)
         .unwrap()

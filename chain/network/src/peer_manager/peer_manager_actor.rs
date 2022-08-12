@@ -1273,8 +1273,12 @@ impl PeerManagerActor {
     /// Route message to target peer.
     /// Return whether the message is sent or not.
     fn send_message_to_peer(&mut self, msg: RawRoutedMessage) -> bool {
-        let msg = self.sign_routed_message(msg, self.my_peer_id.clone());
-        self.send_signed_message_to_peer(msg)
+        self.send_signed_message_to_peer(msg.sign(
+            self.my_peer_id.clone(),
+            &self.config.node_key,
+            self.config.routed_message_ttl,
+            Some(self.clock.now_utc()),
+        ))
     }
 
     /// Send message to specific account.
@@ -1306,19 +1310,6 @@ impl PeerManagerActor {
         } else {
             self.send_message_to_peer(msg)
         }
-    }
-
-    fn sign_routed_message(
-        &self,
-        msg: RawRoutedMessage,
-        my_peer_id: PeerId,
-    ) -> Box<RoutedMessageV2> {
-        msg.sign(
-            my_peer_id,
-            &self.config.node_key,
-            self.config.routed_message_ttl,
-            Some(self.clock.now_utc()),
-        )
     }
 
     // Determine if the given target is referring to us.
@@ -2171,6 +2162,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                     // This unwrap is safe, because we did signed a sample payload during
                     // config validation. See config::Config::new().
                     Some(Arc::new(AccountData {
+                        peer_id: Some(state.config.node_id()),
                         epoch_id: epoch_id.clone(),
                         account_id: my_account_id.clone(),
                         timestamp: now,

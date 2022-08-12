@@ -27,6 +27,12 @@ pub enum ParseRequiredError<E> {
     Other(E),
 }
 
+pub fn try_from_optional<'a, X, Y: TryFrom<&'a X>>(
+    x: &'a MF<X>,
+) -> Result<Option<Y>,Y::Error> {
+    x.as_ref().map(|x|x.try_into()).transpose()
+}
+
 pub fn try_from_required<'a, X, Y: TryFrom<&'a X>>(
     x: &'a MF<X>,
 ) -> Result<Y, ParseRequiredError<Y::Error>> {
