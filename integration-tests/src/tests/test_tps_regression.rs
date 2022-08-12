@@ -109,7 +109,7 @@ fn run_multiple_nodes(
                 if let Some(new_ind) = node.read().unwrap().user().get_best_height() {
                     if new_ind > prev_ind {
                         let blocks = ((prev_ind + 1)..=new_ind)
-                            .filter_map(|idx| node.read().unwrap().user().get_block(idx))
+                            .filter_map(|idx| node.read().unwrap().user().get_block_by_height(idx))
                             .collect::<Vec<_>>();
                         for b in &blocks {
                             let tx_num = b.chunks.iter().fold(0, |acc, chunk| {
@@ -118,7 +118,7 @@ fn run_multiple_nodes(
                                         .read()
                                         .unwrap()
                                         .user()
-                                        .get_chunk(b.header.height, chunk.shard_id)
+                                        .get_chunk_by_height(b.header.height, chunk.shard_id)
                                         .unwrap();
                                     acc + chunk.transactions.len()
                                 } else {

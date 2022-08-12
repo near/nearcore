@@ -47,7 +47,7 @@ pub(crate) async fn fetch_block_by_height(
 }
 
 /// Fetches specific block by it's hash
-pub(crate) async fn fetch_block_by_hash(
+pub(crate) async fn fetch_block(
     client: &Addr<near_client::ViewClientActor>,
     hash: CryptoHash,
 ) -> Result<views::BlockView, FailedToFetchData> {

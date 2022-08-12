@@ -149,17 +149,17 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_hash)
     }
 
-    fn get_block(&self, height: BlockHeight) -> Option<BlockView> {
+    fn get_block_by_height(&self, height: BlockHeight) -> Option<BlockView> {
         self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Height(height))))
             .ok()
     }
 
-    fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView> {
+    fn get_block(&self, block_hash: CryptoHash) -> Option<BlockView> {
         self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Hash(block_hash))))
             .ok()
     }
 
-    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
+    fn get_chunk_by_height(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
         self.actix(move |client| {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
         })

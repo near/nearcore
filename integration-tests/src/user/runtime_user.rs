@@ -300,15 +300,15 @@ impl User for RuntimeUser {
         Some(CryptoHash::default())
     }
 
-    fn get_block(&self, _height: u64) -> Option<BlockView> {
+    fn get_block_by_height(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 
-    fn get_block_by_hash(&self, _block_hash: CryptoHash) -> Option<BlockView> {
+    fn get_block(&self, _block_hash: CryptoHash) -> Option<BlockView> {
         None
     }
 
-    fn get_chunk(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
+    fn get_chunk_by_height(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
