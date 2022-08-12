@@ -144,7 +144,7 @@ key: {key:?}
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StatsValue {
     Count(i64),
     Sum(i64),
