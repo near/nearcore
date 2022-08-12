@@ -169,11 +169,10 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let head_header = self.chain.head_header()?;
         match finality {
-            Finality::None => Ok(*head_header.hash()),
-            Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
-            Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
+            Finality::None => Ok(self.chain.head()?.last_block_hash),
+            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
+            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
         }
     }
 
